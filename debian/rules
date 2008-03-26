@@ -25,9 +25,8 @@ CONFFLAGS= --prefix=/usr \
 	--enable-smbalerts \
 	--enable-prelude \
 	--enable-inline \
+	--enable-flexresp \
 	--with-libipq-includes=/usr/include/libipq
-# Cannot enable flexresp since it builds only with libnet 1.0.2a
-#	--enable-flexresp \
 
 clean-sources:
 	# Clean the sources
@@ -71,65 +70,15 @@ build-basic-stamp: configure
 	cp src/snort src/snort-basic
 	touch $@
 
-build-pgsql: build-pgsql-stamp
-build-pgsql-stamp:
-	dh_testdir
-	sh debian/clean_sources.sh
-	# PostgreSQL package:
-	./configure $(CONFFLAGS) \
-		--without-mysql \
-		--with-postgresql \
-		--with-pgsql-includes=`pg_config --includedir` 
-	$(MAKE) 
-	cp src/snort src/snort-pgsql
-	touch $@
-
-build-mysql: build-mysql-stamp
-build-mysql-stamp:
-	dh_testdir
-	sh debian/clean_sources.sh
-	# MySQL package:
-	./configure $(CONFFLAGS) \
-		--with-mysql \
-		--without-postgresql 
-	$(MAKE) 
-	cp src/snort src/snort-mysql
-	touch $@
-
-build-inline: build-inline-stamp
-build-inline-stamp: 
-	dh_testdir
-	sh debian/clean_sources.sh
-	# Inline support
-	./configure $(CONFFLAGS) \
-		--without-mysql \
-		--without-postgresql \
-		--enable-inline \
-		--with-libipq-includes=/usr/include/libipq/ 
-	$(MAKE) 
-	cp src/snort src/snort-inline
-	touch $@
-
-build-arch: build-basic build-pgsql build-mysql build-arch-stamp 
+build-arch: build-basic build-arch-stamp 
 build-arch-stamp: 
 	dh_testdir
 	touch $@
 
+# not building the doc package
 build-indep: configure build-indep-stamp
 build-indep-stamp: 
 	dh_testdir
-	# Build the documentation
-# Only do this if we have the required binaries and files
-# Note: I hate hardcoding paths here, but the buildds are stupid
-	@if [ -x /usr/bin/ps2pdf -a -x /usr/bin/pslatex -a \
-	     -x /usr/bin/dvips -a \
-	     -e /usr/share/texmf-texlive/tex/latex/pslatex/pslatex.sty -a \
-	     -e /usr/share/texmf-texlive/tex/latex/oberdiek/kvoptions.sty ] ; \
-	then \
-	    $(MAKE) -C doc snort_manual.pdf faq.pdf ; \
-	else \
-	    echo >&2 'WARNING: Not building documentation, environment not available!'; \
-	fi
 	touch $@
 
 build: 
@@ -148,40 +97,20 @@ install-arch:
 
 # Snort binaries
 	install -m 755 -o root -g root src/snort-basic $(TMP)/snort/usr/sbin/snort
-	install -m 755 -o root -g root src/snort-mysql $(TMP)/snort-mysql/usr/sbin/snort
-	install -m 755 -o root -g root src/snort-pgsql $(TMP)/snort-pgsql/usr/sbin/snort
-#	install -m 755 -o root -g root src/snort-inline   $(TMP)/snort/usr/sbin/snort
-
 
 #  Install init.d initscripts
 	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort/etc/init.d/snort
-	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort-mysql/etc/init.d/snort
-	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort-pgsql/etc/init.d/snort
-#	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort-inline/etc/init.d/snort
 
 #  Install PPP initscripts
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/snort/etc/ppp/ip-up.d/snort
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/snort/etc/ppp/ip-down.d/snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/snort-mysql/etc/ppp/ip-up.d/snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/snort-mysql/etc/ppp/ip-down.d/snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/snort-pgsql/etc/ppp/ip-up.d/snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/snort-pgsql/etc/ppp/ip-down.d/snort
-#	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/snort-inline/etc/ppp/ip-up.d/snort
-#	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/snort-inline/etc/ppp/ip-down.d/snort
 
 # Logrotate files
 	install -m 644 -o root -g root `pwd`/debian/snort.logrotate $(TMP)/snort/etc/logrotate.d/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.logrotate $(TMP)/snort-mysql/etc/logrotate.d/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.logrotate $(TMP)/snort-pgsql/etc/logrotate.d/snort
-#	install -m 644 -o root -g root `pwd`/debian/snort.logrotate $(TMP)/snort-inline/etc/logrotate.d/snort
 
 # Move libraries to the snort-common-libraries package
 	mv $(TMP)/snort-common/usr/lib/ $(TMP)/snort-common-libraries/usr/
 	mv $(TMP)/snort-common/usr/src/ $(TMP)/snort-common-libraries/usr/
-
-# Remove useless (empty) directories
-	rmdir $(TMP)/snort-pgsql/usr/share/doc/snort
-	rmdir $(TMP)/snort-mysql/usr/share/doc/snort
 
 	dh_install -s
 
@@ -204,10 +133,6 @@ install-indep:
 #	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-pgsql/etc/snort/snort.common.parameters
 #	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort/etc/snort/snort.common.parameters
 	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort/etc/default/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-mysql/etc/default/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-pgsql/etc/default/snort
-#	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-inline/etc/default/snort
-
 
 #  Install files of the arch-independent packages
 	cp rules/*.rules $(TMP)/snort-rules-default/etc/snort/rules/
@@ -222,7 +147,6 @@ install-indep:
 
 # Remove useless directories
 	rm -rf $(TMP)/snort-common/etc/ppp
-	rm -rf $(TMP)/snort-doc/usr/share/doc
 
 	dh_install -i
 
@@ -236,11 +160,7 @@ binary-indep: build-indep install-indep
 	dh_installdebconf -i
 	dh_installman -i 
 # Other adjustments
-	rm -rf $(TMP)/snort-doc/usr/share/doc/snort-doc/CVS
-	rm -rf $(TMP)/snort-doc/usr/share/doc/snort-doc/contrib/CVS
 	chmod +x $(TMP)/snort-common/usr/share/doc/snort-common/examples/snort*
-	cp -a doc/signatures/ $(TMP)/snort-doc/usr/share/doc/snort-doc/
-	rm -rf $(TMP)/snort-doc/usr/share/man
 	rm -rf $(TMP)/snort-rules-default/usr/share/man
 	dh_undocumented -i
 	rm -rf $(TMP)/snort-common/usr/share/man/man8/snort.*
@@ -265,20 +185,11 @@ binary-arch: build-arch install-arch
 	dh_installexamples -a
 	dh_installdebconf -a
 	dh_installman -a 
-	cp $(TMP)/snort-mysql/usr/share/doc/snort-mysql/copyright $(TMP)/snort/usr/share/doc/snort/
-	rm -f $(TMP)/snort-mysql/usr/share/man/man8/snort-stat.*
-	rm -f $(TMP)/snort-pgsql/usr/share/man/man8/snort-stat.*
-#	rm -f $(TMP)/snort-inline/usr/share/man/man8/snort-stat.*
+	cp $(TMP)/copyright $(TMP)/snort/usr/share/doc/snort/
 	rm -rf $(TMP)/snort-rules-default/usr/share/man
 	rm -f $(TMP)/snort/usr/share/man/man8/snort-stat.*
 	rm -f $(TMP)/snort-common/usr/share/man/man8/snort.*
 	
-	mkdir -p $(TMP)/snort-mysql/usr/share/doc/snort-mysql/
-	install -m 644 -o root -g root schemas/create_mysql $(TMP)/snort-mysql/usr/share/doc/snort-mysql/
-
-	mkdir -p $(TMP)/snort-pgsql/usr/share/doc/snort-pgsql/
-	install -m 644 -o root -g root schemas/create_postgresql $(TMP)/snort-pgsql/usr/share/doc/snort-pgsql/
-
 	dh_undocumented -a
 	dh_installchangelogs -a ChangeLog
 	dh_link -a
@@ -303,7 +214,7 @@ update-rules:
 	if [ -d rules ] ; then mv rules.old/Makefile* rules/; rm -rf rules.old; fi
 
 # Update the Debconf templates for all packages using the common templates
-update-templates: debian/snort.TEMPLATE.templates debian/snort.DATABASE.templates debian/snort-mysql.ADD.templates debian/snort-pgsql.ADD.templates
+update-templates: debian/snort.TEMPLATE.templates
 	cd debian && sh generate-templates.sh
 	cd debian && debconf-updatepo
 
