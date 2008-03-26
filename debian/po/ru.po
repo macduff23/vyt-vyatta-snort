@@ -1,0 +1,639 @@
+# translation of snort_2.3.3-12_ru.po to Russian
+# This file is distributed under the same license as the PACKAGE package.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER.
+# Yuriy Talakan' <yt@drsk.ru>, 2007.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: snort_2.3.3-12_ru\n"
+"Report-Msgid-Bugs-To: snort@packages.debian.org\n"
+"POT-Creation-Date: 2008-01-28 00:26+0100\n"
+"PO-Revision-Date: 2007-02-21 16:46+0900\n"
+"Last-Translator: Yuriy Talakan' <yt@drsk.ru>\n"
+"Language-Team: Russian <debian-l10n-russian@lists.debian.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: KBabel 1.9.1\n"
+"Plural-Forms:  nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%"
+"10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#. Type: select
+#. Choices
+#: ../snort.templates:1001 ../snort-mysql.templates:1001
+#: ../snort-pgsql.templates:1001
+msgid "boot, dialup, manual"
+msgstr "загрузка, дозвон, вручную"
+
+#. Type: select
+#. Description
+#: ../snort.templates:1002 ../snort-mysql.templates:1002
+#: ../snort-pgsql.templates:1002
+msgid "When should Snort be started?"
+msgstr "Когда надо запускать Snort?"
+
+#. Type: select
+#. Description
+#: ../snort.templates:1002 ../snort-mysql.templates:1002
+#: ../snort-pgsql.templates:1002
+msgid ""
+"Snort can be started during boot, when connecting to the net with pppd or "
+"only when you manually start it via /usr/sbin/snort."
+msgstr ""
+"Snort может запускаться при загрузке, при подключении к сети через pppd или "
+"только когда вы вручную запустите его с помощью /usr/sbin/snort."
+
+#. Type: string
+#. Description
+#: ../snort.templates:2001 ../snort-mysql.templates:2001
+#: ../snort-pgsql.templates:2001
+#, fuzzy
+#| msgid "On which interface(s) should Snort listen?"
+msgid "Interface(s) which Snort should listen on:"
+msgstr "Какие интерфейсы должен слушать Snort?"
+
+#. Type: string
+#. Description
+#: ../snort.templates:2001 ../snort-mysql.templates:2001
+#: ../snort-pgsql.templates:2001
+msgid ""
+"This value usually is 'eth0', but you might want to vary this depending on "
+"your environment; if you are using a dialup connection 'ppp0' might be more "
+"appropiate (Hint: use 'ip link show' or 'ifconfig')."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort.templates:2001 ../snort-mysql.templates:2001
+#: ../snort-pgsql.templates:2001
+#, fuzzy
+#| msgid ""
+#| "Notice that Snort is usually configured to inspect all traffic coming "
+#| "from the Internet, so the interface you add here is usually the same the "
+#| "'default route' is on.  You can determine which interface is used for "
+#| "this running either '/sbin/ip ro sh' or '/sbin/route -n' (look for "
+#| "'default' or '0.0.0.0')."
+msgid ""
+"Typically this is the same interface than the 'default route' is on.  You "
+"can determine which interface is used for this running either '/sbin/ip ro "
+"sh' or '/sbin/route -n' (look for 'default' or '0.0.0.0')."
+msgstr ""
+"Обратите внимание, что Snort обычно настроен на инспектирование всего "
+"трафика, приходящего из Интернет, поэтому добавляемый здесь интерфейс это "
+"обычно тот, на котором включен 'маршрут по умолчанию'.  Вы можете "
+"определить, какой интерфейс использовать, командой '/sbin/ip ro sh' или '/"
+"sbin/route -n' (ищите 'default' или '0.0.0.0')."
+
+#. Type: string
+#. Description
+#: ../snort.templates:2001 ../snort-mysql.templates:2001
+#: ../snort-pgsql.templates:2001
+#, fuzzy
+#| msgid ""
+#| "It is also not uncommon to run Snort on an interface with no IP and "
+#| "configured in promiscuous mode, if this is your case, select the "
+#| "interface in this system that is physically connected to the network you "
+#| "want to inspect, enable promiscuous mode later on and make sure that the "
+#| "network traffic is sent to this interface (either connected to a 'port "
+#| "mirroring/spanning' port in a switch, to a hub or to a tap)"
+msgid ""
+"It is also not uncommon to use an interface with no IP and configured in "
+"promiscuous mode, if this is your case, select the interface in this system "
+"that is physically connected to the network you want to inspect, enable "
+"promiscuous mode later on and make sure that the network traffic is sent to "
+"this interface (either connected to a 'port mirroring/spanning' port in a "
+"switch, to a hub or to a tap)"
+msgstr ""
+"Также нет ничего необычного в запуске Snort на интерфейсе без IP и в режиме "
+"прослушивания. Если такова ваша воля, выберите на этой системе интерфейс, "
+"физически подключенный к инспектируемой сети, разрешите потом режим "
+"прослушивания и убедитесь, что сетевой трафик отправляется на этот интерфейс "
+"(подключенный к порту коммутатора 'port mirroring/spanning', к концентратору "
+"или к сетевой ловушке)"
+
+#. Type: string
+#. Description
+#: ../snort.templates:2001 ../snort-mysql.templates:2001
+#: ../snort-pgsql.templates:2001
+msgid ""
+"You can configure multiple interfaces here, just by adding more than one "
+"interface name separated by spaces. Each interface can have its specific "
+"configuration."
+msgstr ""
+"Вы можете указать здесь несколько интерфейсов, просто добавив более одного "
+"имени интерфейса через пробел. У каждого интерфейса могут быть свои "
+"собственные настройки."
+
+#. Type: string
+#. Description
+#: ../snort.templates:3001 ../snort-mysql.templates:3001
+#: ../snort-pgsql.templates:3001
+#, fuzzy
+#| msgid "Please enter the address range that Snort will listen on."
+msgid "Address range that Snort will listen on:"
+msgstr "Введите диапазон адресов, на которых должен слушать Snort."
+
+#. Type: string
+#. Description
+#: ../snort.templates:3001 ../snort-mysql.templates:3001
+#: ../snort-pgsql.templates:3001
+msgid ""
+"You have to use CIDR form, i.e. 192.168.1.0/24 for a block of 256 IPs or "
+"192.168.1.42/32 for just one. Specify multiple addresses on a single line "
+"separated by ',' (comma characters), no spaces allowed!"
+msgstr ""
+"Можете использовать формат CIDR, т.е. 192.168.1.0/24 для блока из 256 IP или "
+"192.168.1.42/32 для одного. Несколько адресов указываются на одной строке "
+"через ',' (символ запятой), пробелы запрещены!"
+
+#. Type: string
+#. Description
+#: ../snort.templates:3001 ../snort-mysql.templates:3001
+#: ../snort-pgsql.templates:3001
+msgid ""
+"If you want you can specify 'any', to not trust any side of the network."
+msgstr "Можно указать 'any', чтобы не доверять любой стороне сети."
+
+#. Type: string
+#. Description
+#: ../snort.templates:3001 ../snort-mysql.templates:3001
+#: ../snort-pgsql.templates:3001
+msgid ""
+"Notice that if you are using multiple interfaces this definition will be "
+"used as the HOME_NET definition of all of them."
+msgstr ""
+"Обратите внимание, если вы используете несколько интерфейсов, то это "
+"определение будет использовано как определение HOME_NET для всех интерфейсов."
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:4001 ../snort-mysql.templates:4001
+#: ../snort-pgsql.templates:4001
+msgid "Should Snort disable promiscuous mode on the interface?"
+msgstr "Должен ли Snort запретить режим прослушивания на интерфейсе?"
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:4001 ../snort-mysql.templates:4001
+#: ../snort-pgsql.templates:4001
+msgid ""
+"Disabling promiscuous mode means that Snort will only see packets addressed "
+"to it's own interface. Enabling it allows Snort to check  every packet that "
+"passes ethernet segment even if it's a connection between two other "
+"computers."
+msgstr ""
+"Запрет режима прослушивания означает, что Snort будет видеть только те "
+"пакеты, которые адресованы его интерфейсу. Разрешение позволяет Snort "
+"проверить каждый пакет, проходящий через сегмент ethernet, даже если это "
+"соединение между двумя другими компьютерами."
+
+#. Type: note
+#. Description
+#: ../snort.templates:5001 ../snort-mysql.templates:5001
+#: ../snort-pgsql.templates:5001
+msgid "Invalid interface"
+msgstr "Неправильный интерфейс"
+
+#. Type: note
+#. Description
+#: ../snort.templates:5001 ../snort-mysql.templates:5001
+#: ../snort-pgsql.templates:5001
+msgid ""
+"One of the interfaces you specified is not valid (it might not exist on the "
+"system or be down). Please introduce a valid interface when answering the "
+"question of which interface(s) should Snort listen on."
+msgstr ""
+"Один из указанных вами интерфейсов неправильный (скорее всего, он не "
+"существует в системе или отключен). Введите правильный интерфейс при ответе "
+"на вопрос о том, какие интерфейсы должен слушать Snort."
+
+#. Type: note
+#. Description
+#: ../snort.templates:5001 ../snort-mysql.templates:5001
+#: ../snort-pgsql.templates:5001
+msgid ""
+"If you did not configure an interface then the package is trying to use the "
+"default ('eth0') which does not seem to be valid in your system."
+msgstr ""
+"Если вы не укажете интерфейс, то пакет попытается использовать значение по "
+"умолчанию ('eth0'), которое скорее всего будет неправильным в вашей системе."
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:6001 ../snort-mysql.templates:6001
+#: ../snort-pgsql.templates:6001
+msgid "Should Snort's rules testing order be changed to Pass|Alert|Log?"
+msgstr "Изменить порядок проверки правил Snort на Pass|Alert|Log?"
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:6001 ../snort-mysql.templates:6001
+#: ../snort-pgsql.templates:6001
+msgid ""
+"If you change Snort's rules testing order to Pass|Alert|Log, they will be "
+"applied in Pass->Alert->Log order, instead of standard Alert->Pass->Log. "
+"This will prevent people from having to make huge Berky Packet Filter "
+"command line arguments to filter their alert rules."
+msgstr ""
+"Если вы измените порядок проверки правил Snort на Pass|Alert|Log, то они "
+"будут применены в порядке Pass->Alert->Log, вместо стандартного Alert->Pass-"
+">Log. Это избавит людей от создания огромных аргументов командной строки "
+"Пакетного Фильтра Berky для фильтрации их правил тревоги."
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:7001 ../snort-mysql.templates:7001
+#: ../snort-pgsql.templates:7001
+msgid "Should daily summaries be sent by e-mail?"
+msgstr "Отправлять ежедневные отчеты по e-mail?"
+
+#. Type: boolean
+#. Description
+#: ../snort.templates:7001 ../snort-mysql.templates:7001
+#: ../snort-pgsql.templates:7001
+msgid ""
+"This Snort installation provides a cron job that runs daily and summarises "
+"the information of Snort logs to a selected email address. If you want to "
+"disable this feature say 'no' here."
+msgstr ""
+"Эта установка Snort поставляется с заданием cron, которое запускается "
+"ежедневно и отправляет краткий отчет на базе информации из журналов Snort на "
+"выбранный адрес электронной почты. Скажите здесь 'no' для отключения такого "
+"поведения."
+
+#. Type: string
+#. Description
+#: ../snort.templates:8001 ../snort-mysql.templates:8001
+#: ../snort-pgsql.templates:8001
+#, fuzzy
+#| msgid "Who should receive the daily statistics mails?"
+msgid "Recipient of daily statistics mails:"
+msgstr "Кто должен получать почту с ежедневной статистикой?"
+
+#. Type: string
+#. Description
+#: ../snort.templates:8001 ../snort-mysql.templates:8001
+#: ../snort-pgsql.templates:8001
+msgid ""
+"A cron job running daily will summarise the information of the logs "
+"generated by Snort using a script called 'snort-stat'. Introduce here the "
+"recipient of these mails. The default value is the system administrator. If "
+"you keep this value, make sure that the mail of the administrator is "
+"redirected to a user that actually reads those mails."
+msgstr ""
+"Задание cron запускается ежедневно и создает краткий отчет на базе "
+"информации из журналов Snort с помощью сценария 'snort-stat'. Укажите здесь "
+"получателя таких писем. По умолчанию это системный администратор. Если "
+"оставите значение по умолчанию, убедитесь, что почта администратора "
+"пересылается пользователю, действительно читающему почту."
+
+#. Type: string
+#. Description
+#: ../snort.templates:9001 ../snort-mysql.templates:9001
+#: ../snort-pgsql.templates:9001
+msgid "Additional custom options:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort.templates:9001 ../snort-mysql.templates:9001
+#: ../snort-pgsql.templates:9001
+#, fuzzy
+#| msgid ""
+#| "If you want to specify custom options to Snort, please specify them here."
+msgid ""
+"If you want to specify custom options to Snort, please specify them here."
+msgstr "Чтобы задать особые параметры Snort, укажите их здесь."
+
+#. Type: string
+#. Description
+#: ../snort.templates:10001 ../snort-mysql.templates:10001
+#: ../snort-pgsql.templates:10001
+msgid "Minimum occurence to report alerts:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort.templates:10001 ../snort-mysql.templates:10001
+#: ../snort-pgsql.templates:10001
+#, fuzzy
+#| msgid ""
+#| "An alert needs to appear more times than this number to be included in "
+#| "the daily statistics."
+msgid ""
+"An alert needs to appear more times than this number to be included in the "
+"daily statistics."
+msgstr ""
+"Чтобы быть включенной в дневной отчет, тревога должна возникнуть больше раз, "
+"чем это число."
+
+#. Type: note
+#. Description
+#: ../snort.templates:11001 ../snort-mysql.templates:11001
+#: ../snort-pgsql.templates:11001
+#, fuzzy
+#| msgid "You are running Snort manually."
+msgid "You are running Snort manually"
+msgstr "Вы запускаете Snort вручную."
+
+#. Type: note
+#. Description
+#: ../snort.templates:11001 ../snort-mysql.templates:11001
+#: ../snort-pgsql.templates:11001
+msgid ""
+"Please restart Snort using:\n"
+" /etc/init.d/snort start\n"
+"to let the settings take effect."
+msgstr ""
+"Перезапустите Snort командой:\n"
+" /etc/init.d/snort start\n"
+"чтобы настройки вступили в силу."
+
+#. Type: note
+#. Description
+#: ../snort.templates:12001 ../snort-mysql.templates:12001
+#: ../snort-pgsql.templates:12001
+msgid "There is an error in your configuration"
+msgstr "Ошибка в настройках"
+
+#. Type: note
+#. Description
+#: ../snort.templates:12001 ../snort-mysql.templates:12001
+#: ../snort-pgsql.templates:12001
+msgid ""
+"Your Snort configuration is not correct and Snort will not be able to start "
+"up normally. Please review your configuration and fix it. If you do not do "
+"this, Snort package upgrades will probably break. To check which error is "
+"being generated run '/usr/sbin/snort -T -c /etc/snort/snort.conf' (or point "
+"to an alternate configuration file if you are using different files for "
+"different interfaces)"
+msgstr ""
+"Ваши настройки Snort некорректны и Snort не сможет нормально запуститься. "
+"Пересмотрите ваши настройки и исправьте их. Если этого не сделать, "
+"обновления пакета Snort скорее всего обломятся. Чтобы проверить, какая "
+"ошибка генерируется, запустите '/usr/sbin/snort -T -c /etc/snort/snort."
+"conf' (или укажите альтернативный файл настроек если используете разные "
+"файлы для разных интерфейсов)"
+
+#. Type: note
+#. Description
+#: ../snort.templates:13001 ../snort-mysql.templates:13001
+#: ../snort-pgsql.templates:13001
+msgid "This system uses an obsolete configuration file"
+msgstr "Эта система использует устаревший файл настроек"
+
+#. Type: note
+#. Description
+#: ../snort.templates:13001 ../snort-mysql.templates:13001
+#: ../snort-pgsql.templates:13001
+msgid ""
+"Your system has an obsolete configuration file (/etc/snort/snort.common."
+"parameters) which has been automatically converted into the new "
+"configuration file format (at /etc/default/snort). Please review the new "
+"configuration and remove the obsolete one. Until you do this, the init.d "
+"script will not use the new configuration and you will not take advantage of "
+"the benefits introduced in newer releases."
+msgstr ""
+"В вашей системе был устаревший файл настроек (/etc/snort/snort.common."
+"parameters), он был автоматически преобразован в файл нового формата (в /etc/"
+"default/snort). Просмотрите новые настройки и удалите устаревшие. Пока вы "
+"этого не сделаете, сценарий init.d не будет использовать новые настройки и "
+"вы не получите преимуществ, появившихся в новых выпусках."
+
+#. Type: boolean
+#. Description
+#: ../snort-mysql.templates:14001
+msgid "Do you want to set up a database for snort-mysql to log to?"
+msgstr "Установить базу данных для журналирования с помощью snort-mysql?"
+
+#. Type: boolean
+#. Description
+#: ../snort-mysql.templates:14001
+msgid ""
+"You only need to do this the first time you install snort-mysql. Before you "
+"go on, make sure you have (1) the hostname of a machine running a mysql "
+"server set up to allow tcp connections from this host, (2) a database on "
+"that server, (3) a username and password to access the database. If you "
+"don't have _all_ of these, either select 'no' and run with regular file "
+"logging support, or fix this first. You can always configure database "
+"logging later, by reconfiguring the snort-mysql package with 'dpkg-"
+"reconfigure -plow snort-mysql'"
+msgstr ""
+"Вы должны сделать это при первой установке snort-mysql. Прежде чем "
+"продолжить, убедитесь, что у вас есть (1) имя машины с работающим сервером "
+"mysql, настроенным на прием tcp соединений с этого компьютера, (2) база "
+"данных на этом сервере, (3) имя пользователя и пароль для доступа к базе. "
+"Если у вас нет _всего_ этого, то либо выберите 'no' и работайте с поддержкой "
+"журналов в обычном файле, либо исправьте ситуацию. Вы всегда можете "
+"настроить журналирование в базу данных позже, перенастроив пакет snort-mysql "
+"командой 'dpkg-reconfigure -plow snort-mysql'"
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:15001 ../snort-pgsql.templates:15001
+msgid "Database server hostname:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:15001 ../snort-pgsql.templates:15001
+msgid ""
+"Make sure it has been set up correctly to allow incoming connections from "
+"this host!"
+msgstr ""
+"Убедитесь, что он правильно настроен на прием входящих соединений от этого "
+"компьютера!"
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:16001 ../snort-pgsql.templates:16001
+msgid "Database to use:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:16001 ../snort-pgsql.templates:16001
+msgid ""
+"Make sure this database has been created and your database user has write "
+"access to this database."
+msgstr ""
+"Убедитесь, что база данных была создана и ваш пользователь базы данных имеет "
+"доступ на запись в базу."
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:17001 ../snort-pgsql.templates:17001
+msgid "Username for database access:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../snort-mysql.templates:17001 ../snort-pgsql.templates:17001
+msgid "Make sure this user has been created and has write access."
+msgstr "Убедитесь, что пользователь создан и у него есть доступ на запись."
+
+#. Type: password
+#. Description
+#: ../snort-mysql.templates:18001 ../snort-pgsql.templates:18001
+#, fuzzy
+#| msgid "Please enter the password for the database connection."
+msgid "Password for the database connection:"
+msgstr "Введите пароль для подключения к базе данных."
+
+#. Type: password
+#. Description
+#: ../snort-mysql.templates:18001 ../snort-pgsql.templates:18001
+msgid "Please enter a password to connect to the Snort Alert database."
+msgstr "Введите пароль для подключения к базе данных Snort Alert."
+
+#. Type: note
+#. Description
+#: ../snort-mysql.templates:19001 ../snort-pgsql.templates:19001
+#, fuzzy
+#| msgid "Snort needs a configured database to log to before it starts."
+msgid "Snort needs a configured database to log to before it starts"
+msgstr ""
+"Snort нужна настроенная база данных для журналирования, прежде чем он "
+"запустится."
+
+#. Type: note
+#. Description
+#: ../snort-mysql.templates:19001
+msgid ""
+"Snort needs a configured database before it can successfully start up. In "
+"order to create the structure you need to run the following commands AFTER "
+"the package is installed:\n"
+" cd /usr/share/doc/snort-mysql/\n"
+" zcat create_mysql.gz | mysql -u <user> -h <host> -p <databasename>\n"
+"Fill in the correct values for the user, host, and database names. MySQL "
+"will prompt you for the password."
+msgstr ""
+"Snort нужна настроенная база данных, прежде чем он сможет успешно "
+"запуститься. Чтобы создать структуру, вы должны запустить следующую команду "
+"ПОСЛЕ установки пакета:\n"
+" cd /usr/share/doc/snort-mysql/\n"
+" zcat create_mysql.gz | mysql -u <пользователь> -h <машина> -p <база>\n"
+"Замените на правильные значения пользователя, машины и базы данных. MySQL "
+"запросит у вас пароль."
+
+#. Type: note
+#. Description
+#: ../snort-mysql.templates:19001 ../snort-pgsql.templates:19001
+msgid ""
+"After you created the database structure, you will need to start Snort "
+"manually."
+msgstr "Вам надо запустить Snort вручную после создания структуры базы данных."
+
+#. Type: boolean
+#. Description
+#: ../snort-pgsql.templates:14001
+msgid "Do you want to set up a database for snort-pgsql to log to?"
+msgstr "Установить базу данных для журналирования с помощью snort-pgsql?"
+
+#. Type: boolean
+#. Description
+#: ../snort-pgsql.templates:14001
+msgid ""
+"You only need to do this the first time you install snort-pgsql. Before you "
+"go on, make sure you have (1) the hostname of a machine running a pgsql "
+"server set up to allow tcp connections from this host, (2) a database on "
+"that server, (3) a username and password to access the database. If you "
+"don't have _all_ of these, either select 'no' and run with regular file "
+"logging support, or fix this first. You can always configure database "
+"logging later, by reconfiguring the snort-pgsql package with 'dpkg-"
+"reconfigure -plow snort-pgsql'"
+msgstr ""
+"Вы должны сделать это при первой установке snort-pgsql. Прежде чем "
+"продолжить, убедитесь, что у вас есть (1) имя машины с работающим сервером "
+"pgsql, настроенным на прием tcp соединений с этого компьютера, (2) база "
+"данных на этом сервере, (3) имя пользователя и пароль для доступа к базе. "
+"Если у вас нет _всего_ этого, то либо выберите 'no' и работайте с поддержкой "
+"журналов в обычном файле, либо исправьте ситуацию. Вы всегда можете "
+"настроить журналирование в базу данных позже, перенастроив пакет snort-pgsql "
+"командой 'dpkg-reconfigure -plow snort-pgsql'"
+
+#. Type: note
+#. Description
+#: ../snort-pgsql.templates:19001
+msgid ""
+"Snort needs a configured database before it can successfully start up. In "
+"order to create the structure you need to run the following commands AFTER "
+"the package is installed:\n"
+" cd /usr/share/doc/snort-pgsql/\n"
+" zcat create_postgresql.gz | psql -U <user> -h <host> -W <databasename>\n"
+"Fill in the correct values for the user, host, and database names. "
+"PostgreSQL will prompt you for the password."
+msgstr ""
+"Snort нужна настроенная база данных, прежде чем он сможет успешно "
+"запуститься. Чтобы создать структуру, вы должны запустить следующую команду "
+"ПОСЛЕ установки пакета:\n"
+" cd /usr/share/doc/snort-pgsql/\n"
+" zcat create_postgresql.gz | psql -U <пользователь> -h <машина> -W "
+"<базаданных>\n"
+"Замените на правильные значения пользователя, машины и базы данных. "
+"PostgreSQL запросит у вас пароль."
+
+#. Type: note
+#. Description
+#: ../snort-common.templates:1001
+msgid "Your configuration file is deprecated"
+msgstr "Ваш файл настроек устарел"
+
+#. Type: note
+#. Description
+#: ../snort-common.templates:1001
+msgid ""
+"Your Snort configuration file (/etc/snort/snort.conf) uses deprecated "
+"options no longer available for this Snort release.  Snort will not be able "
+"to start unless you provide a correct configuration file. You can substitute "
+"your configuration file with the one provided in this package or fix it "
+"manually by removing deprecated options."
+msgstr ""
+"Ваш файл настроек Snort (/etc/snort/snort.conf) использует устаревшие "
+"параметры, более не доступные в этом выпуске Snort.  Snort не сможет "
+"запуститься, пока вы не предоставите корректный файл настроек. Вы можете "
+"подменить ваш файл настроек одним из поставляемых с этим пакетом или "
+"поправить его вручную, удалив устаревшие параметры."
+
+#. Type: note
+#. Description
+#: ../snort-common.templates:1001
+msgid ""
+"The following deprecated options were found in your configuration file: "
+"${DEP_CONFIG}"
+msgstr ""
+"В вашем файле настроек были найдены следующие устаревшие опции: ${DEP_CONFIG}"
+
+#~ msgid ""
+#~ "Please enter the name(s) of the interface(s) which Snort should listen "
+#~ "on.  The names of the available interfaces are provided by either "
+#~ "running  'ip link show' of 'ifconfig'. This value usually is 'eth0', but "
+#~ "you might want to vary this depending on your environment, if you are "
+#~ "using a dialup connection 'ppp0' might be more appropiate."
+#~ msgstr ""
+#~ "Укажите имена интерфейсов, которые должен слушать Snort.  Имена доступных "
+#~ "интерфейсов предоставляет команда 'ip link show' или 'ifconfig'. Обычно "
+#~ "это 'eth0', но вы можете поменять, в зависимости от вашей ситуации, если "
+#~ "у вас соединение по дозвону, то более вероятное значение 'ppp0'."
+
+#~ msgid "Please enter the address range that Snort will listen on."
+#~ msgstr "Введите диапазон адресов, на которых должен слушать Snort."
+
+#~ msgid ""
+#~ "Disable promiscuous mode if you are configuring Snort on an interface "
+#~ "without a configured IP address."
+#~ msgstr ""
+#~ "Запретите режим прослушивания, если вы настраиваете Snort на интерфейсе "
+#~ "без IP адреса."
+
+#~ msgid "Please enter the hostname of the mysql database server to use."
+#~ msgstr "Введите используемое имя машины сервера баз данных mysql ."
+
+#~ msgid "Please enter the name of the database to use."
+#~ msgstr "Введите имя используемой базы данных."
+
+#~ msgid "Please enter the name of the database user you want to use."
+#~ msgstr "Введите имя пользователя для используемой базы данных."
+
+#~ msgid "Please enter the hostname of the pgsql database server to use."
+#~ msgstr "Введите используемое имя машины сервера баз данных pgsql ."

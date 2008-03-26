@@ -1,0 +1,24 @@
+#!/bin/sh
+# contributed by Marcel <user04113@softhome.net>, 2004.
+#
+# Example cron-entry:
+#
+# 7 0 * * * test -r /usr/local/bin/snort-update && /usr/local/bin/snort-update
+#
+
+vers=snapshot-CURRENT
+# vers=snapshot-2_1
+/etc/init.d/snort stop
+pushd /tmp
+wget http://www.snort.org/dl/rules/snortrules-${vers}.tar.gz && ( \
+	tar zxf snortrules-${vers}.tar.gz; \
+	test "$vers" == "snapshot-2_1" && rm rules/netbios.rules; \
+	mv rules/*.rules /etc/snort/rules/; \
+	rm rules/snort.conf; \
+	mv rules/* /etc/snort/; \
+	rmdir rules; \
+	rm snortrules-${vers}.tar.gz; \
+	chown -R root.root /etc/snort/*; \
+)
+popd
+/etc/init.d/snort start

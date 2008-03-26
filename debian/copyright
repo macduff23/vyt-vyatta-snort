@@ -1,0 +1,28 @@
+This package was adopted by Sander Smeenk <ssmeenk@debian.org>
+Tue,  4 Jun 2002 21:56:15 +0200
+
+This package was debianized by Robert van der Meulen <rvdm@debian.org>
+Sun Feb  4 17:20:36 CET 2001.
+
+It was downloaded from http://www.snort.org/
+
+Upstream Author: Martin Roesch <roesch@clark.net>
+
+Copyright:
+
+   This package is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; version 2 dated June, 1991.
+
+   This package is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this package; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
+   MA  02110-1301  USA
+
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL'.
