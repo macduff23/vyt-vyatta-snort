@@ -26,37 +26,18 @@ case "$1" in
     install)
 	;;
     upgrade)
-	db_get snort/startup || true
-	if [ "$RET" = "manual" ]; then
-		echo "You have chosen to (re)start snort manually."
-		echo "Please restart Snort manually."
-		sleep 2
-		#db_fset snort/please_restart_manually seen false
-		#db_beginblock
-		#db_input high snort/please_restart_manually || true
-		#db_endblock
-		#db_go
-		#db_stop
-	fi
 	;;
     configure)
 	# edit config file
-	db_get snort/startup || true; 		STARTUP=$RET
-	db_get snort/interface || true; 	INTERFACE="$RET"
-	db_get snort/address_range || true;	ADDRESS_RANGE="$RET"
-	db_get snort/disable_promiscuous || true; DISABLE_PROMISCUOUS=$RET
-	db_get snort/reverse_order || true;	REVERSE_ORDER=$RET
-	db_get snort/send_stats || true;	STATS_SEND="$RET"
-	db_get snort/stats_rcpt || true;	STATS_RCPT="$RET"
-	db_get snort/stats_treshold || true;	STATS_THRESHOLD="$RET"
-	db_get snort/options || true;		OPTIONS="$RET"
-
-	test "$DISABLE_PROMISCUOUS" = "true" && OPTIONS="$OPTIONS -p"
-	test "$REVERSE_ORDER" = "true" && OPTIONS="$OPTIONS -o"
-	# Failsafe in case the values above are blank (jfs)
-	[ -z "$STATS_RCPT" ] && STATS_RCPT=root
-	[ -z "$STATS_THRESHOLD" ] && STATS_THRESHOLD=1
-	# STATS_RCPT=`echo "$STATS_RCPT" | sed -e 's/@/\\\\@/g' -e 's/,/\\\\,/g'`
+	STARTUP=""
+	INTERFACE=""
+	ADDRESS_RANGE=""
+	DISABLE_PROMISCUOUS=""
+	REVERSE_ORDER=
+	STATS_SEND=""
+	STATS_RCPT=""
+	STATS_THRESHOLD=""
+	OPTIONS=""
 
 	cat <<EOF >$CONFIG
 # This file is used for options that are changed by Debian to leave
@@ -82,15 +63,6 @@ EOF
 	fi
 
 	db_stop
-
-	# Check for left-over files from woody packages.
-	OLDCONF=/etc/snort/snort.rules.conf
-	if [ -f $OLDCONF ]; then
-		mv $OLDCONF $OLDCONF.OBSOLETE
-	fi
-
-	# Update the rc.d's
-	update-rc.d snort defaults >/dev/null
 
 	# in the case we reconfigure we have to restart and not just to start.
 	if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
@@ -181,14 +153,6 @@ if [ "$STARTUP" = "dialup" ]; then
 			grep "$PPP_IFACE" | awk '{ print $2 }' |
 			xargs --no-run-if-empty kill -s KILL >/dev/null
 	done
-fi
-
-if [ "$STARTUP" = "boot" ] || [ "$STARTUP" = "dialup" ]; then
-	if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
-		invoke-rc.d snort start || exit $?
-	else
-		/etc/init.d/snort start || exit $?
-	fi
 fi
 
 # dh_installdeb will replace this with shell code automatically
