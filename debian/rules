@@ -23,7 +23,9 @@ CONFFLAGS= --prefix=/usr \
 	--bindir=\$$\{exec_prefix\}/sbin \
 	--mandir=\$$\{exec_prefix\}/share/man \
 	--enable-smbalerts \
-        --enable-prelude 
+	--enable-prelude \
+	--enable-inline \
+	--with-libipq-includes=/usr/include/libipq
 # Cannot enable flexresp since it builds only with libnet 1.0.2a
 #	--enable-flexresp \
 
