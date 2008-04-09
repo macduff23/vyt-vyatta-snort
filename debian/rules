@@ -105,6 +105,9 @@ install-arch:
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/vyatta-snort/etc/ppp/ip-up.d/snort
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/vyatta-snort/etc/ppp/ip-down.d/snort
 
+# Default config
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
+
 # Logrotate files
 	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.logrotate $(TMP)/vyatta-snort/etc/logrotate.d/snort
 
@@ -127,9 +130,6 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
-
-# Default config
-	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
 
 #  Install files of the arch-independent packages
 	cp rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/rules/
