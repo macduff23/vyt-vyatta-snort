@@ -63,13 +63,6 @@ EOF
 	fi
 
 	db_stop
-
-	# in the case we reconfigure we have to restart and not just to start.
-	if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
-		invoke-rc.d snort stop || exit $?
-	else
-		/etc/init.d/snort stop || exit $?
-	fi
 	;;
     abort-upgrade)
 	;;
