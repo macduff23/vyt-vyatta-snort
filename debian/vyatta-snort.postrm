@@ -37,9 +37,6 @@ case "$1" in
 		# Remove configuration dir
 		[ -d /etc/snort ] && rmdir --ignore-fail-on-non-empty /etc/snort
 		
-		# Remove init.d
-		update-rc.d -f snort remove >/dev/null
-
 		# Remove user/group
 		if getent passwd | grep -q "^snort:"; then
 			userdel snort 2>/dev/null || true
