@@ -46,20 +46,17 @@ DESC="Network Intrusion Detection System"
 
 . /lib/lsb/init-functions
 
-
+DEFAULT=/etc/default/snort
 CONFIG=/etc/snort/snort.debian.conf
-# Old (obsolete) way to provide parameters
-if [ -f /etc/snort/snort.common.parameters ] ; then
-	COMMON=`cat /etc/snort/snort.common.parameters`
-elif [ -r /etc/default/snort ] ; then
-# Only read this if the old configuration is not present
-	. /etc/default/snort
-	COMMON="$PARAMS -l $LOGDIR -u $SNORTUSER -g $SNORTGROUP"
-fi
 
-test -x $DAEMON || exit 0
-test -f $CONFIG && . $CONFIG
-test -z "$DEBIAN_SNORT_HOME_NET" && DEBIAN_SNORT_HOME_NET="192.168.0.0/16"
+test -x $DAEMON || exit 1
+
+test -r $DEFAULT || exit 1
+. $DEFAULT
+COMMON="$PARAMS -l $LOGDIR"
+
+test -r $CONFIG || exit 1
+. $CONFIG
 
 # to find the lib files
 cd /etc/snort
@@ -117,243 +114,122 @@ case "$1" in
         check_root
 	log_daemon_msg "Starting $DESC " "$NAME"
 
-        if [ -e /etc/snort/db-pending-config ] ; then
-		log_failure_msg "/etc/snort/db-pending-config file found"
-		log_failure_msg "Snort will not start as its database is not yet configured."
-		log_failure_msg "Please configure the database as described in"
-		log_failure_msg "/usr/share/doc/snort-{pgsql,mysql}/README-database.Debian"
-		log_failure_msg "and remove /etc/snort/db-pending-config"
-		exit 6
-	fi
-
         if ! check_log_dir; then
-		log_failure_msg " will not start $DESC!"
-		exit 5
-	fi
-	if [ "$DEBIAN_SNORT_STARTUP" = "dialup" ]; then
-		shift
-		set +e
-		/etc/ppp/ip-up.d/snort "$@"
-		ret=$?
-                if  [ $ret -eq 0 ] ; then
-                  log_end_msg 0
-                else
-                  log_end_msg 1
-                fi
-		exit $ret
+	    log_failure_msg " will not start $DESC!"
+	    exit 5
 	fi
 
-	# Usually, we start all interfaces
-	interfaces="$DEBIAN_SNORT_INTERFACE"
+        PIDFILE=/var/run/snort.pid
+        CONFIGFILE=/etc/snort/snort.conf
+        fail="failed (check /var/log/syslog and /var/log/snort)"
+        ret=0
 
-	# If we are requested to start a specific interface...
-	test "$2" && interfaces="$2"
-
-        # If the interfaces list is empty stop (no error)
-        if [ -z "$interfaces" ] ; then
-            log_progress_msg "no interfaces configured, will not start"
-            log_end_msg 0
-            exit 0
-        fi
-
-	myret=0
-	got_instance=0
-	for interface in $interfaces; do
-		got_instance=1
-		log_progress_msg "($interface"
-
-                # Check if the interface is available
-                # (only if iproute is available) 
-                if ! [ -x /sbin/ip ] || ip link show dev "$interface" >/dev/null 2>&1; then
-
-		PIDFILE=/var/run/snort_$interface.pid
-                CONFIGFILE=/etc/snort/snort.$interface.conf
-
-                # Defaults:
-		fail="failed (check /var/log/syslog and /var/log/snort)"
-                run="yes"
-
-                if [ -e "$PIDFILE" ] && running $PIDFILE; then
-                        run="no" 
-                        # Do not start this instance, it is already runing
-                fi
-
-                if [ "$run" = "yes" ] ; then
-                    if [ ! -e "$CONFIGFILE" ]; then
-                        log_progress_msg "no /etc/snort/snort.$interface.conf found, defaulting to snort.conf"
-                        CONFIGFILE=/etc/snort/snort.conf
-                    fi
-
-                    set +e
-                    /sbin/start-stop-daemon --start --quiet  \
-                        --pidfile "$PIDFILE" \
-                        --exec $DAEMON -- $COMMON $DEBIAN_SNORT_OPTIONS \
-                        -c $CONFIGFILE \
-                        -S "HOME_NET=[$DEBIAN_SNORT_HOME_NET]" \
-                        -i $interface >/dev/null
-                    ret=$?
-                    case "$ret" in
-			0)
-                                log_progress_msg  "...done)"
-				;;
-			*)
-				log_progress_msg "...ERROR: $fail)"
-				myret=$(expr "$myret" + 1)
-				;;
-                     esac
-                     set -e
-                else
-                        log_progress_msg "...already running)"
-                fi
-
-                else
-                # What to do if the interface is not available
-                        if [ "$ALLOW_UNAVAILABLE" != "no" ] ; then 
-                            log_progress_msg "...interface not available)"
-                        else 
-                            log_progress_msg "...ERROR: interface not available)"
-                            myret=$(expr "$myret" + 1)
-                        fi
-                fi
-	done
-
-	if [ "$got_instance" = 0 ] && [ "$ALLOW_UNAVAILABLE" = "no" ]; then
-		log_failure_msg "No snort instance found to be started!" >&2
-		exit 6
+        if [ -e "$PIDFILE" ] && running $PIDFILE; then
+	    # Do not start this instance, it is already runing
+	    log_progress_msg "...already running"
+	else
+	    set +e
+	    /sbin/start-stop-daemon --start --quiet  \
+		--pidfile "$PIDFILE" \
+		--exec $DAEMON -- $COMMON $DEBIAN_SNORT_OPTIONS \
+		-c $CONFIGFILE >/dev/null
+	    ret=$?
+	    case "$ret" in
+		0)
+			log_progress_msg  "...done"
+			;;
+		*)
+			log_progress_msg "...ERROR: $fail"
+			;;
+	    esac
+	    set -e
 	fi
 
-        if  [ $myret -eq 0 ] ; then
+        if  [ $ret -eq 0 ] ; then
             log_end_msg 0
         else
             log_end_msg 1
         fi
-	exit $myret
+	exit $ret
 	;;
   stop)
         check_root
         log_daemon_msg "Stopping $DESC " "$NAME"
     
-	if [ "$DEBIAN_SNORT_STARTUP" = "dialup" ]; then
-		shift
-		set +e
-		/etc/ppp/ip-down.d/snort "$@"
-		ret=$?
-                if  [ $ret -eq 0 ] ; then
-                    log_end_msg 0
-                else
-                  log_end_msg 1
-                fi
-		exit $ret
+	PIDFILE=/var/run/snort.pid
+	if [ ! -f $PIDFILE ]; then
+	    log_warning_msg "No running snort instance found"
+	    # LSB demands we don't exit with error here
+	    exit 0
 	fi
 
-	# Usually, we stop all current running interfaces
-	pidpattern=/var/run/snort_*.pid
-
-	# If we are requested to stop a specific interface...
-	test "$2" && pidpattern=/var/run/snort_"$2".pid
-
-	got_instance=0
-        myret=0
-	for PIDFILE in $pidpattern; do
-		# This check is also needed, if the above pattern doesn't match
-		test -f "$PIDFILE" || continue
-
-		got_instance=1
-		interface=$(basename "$PIDFILE" .pid | sed -e 's/^snort_//')
-
-		log_progress_msg "($interface"
-
-		set +e
-                if [ ! -e "$PIDFILE" -o -r "$PIDFILE" ] ; then
-# Change ownership of the pidfile
-		    /sbin/start-stop-daemon --stop --retry 5 --quiet --oknodo \
-			--pidfile "$PIDFILE" --exec $DAEMON >/dev/null
-                    ret=$?
-                    rm -f "$PIDFILE"
-                    rm -f "$PIDFILE.lck"
-                else
-                     log_progress_msg "cannot read $PIDFILE"
-                     ret=4
-                fi
-		case "$ret" in
-			0)
-                                log_progress_msg  "...done)"
-				;;
-			*)
-				log_progress_msg "...ERROR)"
-				myret=$(expr "$myret" + 1)
-				;;
-		esac
-                set -e
-
-	done
-
-	if [ "$got_instance" = 0 ]; then
-		log_warning_msg "No running snort instance found"
-                exit 0 # LSB demands we don't exit with error here
+	ret=0
+	set +e
+	if [ -r "$PIDFILE" ]; then
+	    # Change ownership of the pidfile
+	    /sbin/start-stop-daemon --stop --retry 5 --quiet --oknodo \
+		--pidfile "$PIDFILE" --exec $DAEMON >/dev/null
+	    ret=$?
+	    rm -f "$PIDFILE"
+	    rm -f "$PIDFILE.lck"
+	else
+	    log_progress_msg "cannot read $PIDFILE"
+	    ret=4
 	fi
-        if  [ $myret -eq 0 ] ; then
+	case "$ret" in
+	    0)
+		log_progress_msg  "...done"
+		;;
+	    *)
+		log_progress_msg "...ERROR"
+		;;
+	esac
+	set -e
+
+	if  [ $ret -eq 0 ] ; then
             log_end_msg 0
         else
             log_end_msg 1
         fi
-	exit $myret
+	exit $ret
 	;;
   restart|force-restart|reload|force-reload)
         check_root
-	# Usually, we restart all current running interfaces
-	pidpattern=/var/run/snort_*.pid
-
-	# If we are requested to restart a specific interface...
-	test "$2" && pidpattern=/var/run/snort_"$2".pid
-
-	got_instance=0
-	for PIDFILE in $pidpattern; do
-		# This check is also needed, if the above pattern doesn't match
-		test -f "$PIDFILE" || continue
-
-		got_instance=1
-		interface=$(basename "$PIDFILE" .pid | sed -e 's/^snort_//')
-		$0 stop $interface || true
-		$0 start $interface || true
-	done
-
-	if [ "$got_instance" = 0 ]; then
-		log_failure_msg "No snort instance found to be stopped!" >&2
-                exit 6
+	PIDFILE=/var/run/snort.pid
+	if [ ! -f $PIDFILE ]; then
+	    log_failure_msg "No snort instance found to be stopped!" >&2
+	    exit 6
 	fi
+
+	$0 stop || true
+	$0 start || true
 	;;
   status)
 # Non-root users can use this (if allowed to)
-        log_daemon_msg "Status of snort daemon(s)"
-	interfaces="$DEBIAN_SNORT_INTERFACE"
-	# If we are requested to check for a specific interface...
-	test "$2" && interfaces="$2"
+        log_daemon_msg "Status of snort daemon"
         err=0
         pid=0
-	for interface in $interfaces; do
-                log_progress_msg " $interface "
-                pidfile=/var/run/snort_$interface.pid
-                if [ -f  "$pidfile" ] ; then
-                        if [ -r "$pidfile" ] ; then
-                            pidval=`cat $pidfile`
-                            pid=$(expr "$pid" + 1)
-                            if ps -p $pidval | grep -q snort; then
-                                log_progress_msg "OK"
-                            else
-				log_progress_msg "ERROR"
-				err=$(expr "$err" + 1)
-			    fi
-                         else
-	       		     log_progress_msg "ERROR: cannot read status file"
-                             err=$(expr "$err" + 1)
-                         fi
-                 else
-                       log_progress_msg "ERROR"
-                       err=$(expr "$err" + 1)
-                 fi
-        done
-        if [ $err -ne 0 ] ; then
+	pidfile=/var/run/snort.pid
+	if [ -f  "$pidfile" ] ; then
+	    if [ -r "$pidfile" ] ; then
+		pidval=`cat $pidfile`
+		pid=1
+		if ps -p $pidval | grep -q snort; then
+		    log_progress_msg " OK"
+		else
+		    log_progress_msg " ERROR"
+		    err=1
+		fi
+	    else
+		log_progress_msg " ERROR: cannot read status file"
+		err=1
+	    fi
+	else
+	    log_progress_msg " ERROR"
+	    err=1
+	fi
+        
+	if [ $err -ne 0 ] ; then
             if [ $pid -ne 0 ] ; then
 # More than one case where pidfile exists but no snort daemon
 # LSB demands a '1' exit value here
@@ -370,63 +246,36 @@ case "$1" in
         ;;
   config-check)
         log_daemon_msg "Checking $DESC configuration" 
-	if [ "$DEBIAN_SNORT_STARTUP" = "dialup" ]; then
-		log_failure_msg "Config-check is currently not supported for snort in Dialup configuration"
-                log_end_msg  3
-                exit 3
+
+	CONFIGFILE=/etc/snort/snort.conf
+	COMMON=`echo $COMMON | sed -e 's/-D//'`
+	set +e
+	ret=0
+	fail="INVALID"
+	if [ -r "$CONFIGFILE" ]; then
+	    $DAEMON -T $COMMON $DEBIAN_SNORT_OPTIONS \
+		-c $CONFIGFILE >/dev/null 2>&1
+	    ret=$?
+	else
+	    fail="cannot read $CONFIGFILE"
+	    ret=4
 	fi
+	set -e
+	case "$ret" in
+	    0)
+		log_progress_msg "OK"
+		;;
+	    *)
+		log_progress_msg "$fail"
+		;;
+	esac
 
-	# usually, we test all interfaces
-	interfaces="$DEBIAN_SNORT_INTERFACE"
-	# if we are requested to test a specific interface...
-	test "$2" && interfaces="$2"
-
-	myret=0
-	got_instance=0
-	for interface in $interfaces; do
-		got_instance=1
-		log_progress_msg "interface $interface"
-
-		CONFIGFILE=/etc/snort/snort.$interface.conf
-		if [ ! -e "$CONFIGFILE" ]; then
-			CONFIGFILE=/etc/snort/snort.conf
-		fi
-		COMMON=`echo $COMMON | sed -e 's/-D//'`
-		set +e
-                fail="INVALID"
-		if [ -r "$CONFIGFILE" ]; then
-                    $DAEMON -T $COMMON $DEBIAN_SNORT_OPTIONS \
-			-c $CONFIGFILE \
-			-S "HOME_NET=[$DEBIAN_SNORT_HOME_NET]" \
-			-i $interface >/dev/null 2>&1
-                    ret=$?
-                else
-                    fail="cannot read $CONFIGFILE"
-                    ret=4
-                fi
-		set -e
-
-		case "$ret" in
-			0)
-                                log_progress_msg "OK"
-				;;
-			*)
-                                log_progress_msg "$fail"
-				myret=$(expr "$myret" + 1)
-				;;
-		esac
-	done
-	if [ "$got_instance" = 0 ]; then
-		log_failure_msg "no snort instance found to be started!" >&2
-		exit 6
-	fi
-
-        if  [ $myret -eq 0 ] ; then
+        if  [ $ret -eq 0 ] ; then
             log_end_msg 0
         else
             log_end_msg 1
         fi
-	exit $myret
+	exit $ret
 	;;
   *)
 	echo "Usage: $0 {start|stop|restart|force-restart|reload|force-reload|status|config-check}"

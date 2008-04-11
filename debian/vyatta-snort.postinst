@@ -29,28 +29,12 @@ case "$1" in
 	;;
     configure)
 	# edit config file
-	STARTUP=""
-	INTERFACE=""
-	ADDRESS_RANGE=""
-	DISABLE_PROMISCUOUS=""
-	REVERSE_ORDER=
-	STATS_SEND=""
-	STATS_RCPT=""
-	STATS_THRESHOLD=""
-	OPTIONS=""
 
 	cat <<EOF >$CONFIG
-# This file is used for options that are changed by Debian to leave
-# the original lib files untouched.
-# You have to use "dpkg-reconfigure snort" to change them.
-
-DEBIAN_SNORT_STARTUP="$STARTUP"
-DEBIAN_SNORT_HOME_NET="$ADDRESS_RANGE"
-DEBIAN_SNORT_OPTIONS="$OPTIONS"
-DEBIAN_SNORT_INTERFACE="$INTERFACE"
-DEBIAN_SNORT_SEND_STATS="$STATS_SEND"
-DEBIAN_SNORT_STATS_RCPT="$STATS_RCPT"
-DEBIAN_SNORT_STATS_THRESHOLD="$STATS_THRESHOLD"
+DEBIAN_SNORT_OPTIONS=""
+DEBIAN_SNORT_SEND_STATS="false"
+DEBIAN_SNORT_STATS_RCPT=""
+DEBIAN_SNORT_STATS_THRESHOLD=""
 EOF
 
 	if [ -f /etc/snort/snort.conf ]; then
