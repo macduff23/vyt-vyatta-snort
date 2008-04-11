@@ -2,7 +2,6 @@
 
 CONFIG=/etc/snort/snort.debian.conf
 
-. /usr/share/debconf/confmodule
 test $DEBIAN_SCRIPT_DEBUG && set -v -x
 
 # summary of how this script can be called:
@@ -45,8 +44,6 @@ EOF
 			chmod 640 /etc/snort/snort.conf
 		fi
 	fi
-
-	db_stop
 	;;
     abort-upgrade)
 	;;
