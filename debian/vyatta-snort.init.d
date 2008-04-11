@@ -58,6 +58,8 @@ COMMON="$PARAMS -l $LOGDIR"
 test -r $CONFIG || exit 1
 . $CONFIG
 
+INLINE_PIDFILE=/var/run/snort_inline.pid
+
 # to find the lib files
 cd /etc/snort
 
@@ -119,7 +121,7 @@ case "$1" in
 	    exit 5
 	fi
 
-        PIDFILE=/var/run/snort.pid
+        PIDFILE=$INLINE_PIDFILE
         CONFIGFILE=/etc/snort/snort.conf
         fail="failed (check /var/log/syslog and /var/log/snort)"
         ret=0
@@ -156,7 +158,7 @@ case "$1" in
         check_root
         log_daemon_msg "Stopping $DESC " "$NAME"
     
-	PIDFILE=/var/run/snort.pid
+        PIDFILE=$INLINE_PIDFILE
 	if [ ! -f $PIDFILE ]; then
 	    log_warning_msg "No running snort instance found"
 	    # LSB demands we don't exit with error here
@@ -195,7 +197,7 @@ case "$1" in
 	;;
   restart|force-restart|reload|force-reload)
         check_root
-	PIDFILE=/var/run/snort.pid
+        PIDFILE=$INLINE_PIDFILE
 	if [ ! -f $PIDFILE ]; then
 	    log_failure_msg "No snort instance found to be stopped!" >&2
 	    exit 6
@@ -209,7 +211,7 @@ case "$1" in
         log_daemon_msg "Status of snort daemon"
         err=0
         pid=0
-	pidfile=/var/run/snort.pid
+        pidfile=$INLINE_PIDFILE
 	if [ -f  "$pidfile" ] ; then
 	    if [ -r "$pidfile" ] ; then
 		pidval=`cat $pidfile`
