@@ -950,14 +950,7 @@ int SnortMain(int argc, char *argv[])
 #ifdef GIDS
                 if (InlineMode())
                 {
-                    if (pv.interface)
-                    {
-                        CreatePidFile(pv.interface);
-                    }
-                    else
-                    {
-                        CreatePidFile("inline");
-                    }
+                    CreatePidFile("inline");
                 }
                 else
                 {
