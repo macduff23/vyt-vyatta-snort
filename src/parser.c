@@ -8516,7 +8516,9 @@ void ParseRuleTypeDeclaration(FILE* rule_file, char *rule)
         type = RuleType(toks[1]);
         /* verify it is a valid ruletype */
         if((type != RULE_LOG) && (type != RULE_PASS) && (type != RULE_ALERT) &&
-           (type != RULE_ACTIVATE) && (type != RULE_DYNAMIC))
+           (type != RULE_ACTIVATE) && (type != RULE_DYNAMIC) &&
+           (type != RULE_DROP) && (type != RULE_REJECT) &&
+           (type != RULE_SDROP))
         {
             FatalError("%s(%d): Invalid type for rule type declaration: %s\n", file_name, file_line, toks[1]);
         }
