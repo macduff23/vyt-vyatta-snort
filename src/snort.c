@@ -1136,6 +1136,13 @@ int SnortMain(int argc, char *argv[])
     */
     fpCreateFastPacketDetection();
 #endif
+    
+    if (InlineMode())
+    {
+        /* in inline mode, create this file to signal the completion of
+         * initialization. */
+        CreatePidFile("inline_init");
+    }
 
     if(!pv.quiet_flag)
     {

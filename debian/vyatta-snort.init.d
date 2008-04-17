@@ -59,6 +59,7 @@ test -r $CONFIG || exit 1
 . $CONFIG
 
 INLINE_PIDFILE=/var/run/snort_inline.pid
+INLINE_INITFILE=/var/run/snort_inline_init.pid
 
 # to find the lib files
 cd /etc/snort
@@ -174,6 +175,8 @@ case "$1" in
 	    ret=$?
 	    rm -f "$PIDFILE"
 	    rm -f "$PIDFILE.lck"
+	    rm -f "$INLINE_INITFILE"
+	    rm -f "$INLINE_INITFILE.lck"
 	else
 	    log_progress_msg "cannot read $PIDFILE"
 	    ret=4
