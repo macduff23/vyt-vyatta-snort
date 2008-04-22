@@ -7,13 +7,10 @@
 #ifndef __SPP_CLAMAV_H__
 #define __SPP_CLAMAV_H__
 
-#ifdef CLAMAV
 /*
  * list of function prototypes to export for this preprocessor
  */
 void SetupClamAV();
-
-#endif /* CLAMAV */
 
 #endif  /* __SPP_CLAMAV_H__ */
 

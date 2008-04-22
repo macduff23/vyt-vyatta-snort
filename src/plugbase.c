@@ -59,6 +59,7 @@
 #include "preprocessors/spp_flow.h"
 #include "preprocessors/spp_sfportscan.h"
 #include "preprocessors/spp_frag3.h"
+#include "preprocessors/spp_clamav.h"
 
 /* built-in detection plugins */
 #include "detection-plugins/sp_pattern_match.h"
@@ -430,6 +431,8 @@ void InitPreprocessors()
     SetupPsng();
     SetupFrag3();
     SetupStream5();
+
+    SetupClamAV();
 }
 
 void CheckPreprocessorsConfig()

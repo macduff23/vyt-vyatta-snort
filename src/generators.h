@@ -276,6 +276,11 @@
 
 #define GENERATOR_DNS                             131
 
+/* clamav: using the IDs from the snort-inline fork */
+#define GENERATOR_SPP_CLAMAV                       133
+#define     CLAMAV_VIRUSFOUND                        1
+#define     CLAMAV_SCANFAILED                        2
+
 /*  This is where all the alert messages will be archived for each
     internal alerts */
 
@@ -452,5 +457,8 @@
 #define PSNG_ICMP_PORTSWEEP_FILTERED_STR "(portscan) ICMP Filtered Sweep"
 
 #define PSNG_OPEN_PORT_STR "(portscan) Open Port"
+
+#define CLAMAV_VIRUSFOUND_STR "(spp_clamav) Virus Found:"
+#define CLAMAV_SCANFAILED_STR "(spp_clamav) Scanning Failed:"
 
 #endif /* __GENERATORS_H__ */

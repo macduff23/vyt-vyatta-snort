@@ -8,6 +8,7 @@ Build-Depends: libnet0-dev,
  debhelper (>= 4.1.13),
  po-debconf (>= 0.5.0),
  libprelude-dev,
+ libclamav-dev,
  iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386]
 Standards-Version: 3.5.6
 
@@ -20,6 +21,7 @@ Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  syslogd | system-log-daemon,
  ${shlibs:Depends},
  vyatta-snort-common (>= ${binary:Version}),
+ clamav,
  logrotate
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort

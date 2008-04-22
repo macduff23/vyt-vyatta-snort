@@ -22,8 +22,6 @@
 ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
-#ifdef CLAMAV
-
 /* spp_clamav.c
  *
  * Purpose: Sends packet p to ClamAV for Antivirus checking.
@@ -84,7 +82,6 @@
 #include "spp_clamav.h"
 #include "stream_api.h"
 #ifdef GIDS
-#include "preprocessors/spp_stickydrop.h"
 #include "inline.h"
 #endif
 
@@ -95,10 +92,8 @@
 #include <strings.h>
 #endif
 
-#ifdef GIDS
-/* stickydrop */
-extern SDtimeout sdt;
-#endif /* GIDS */
+/* we have cl_build() */
+#define CLAMAV_HAVE_CL_BUILD 1
 
 /* we need this to stringify the CLAMAV_DEFDIR which is supplied at compiletime see:
   http://gcc.gnu.org/onlinedocs/gcc-3.4.1/cpp/Stringification.html#Stringification */
@@ -517,10 +512,10 @@ void ClamAVInit(char *args)
    cl_statinidir(clamcnf.dbdir, &dbstat);
 
    /* open the defs dir */
-   ret = cl_loaddbdir(clamcnf.dbdir, &cl_root, &n);
+   ret = cl_load(clamcnf.dbdir, &cl_root, &n, CL_DB_STDOPT);
    if(ret != 0)
    {
-       FatalError("ClamAV: cl_loaddbdir() %s\n", cl_strerror(ret));
+       FatalError("ClamAV: cl_load() %s\n", cl_strerror(ret));
    }
 
    /* run buildtrie */
@@ -582,10 +577,10 @@ static void ClamAVReloadDB(Packet *p)
        cl_root = NULL;
 
        /* open the defs dir */
-       ret = cl_loaddbdir(clamcnf.dbdir, &cl_root, &n);
+       ret = cl_load(clamcnf.dbdir, &cl_root, &n, CL_DB_STDOPT);
        if(ret != 0)
        {
-           FatalError("ClamAV: cl_loaddbdir() %s\n", cl_strerror(ret));
+           FatalError("ClamAV: cl_load() %s\n", cl_strerror(ret));
        }
 
        /* run buildtrie */
@@ -990,7 +985,7 @@ static void VirusChecker(Packet *p, void *context)
        else if(clamcnf.rboth)
        {
            DEBUG_WRAP(DebugMessage(DEBUG_CLAMAV,"ClamAV virus found sending Reject\n"););
-           InlineRejectBoth(p);
+           InlineReject(p);
        }
        else if(clamcnf.drop)
        {
@@ -1008,14 +1003,8 @@ static void VirusChecker(Packet *p, void *context)
 	       This will cause us to SEGV. */
             DisableDetect(p);
        }
-       if((SppStickydIsRunning()) && sdt.clamav)
-       {
-           DEBUG_WRAP(DebugMessage(DEBUG_CLAMAV,"ClamAV adding ip to StickyDrop tree\n"););
-           AddIpToBlockTree(p, 0, sdt.clamav);
-       }
 #endif /* GIDS */
    }
    return;
 }
 
-#endif /* CLAMAV */
