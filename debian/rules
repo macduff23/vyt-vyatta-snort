@@ -108,9 +108,6 @@ install-arch:
 # Default config
 	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
 
-# Logrotate files
-	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.logrotate $(TMP)/vyatta-snort/etc/logrotate.d/snort
-
 # Move libraries to the snort-common-libraries package
 	mv $(TMP)/vyatta-snort-common/usr/lib/ $(TMP)/vyatta-snort-common-libraries/usr/
 	mv $(TMP)/vyatta-snort-common/usr/src/ $(TMP)/vyatta-snort-common-libraries/usr/
