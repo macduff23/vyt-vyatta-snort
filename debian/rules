@@ -127,6 +127,7 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/clamav.config $(TMP)/vyatta-snort-common/etc/snort/
 
 #  Install files of the arch-independent packages
 	cp rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/rules/
