@@ -124,7 +124,8 @@ install-indep:
 # package
 	install -m 755 -o root -g root `pwd`/debian/vyatta-snort.cron.daily $(TMP)/vyatta-snort-common/etc/cron.daily/5snort
 	install -m 755 -o root -g root `pwd`/debian/my/snort-stat $(TMP)/vyatta-snort-common/usr/sbin/
-	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/ips.conf $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/antivirus.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/clamav.config $(TMP)/vyatta-snort-common/etc/snort/
