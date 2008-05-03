@@ -2,10 +2,19 @@
 
 test -f /usr/sbin/snort || exit 0
 
-LOGFILE=/var/log/snort/alert
+LOGDIR=/var/log/snort
+LOGFILE=$LOGDIR/alert
 PATH=/bin:/usr/bin:/sbin:/usr/sbin
 CONFIG=/etc/snort/snort.debian.conf
 . $CONFIG
+
+# "rotate" log files
+count=`ls -t $LOGDIR/snort-unified.alert.* 2>/dev/null |wc -l`
+if (( count > 10 )); then
+  (( count -= 10 ))
+  dfiles=`ls -t $LOGDIR/snort-unified.alert.* 2>/dev/null |tail -$count`
+  rm -f $dfiles >&/dev/null
+fi
 
 # Don't generate stats if we are configured not to
 [ "$DEBIAN_SNORT_SEND_STATS" = "false" ] && exit 0
