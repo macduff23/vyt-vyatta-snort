@@ -259,8 +259,9 @@ case "$1" in
 	fail="INVALID"
 	if [ -r "$CONFIGFILE" ]; then
 	    $DAEMON -T $COMMON $DEBIAN_SNORT_OPTIONS \
-		-c $CONFIGFILE >/dev/null 2>&1
+		-c $CONFIGFILE --pid-path /tmp >/dev/null 2>&1
 	    ret=$?
+	    rm -f /tmp/snort_inline{,_init}.pid{,.lck}
 	else
 	    fail="cannot read $CONFIGFILE"
 	    ret=4
