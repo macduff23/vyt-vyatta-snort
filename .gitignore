@@ -50,6 +50,10 @@ Makefile
 /debian/vyatta-snort.postrm.debhelper
 /debian/vyatta-snort.substvars
 /debian/vyatta-snort
+/debian/vyatta-snort-common-libraries.debhelper.log
+/debian/vyatta-snort-common.debhelper.log
+/debian/vyatta-snort-rules-default.debhelper.log
+/debian/vyatta-snort.debhelper.log
 /doc/faq.aux
 /doc/faq.idx
 /doc/faq.log
