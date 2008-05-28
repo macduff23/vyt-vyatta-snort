@@ -530,14 +530,14 @@ void ClamAVInit(char *args)
 
    /* set the limits */
    memset(&clam_limits, 0, sizeof(clam_limits));
-   /* maximal number of files in archive */;
-   clam_limits.maxfiles = 1000;
+   /* maximal global size */
+   clam_limits.maxscansize = 20 * 1048576; /* 20 MB */
    /* maximal archived file size */
    clam_limits.maxfilesize = 10 * 1048576; /* 10 MB */
    /* maximal recursion level */
    clam_limits.maxreclevel = 5;
-   /* maximal compression ratio */
-   clam_limits.maxratio = 200;
+   /* maximal number of files in archive */;
+   clam_limits.maxfiles = 1000;
    /* disable memory limit for bzip2 scanner */
    clam_limits.archivememlim = 0;
 
