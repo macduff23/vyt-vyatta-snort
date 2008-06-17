@@ -1,3 +1,30 @@
+vyatta-snort (2.7.0-13-vyatta-2) unstable; urgency=low
+
+	  3.1.0
+  [ Mark O'Brien ]
+
+
+  [ An-Cheng Huang ]
+  * make clamav preprocessor work with new debian libclamav.
+
+  [ rbalocca ]
+  * Ignore log files
+
+  [ An-Cheng Huang ]
+  * change snort config-check to use temp pid files
+  * add log "rotation" in snort cron job
+  * use separate config files for IPS and anti-virus
+  * prepare for interaction with anti-virus configuration.
+  * enable clamav in snort config file
+  * fix a couple of loopback-related rules
+  * remove logrotate
+  * port clamav preprocessor from the snort_inline fork.
+  * import clamav preprocessor from the snort-inline fork.
+
+  [ Mark O'Brien ]
+
+ -- Mark O'Brien <mobrien@firebolt.vyatta.com>  Tue, 17 Jun 2008 09:27:39 -0700
+
 vyatta-snort (2.7.0-13-vyatta-1) unstable; urgency=low
 
   * Import Debian snort 2.7.0-13
