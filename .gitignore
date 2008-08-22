@@ -10,6 +10,7 @@ Makefile
 /config.log
 /config.status
 /configure-stamp
+/autom4te.cache
 /libtool
 /src/dynamic-examples/dynamic-preprocessor/sf_dynamic_preproc_lib.c
 /src/dynamic-examples/dynamic-rule/sfsnort_dynamic_detection_lib.c

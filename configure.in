@@ -912,15 +912,25 @@ if test "$enable_inline" != "no"; then
                       [with_libipq_libraries="$withval"],[with_libipq_libraries=no])
            if test "$with_libipq_includes" != "no"; then
                 CPPFLAGS="${CPPFLAGS} -I${with_libipq_includes}"
+           else
+             if test -d /usr/include/libnetfilter_queue; then
+               CPPFLAGS="${CPPFLAGS} -I/usr/include/libnetfilter_queue"
+             else
+               CPPFLAGS="${CPPFLAGS} -I/usr/include/libipq"
+             fi
            fi
-
            AC_CHECK_HEADER(libipq.h,,[AC_ERROR(libipq.h not found ...)])
+
            if test "$with_libipq_libraries" != "no"; then
                 LDFLAGS="${LDFLAGS}  -L${with_libipq_libraries}"
            fi
 
            LIPQ=""
-           AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
+           AC_CHECK_LIB(netfilter_queue_libipq, ipq_set_mode,, LIPQ="no")
+           if test "$LIPQ" = "no"; then
+             LIPQ=""
+             AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
+           fi
 
            if test "$LIPQ" = "no"; then
                echo
@@ -938,7 +948,7 @@ if test "$enable_inline" != "no"; then
          else
             libnet_dir="/usr/include /usr/local/include /sw/include"
         fi
-        AC_MSG_CHECKING("for libnet.h version 1.1.x")
+        AC_MSG_CHECKING("for libnet.h version 1.0.2a")
         for i in $libnet_dir; do
             if test -r $i/libnet.h; then
                 LIBNET_INC_DIR=$i
@@ -946,8 +956,8 @@ if test "$enable_inline" != "no"; then
         done
 
         if test "$LIBNET_INC_DIR" != ""; then
-            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.1 >/dev/null"; then
-                FAIL_MESSAGE("libnet 1.1.x (libnet.h)", $LIBNET_INC_DIR)
+            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.0.2a >/dev/null"; then
+                FAIL_MESSAGE("libnet 1.0.2a (libnet.h)", $LIBNET_INC_DIR)
             fi
             CFLAGS="${CFLAGS} `libnet-config --defines` `libnet-config --cflags`"
             LIBS="${LIBS} `libnet-config --libs`"
@@ -955,7 +965,7 @@ if test "$enable_inline" != "no"; then
             AC_MSG_RESULT($i)
         else
             AC_MSG_RESULT(no)
-            AC_MSG_ERROR("libnet 1.1.x could not be found.  please download and install the library from http://www.packetfactory.net/libnet/")
+            AC_MSG_ERROR("libnet 1.0.2a could not be found.  please download and install the library from http://www.packetfactory.net/libnet/")
         fi
     fi
 fi
