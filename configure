@@ -24744,8 +24744,8 @@ fi
          else
             libnet_dir="/usr/include /usr/local/include /sw/include"
         fi
-        echo "$as_me:$LINENO: checking \"for libnet.h version 1.0.2a\"" >&5
-echo $ECHO_N "checking \"for libnet.h version 1.0.2a\"... $ECHO_C" >&6
+        echo "$as_me:$LINENO: checking \"for libnet.h version 1.1.x\"" >&5
+echo $ECHO_N "checking \"for libnet.h version 1.1.x\"... $ECHO_C" >&6
         for i in $libnet_dir; do
             if test -r $i/libnet.h; then
                 LIBNET_INC_DIR=$i
@@ -24753,12 +24753,12 @@ echo $ECHO_N "checking \"for libnet.h version 1.0.2a\"... $ECHO_C" >&6
         done
 
         if test "$LIBNET_INC_DIR" != ""; then
-            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.0.2a >/dev/null"; then
+            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.1 >/dev/null"; then
 
    echo
    echo
    echo "**********************************************"
-   echo "  ERROR: unable to find" "libnet 1.0.2a (libnet.h)"
+   echo "  ERROR: unable to find" "libnet 1.1.x (libnet.h)"
    echo "  checked in the following places"
    for i in `echo $LIBNET_INC_DIR`; do
      echo "        $i"
@@ -24776,7 +24776,7 @@ echo "${ECHO_T}$i" >&6
         else
             echo "$as_me:$LINENO: result: no" >&5
 echo "${ECHO_T}no" >&6
-            { { echo "$as_me:$LINENO: error: \"libnet 1.0.2a could not be found.  please download and install the library from http://www.packetfactory.net/libnet/\"" >&5
+            { { echo "$as_me:$LINENO: error: \"libnet 1.1.x could not be found.  please download and install the library from http://www.packetfactory.net/libnet/\"" >&5
 echo "$as_me: error: \"libnet 1.1.x could not be found.  please download and install the library from http://www.packetfactory.net/libnet/\"" >&2;}
    { (exit 1); exit 1; }; }
         fi
