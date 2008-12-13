@@ -1,7 +1,7 @@
 Source: vyatta-snort
 Section: net
 Priority: optional
-Maintainer: An-Cheng Huang <ancheng@vyatta.com>
+Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
 Build-Depends: libnet0-dev,
  libpcap0.8-dev,
  libpcre3-dev,
