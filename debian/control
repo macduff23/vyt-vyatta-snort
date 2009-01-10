@@ -21,7 +21,6 @@ Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  syslogd | system-log-daemon,
  ${shlibs:Depends},
  vyatta-snort-common (>= ${binary:Version}),
- clamav,
  logrotate
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort
