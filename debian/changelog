@@ -1,3 +1,9 @@
+vyatta-snort (2.7.0-13-vyatta-6) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Fri, 29 May 2009 18:37:30 -0700
+
 vyatta-snort (2.7.0-13-vyatta-5) unstable; urgency=low
 
   * remove clamav dependency
