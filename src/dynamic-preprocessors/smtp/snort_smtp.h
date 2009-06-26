@@ -1,6 +1,6 @@
-
-/*
- * snort_smtp.h
+/****************************************************************************
+ * 
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -17,186 +17,275 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * **************************************************************************/
+
+/**************************************************************************
  *
- * Author: Andy  Mullican
+ * snort_smtp.h
+ *
+ * Author: Andy Mullican
+ * Author: Todd Wease
  *
  * Description:
  *
  * This file defines everything specific to the SMTP preprocessor.
  *
- */
-
+ **************************************************************************/
 
 #ifndef __SMTP_H__
 #define __SMTP_H__
 
-#include "sf_snort_packet.h"
-#include "sf_dynamic_preprocessor.h"
 
-/* SMTP normally runs on port 25 */
-#define SMTP_DEFAULT_SERVER_PORT  25
-/* XLINK2STATE sometimes runs on port 691 */
-#define XLINK2STATE_DEFAULT_PORT  691
+/* Includes ***************************************************************/
+
+#include <pcre.h>
+
+#include "sf_snort_packet.h"
+#include "ssl.h"
+
+#ifdef DEBUG
+#include "sf_types.h"
+#endif
+
+/**************************************************************************/
+
+
+/* Defines ****************************************************************/
 
 /* Direction packet is coming from, if we can figure it out */
-#define SMTP_PKT_FROM_UNKNOWN   0
-#define SMTP_PKT_FROM_CLIENT    1
-#define SMTP_PKT_FROM_SERVER    2
+#define SMTP_PKT_FROM_UNKNOWN  0
+#define SMTP_PKT_FROM_CLIENT   1
+#define SMTP_PKT_FROM_SERVER   2
 
 /* Inspection type */
-#define SMTP_STATELESS   0
-#define SMTP_STATEFUL    1
+#define SMTP_STATELESS  0
+#define SMTP_STATEFUL   1
 
-/* X-Link2State overlong length */
-#define XLINK2STATE_MAX_LEN     520
+#define SEARCH_CMD       0
+#define SEARCH_RESP      1
+#define SEARCH_HDR       2
+#define SEARCH_DATA_END  3
+#define NUM_SEARCHES  4
 
-/* Max length of boundary string, defined in RFC 2046 */
-#define MAX_BOUNDARY_LEN    71
+#define BOUNDARY     0
 
-typedef enum _SMTP_state
+#define MAX_BOUNDARY_LEN  70  /* Max length of boundary string, defined in RFC 2046 */
+
+#define STATE_CONNECT          0
+#define STATE_COMMAND          1    /* Command state of SMTP transaction */
+#define STATE_DATA             2    /* Data state */
+#define STATE_TLS_CLIENT_PEND  3    /* Got STARTTLS */
+#define STATE_TLS_SERVER_PEND  4    /* Got STARTTLS */
+#define STATE_TLS_DATA         5    /* Successful handshake, TLS encrypted data */
+#define STATE_UNKNOWN          6
+
+#define STATE_DATA_INIT    0
+#define STATE_DATA_HEADER  1    /* Data header section of data state */
+#define STATE_DATA_BODY    2    /* Data body section of data state */
+#define STATE_MIME_HEADER  3    /* MIME header section within data section */
+#define STATE_DATA_UNKNOWN 4
+
+/* state flags */
+#define SMTP_FLAG_GOT_MAIL_CMD               0x00000001
+#define SMTP_FLAG_GOT_RCPT_CMD               0x00000002
+#define SMTP_FLAG_FOLDING                    0x00000004
+#define SMTP_FLAG_IN_CONTENT_TYPE            0x00000008
+#define SMTP_FLAG_GOT_BOUNDARY               0x00000010
+#define SMTP_FLAG_DATA_HEADER_CONT           0x00000020
+
+/* session flags */
+#define SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK  0x00000001
+#define SMTP_FLAG_XLINK2STATE_ALERTED        0x00000002
+#define SMTP_FLAG_NEXT_STATE_UNKNOWN         0x00000004
+#define SMTP_FLAG_GOT_NON_REBUILT            0x00000008
+#define SMTP_FLAG_CHECK_SSL                  0x00000010
+
+#define SMTP_SSL_ERROR_FLAGS  (SSL_BOGUS_HS_DIR_FLAG | \
+                               SSL_BAD_VER_FLAG | \
+                               SSL_BAD_TYPE_FLAG | \
+                               SSL_UNKNOWN_FLAG)
+
+/* Maximum length of header chars before colon, based on Exim 4.32 exploit */
+#define MAX_HEADER_NAME_LEN 64
+
+#define SMTP_PROTO_REF_STR  "smtp"
+
+/**************************************************************************/
+
+
+/* Data structures ********************************************************/
+
+typedef enum _SMTPCmdEnum
 {
-    COMMAND       = 0x0000,            /*  Command section of SMTP message          */
-    DATA          = 0x0001,            /*  DATA section header or body              */
-    DATA_PEND     = 0x0002,            /*  DATA section, pending reply by server    */
-    DATA_BODY     = 0x0004,            /*  DATA body section                        */
-    MIME_HEADER   = 0x0008,            /*  MIME header section within DATA section  */
-    TLS_DATA      = 0x0010             /*  Successful handshake, TLS encrypted data */
+    CMD_ATRN = 0,
+    CMD_AUTH,
+    CMD_BDAT,
+    CMD_DATA,
+    CMD_DEBUG,
+    CMD_EHLO,
+    CMD_EMAL,
+    CMD_ESAM,
+    CMD_ESND,
+    CMD_ESOM,
+    CMD_ETRN,
+    CMD_EVFY,
+    CMD_EXPN,
+    CMD_HELO,
+    CMD_HELP,
+    CMD_IDENT,
+    CMD_MAIL,
+    CMD_NOOP,
+    CMD_ONEX,
+    CMD_QUEU,
+    CMD_QUIT,
+    CMD_RCPT,
+    CMD_RSET,
+    CMD_SAML,
+    CMD_SEND,
+    CMD_SIZE,
+    CMD_STARTTLS,
+    CMD_SOML,
+    CMD_TICK,
+    CMD_TIME,
+    CMD_TURN,
+    CMD_TURNME,
+    CMD_VERB,
+    CMD_VRFY,
+    CMD_X_EXPS,
+    CMD_XADR,
+    CMD_XAUTH,
+    CMD_XCIR,
+    CMD_XEXCH50,
+    CMD_XGEN,
+    CMD_XLICENSE,
+    CMD_X_LINK2STATE,
+    CMD_XQUE,
+    CMD_XSTA,
+    CMD_XTRN,
+    CMD_XUSR,
+    CMD_LAST
 
-} SMTP_state;
+} SMTPCmdEnum;
 
-#define NUM_SMTP_STATE    5
+typedef enum _SMTPRespEnum
+{
+    RESP_220 = 0,
+    RESP_221,
+    RESP_250,
+    RESP_354,
+    RESP_421,
+    RESP_450,
+    RESP_451,
+    RESP_452,
+    RESP_500,
+    RESP_501,
+    RESP_502,
+    RESP_503,
+    RESP_504,
+    RESP_550,
+    RESP_551,
+    RESP_552,
+    RESP_553,
+    RESP_554,
+    RESP_LAST
 
+} SMTPRespEnum;
+
+typedef enum _SMTPHdrEnum
+{
+    HDR_CONTENT_TYPE = 0,
+    HDR_LAST
+
+} SMTPHdrEnum;
+
+typedef enum _SMTPDataEndEnum
+{
+    DATA_END_1 = 0,
+    DATA_END_2,
+    DATA_END_3,
+    DATA_END_4,
+    DATA_END_LAST
+
+} SMTPDataEndEnum;
+
+typedef struct _SMTPSearchInfo
+{
+    int id;
+    int index;
+    int length;
+
+} SMTPSearchInfo;
+
+typedef struct _SMTPSearch
+{
+    char *name;
+    int   name_len;
+
+} SMTPSearch;
+
+typedef struct _SMTPToken
+{
+    char *name;
+    int   name_len;
+    int   search_id;
+
+} SMTPToken;
+
+
+typedef struct _SMTPMimeBoundary
+{
+    char   boundary[2 + MAX_BOUNDARY_LEN + 1];  /* '--' + MIME boundary string + '\0' */
+    int    boundary_len;
+    void  *boundary_search;
+
+} SMTPMimeBoundary;
+
+typedef struct _SMTPPcre
+{
+    pcre       *re;
+    pcre_extra *pe;
+
+} SMTPPcre;
 
 typedef struct _SMTP
 {
-    SMTP_state  state;
-    u_int       message_number;
-    u_int       pkt_direction;
-    u_int       got_data_cmd;
-    u_int       got_data_resp;
-    u_int       got_starttls;
-    u_int       got_server_tls;
-    u_int       last_byte;
-    u_int       cur_client_line_len;
-    u_int       cur_server_line_len;
-    u_char      last_byte_is_lf;
-    u_int       normalizing;            /* Currently normalizing COMMAND section   */
-    u_int       token_id;               /* ID of token found in stream             */
-    u_int       token_iid;              /* Location in array of commands           */
-    u_int       token_index;            /* Location in p->data of token            */
-    u_int       token_length;           /* Length of token                         */
-    u_int       xlink2state_gotfirstchunk;  /* 1 if got FIRST chunk                    */
-    u_char      xlink2state_alerted;    /* If alerted on X-Link2State this session */
-    u_int8_t    boundary[MAX_BOUNDARY_LEN];  /* MIME boundary string               */
-    u_int       boundary_len;
-    void       *data_search;
+    int state;
+    int data_state;
+    int state_flags;
+    int session_flags;
+    int alert_mask;
+#ifdef DEBUG
+    UINT64 session_number;
+#endif
+
+    /* may want to keep track where packet didn't end with end of line marker
+    int               cur_client_line_len;
+    int               cur_server_line_len;
+    */
+
+    SMTPMimeBoundary  mime_boundary;
+
+    /* In future if we look at forwarded mail (message/rfc822) we may
+     * need to keep track of additional mime boundaries
+     * SMTPMimeBoundary  mime_boundary[8];
+     * int               current_mime_boundary;
+     */
 
 } SMTP;
 
-    
-typedef struct _SMTP_token
-{
-    char   *name;           /*  "HELO", "MAIL FROM", ".\n", "354", "250", etc */
-    u_int   name_len;       /*  Length of name string                         */
-    u_int   id;             /*  Identifying ID, not always unique             */
-    u_int   alert;          /*  1 if alert when seen                          */
-    u_int   normalize;      /*  1 if we should normalize this command         */
-    u_int   max_len;        /*  Max length of this particular command         */
 
-} SMTP_token;
-
-typedef struct _SMTP_cmd
-{
-    char   *name;            /*  "HELO", "MAIL FROM", ".\n", "354", "250", etc */
-    u_int   id;              /*  Identifying ID, not always unique             */
-
-} SMTP_cmd;
+/**************************************************************************/
 
 
+/* Function prototypes ****************************************************/
 
-typedef enum _cmd_e
-{
-    CMD_MASK        = 0x00000000,
-    CMD_UNKNOWN     = 0x00000001,
-    CMD_HELO        = 0x00000002,
-    CMD_EHLO        = 0x00000004,
-    CMD_MAIL        = 0x00000008,
-    CMD_RCPT        = 0x00000010,
-    CMD_RSET        = 0x00000020,
-    CMD_DATA        = 0x00000040,
-    
-    CMD_NOOP        = 0x00000200,
-    CMD_QUIT        = 0x00000400,
-    CMD_VRFY        = 0x00000800,
-    CMD_HELP        = 0x00001000,
-    CMD_EXPN        = 0x00002000,
-    CMD_BDAT        = 0x00004000,
-    CMD_STARTTLS    = 0x00008000,
-    CMD_XEXCH50     = 0x00010000,
-    CMD_XLINK2STATE = 0x00020000,
-
-    CMD_TYPE        = 0x00100000,
-
-    DATA_BODY_END   = 0x00000080,
-    DATA_HEADER_END = 0x00000100,
-    DATA_BOUNDARY   = 0x01000000,
-    
-    CMD_OTHER       = 0x10000000,
-
-    CMD_LAST        = 0x80000000
-} cmd_e;
-
-    
-
-typedef enum _resp_e
-{
-    RESP_MASK    = 0x00000000,
-    RESP_UNKNOWN = 0x00000001,
-    RESP_354     = 0x00000002,    /*  Valid DATA command  */
-    RESP_250     = 0x00000004,
-    RESP_421     = 0x00000008,
-    RESP_554     = 0x00000010,    /*  No valid recipients */
-    
-    RESP_NONE    = 0x00100000
-} resp_e;
-
-
-typedef enum _norm_e
-{
-    normalize_none = 0,
-    normalize_all,
-    normalize_cmds
-} norm_e;
-
-
-typedef struct _SMTP_CONFIG
-{
-    u_char      ports[8192];
-    u_int       inspection_type;
-    norm_e      normalize;
-    u_int       ignore_data;
-    u_int       ignore_tls_data;
-    u_int       max_command_line_len;
-    u_int       max_header_line_len;
-    u_int       max_response_line_len;
-    u_int       no_alerts;
-    u_int       alert_unknown_cmds;
-    u_int       alert_xlink2state;
-    u_int       drop_xlink2state;
-    u_int       print_cmds;    
-    SMTP_token *cmd;
-    int         cmd_size;
-
-} SMTP_CONFIG   ;
-
-/*  Exported functions */
-void SMTP_Init(void);
+void SMTP_InitCmds(void);
+void SMTP_SearchInit(void);
 void SMTP_Free(void);
-//void SnortSMTP(Packet *p);
-void SnortSMTP(SFSnortPacket *p);
+void SnortSMTP(SFSnortPacket *);
+int  SMTP_IsServer(u_int16_t);
 
-#define GENERATOR_SMTP 124
-extern DynamicPreprocessorData _dpd;
+/**************************************************************************/
 
 #endif  /* __SMTP_H__ */
+

@@ -2,35 +2,40 @@
 Template: snort{PACKAGE}/configure_db
 Type: boolean
 Default: true
-_Description: Do you want to set up a database for snort{PACKAGE} to log to?
- You only need to do this the first time you install snort{PACKAGE}. Before
- you go on, make sure you have (1) the hostname of a machine running a
- {DATABASE} server set up to allow tcp connections from this host, (2) a
- database on that server, (3) a username and password to access the
- database. If you don't have _all_ of these, either select 'no' and run
- with regular file logging support, or fix this first. You can always
- configure database logging later, by reconfiguring the snort{PACKAGE}
- package with 'dpkg-reconfigure -plow snort{PACKAGE}'
+_Description: Set up a database for snort{PACKAGE} to log to?
+ No database has been set up for Snort to log to. Before continuing,
+ you should make sure you have:
+ .
+  - the server host name (that server must allow TCP connections
+    from this machine);
+  - a database on that server;
+  - a username and password to access the database.
+ .
+ If some of these requirements are missing, reject this option and
+ run with regular file logging support.
+ .
+ Database logging can be reconfigured later by running
+ 'dpkg-reconfigure -plow snort{PACKAGE}'.
 
 Template: snort{PACKAGE}/db_host
 Type: string
 _Description: Database server hostname:
- Make sure it has been set up correctly to allow incoming connections from
- this host!
+ Please specify the host name of a database server that allows
+ incoming connections from this host.
 
 Template: snort{PACKAGE}/db_database
 Type: string
-_Description: Database to use:
- Make sure this database has been created and your database user has write
- access to this database.
+_Description: Database name:
+ Please specify the name of an existing database to which the
+ database user has write access.
 
 Template: snort{PACKAGE}/db_user
 Type: string
 _Description: Username for database access:
- Make sure this user has been created and has write access.
+ Please specify a database server username with write access to the database.
 
 Template: snort{PACKAGE}/db_pass
 Type: password
 _Description: Password for the database connection:
- Please enter a password to connect to the Snort Alert database.
+ Please enter the password to use to connect to the Snort Alert database.
 

@@ -1175,8 +1175,9 @@ PTW32_DLLPORT int pthreadCancelableTimedWait (HANDLE waitHandle,
  */
 
 #if !defined(__MINGW32__)
-#define strtok_r( _s, _sep, _lasts ) \
-	( *(_lasts) = strtok( (_s), (_sep) ) )
+//we have our own implementation of strtok_r that gets linked into Snort
+//#define strtok_r( _s, _sep, _lasts ) \
+//	( *(_lasts) = strtok( (_s), (_sep) ) )
 #endif /* !__MINGW32__ */
 
 #define asctime_r( _tm, _buf ) \

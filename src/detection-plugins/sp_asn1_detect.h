@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -35,6 +35,6 @@ typedef struct s_ASN1_CTXT
 
 } ASN1_CTXT;
 
-int Asn1DoDetect(u_int8_t *, u_int16_t, ASN1_CTXT *, u_int8_t *);
+int Asn1DoDetect(const u_int8_t *, u_int16_t, ASN1_CTXT *, const u_int8_t *);
 
 #endif

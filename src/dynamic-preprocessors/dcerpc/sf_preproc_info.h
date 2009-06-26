@@ -1,7 +1,7 @@
 /*
  * sf_preproc_info.h
  *
- * Copyright (C) 2006 Sourcefire,Inc
+ * Copyright (C) 2006-2009 Sourcefire, Inc.
  * Andrew Mullican
  *
  * This program is free software; you can redistribute it and/or modify
@@ -29,9 +29,13 @@
 #define SF_PREPROC_INFO_H
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   0
+#define MINOR_VERSION   1
 #define BUILD_VERSION   4
+#ifdef SUP_IP6
+#define PREPROC_NAME    "SF_DCERPC (IPV6)"
+#else
 #define PREPROC_NAME    "SF_DCERPC"
+#endif
 
 #define DYNAMIC_PREPROC_SETUP SetupDCERPC
 extern void SetupDCERPC();

@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -26,7 +27,6 @@
 #include "config.h"
 #endif
 
-#if !defined(DEBUG)
 #if !defined(INLINE)
 #ifdef WIN32
 #define INLINE __inline
@@ -34,15 +34,13 @@
 #define INLINE inline
 #endif /* WIN32 */
 #endif /* !def INLINE */
-#else /* !def DEBUG */
-#ifdef INLINE
-#undef INLINE
-#endif /* def INLINE */
-#define INLINE
-#endif /* !def DEBUG */
 
 #include <ctype.h>
 #ifdef HAVE_WCHAR_H
+/* ISOC99 is defined to get required prototypes */
+#ifndef __USE_ISOC99
+#define __USE_ISOC99
+#endif
 #include <wchar.h>
 #endif
 
@@ -53,8 +51,8 @@
 #define DEBUG_CONFIGRULES     0x00000002  /* 2 */
 #define DEBUG_PLUGIN          0x00000004  /* 4 */
 #define DEBUG_DATALINK        0x00000008  /* 8 */
-#define DEBUG_IP              0x00000010  /* 16 */
-#define DEBUG_TCPUDP          0x00000020  /* 32 */
+//#define DEBUG_IP              0x00000010  /* 16 */
+//#define DEBUG_TCPUDP          0x00000020  /* 32 */
 #define DEBUG_DECODE          0x00000040  /* 64 */
 #define DEBUG_LOG             0x00000080  /* 128 */
 #define DEBUG_MSTRING         0x00000100  /* 256 */
@@ -65,12 +63,12 @@
 #define DEBUG_STREAM          0x00002000  /* 8192 */
 #define DEBUG_PATTERN_MATCH   0x00004000  /* 16384 */
 #define DEBUG_DETECT          0x00008000  /* 32768 */
-#define DEBUG_CONVERSATION    0x00010000  /* 65536 */
+#define DEBUG_SKYPE           0x00010000  /* 65536 */
 #define DEBUG_FRAG            0x00020000  /* 131072 */
 #define DEBUG_HTTP_DECODE     0x00040000  /* 262144 */
-#define DEBUG_PORTSCAN2       0x00080000  /* 524288 / (+ conv2 ) 589824 */
+//#define DEBUG_PORTSCAN2       0x00080000  /* 524288 / (+ conv2 ) 589824 */
 #define DEBUG_RPC             0x00100000  /* 1048576 */
-#define DEBUG_FLOWSYS         0x00200000  /* 2097152 */
+//#define DEBUG_FLOWSYS         0x00200000  /* 2097152 */
 #define DEBUG_HTTPINSPECT     0x00400000  /* 4194304 */
 #define DEBUG_STREAM_STATE    0x00800000  /* 8388608 */
 #define DEBUG_ASN1            0x01000000  /* 16777216 */
@@ -78,6 +76,9 @@
 #define DEBUG_SMTP            0x04000000  /* 67108864 */
 #define DEBUG_DCERPC          0x08000000  /* 134217728 */
 #define DEBUG_DNS             0x10000000  /* 268435456 */
+#define DEBUG_ATTRIBUTE       0x20000000  /* 536870912 */
+#define DEBUG_PORTLISTS       0x40000000  /* 1073741824 */
+#define DEBUG_SSL             0x80000000  /* 2147483648 */
 
 void DebugMessageFunc(int dbg,char *fmt, ...);
 #ifdef HAVE_WCHAR_H

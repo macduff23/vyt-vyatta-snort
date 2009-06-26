@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2001 Phil Wood <cpw@lanl.gov>
 **
@@ -36,7 +37,14 @@
 #include "util.h"
 #include "plugin_enum.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats ipSamePerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
 
+#include "detection_options.h"
 
 typedef struct _IpSameData
 {
@@ -46,7 +54,28 @@ typedef struct _IpSameData
 
 void IpSameCheckInit(char *, OptTreeNode *, int);
 void ParseIpSame(char *, OptTreeNode *);
-int IpSameCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+int IpSameCheck(void *option_data, Packet *p);
+
+u_int32_t IpSameCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+
+    /* NO data stored for the option */
+
+    a = RULE_OPTION_TYPE_IP_SAME;
+    b = 0;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IpSameCheckCompare(void *l, void *r)
+{
+    /* NO data stored for the option */
+    return DETECTION_OPTION_EQUAL;
+}
 
 
 /****************************************************************************
@@ -63,7 +92,10 @@ int IpSameCheck(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIpSameCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("sameip", IpSameCheckInit);
+    RegisterPlugin("sameip", IpSameCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("sameip", &ipSamePerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: IpSameCheck Initialized\n"););
 }
 
@@ -83,6 +115,9 @@ void SetupIpSameCheck(void)
  ****************************************************************************/
 void IpSameCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
+    void *ds_ptr_dup;
+
     /* multiple declaration check */ 
     if(otn->ds_list[PLUGIN_IP_SAME_CHECK])
     {
@@ -92,16 +127,23 @@ void IpSameCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
-    otn->ds_list[PLUGIN_IP_SAME_CHECK] = (IpSameData *)
-            SnortAlloc(sizeof(IpSameData));
+    otn->ds_list[PLUGIN_IP_SAME_CHECK] = (void *)1; /* Just store something there */
+    //otn->ds_list[PLUGIN_IP_SAME_CHECK] = (IpSameData *)
+    //        SnortAlloc(sizeof(IpSameData));
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
     ParseIpSame(data, otn);
 
+    if (add_detection_option(RULE_OPTION_TYPE_IP_SAME, (void *)NULL, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        //otn->ds_list[PLUGIN_IP_SAME_CHECK] = ds_ptr_dup;
+    }
+
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IpSameCheck, otn);
+    fpl = AddOptFuncToList(IpSameCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_IP_SAME;
 }
 
 
@@ -156,19 +198,38 @@ void ParseIpSame(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int IpSameCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IpSameCheck(void *option_data, Packet *p)
 {
-    if(!p->iph)
-        return 0; /* if error occured while ip header
-                   * was processed, return 0 automagically.
-               */
-    if (p->iph->ip_src.s_addr == p->iph->ip_dst.s_addr) 
-    {
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
 
-	DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Match!  %x -> %x\n",
+    if(!IPH_IS_VALID(p))
+        return rval; /* if error occured while ip header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(ipSamePerfStats);
+
+    if (IP_EQUALITY( GET_SRC_IP(p), GET_DST_IP(p)))
+#ifdef SUP_IP6
+    {
+	    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Match!  %x ->",
+                    sfip_ntoa(GET_SRC_IP(p)));
+               DebugMessage(DEBUG_PLUGIN, " %x\n",
+                    sfip_ntoa(GET_DST_IP(p))));
+        rval = DETECTION_OPTION_MATCH;
+    }
+    else
+    {
+    	DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"No match!  %x ->",
+                    sfip_ntoa(GET_SRC_IP(p)));
+               DebugMessage(DEBUG_PLUGIN, " %x\n",
+                    sfip_ntoa(GET_DST_IP(p))));
+    }
+#else
+    {
+	    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Match!  %x -> %x\n",
 				p->iph->ip_src.s_addr,  p->iph->ip_dst.s_addr););
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
     else
     {
@@ -176,7 +237,9 @@ int IpSameCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"No match %x -> %x\n",
 				p->iph->ip_src.s_addr,  p->iph->ip_dst.s_addr););
     }
+#endif
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(ipSamePerfStats);
+    return rval;
 }

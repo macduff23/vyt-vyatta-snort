@@ -1,4 +1,14 @@
-snort (2.7.0-1) experimental; urgency=low
+snort (2.7.0-15) unstable; urgency=low
+
+  The Database schema changed in Snort from 2.6 to the 2.7 release,
+  if you are upgrading from an older release please see the document
+  README-database-upgrade.Debian (available in the Snort documentation
+  directory /usr/share/doc/snort-{mysql,pgsql}) and take the appropriate 
+  steps to update your Database schema.
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Thu, 01 May 2008 22:38:46 +0200
+
+snort (2.7.0-1) unstable; urgency=low
 
   Sourcefire changed the license of the IDS ruleset in 2.4 introducing the "VRT
   Certified rules" ruleset which is the official ruleset for Snort. This

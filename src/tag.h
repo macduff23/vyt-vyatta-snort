@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -29,9 +30,11 @@
 #include "event.h"
 #include "decode.h"
 
-void InitTag();
+void InitTag(void);
+void CleanupTag(void);
 void ParseTag(char *, OptTreeNode *);
 int CheckTagList(Packet *, Event *);
 void SetTags(Packet *, OptTreeNode *, u_int32_t);
+void TagCacheReset(void);
 
 #endif /* __TAG_H__ */

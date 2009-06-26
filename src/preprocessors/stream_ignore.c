@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2005 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** AUTHOR: Steven Sturges
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -50,14 +50,15 @@
 #include "stream_api.h"
 #include "sfghash.h"
 #include "util.h"
+#include "ipv6_port.h"
 
 /* Reasonably small, and prime */
 #define IGNORE_HASH_SIZE 1021
 typedef struct _IgnoreNode
 {
-    u_int32_t ip1;
+    snort_ip ip1;
     short port1;
-    u_int32_t ip2;
+    snort_ip ip2;
     short port2;
     char protocol;
     time_t expires;
@@ -67,8 +68,8 @@ typedef struct _IgnoreNode
 
 typedef struct _IgnoreHashKey
 {
-    u_int32_t ip1;
-    u_int32_t ip2;
+    snort_ip ip1;
+    snort_ip ip2;
     short port;
     char protocol;
     char pad;
@@ -77,8 +78,8 @@ typedef struct _IgnoreHashKey
 /* The hash table of ignored channels */
 static SFGHASH *channelHash = NULL;
 
-int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
-                  u_int32_t srvIP, u_int16_t srvPort,
+int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
+                  snort_ip_p srvIP, u_int16_t srvPort,
                   char protocol, char direction, char flags,
                   u_int32_t timeout)
 {
@@ -86,7 +87,15 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
     time_t now;
     IgnoreNode *node = NULL;
     short portToHash = cliPort != UNKNOWN_PORT ? cliPort : srvPort;
-    u_int32_t ip1, ip2;
+    snort_ip_p ip1, ip2;
+    snort_ip zeroed, oned;
+    IP_CLEAR(zeroed);
+#ifdef SUP_IP6
+    memset(oned.ip8, 1, 16);
+    zeroed.family = oned.family = cliIP->family;
+#else
+    oned = 0xffffffff;
+#endif
 
     if (!channelHash)
     {
@@ -104,11 +113,11 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
     if ((cliPort == UNKNOWN_PORT) && (srvPort == UNKNOWN_PORT))
         return -1;
 
-    if ((cliIP == 0) || (cliIP == 0xFFFFFFFF) ||
-        (srvIP == 0) || (srvIP == 0xFFFFFFFF) )
+    if (sfip_equal(cliIP, IP_ARG(zeroed)) || sfip_equal(cliIP, IP_ARG(oned)) ||
+        sfip_equal(srvIP, IP_ARG(zeroed)) || sfip_equal(srvIP, IP_ARG(oned)) )
         return -1;
 
-    if (cliIP < srvIP)
+    if (IP_LESSER(cliIP, srvIP))
     {
         ip1 = cliIP;
         ip2 = srvIP;
@@ -124,8 +133,8 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
      * time.  Those entries will be for sessions that we missed or
      * never occured.  Should not keep the entry around indefinitely.
      */
-    hashKey.ip1 = ip1;
-    hashKey.ip2 = ip2;
+    IP_COPY_VALUE(hashKey.ip1, ip1);
+    IP_COPY_VALUE(hashKey.ip2, ip2);
     hashKey.port = portToHash;
     hashKey.protocol = protocol;
     hashKey.pad = 0;
@@ -148,9 +157,9 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
         int expired = (node->expires != 0) && (now > node->expires);
         if (expired)
         {
-            node->ip1 = cliIP;
+            IP_COPY_VALUE(node->ip1, cliIP);
             node->port1 = cliPort;
-            node->ip2 = srvIP;
+            IP_COPY_VALUE(node->ip2, srvIP);
             node->port2 = srvPort;
             node->direction = direction;
             node->protocol = protocol;
@@ -177,9 +186,9 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
             DEBUG_WRAP(DebugMessage(DEBUG_STREAM, "Memory alloc error\n"););
             return -1;
         }
-        node->ip1 = cliIP;
+        IP_COPY_VALUE(node->ip1, cliIP);
         node->port1 = cliPort;
-        node->ip2 = srvIP;
+        IP_COPY_VALUE(node->ip2, srvIP);
         node->port2 = srvPort;
         node->direction = direction;
         node->protocol = protocol;
@@ -217,7 +226,7 @@ int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
 
 char CheckIgnoreChannel(Packet *p)
 {
-    u_int32_t srcIP, dstIP;
+    snort_ip_p srcIP, dstIP;
     short srcPort, dstPort;
     char protocol;
 
@@ -233,26 +242,26 @@ char CheckIgnoreChannel(Packet *p)
     if (!channelHash || channelHash->count == 0)
         return retVal;
 
-    srcIP = p->iph->ip_src.s_addr;
-    dstIP = p->iph->ip_dst.s_addr;
+    srcIP = GET_SRC_IP(p);
+    dstIP = GET_DST_IP(p);
     srcPort = p->sp;
     dstPort = p->dp;
-    protocol = p->iph->ip_proto;
+    protocol = GET_IPH_PROTO(p);
     
     /* First try the hash table using the dstPort.
      * For FTP data channel this would be the client's port when the PORT
      * command is used and the server is initiating the connection.
      * This is done first because it is the most common case for FTP clients.
      */
-    if (dstIP < srcIP)
+    if (IP_LESSER(dstIP,srcIP))
     {
-        hashKey.ip1 = dstIP;
-        hashKey.ip2 = srcIP;
+        IP_COPY_VALUE(hashKey.ip1, dstIP);
+        IP_COPY_VALUE(hashKey.ip2, srcIP);
     }
     else
     {
-        hashKey.ip1 = srcIP;
-        hashKey.ip2 = dstIP;
+        IP_COPY_VALUE(hashKey.ip1, srcIP);
+        IP_COPY_VALUE(hashKey.ip2, dstIP);
     }
     hashKey.port = dstPort;
     hashKey.protocol = protocol;
@@ -299,13 +308,23 @@ char CheckIgnoreChannel(Packet *p)
         /* If the IPs match and if the ports match (or the port is
          * "unknown"), we should ignore this channel.
          */
-        if (node->ip1 == srcIP && node->ip2 == dstIP &&
+        if(
+#ifdef SUP_IP6
+        IP_EQUALITY(&node->ip1, srcIP) && IP_EQUALITY(&node->ip2, dstIP) &&
+#else
+        IP_EQUALITY(node->ip1, srcIP) && IP_EQUALITY(node->ip2, dstIP) &&
+#endif
             (node->port1 == srcPort || node->port1 == UNKNOWN_PORT) &&
             (node->port2 == dstPort || node->port2 == UNKNOWN_PORT) )
         {
             match = 1;
         }
-        else if (node->ip2 == srcIP && node->ip1 == dstIP &&
+        else if (
+#ifdef SUP_IP6
+        IP_EQUALITY(&node->ip2, srcIP) && IP_EQUALITY(&node->ip1, dstIP) &&
+#else
+        IP_EQUALITY(node->ip2, srcIP) && IP_EQUALITY(node->ip1, dstIP) &&
+#endif
                  (node->port2 == srcPort || node->port2 == UNKNOWN_PORT) &&
                  (node->port1 == dstPort || node->port1 == UNKNOWN_PORT) )
         {
@@ -344,11 +363,21 @@ char CheckIgnoreChannel(Packet *p)
                 {
                     /* Have to allocate & copy one of these since inet_ntoa
                      * clobbers the info from the previous call. */
+
+#ifdef SUP_IP6
+                    sfip_t *tmpAddr;
+                    char srcAddr[40];
+                    tmpAddr = srcIP;
+                    SnortStrncpy(srcAddr, sfip_ntoa(tmpAddr), sizeof(srcAddr));
+                    tmpAddr = dstIP;
+#else
+
                     struct in_addr tmpAddr;
                     char srcAddr[17];
                     tmpAddr.s_addr = srcIP;
                     SnortStrncpy(srcAddr, inet_ntoa(tmpAddr), sizeof(srcAddr));
                     tmpAddr.s_addr = dstIP;
+#endif
 
                     DEBUG_WRAP(DebugMessage(DEBUG_STREAM,
                            "Ignoring channel %s:%d --> %s:%d\n",
@@ -396,4 +425,13 @@ char CheckIgnoreChannel(Packet *p)
     }
 
     return retVal;
+}
+
+void CleanupIgnore()
+{
+    if (channelHash)
+    {
+        sfghash_delete(channelHash);
+        channelHash = NULL;
+    }
 }

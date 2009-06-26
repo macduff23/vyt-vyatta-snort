@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -22,8 +22,8 @@
 /*
 **  util.h
 */
-#ifndef __UTIL_H__
-#define __UTIL_H__
+#ifndef __HI_UTIL_XMALLOC_H__
+#define __HI_UTIL_XMALLOC_H__
 
 #ifdef WIN32
 
@@ -41,4 +41,4 @@ char *xstrdup(const char *str);
 void  xshowmem();
 void  xfree( void * );
 
-#endif
+#endif /* __HI_UTIL_XMALLOC_H__ */

@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -32,6 +33,10 @@
 #include "parser.h"
 #include "log.h"
 #include "event.h"
+#ifdef PORTLISTS
+#include "sfutil/sfportobject.h"
+#endif
+
 /*  P R O T O T Y P E S  ******************************************************/
 extern int do_detect;
 extern int do_detect_content;
@@ -56,7 +61,20 @@ int EvalPacket(ListHead *, int, Packet * );
 int EvalHeader(RuleTreeNode *, Packet *, int);
 int EvalOpts(OptTreeNode *, Packet *);
 void TriggerResponses(Packet *, OptTreeNode *);
+
+#ifdef PORTLISTS
+#ifdef SUP_IP6
+int CheckAddrPort(sfip_var_t *, PortObject* , Packet *, u_int32_t, int);
+#else
+int CheckAddrPort(IpAddrSet *, PortObject* , Packet *, u_int32_t, int);
+#endif
+#else
+#ifdef SUP_IP6
+int CheckAddrPort(sfip_var_t *, u_int16_t, u_int16_t, Packet *, u_int32_t, int);
+#else
 int CheckAddrPort(IpAddrSet *, u_int16_t, u_int16_t, Packet *, u_int32_t, int);
+#endif
+#endif
 
 #include "bitop_funcs.h"
 static inline void DisableDetect(Packet *p)
@@ -71,19 +89,25 @@ static inline void DisableAllDetect(Packet *p)
     do_detect = do_detect_content = 0;
 }
 
-/* detection modules */
-int CheckBidirectional(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckSrcIP(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckDstIP(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckSrcIPNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckDstIPNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckSrcPortEqual(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckDstPortEqual(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckSrcPortNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int CheckDstPortNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *);
+static inline void DisablePreprocessors(Packet *p)
+{
+    boResetBITOP(p->preprocessor_bits);
+}
 
-int RuleListEnd(Packet *, struct _RuleTreeNode *, RuleFpList *);
-int OptListEnd(Packet *, struct _OptTreeNode *, OptFpList *);
+
+/* detection modules */
+int CheckBidirectional(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckSrcIP(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckDstIP(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckSrcIPNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckDstIPNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckSrcPortEqual(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckDstPortEqual(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckSrcPortNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int CheckDstPortNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+
+int RuleListEnd(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
+int OptListEnd(void *option_data, Packet *p);
 void CallLogPlugins(Packet *, char *, void *, Event *);
 void CallAlertPlugins(Packet *, char *, void *, Event *);
 void CallLogFuncs(Packet *, char *, ListHead *, Event *);

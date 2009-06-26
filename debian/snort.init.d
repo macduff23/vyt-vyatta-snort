@@ -162,9 +162,11 @@ case "$1" in
 		got_instance=1
 		log_progress_msg "($interface"
 
-                # Check if the interface is available
-                # (only if iproute is available) 
-                if ! [ -x /sbin/ip ] || ip link show dev "$interface" >/dev/null 2>&1; then
+                # Check if the interface is available:
+                # - only if iproute is available
+                # - the interface exists 
+                # - the interface is up
+                if ! [ -x /sbin/ip ] || ( ip link show dev "$interface" >/dev/null 2>&1 && [ -n "`ip link show up "$interface" 2>/dev/null`" ] ) ; then
 
 		PIDFILE=/var/run/snort_$interface.pid
                 CONFIGFILE=/etc/snort/snort.$interface.conf
@@ -208,6 +210,7 @@ case "$1" in
 
                 else
                 # What to do if the interface is not available
+                # or is not up
                         if [ "$ALLOW_UNAVAILABLE" != "no" ] ; then 
                             log_progress_msg "...interface not available)"
                         else 

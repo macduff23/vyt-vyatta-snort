@@ -251,7 +251,7 @@ __inline VOID TimeSynchronizeRDTSC(struct time_conv *data)
 
 	data->start[0] = tmp;
 
-	IF_LOUD(DbgPrint("Frequency %I64u MHz\n",data->reference);)
+	IF_LOUD(DbgPrint("Frequency " STDu64 " MHz\n",data->reference);)
 }
 
 #pragma optimize ("g",on)  //Due to some weird behaviour of the optimizer of DDK build 2600 

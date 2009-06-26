@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002 Sourcefire, Inc.
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Author(s):   Andrew R. Baker <andrewb@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -26,8 +26,14 @@
 #include "mstring.h"
 #include "sfutil/sfghash.h"
 
+#ifdef TARGET_BASED
+#include "target-based/sftarget_protocol_reference.h"
+#endif
+
 extern char *file_name;
 extern int file_line;
+
+static OptTreeNode *soidOTN;
 
 SFGHASH * soid_sg_otn_map = NULL;
 SFGHASH * sg_rule_otn_map = NULL;
@@ -144,6 +150,23 @@ ReferenceSystemNode *ReferenceSystemAdd(char *name, char *url)
     return newNode;
 }
 
+void DeleteReferenceSystems()
+{
+    ReferenceSystemNode *current, *tmpReference;
+
+    current = referenceSystems;
+    while (current)
+    {
+        tmpReference = current->next;
+        if (current->url)
+            free(current->url);
+        if (current->name)
+            free(current->name);
+        free(current);
+        current = tmpReference;
+    }
+    referenceSystems = NULL;
+}
 ReferenceSystemNode *ReferenceSystemLookup(char *name)
 {   
     ReferenceSystemNode *refSysNode = referenceSystems;
@@ -291,25 +314,35 @@ void ParsePriority(char *priority, OptTreeNode *otn)
 
     return;
 }
-
 /*
- *  metdadata: key value, key value, key value, ...;
+ * metadata may be key/value pairs or just keys
+ * 
+ * metadata: key [=] value, key [=] value, key [=] value, key, key, ... ;
  *
- *  This option may be used one or more times.
+ * This option may be used one or more times, with one or more key/value pairs.
  *
- *  engine shared
- *  soid   gid|sid    (pipe is the required separator, not an or operator iin this case)
- *  rule-type decode | preproc | detect    (default = detect)
- *  rule-flushing enabled | disabled       (default = disabled)
+ * updated 8/28/06 - man 
+ *
+ * keys:
+ * 
+ * engine
+ * rule-flushing
+ * rule-type
+ * soid
+ * service 
+ * os
  */
 void ParseMetadata(char * metadata, OptTreeNode *otn)
 {
     char * key;
     char * value;
     char **toks;
-    int num_toks;
-    char *endPtr;
-    
+    int    num_toks;
+    char **key_toks;
+    int    num_keys;
+    char  *endPtr;
+    int    i;
+
     if( !metadata )
     {
         LogMessage("WARNING %s(%d) => Metadata without an argument!\n", 
@@ -317,29 +350,44 @@ void ParseMetadata(char * metadata, OptTreeNode *otn)
         return;
     }
     
-    //printf("****metdata: %s\n",metadata);
-        
     while(isspace((int)*metadata)) 
         metadata++;
     
     if( !strlen(metadata) ) return;
+  
+    DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES, "metadata: %s\n",metadata););
     
-    for( key = strtok(metadata," ");key; key=strtok(0," ") )
+    key_toks = mSplit(metadata, ",", 100, &num_keys, 0);
+   
+    for(i=0;i<num_keys;i++)
     {
-        /* value */
-        value = strtok(0,",");
-        if( !value )
-        { /* error */
-            FatalError("%s(%d)=> Metadata Key '%s' Missing a Value\n",
-                       file_name, file_line, key);
-        }
-        // printf("***metdata-key:%s, value:%s\n",key,value);
 
+        /* keys are requied .. */
+        key   = strtok(key_toks[i]," =");
+        if( !key  )
+        {
+            mSplitFree(&key_toks, num_keys);
+            return;
+        }
+
+        /* values are optional - depends on key */
+        value = strtok(0," ");
+    
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_CONFIGRULES, "metadata: key=%s",key);
+            if(value)
+                DebugMessage(DEBUG_CONFIGRULES, " value=%s",value);
+            DebugMessage(DEBUG_CONFIGRULES, "\n");
+        );
+       
         /* 
          * process key/valuies 
          */
         if( strcmp(key,"engine")==0 )
         {
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+            
             if( strcmp(value,"shared")==0 )
             {
                 otn->sigInfo.shared = 1;
@@ -348,6 +396,9 @@ void ParseMetadata(char * metadata, OptTreeNode *otn)
         /* this should follow 'rule-type' since it changes rule_flusing defaults set by rule-type */
         else if( strcmp(key,"rule-flushing")==0 )
         {
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+
             if(  strcmp(value,"enabled")==0 ||
                  strcmp(value,"on")==0 )
             {
@@ -367,6 +418,9 @@ void ParseMetadata(char * metadata, OptTreeNode *otn)
         }
         else if( strcmp(key,"rule-type")==0 )
         {
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+
             if( strcmp(value,"preproc")==0 )
             {
                 otn->sigInfo.rule_type= SI_RULE_TYPE_PREPROC;
@@ -391,6 +445,9 @@ void ParseMetadata(char * metadata, OptTreeNode *otn)
         }
         else if (strcmp(key, "soid")==0 )
         {
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+
             /* value is a : separated pair of gid:sid representing
              * the GID/SID of the original rule.  This is used when
              * the rule is duplicated rule by a user with different
@@ -405,13 +462,50 @@ void ParseMetadata(char * metadata, OptTreeNode *otn)
             }
 
             otn->sigInfo.otnKey.generator = strtoul(toks[0], &endPtr, 10);
+            if( *endPtr )
+                FatalError("Bogus gid %s",toks[0]);
+            
             otn->sigInfo.otnKey.id = strtoul(toks[1], &endPtr, 10);
+            if( *endPtr )
+                FatalError("Bogus sid %s",toks[1]);
+
             mSplitFree(&toks, num_toks);
+        }
+#ifdef TARGET_BASED 
+#ifdef PORTLISTS
+        else if( strcmp(key,"service") == 0 ) /* track all of the rules for each service */
+        {
+            // metadata: service http, ... ;
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+            otn->sigInfo.service = SnortStrdup(value);
+            otn->sigInfo.service_ordinal = FindProtocolReference(otn->sigInfo.service);
+            if (otn->sigInfo.service_ordinal == SFTARGET_UNKNOWN_PROTOCOL)
+            {
+                otn->sigInfo.service_ordinal = AddProtocolReference(otn->sigInfo.service);
+            }
+        }
+        else if( strcmp(key,"os") == 0 ) /* track all of the rules for each os */
+        {
+            // metadata: os = Linux:w
+            // 
+            if( !value )
+                FatalError("metadata key '%s' requires a value\n",key);
+            otn->sigInfo.os = SnortStrdup(value);
+        }
+#endif
+#endif
+        else
+        {
+            //LogMessage("Ignoring Metadata : %s = %s \n",key,value);
         }
     }
 
+    mSplitFree(&key_toks, num_keys);
+
     return;
 }
+
 
 
 void ParseClassType(char *classtype, OptTreeNode *otn)
@@ -540,6 +634,24 @@ void ParseClassificationConfig(char *args)
     return;
 }
 
+void DeleteClassifications()
+{
+    ClassType *current, *tmpClass;
+
+    current = classTypes;
+    while (current)
+    {
+        tmpClass = current->next;
+        if (current->type)
+            free(current->type);
+        if (current->name)
+            free(current->name);
+        free(current);
+        current = tmpClass;
+    }
+    classTypes = NULL;
+}
+
 int AddClassificationConfig(ClassType *newNode)
 {
     int max_id = 0;
@@ -568,7 +680,6 @@ int AddClassificationConfig(ClassType *newNode)
     return newNode->id;
 }
 
-static OptTreeNode *soidOTN;
         
 OptTreeNode * soid_sg_otn_lookup( u_int32_t gid, u_int32_t sid )
 {
@@ -598,7 +709,7 @@ int soid_otn_lookup_init()
 {
     if (!soid_sg_otn_map)
     {
-        soid_sg_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,free);
+        soid_sg_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,NULL/* free*/);
         if (!soid_sg_otn_map)
             return -1;
     }
@@ -628,11 +739,92 @@ void soid_otn_lookup_add( OptTreeNode * otn_tmp )
     }
 }
 
+void soid_otn_lookup_free()
+{
+    if (soid_sg_otn_map)
+    {
+        sfghash_delete(soid_sg_otn_map);
+        soid_sg_otn_map = NULL;
+    }
+}
+
+void otn_remove(OptTreeNode *otn) 
+{
+    sg_otn_key_t key;
+    
+    if(!otn) 
+        return;
+
+    key.generator = otn->sigInfo.generator; 
+    key.id = otn->sigInfo.id;
+
+    sfghash_remove(soid_sg_otn_map, &(otn->sigInfo.otnKey));
+    sfghash_remove(sg_rule_otn_map, &key);
+}
+
+void otn_free(void *data)
+{
+    OptTreeNode *otn = (OptTreeNode *)data;
+    OptFpList *opt_func, *opt_func_tmp;
+    RspFpList *rsp_func, *rsp_func_tmp;
+    ReferenceNode *ref_node, *ref_node_tmp;
+
+    if (!otn)
+        return;
+
+    opt_func = otn->opt_func;
+    while (opt_func)
+    {
+        opt_func_tmp = opt_func;
+        opt_func = opt_func->next;
+        free(opt_func_tmp);
+    }
+    rsp_func = otn->rsp_func;
+    while (rsp_func)
+    {
+        rsp_func_tmp = rsp_func;
+        rsp_func = rsp_func->next;
+        free(rsp_func_tmp);
+    }
+
+    if (otn->sigInfo.message)
+    {
+        if (!otn->generated)
+            free(otn->sigInfo.message);
+    }
+#ifdef TARGET_BASED 
+#ifdef PORTLISTS
+    if (otn->sigInfo.service)
+        free(otn->sigInfo.service);
+#endif
+#endif
+
+    ref_node = otn->sigInfo.refs;
+    while (ref_node)
+    {
+        ref_node_tmp = ref_node;
+        ref_node = ref_node->next;
+        free(ref_node_tmp->id);
+        free(ref_node_tmp);
+    }
+
+    if (otn->tag)
+    {
+        free(otn->tag);
+        otn->tag = NULL;
+    }
+
+    if (otn->generated)
+        free(otn->rtn);
+
+    free(otn);
+}
+
 int otn_lookup_init()
 {
     if (!sg_rule_otn_map)
     {
-        sg_rule_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,free);
+        sg_rule_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,otn_free);
         if (!sg_rule_otn_map)
             return -1;
     }
@@ -640,12 +832,44 @@ int otn_lookup_init()
 }
 void otn_lookup_add( OptTreeNode * otn )
 {
+    int status;
     sg_otn_key_t key;
     
     key.generator = otn->sigInfo.generator;
     key.id = otn->sigInfo.id;
 
-    sfghash_add(sg_rule_otn_map, &key, otn);
+    status = sfghash_add(sg_rule_otn_map, &key, otn);
+    switch (status)
+    {
+        case SFGHASH_OK:
+            /* otn was inserted successfully */
+            break;
+
+        case SFGHASH_INTABLE:
+            /* Assume it's a rule without an sid */
+            if (key.id == 0)
+            {
+                FatalError("%s(%d): Duplicate rule with same gid (%u) and no sid.  To "
+                           "avoid this, make sure all of your rules define an "
+                           "sid.\n", file_name, file_line, key.generator);
+            }
+            else
+            {
+                FatalError("%s(%d): Duplicate rule with same gid (%u) and sid (%u)\n",
+                           file_name, file_line, key.generator, key.id);
+            }
+
+            break;
+
+        case SFGHASH_NOMEM:
+            FatalError("Failed to allocate memory for rule.\n");
+            break;
+
+        default:
+            FatalError("%s(%d): otn_lookup_add() - unexpected return value "
+                       "from sfghash_add().\n", __FILE__, __LINE__);
+            break;
+    }
 }
 
 OptTreeNode * otn_lookup( u_int32_t gid, u_int32_t sid )
@@ -657,6 +881,15 @@ OptTreeNode * otn_lookup( u_int32_t gid, u_int32_t sid )
     key.id       =sid;
     otn = (OptTreeNode*) sfghash_find(sg_rule_otn_map,&key);
     return otn;
+}
+
+void otn_lookup_free()
+{
+    if (sg_rule_otn_map)
+    {
+        sfghash_delete(sg_rule_otn_map);
+        sg_rule_otn_map = NULL;
+    }
 }
         
 /***************** End of Class/Priority Implementation ***********************/

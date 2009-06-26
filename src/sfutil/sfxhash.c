@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -18,10 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  ****************************************************************************/
- 
-/*!
- *
- *  \f sfxhash.c
+
+/*!@file sfxhash.c
  *
  *  A Customized hash table library for storing and accessing key + data pairs.
  *
@@ -88,23 +86,31 @@
  *  2005-11-15: modified sfxhash_add to check if 'data' is zero before memcpy'ing.
  *              this allows user to pass null for data, and set up the data area
  *              themselves after the call - this is much more flexible.
+ *  8/31/2006: man - changed to use prime table lookup.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "sfxhash.h"
+#include "sfprimetable.h"
 #include "util.h"
+#include "debug.h"
 
-/*
+/**@defgroup sfxhash sourcefire.container.sfxhash 
+ * Implements SFXHASH as specialized hash container
+ * @{
+ */
+
+ /*
  * Private Malloc - abstract the memory system
  */
-static 
+static INLINE
 void * s_alloc( SFXHASH * t, int n )
 {
     return sfmemcap_alloc( &t->mc, n );
 }
-static 
+static INLINE
 void s_free( SFXHASH * t, void * p )
 {
     sfmemcap_free( &t->mc, p );
@@ -122,58 +128,24 @@ void   sfxhash_free( SFXHASH * t, void * p )
     s_free( t, p );
 }
 
-#ifdef XXXX
-/*
- *  A classic hash routine using prime numbers 
- *
- *  Constants for the Prime No. based hash routines  
- */
-#define PRIME_INIT   9791
-#define PRIME_SCALE  31
-static unsigned sfxhash_data( unsigned char *d, int n )
+int sfxhash_nearest_powerof2(int nrows) 
 {
     int i;
-    register unsigned hash = PRIME_INIT;
-    for(i=0;i<n;i++)
-    {
-        hash = hash * PRIME_SCALE + d[i];
-    }  
-    return hash;
+
+    nrows -= 1;
+    for(i=1; i<sizeof(nrows) * 8; i <<= 1)          
+        nrows = nrows | (nrows >> i);
+    nrows += 1;
+
+    return nrows;
 }
 
-#endif /* XXXX */
-
-/*
- *   Primiitive Prime number test, not very fast nor efficient, but should be ok for 
- *   hash table sizes of typical size.  NOT for real-time usage!
- */
-static int isPrime(int num )
-{
-    int i;
-    for(i=2;i<num;i++)
-    {
-        if( (num % i) == 0 ) break;//oops not prime, should have a remainder
-    }
-    if( i == num ) return 1;
-    return 0;
-}
-/*
- *  Iterate number till we find a prime.
- */
-static int calcNextPrime(int num )
-{
-    while( !isPrime( num ) ) num++;
-
-    return num;
-}
-
-/*
- * Exposed function to return number of rows
- */
 int sfxhash_calcrows(int num)
 {
-    return calcNextPrime(num);
+    return sfxhash_nearest_powerof2(num);
+//  return sf_nearest_prime( nrows );
 }
+        
 
 /*!
  *
@@ -212,9 +184,12 @@ SFXHASH * sfxhash_new( int nrows, int keysize, int datasize, int maxmem,
 
     if( nrows > 0 ) /* make sure we have a prime number */
     {
-        nrows = calcNextPrime( nrows );
+//        nrows = sf_nearest_prime( nrows );
+        /* If nrows is not a power of two, need to find the 
+         * next highest power of two */
+        nrows = sfxhash_nearest_powerof2(nrows);
     }
-    else   /* use the magnitude or nrows as is */
+    else   /* use the magnitude of nrows as is */
     { 
         nrows = -nrows;
     }
@@ -382,6 +357,49 @@ void sfxhash_delete( SFXHASH * h )
 }
 
 /*!
+ *  Empty out the hash table
+ *
+ * @param h SFXHASH table pointer
+ *
+ * @return -1 on error
+ */
+int sfxhash_make_empty(SFXHASH *h)
+{
+    SFXHASH_NODE *n = NULL;
+    SFXHASH_NODE *tmp = NULL;
+    unsigned i;
+
+    if (h == NULL)
+        return -1;
+
+    for (i = 0; i < h->nrows; i++)
+    {
+        for (n = h->table[i]; n != NULL; n = tmp)
+        {
+            tmp = n->next;
+            if (sfxhash_free_node(h, n) != SFXHASH_OK)
+            {
+                return -1;
+            }
+        }
+    }
+
+    h->max_nodes = 0;
+    h->crow = 0; 
+    h->cnode = NULL; 
+    h->count = 0;
+    h->ghead = NULL;
+    h->gtail = NULL;
+    h->anr_count = 0;    
+    h->anr_tries = 0;
+    h->find_success = 0;
+    h->find_fail = 0;
+ 
+    return 0;
+}
+
+
+/*!
  *  Get the # of Nodes in HASH the table
  *
  * @param t SFXHASH table pointer
@@ -461,7 +479,7 @@ unsigned sfxhash_overhead_blocks( SFXHASH * t )
     return t->overhead_blocks;
 }
 
-/*
+/** Save the freed node for later use (recylcing).
  *  Free List - uses the NODE gnext/gprev fields
  */
 static
@@ -484,6 +502,9 @@ void sfxhash_save_free_node( SFXHASH *t, SFXHASH_NODE * hnode )
         t->ftail    = hnode;
     }
 }
+
+/**Get a previously freed node for reuse.
+ */
 static
 SFXHASH_NODE * sfxhash_get_free_node( SFXHASH *t )
 {
@@ -542,6 +563,8 @@ void sfxhash_gunlink_node( SFXHASH *t, SFXHASH_NODE * hnode )
         t->gtail  =  hnode->gprev;             
 }
 
+/**Move node to the front of global list. Node movement is application specific.
+ */
 void sfxhash_gmovetofront( SFXHASH *t, SFXHASH_NODE * hnode )
 {
     if( hnode != t->ghead )
@@ -682,6 +705,10 @@ SFXHASH_NODE * sfxhash_newnode( SFXHASH * t )
  *  created.
  *
  */
+
+#define hashsize(n) ((u_int32_t)1<<(n))
+#define hashmask(n) (hashsize(n)-1)
+
 static 
 SFXHASH_NODE * sfxhash_find_node_row( SFXHASH * t, void * key, int * rindex )
 {
@@ -697,7 +724,9 @@ SFXHASH_NODE * sfxhash_find_node_row( SFXHASH * t, void * key, int * rindex )
 /*     flowkey_fprint(stdout, key);  */
 /*     printf("****\n"); */
 
-    index   = hashkey % t->nrows;
+//     index   = hashkey % t->nrows;
+    /* Modulus is slow. Switched to a table size that is a power of 2. */      
+    index  = hashkey & (t->nrows - 1);
 
     *rindex = index;
    
@@ -1111,7 +1140,9 @@ int sfxhash_remove( SFXHASH * t, void * key)
                                       (unsigned char*)key,
                                       t->keysize );
     
-    index = hashkey % t->nrows;
+//    index = hashkey % t->nrows;
+    /* Modulus is slow */
+    index   = hashkey & (t->nrows - 1);
 
     hnode = t->table[index];
     
@@ -1377,5 +1408,5 @@ int main ( int argc, char ** argv )
     return 0;
 }
 #endif
-
+/**@}*/
 

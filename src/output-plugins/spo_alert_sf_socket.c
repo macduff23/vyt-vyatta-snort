@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2003 Sourcefire, Inc.
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -28,6 +28,7 @@
 #ifdef LINUX
 
 #include "spo_plugbase.h"
+#include "plugbase.h"
 
 #include "event.h"
 #include "rules.h"
@@ -58,15 +59,27 @@ typedef struct _SnortActionRequest
     u_int32_t tv_sec;
     u_int32_t generator;
     u_int32_t sid;
-    u_int32_t src_ip;
-    u_int32_t dest_ip;
+    snort_ip      src_ip;
+    snort_ip      dest_ip;
     u_int16_t sport;
     u_int16_t dport;
-    u_int8_t protocol;
+    u_int8_t  protocol;
 } SnortActionRequest;
 
-static void AlertSFSocket_Init(u_char *args);
-static void AlertSFSocketSid_Init(u_char *args);
+/* For the list of GID/SIDs that are used by the
+ * Finalize routine.
+ */
+typedef struct _AlertSFSocketGidSid
+{
+    u_int32_t sidValue;
+    u_int32_t gidValue;
+    struct _AlertSFSocketGidSid *next;
+} AlertSFSocketGidSid;
+static AlertSFSocketGidSid *sid_list = NULL;
+
+static void AlertSFSocket_Init(char *args);
+static void AlertSFSocketSid_Init(char *args);
+void AlertSFSocketSid_InitFinalize(int unused, void *also_unused);
 void AlertSFSocket(Packet *packet, char *msg, void *arg, Event *event);
 
 static int AlertSFSocket_Connect(void);
@@ -91,7 +104,7 @@ void AlertSFSocket_Setup(void)
 #define UNIX_PATH_MAX 108
 #endif
 
-static void AlertSFSocket_Init(u_char *args)
+static void AlertSFSocket_Init(char *args)
 {
     /* process argument */
     char *sockname;
@@ -198,11 +211,11 @@ int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
     return SNORT_SUCCESS;
 }
 
-static void AlertSFSocketSid_Init(u_char *args)
+static void AlertSFSocketSid_Init(char *args)
 {
     u_int32_t sidValue;
     u_int32_t gidValue;
-    int rval = 0;
+    AlertSFSocketGidSid *new_sid = NULL;
     
     /* check configured value */
     if(!configured)
@@ -212,26 +225,64 @@ static void AlertSFSocketSid_Init(u_char *args)
     if (GidSid2UInt((char*)args, &sidValue, &gidValue) )
         FatalError("Invalid argument '%s' to alert_sf_socket_sid\n", args);
 
-    rval = SignatureAddOutputFunc( (u_int32_t)gidValue, (u_int32_t)sidValue, AlertSFSocket, NULL );
+    new_sid = (AlertSFSocketGidSid *)SnortAlloc(sizeof(AlertSFSocketGidSid));
 
-    switch(rval)
+    new_sid->sidValue = sidValue;
+    new_sid->gidValue = gidValue;
+
+    if (sid_list)
     {
-        case SNORT_SUCCESS:
-            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "SFSocket output enabled for "
-                        "sid %u.\n", sidValue););
-            break;
-        case SNORT_EINVAL:
-            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Invalid argument "
-                        "attempting to attach output for sid %u.\n", 
-                        sidValue););
-            break;
-        case SNORT_ENOENT:
-            LogMessage("No entry found.  SFSocket output not enabled for "
-                    "sid %lu.\n", sidValue);
-            break;
-        case SNORT_ENOMEM:
-            FatalError("Out of memory");
-            break;
+        /* Add this one to the front. */
+        new_sid->next = sid_list;
+    }
+    else
+    {
+        AddFuncToPostConfigList(AlertSFSocketSid_InitFinalize, NULL);
+    }
+    sid_list = new_sid;
+}
+
+void AlertSFSocketSid_InitFinalize(int unused, void *also_unused)
+{
+    AlertSFSocketGidSid *new_sid = sid_list;
+    AlertSFSocketGidSid *next_sid;
+    u_int32_t sidValue;
+    u_int32_t gidValue;
+    int rval = 0;
+
+    while (new_sid)
+    {
+        sidValue = new_sid->sidValue;
+        gidValue = new_sid->gidValue;
+
+        rval = SignatureAddOutputFunc( (u_int32_t)gidValue, (u_int32_t)sidValue, AlertSFSocket, NULL );
+
+        switch(rval)
+        {
+            case SNORT_SUCCESS:
+                DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "SFSocket output enabled for "
+                            "sid %u.\n", sidValue););
+                break;
+            case SNORT_EINVAL:
+                DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Invalid argument "
+                            "attempting to attach output for sid %u.\n", 
+                            sidValue););
+                break;
+            case SNORT_ENOENT:
+                LogMessage("No entry found.  SFSocket output not enabled for "
+                        "sid %lu.\n", sidValue);
+                break;
+            case SNORT_ENOMEM:
+                FatalError("Out of memory");
+                break;
+        }
+
+        /* Save ptr to next one in the list */
+        next_sid = new_sid->next;
+        /* Free the current one, not needed any more */
+        free(new_sid);
+        /* Reset the list */
+        sid_list = new_sid = next_sid;
     }
 }
 
@@ -265,7 +316,7 @@ void AlertSFSocket(Packet *packet, char *msg, void *arg, Event *event)
 {
     int tries = 0;
 
-    if(!event || !packet || !packet->iph)
+    if(!event || !packet || !IPH_IS_VALID(packet))
         return;
 
     /* construct the action request */
@@ -273,9 +324,15 @@ void AlertSFSocket(Packet *packet, char *msg, void *arg, Event *event)
     sar.tv_sec = packet->pkth->ts.tv_sec;
     sar.generator = event->sig_generator;
     sar.sid = event->sig_id;
+#ifdef SUP_IP6
+    sar.src_ip =  *GET_SRC_IP(packet);
+    sar.dest_ip = *GET_DST_IP(packet);
+#else
     sar.src_ip = ntohl(packet->iph->ip_src.s_addr);
     sar.dest_ip = ntohl(packet->iph->ip_dst.s_addr);
-    sar.protocol = packet->iph->ip_proto;
+#endif
+    sar.protocol = GET_IPH_PROTO(packet);
+
     if(sar.protocol == IPPROTO_UDP || sar.protocol == IPPROTO_TCP)
     {
         sar.sport = packet->sp;

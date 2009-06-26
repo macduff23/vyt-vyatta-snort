@@ -1,6 +1,6 @@
-
-/*
- * smtp_log.h
+/****************************************************************************
+ * 
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -17,42 +17,48 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ ****************************************************************************/
+
+/**************************************************************************
  *
- * Author: Andy  Mullican
+ * smtp_log.h
  *
- */
+ * Author: Andy Mullican
+ *
+ **************************************************************************/
 
 #ifndef __SMTP_LOG_H__
 #define __SMTP_LOG_H__
 
 
-/* Events for SMTP */
-typedef enum _smtp_event_e 
-{
-    SMTP_EVENT_COMMAND_OVERFLOW       = 1,
-    SMTP_EVENT_DATA_HDR_OVERFLOW      = 2,
-    SMTP_EVENT_RESPONSE_OVERFLOW      = 3,
-    SMTP_EVENT_SPECIFIC_CMD_OVERFLOW  = 4,
-    SMTP_EVENT_UNKNOWN_CMD            = 5,
-    SMTP_EVENT_ILLEGAL_CMD            = 6,
-    
-    SMTP_EVENT_MAX                    = 10
+#define GENERATOR_SMTP  124
 
-} smtp_event_e;
+/* Events for SMTP */
+#define SMTP_COMMAND_OVERFLOW       1
+#define SMTP_DATA_HDR_OVERFLOW      2
+#define SMTP_RESPONSE_OVERFLOW      3
+#define SMTP_SPECIFIC_CMD_OVERFLOW  4
+#define SMTP_UNKNOWN_CMD            5
+#define SMTP_ILLEGAL_CMD            6
+#define SMTP_HEADER_NAME_OVERFLOW   7
+
+#define SMTP_EVENT_MAX  8
 
 /* Messages for each event */
-#define     SMTP_COMMAND_OVERFLOW_STR                  "(smtp) Attempted command buffer overflow"
-#define     SMTP_DATA_HDR_OVERFLOW_STR                 "(smtp) Attempted data header buffer overflow"
-#define     SMTP_RESPONSE_OVERFLOW_STR                 "(smtp) Attempted response buffer overflow"
-#define     SMTP_SPECIFIC_CMD_OVERFLOW_STR             "(smtp) Attempted specific command buffer overflow"
-#define     SMTP_UNKNOWN_CMD_STR                       "(smtp) Unknown command"
-#define     SMTP_ILLEGAL_CMD_STR                       "(smtp) Illegal command"
- 
+#define SMTP_COMMAND_OVERFLOW_STR        "(smtp) Attempted command buffer overflow"
+#define SMTP_DATA_HDR_OVERFLOW_STR       "(smtp) Attempted data header buffer overflow"
+#define SMTP_RESPONSE_OVERFLOW_STR       "(smtp) Attempted response buffer overflow"
+#define SMTP_SPECIFIC_CMD_OVERFLOW_STR   "(smtp) Attempted specific command buffer overflow"
+#define SMTP_UNKNOWN_CMD_STR             "(smtp) Unknown command"
+#define SMTP_ILLEGAL_CMD_STR             "(smtp) Illegal command"
+#define SMTP_HEADER_NAME_OVERFLOW_STR    "(smtp) Attempted header name buffer overflow"
+
+#define EVENT_STR_LEN  256
 
 
 /* Function prototypes  */
-void SMTP_GenerateAlert(smtp_event_e event, char *format, ...);
+void SMTP_GenerateAlert(int, char *, ...);
 
 
-#endif  /*  __SMTP_LOG_H__  */
+#endif
+

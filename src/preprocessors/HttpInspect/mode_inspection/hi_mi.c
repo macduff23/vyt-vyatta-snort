@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -66,7 +66,7 @@
 */
 
 int hi_mi_mode_inspection(HI_SESSION *Session, int iInspectMode, 
-        u_char *data, int dsize)
+        const u_char *data, int dsize)
 {
     int iRet;
 

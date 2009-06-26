@@ -1,7 +1,7 @@
 /*
  * snort_dcerpc.h
  *
- * Copyright (C) 2004-2006 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -32,6 +32,22 @@
 
 #include "sf_snort_packet.h"
 #include "sf_dynamic_preprocessor.h"
+#include "dcerpc_util.h"
+#include "debug.h"
+#include "bounds.h"
+
+#ifdef TARGET_BASED
+typedef struct _DCERPC_ProtoIds
+{
+    int16_t dcerpc;
+    int16_t nbss;
+
+} DCERPC_ProtoIds;
+
+#define DCE_PROTO_REF_STR__DCERPC   "dcerpc"
+#define DCE_PROTO_REF_STR__SMB      "smb"
+#define DCE_PROTO_REF_STR__NBSS     "netbios-ssn"    /* This seems to be the name for SMB */
+#endif  /* TARGET_BASED */
 
 #ifdef WIN32
 #pragma pack(push,snort_smb_hdrs,1)
@@ -48,24 +64,35 @@
 #define RPC_FRAGMENTATION       0x0002  /* DCE/RPC fragmentation */
 #define SUSPEND_FRAGMENTATION   0x0004  /* Memcap reached, don't try to do more */
 
+#define DCERPC_MIN_SEG_ALLOC_SIZE 100
 
 #define STATE_START             0
 #define STATE_GOT_TREE_CONNECT  1
 #define STATE_GOT_NTCREATE      2   /* Or got SMB Open */
 #define STATE_IS_DCERPC         3   /* Valid DCE/RPC session */
 
+typedef enum _DCERPC_TransType
+{
+    DCERPC_TRANS_TYPE__NONE = 0,
+    DCERPC_TRANS_TYPE__SMB,
+    DCERPC_TRANS_TYPE__DCERPC
+
+} DCERPC_TransType;
+
 typedef struct _DCERPC
 {
     u_int8_t    state;
     u_int8_t    smb_state;
     u_int8_t    fragmentation;
-    u_int8_t   *write_andx_buf;
-    u_int16_t   write_andx_buf_len;
-    u_int16_t   write_andx_buf_size;
-    u_int8_t   *dcerpc_req_buf;
-    u_int16_t   dcerpc_req_buf_len;
-    u_int16_t   dcerpc_req_buf_size;
+    DCERPC_Buffer dce_frag_buf;
+    DCERPC_Buffer smb_seg_buf;
+    DCERPC_Buffer tcp_seg_buf;
 
+    int num_inc_reass;
+    char autodetected;
+
+    DCERPC_TransType trans;
+    int no_inspect;
 
 } DCERPC;
 
@@ -83,7 +110,42 @@ typedef struct _DCERPC
     
 int  DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen);
 int  DCERPCDecode(void *p);
+void DCERPC_InitPacket(void);
+SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u_int16_t data_len);
+void * DCERPC_GetReassemblyPkt(void);
 void DCERPC_Exit();
+void DCERPC_EarlyFragReassemble(DCERPC *, const u_int8_t *, u_int16_t, u_int16_t);
+void DCERPC_BufferReassemble(DCERPC_Buffer *);
+
+void DCERPC_BufferFreeData(DCERPC_Buffer *);
+int DCERPC_BufferAddData(DCERPC *, DCERPC_Buffer *, const u_int8_t *, u_int16_t);
+int DCERPC_BufferAlloc(DCERPC_Buffer *, u_int16_t);
+int DCERPC_IsMemcapExceeded(u_int16_t);
+
+static INLINE int DCERPC_BufferIsEmpty(DCERPC_Buffer *);
+static INLINE void DCERPC_BufferEmpty(DCERPC_Buffer *);
+
+static INLINE int DCERPC_BufferIsEmpty(DCERPC_Buffer *sbuf)
+{
+    if ((sbuf == NULL) ||
+        (sbuf->data == NULL) ||
+        (sbuf->len == 0) ||
+        (sbuf->size == 0))
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+static INLINE void DCERPC_BufferEmpty(DCERPC_Buffer *sbuf)
+{
+    if (sbuf == NULL)
+        return;
+
+    sbuf->len = 0;
+}
+
 
 #define GENERATOR_SMB 125
 extern DynamicPreprocessorData _dpd;

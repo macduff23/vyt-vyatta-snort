@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -60,7 +60,7 @@
 **  @retval 1 within bounds
 **  @retval 0 not within bounds
 */
-static INLINE int hi_util_in_bounds(u_char *start, u_char *end, u_char *p)
+static INLINE int hi_util_in_bounds(const u_char *start, const u_char *end, const u_char *p)
 {
     if(p >= start && p < end)
     {

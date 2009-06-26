@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,6 +36,15 @@
 #include "util.h"
 #include "plugin_enum.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats ipOptionPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 typedef struct _IpOptionData
 {
@@ -45,7 +55,38 @@ typedef struct _IpOptionData
 
 void IpOptionInit(char *, OptTreeNode *, int);
 void ParseIpOptionData(char *, OptTreeNode *);
-int CheckIpOptions(Packet *, struct _OptTreeNode *, OptFpList *);
+int CheckIpOptions(void *option_data, Packet *p);
+
+u_int32_t IpOptionCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IpOptionData *data = (IpOptionData *)d;
+
+    a = data->ip_option;
+    b = data->any_flag;
+    c = RULE_OPTION_TYPE_IP_OPTION;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IpOptionCheckCompare(void *l, void *r)
+{
+    IpOptionData *left = (IpOptionData *)l;
+    IpOptionData *right = (IpOptionData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->ip_option == right->ip_option) &&
+        (left->any_flag == right->any_flag))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -62,7 +103,10 @@ int CheckIpOptions(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIpOptionCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ipopts", IpOptionInit);
+    RegisterPlugin("ipopts", IpOptionInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("ipopts", &ipOptionPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: IpOptionCheck Initialized\n"););
 }
 
@@ -83,6 +127,7 @@ void SetupIpOptionCheck(void)
  ****************************************************************************/
 void IpOptionInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     /* multiple declaration check */ 
     if(otn->ds_list[PLUGIN_IPOPTION_CHECK])
     {
@@ -101,7 +146,9 @@ void IpOptionInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(CheckIpOptions, otn);
+    fpl = AddOptFuncToList(CheckIpOptions, otn);
+    fpl->type = RULE_OPTION_TYPE_IP_OPTION;
+    fpl->context = otn->ds_list[PLUGIN_IPOPTION_CHECK];
 }
 
 
@@ -122,6 +169,7 @@ void IpOptionInit(char *data, OptTreeNode *otn, int protocol)
 void ParseIpOptionData(char *data, OptTreeNode *otn)
 {
     IpOptionData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -136,67 +184,63 @@ void ParseIpOptionData(char *data, OptTreeNode *otn)
         data++; 
 
 
-    if(!strncasecmp(data, "rr", 2))
+    if(strcasecmp(data, "rr") == 0)
     {
         ds_ptr->ip_option = IPOPT_RR;
-        return;
     }
-    else if(!strncasecmp(data, "eol", 3))
+    else if(strcasecmp(data, "eol") == 0)
     {
         ds_ptr->ip_option = IPOPT_EOL;
-        return;
     }
-    else if(!strncasecmp(data, "nop", 3))
+    else if(strcasecmp(data, "nop") == 0)
     {
         ds_ptr->ip_option = IPOPT_NOP;
-        return;
     }
-    else if(!strncasecmp(data, "ts", 2))
+    else if(strcasecmp(data, "ts") == 0)
     {
         ds_ptr->ip_option = IPOPT_TS;
-        return;
     }
-    else if(!strncasecmp(data, "esec", 4))
+    else if(strcasecmp(data, "esec") == 0)
     {
         ds_ptr->ip_option = IPOPT_ESEC;
-        return;
     }
-    else if(!strncasecmp(data, "sec", 3))
+    else if(strcasecmp(data, "sec") == 0)
     {
         ds_ptr->ip_option = IPOPT_SECURITY;
-        return;
     }
-    else if(!strncasecmp(data, "lsrr", 4))
+    else if(strcasecmp(data, "lsrr") == 0)
     {
         ds_ptr->ip_option = IPOPT_LSRR;
-        return;
     }
-    else if(!strncasecmp(data, "lsrre", 5))
+    else if(strcasecmp(data, "lsrre") == 0)
     {
         ds_ptr->ip_option = IPOPT_LSRR_E;
-        return;
     }
-    else if(!strncasecmp(data, "satid", 5))
+    else if(strcasecmp(data, "satid") == 0)
     {
         ds_ptr->ip_option = IPOPT_SATID;
-        return;
     }
-    else if(!strncasecmp(data, "ssrr", 4))
+    else if(strcasecmp(data, "ssrr") == 0)
     {
         ds_ptr->ip_option = IPOPT_SSRR;
-        return;
     }
-    else if(!strncasecmp(data, "any", 3))
+    else if(strcasecmp(data, "any") == 0)
     {
         ds_ptr->ip_option = 0;
         ds_ptr->any_flag = 1;
-        return;
     }
     else
     {
         FatalError("%s(%d) => Unknown IP option argument: %s!\n",
                    file_name, file_line, data);
     }
+
+    if (add_detection_option(RULE_OPTION_TYPE_IP_OPTION, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_IPOPTION_CHECK] = ds_ptr_dup;
+    }
+
 }
 
 
@@ -213,36 +257,43 @@ void ParseIpOptionData(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int CheckIpOptions(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int CheckIpOptions(void *option_data, Packet *p)
 {
+    IpOptionData *ipOptionData = (IpOptionData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
     int i;
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "CheckIpOptions:"););
-    if(!p->iph)
-        return 0; /* if error occured while ip header
-                   * was processed, return 0 automagically.
-               */
+    PROFILE_VARS;
 
-    if((((IpOptionData *)otn->ds_list[PLUGIN_IPOPTION_CHECK])->any_flag == 1) 
-       && (p->ip_option_count > 0))
+    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "CheckIpOptions:"););
+    if(!IPH_IS_VALID(p))
+        return rval; /* if error occured while ip header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(ipOptionPerfStats);
+
+    if((ipOptionData->any_flag == 1) && (p->ip_option_count > 0))
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Matched any ip options!\n"););
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
+        PREPROC_PROFILE_END(ipOptionPerfStats);
+        return rval;
     }
 
     for(i=0; i< (int) p->ip_option_count; i++)
     {
-	DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "testing pkt(%d):rule(%d)\n",
-				((IpOptionData *)otn->ds_list[PLUGIN_IPOPTION_CHECK])->ip_option,
+    	DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "testing pkt(%d):rule(%d)\n",
+				ipOptionData->ip_option,
 				p->ip_options[i].code); );
 
-        if(((IpOptionData *)otn->ds_list[PLUGIN_IPOPTION_CHECK])->ip_option == p->ip_options[i].code)
+        if(ipOptionData->ip_option == p->ip_options[i].code)
         {
-            /* call the next function in the function list recursively */
-            return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+            rval = DETECTION_OPTION_MATCH;
+            PREPROC_PROFILE_END(ipOptionPerfStats);
+            return rval;
         }
     }
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(ipOptionPerfStats);
+    return rval;
 }

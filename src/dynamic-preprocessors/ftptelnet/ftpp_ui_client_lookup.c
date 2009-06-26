@@ -1,11 +1,12 @@
 /*
  * ftpp_ui_client_lookup.c
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -37,10 +38,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "ftpp_util_kmap.h"
+#include "hi_util_kmap.h"
 #include "ftpp_ui_config.h"
 #include "ftpp_return_codes.h"
 #include "snort_ftptelnet.h"
+#include "sfrt.h"
+
+static void clientConfFree(void *pData);
 
 /*
  * Function: ftpp_ui_client_lookup_init(CLIENT_LOOKUP **ClientLookup)
@@ -57,9 +61,15 @@
  * Returns: int => return code indicating error or success
  *
  */
+#define FTPP_UI_CONFIG_MAX_CLIENTS 20
 int ftpp_ui_client_lookup_init(CLIENT_LOOKUP **ClientLookup)
 {
-    *ClientLookup = KMapNew(FTPTelnetCleanupFTPClientConf); 
+#ifdef SUP_IP6
+    *ClientLookup =  sfrt_new(DIR_16_4x4_16x5_4x4, IPv6, FTPP_UI_CONFIG_MAX_CLIENTS, 20);
+#else
+    *ClientLookup =  sfrt_new(DIR_16x2, IPv4, FTPP_UI_CONFIG_MAX_CLIENTS, 20);
+#endif
+
     if(*ClientLookup == NULL)
     {
         return FTPP_MEM_ALLOC_FAIL;
@@ -82,18 +92,12 @@ int ftpp_ui_client_lookup_init(CLIENT_LOOKUP **ClientLookup)
  */
 int ftpp_ui_client_lookup_cleanup(CLIENT_LOOKUP **ClientLookup)
 {
-    KMAP *km;
-
-    if (ClientLookup == NULL)
+    if ((ClientLookup == NULL) || (*ClientLookup == NULL))
         return FTPP_INVALID_ARG;
 
-    km = *ClientLookup;
-
-    if (km)
-    {
-        KMapDelete(km);
-        *ClientLookup = NULL;
-    }
+    sfrt_cleanup(*ClientLookup, clientConfFree);
+    sfrt_free(*ClientLookup);
+    *ClientLookup = NULL;
 
     return FTPP_SUCCESS;
 }
@@ -118,8 +122,10 @@ int ftpp_ui_client_lookup_cleanup(CLIENT_LOOKUP **ClientLookup)
  * Returns: int => return code indicating error or success
  *
  */
-int ftpp_ui_client_lookup_add(CLIENT_LOOKUP *ClientLookup, unsigned long Ip,
-                            FTP_CLIENT_PROTO_CONF *ClientConf)
+int ftpp_ui_client_lookup_add(
+    CLIENT_LOOKUP *ClientLookup, 
+    sfip_t* Ip, FTP_CLIENT_PROTO_CONF *ClientConf
+) 
 {
     int iRet;
 
@@ -128,7 +134,17 @@ int ftpp_ui_client_lookup_add(CLIENT_LOOKUP *ClientLookup, unsigned long Ip,
         return FTPP_INVALID_ARG;
     }
 
-    iRet = KMapAdd(ClientLookup, (void *)&Ip, 4, (void *)ClientConf);
+#ifdef SUP_IP6
+    iRet = sfrt_insert((void *)Ip, (unsigned char)Ip->bits, (void *)ClientConf, RT_FAVOR_SPECIFIC, ClientLookup);
+#else
+    iRet = sfrt_insert((void *)&(Ip->ip.u6_addr32[0]), (unsigned char)Ip->bits, (void *)ClientConf, RT_FAVOR_SPECIFIC, ClientLookup);
+#endif
+
+    if (iRet)
+    {
+        return FTPP_MEM_ALLOC_FAIL;
+    }
+
     if (iRet)
     {
         /*
@@ -149,8 +165,7 @@ int ftpp_ui_client_lookup_add(CLIENT_LOOKUP *ClientLookup, unsigned long Ip,
 
 /*
  * Function: ftpp_ui_client_lookup_find(CLIENT_LOOKUP *ClientLookup,
- *                                  char *ip, int len,
- *                                  int *iError)
+ *                                  snort_ip_p ip, int *iError)
  *
  * Purpose: Find a client configuration given a IP.
  *          We look up a client configuration given an IP and
@@ -158,7 +173,6 @@ int ftpp_ui_client_lookup_add(CLIENT_LOOKUP *ClientLookup, unsigned long Ip,
  *
  * Arguments: ClientLookup => a pointer to the lookup structure
  *            IP           => the ftp client address
- *            len          => Length of the address 
  *            iError       => a pointer to an error code
  *
  * Returns: int => return code indicating error or success
@@ -167,8 +181,9 @@ int ftpp_ui_client_lookup_add(CLIENT_LOOKUP *ClientLookup, unsigned long Ip,
  *                           structure matching IP if found, NULL otherwise.
  *
  */
+
 FTP_CLIENT_PROTO_CONF *ftpp_ui_client_lookup_find(CLIENT_LOOKUP *ClientLookup, 
-                                            unsigned long Ip, int *iError)
+                                            snort_ip_p Ip, int *iError)
 {
     FTP_CLIENT_PROTO_CONF *ClientConf = NULL;
 
@@ -185,8 +200,11 @@ FTP_CLIENT_PROTO_CONF *ftpp_ui_client_lookup_find(CLIENT_LOOKUP *ClientLookup,
 
     *iError = FTPP_SUCCESS;
 
-    /* TODO: change this to use a quick find of IP/mask */
-    ClientConf = (FTP_CLIENT_PROTO_CONF *)KMapFind(ClientLookup,(void *)&Ip,4);
+#ifdef SUP_IP6
+    ClientConf = (FTP_CLIENT_PROTO_CONF *)sfrt_lookup((void *)Ip, ClientLookup);
+#else
+    ClientConf = (FTP_CLIENT_PROTO_CONF *)sfrt_lookup((void *)&Ip, ClientLookup);
+#endif
     if (!ClientConf)
     {
         *iError = FTPP_NOT_FOUND;
@@ -195,6 +213,10 @@ FTP_CLIENT_PROTO_CONF *ftpp_ui_client_lookup_find(CLIENT_LOOKUP *ClientLookup,
     return ClientConf;
 }
 
+#if 0
+/** Obsoleted. After changing underlying KMAP to SFRT. SFRT provides an iterator with 
+ * a callback function but does not support getFirst, getNext operations.
+ */
 /*
  * Function: ftpp_ui_client_lookup_first(CLIENT_LOOKUP *ClientLookup,
  *                                   int *iError)
@@ -279,3 +301,24 @@ FTP_CLIENT_PROTO_CONF *ftpp_ui_client_lookup_next(CLIENT_LOOKUP *ClientLookup,
 
     return ClientConf;
 }
+#endif    
+
+/**Free pData buffer, which may be referenced multiple times. ReferenceCount 
+ * is the number of times the buffer is referenced.  For freeing the buffer, 
+ * we just decrement referenceCount till it reaches 0, at which time the 
+ * buffer is also freed.
+ */
+static void clientConfFree(void *pData)
+{
+    FTP_CLIENT_PROTO_CONF *clientConf = (FTP_CLIENT_PROTO_CONF *)pData;
+
+    if (clientConf)
+    {
+        clientConf->referenceCount--;
+        if (clientConf->referenceCount == 0)
+        {
+            free(clientConf);
+        }
+    }
+}
+

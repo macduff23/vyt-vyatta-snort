@@ -5,7 +5,7 @@ Abstract: Frequently Asked Questions for the Snort NIDS
  This document provides answers to some of the most common
  (and frequently asked) questions related to the Snort network
  intrusion detection system.
-Section: Apps/Net
+Section: Network/Monitoring
 
 Format: pdf
 Files: /usr/share/doc/snort-doc/faq.pdf.gz

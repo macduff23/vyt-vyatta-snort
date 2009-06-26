@@ -1,7 +1,7 @@
 /*
  * snort_ftptelnet.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -44,11 +44,11 @@ int SnortFTPTelnet(FTPTELNET_GLOBAL_CONF *GlobalConf, SFSnortPacket *p);
 void FTPConfigCheck(void);
 
 int FTPPBounceInit(char *name, char *parameters, void **dataPtr);
-int FTPPBounceEval(void *p, u_int8_t **cursor, void *dataPtr);
+int FTPPBounceEval(void *p, const u_int8_t **cursor, void *dataPtr);
 
 void FTPTelnetCleanupFTPServerConf(void *serverConf);
 void FTPTelnetCleanupFTPCMDConf(void *ftpCmd);
-void FTPTelnetCleanupFTPClientConf(void *clientConf);;
+void FTPTelnetCleanupFTPClientConf(void *clientConf);
 void FTPTelnetCleanupFTPBounceTo(void *ftpBounce);
 
 #endif

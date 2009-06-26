@@ -7,6 +7,10 @@
     create 0640 snort adm
     sharedscripts
     postrotate
-        /etc/init.d/snort restart > /dev/null 2>&1
+        if [ -x /usr/sbin/invoke-rc.d ]; then \
+            invoke-rc.d snort restart > /dev/null; \
+        else \
+            /etc/init.d/snort restart > /dev/null; \
+        fi; 
     endscript
 }

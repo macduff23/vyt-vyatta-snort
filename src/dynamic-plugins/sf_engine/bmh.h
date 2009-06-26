@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Marc Norton
  *
@@ -43,7 +43,7 @@ typedef struct {
 
 HBM_STATIC HBM_STRUCT    * hbm_prep( unsigned char * pat, int m, int nocase );
 HBM_STATIC int hbm_prepx( HBM_STRUCT *p, unsigned char * pat, int m, int nocase );
-HBM_STATIC unsigned char * hbm_match( HBM_STRUCT *p, unsigned char * text, int n );
+HBM_STATIC const unsigned char * hbm_match( HBM_STRUCT *p, const unsigned char * text, int n );
 HBM_STATIC void            hbm_free( HBM_STRUCT *p );
 
 #endif

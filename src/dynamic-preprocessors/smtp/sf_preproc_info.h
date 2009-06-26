@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -23,9 +23,13 @@
 #define SF_PREPROC_INFO_H
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   0
+#define MINOR_VERSION   1
 #define BUILD_VERSION   7
+#ifdef SUP_IP6
+#define PREPROC_NAME    "SF_SMTP (IPV6)"
+#else
 #define PREPROC_NAME    "SF_SMTP"
+#endif
 
 #define DYNAMIC_PREPROC_SETUP SetupSMTP
 extern void SetupSMTP();

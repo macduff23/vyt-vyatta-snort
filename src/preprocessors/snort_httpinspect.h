@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -27,5 +27,7 @@ int HttpInspectSnortConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf, char *args,
                          int iGlobal, char *ErrorString, int ErrStrLen);
 int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p);
 void HttpInspectCheckConfig(void);
+void HttpInspectAddPortsOfInterest();
+void HttpInspectAddServicesOfInterest();
 
 #endif

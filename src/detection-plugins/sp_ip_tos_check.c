@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -40,16 +41,57 @@
 #include "plugin_enum.h"
 #include "util.h"
 
-typedef struct _IpTosData
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats ipTosPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+typedef struct _IpTosCheckData
 {
     u_int8_t ip_tos;
     u_int8_t not_flag;
 
-} IpTosData;
+} IpTosCheckData;
 
 void IpTosCheckInit(char *, OptTreeNode *, int);
 void ParseIpTos(char *, OptTreeNode *);
-int IpTosCheckEq(Packet *, struct _OptTreeNode *, OptFpList *);
+int IpTosCheckEq(void *option_data, Packet *p);
+
+u_int32_t IpTosCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IpTosCheckData *data = (IpTosCheckData *)d;
+
+    a = data->ip_tos;
+    b = data->not_flag;
+    c = RULE_OPTION_TYPE_IP_TOS;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IpTosCheckCompare(void *l, void *r)
+{
+    IpTosCheckData *left = (IpTosCheckData *)l;
+    IpTosCheckData *right = (IpTosCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->ip_tos == right->ip_tos) &&
+        (left->not_flag == right->not_flag))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 
 
@@ -67,7 +109,10 @@ int IpTosCheckEq(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIpTosCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("tos", IpTosCheckInit);
+    RegisterPlugin("tos", IpTosCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("tos", &ipTosPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: IpTosCheck Initialized\n"););
 }
 
@@ -87,6 +132,7 @@ void SetupIpTosCheck(void)
  ****************************************************************************/
 void IpTosCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     /* multiple declaration check */ 
     if(otn->ds_list[PLUGIN_IP_TOS_CHECK])
     {
@@ -96,8 +142,8 @@ void IpTosCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
-    otn->ds_list[PLUGIN_IP_TOS_CHECK] = (IpTosData *)
-            SnortAlloc(sizeof(IpTosData));
+    otn->ds_list[PLUGIN_IP_TOS_CHECK] = (IpTosCheckData *)
+            SnortAlloc(sizeof(IpTosCheckData));
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
@@ -105,7 +151,9 @@ void IpTosCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IpTosCheckEq, otn);
+    fpl = AddOptFuncToList(IpTosCheckEq, otn);
+    fpl->type = RULE_OPTION_TYPE_IP_TOS;
+    fpl->context = otn->ds_list[PLUGIN_IP_TOS_CHECK];
 }
 
 
@@ -125,7 +173,8 @@ void IpTosCheckInit(char *data, OptTreeNode *otn, int protocol)
  ****************************************************************************/
 void ParseIpTos(char *data, OptTreeNode *otn)
 {
-    IpTosData *ds_ptr;  /* data struct pointer */
+    IpTosCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -158,6 +207,12 @@ void ParseIpTos(char *data, OptTreeNode *otn)
         }
     }
 
+    if (add_detection_option(RULE_OPTION_TYPE_IP_TOS, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_IP_TOS_CHECK] = ds_ptr_dup;
+    }
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"TOS set to %d\n", ds_ptr->ip_tos););
 }
 
@@ -176,17 +231,21 @@ void ParseIpTos(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int IpTosCheckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IpTosCheckEq(void *option_data, Packet *p)
 {
-    if(!p->iph)
-        return 0; /* if error occured while ip header
-                   * was processed, return 0 automagically.
-                   */
+    IpTosCheckData *ipTosCheckData = (IpTosCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
 
-    if((((IpTosData *)otn->ds_list[PLUGIN_IP_TOS_CHECK])->ip_tos == p->iph->ip_tos) ^ (((IpTosData *)otn->ds_list[PLUGIN_IP_TOS_CHECK])->not_flag))
+    if(!IPH_IS_VALID(p))
+        return rval; /* if error occured while ip header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(ipTosPerfStats);
+
+    if((ipTosCheckData->ip_tos == GET_IPH_TOS(p)) ^ (ipTosCheckData->not_flag))
     {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
     else
     {
@@ -195,5 +254,6 @@ int IpTosCheckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     }
     
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(ipTosPerfStats);
+    return rval;
 }

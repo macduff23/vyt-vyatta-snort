@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -59,7 +60,9 @@ void AllocDumpBuf();
 
 /***************** LOG ASCII ROUTINES *******************/
 
+#ifndef SUP_IP6
 static unsigned char ezero[6];  /* crap for ARP */
+#endif
 
 /*
  * Function: PrintNetData(FILE *, u_char *,int)
@@ -73,7 +76,7 @@ static unsigned char ezero[6];  /* crap for ARP */
  *
  * Returns: void function
  */
-void PrintNetData(FILE * fp, u_char * start, const int len)
+void PrintNetData(FILE * fp, const u_char * start, const int len)
 {
     char *end;          /* ptr to buffer end */
     int i;          /* counter */
@@ -140,7 +143,6 @@ void PrintNetData(FILE * fp, u_char * start, const int len)
     }
 
     /* generate the buffer */
-    //data_dump_buffer = (char *) malloc(dbuf_size);
     if (data_dump_buffer == NULL)
     {
         AllocDumpBuf();
@@ -366,25 +368,37 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
     {
         Print2ndHeader(fp, p);
     }
-
+#ifdef MPLS
+    if(p->mpls)
+    {
+        PrintMPLSHeader(fp, p);
+    }
+#endif
     /* etc */
     PrintIPHeader(fp, p);
 
     /* if this isn't a fragment, print the other header info */
     if(!p->frag_flag)
     {
-        switch(p->iph->ip_proto)
+        switch(GET_IPH_PROTO(p))
         {
             case IPPROTO_TCP:
                 if(p->tcph != NULL)
+
                 {
                     PrintTCPHeader(fp, p);
                 }
                 else
                 {
+#ifdef SUP_IP6
+                    PrintNetData(fp, (u_char *) 
+                                        (u_char *)p->iph + (GET_IPH_HLEN(p) << 2),
+                                        (p->actual_ip_len - (GET_IPH_HLEN(p) << 2)));
+#else
                     PrintNetData(fp, (u_char *) 
                                         ((u_char *)p->iph + (IP_HLEN(p->iph) << 2)), 
                                         (p->actual_ip_len - (IP_HLEN(p->iph) << 2)));
+#endif
                 }
 
                 break;
@@ -396,9 +410,15 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
                 }
                 else
                 {
+#ifdef SUP_IP6
+                    PrintNetData(fp, (u_char *) 
+                                        (u_char *)p->iph + (GET_IPH_HLEN(p) << 2),
+                                        (p->actual_ip_len - (GET_IPH_HLEN(p) << 2)));
+#else
                     PrintNetData(fp, (u_char *) 
                                         ((u_char *)p->iph + (IP_HLEN(p->iph) << 2)), 
                                         (p->actual_ip_len - (IP_HLEN(p->iph) << 2)));
+#endif
                 }
 
                 break;
@@ -416,9 +436,15 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
            printf("p->iph->ip_hlen: %d\n", (IP_HLEN(p->iph) << 2));
            printf("p->iph->ip_len: %d\n", p->iph->ip_len);
  */
+#ifdef SUP_IP6
                     PrintNetData(fp, (u_char *) 
-                                        ((u_char *) p->iph + (IP_HLEN(p->iph) << 2)), 
-                                        (ntohs(p->iph->ip_len) - (IP_HLEN(p->iph) << 2)));
+                        ((u_char *)p->iph + (GET_IPH_HLEN(p) << 2)),
+                        GET_IP_PAYLEN(p));
+#else
+                    PrintNetData(fp, (u_char *) 
+                        ((u_char *) p->iph + (IP_HLEN(p->iph) << 2)), 
+                        (ntohs(p->iph->ip_len) - (IP_HLEN(p->iph) << 2)));
+#endif
                 }
 
                 break;
@@ -457,7 +483,7 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
  * Returns: file handle
  *
  ***************************************************************************/
-FILE *OpenAlertFile(char *filearg)
+FILE *OpenAlertFile(const char *filearg)
 {
     char filename[STD_BUF+1];
     FILE *file;
@@ -496,6 +522,53 @@ FILE *OpenAlertFile(char *filearg)
 #endif
 
     return file;
+}
+
+/****************************************************************************
+ *
+ * Function: RollAlertFile(char *)
+ *
+ * Purpose: rename existing alert file with by appending time to name
+ *
+ * Arguments: filearg => the filename to rename (same as for OpenAlertFile())
+ *
+ * Returns: 0=success, else errno
+ *
+ ***************************************************************************/
+int RollAlertFile(const char *filearg)
+{
+    char oldname[STD_BUF+1];
+    char newname[STD_BUF+1];
+    char suffix[5];     /* filename suffix */
+    time_t now = time(NULL);
+
+#ifdef WIN32
+    SnortStrncpy(suffix, ".ids", sizeof(suffix));
+#else
+    suffix[0] = '\0';
+#endif
+
+    if(filearg == NULL)
+    {
+        if(!pv.daemon_flag)
+            SnortSnprintf(oldname, STD_BUF, "%s/alert%s", pv.log_dir, suffix);
+        else
+            SnortSnprintf(oldname, STD_BUF, "%s/%s", pv.log_dir, 
+                    DEFAULT_DAEMON_ALERT_FILE);
+    }
+    else
+    {
+        SnortSnprintf(oldname, STD_BUF, "%s", filearg);
+    }
+    SnortSnprintf(newname, sizeof(newname)-1, "%s.%lu", oldname, now);
+    DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Rolling alert file: %s\n", newname););
+
+    if ( rename(oldname, newname) )
+    {
+        FatalError("RollAlertFile() => rename(%s, %s) = %s\n",
+                   oldname, newname, strerror(errno));
+    }
+    return errno;
 }
 
 
@@ -707,6 +780,14 @@ void PrintEthHeader(FILE * fp, Packet * p)
     fprintf(fp, "type:0x%X len:0x%X\n", ntohs(p->eh->ether_type), p->pkth->len);
 }
 
+#ifdef MPLS
+void PrintMPLSHeader(FILE* log, Packet* p)
+{
+
+    fprintf(log,"label:0x%05X exp:0x%X bos:0x%X ttl:0x%X\n",
+            p->mplsHdr.label, p->mplsHdr.exp, p->mplsHdr.bos, p->mplsHdr.ttl);    
+}
+#endif
 
 /****************************************************************************
  *
@@ -760,10 +841,13 @@ void PrintSLLHeader(FILE * fp, Packet * p)
 
 void PrintArpHeader(FILE * fp, Packet * p)
 {
+#ifdef SUP_IP6
+// XXX-IPv6 "NOT YET IMPLEMENTED - printing ARP header"
+#else
     struct in_addr ip_addr;
     char timestamp[TIMEBUF_SIZE];
-    u_int8_t *mac_src = NULL;
-    u_int8_t *mac_dst = NULL;
+    const u_int8_t *mac_src = NULL;
+    const u_int8_t *mac_dst = NULL;
 
     bzero((struct in_addr *) &ip_addr, sizeof(struct in_addr));
     bzero((char *) timestamp, TIMEBUF_SIZE);
@@ -887,7 +971,7 @@ void PrintArpHeader(FILE * fp, Packet * p)
     }
 
     fprintf(fp, "\n\n");
-
+#endif
 }
 
 
@@ -904,41 +988,45 @@ void PrintArpHeader(FILE * fp, Packet * p)
  ***************************************************************************/
 void PrintIPHeader(FILE * fp, Packet * p)
 {
-    if(p->iph == NULL)
+    if(!IPH_IS_VALID(p))
     {
         fprintf(fp, "IP header truncated\n");
         return;
     }
+
     if(p->frag_flag)
     {
         /* just print the straight IP header */
-        fputs(inet_ntoa(p->iph->ip_src), fp);
+        fputs(inet_ntoa(GET_SRC_ADDR(p)), fp);
         fwrite(" -> ", 4, 1, fp);
-        fputs(inet_ntoa(p->iph->ip_dst), fp);
+        fputs(inet_ntoa(GET_DST_ADDR(p)), fp);
     }
     else
     {
-        if(p->iph->ip_proto != IPPROTO_TCP && p->iph->ip_proto != IPPROTO_UDP)
+        if(GET_IPH_PROTO(p) != IPPROTO_TCP && GET_IPH_PROTO(p) != IPPROTO_UDP)
         {
             /* just print the straight IP header */
-            fputs(inet_ntoa(p->iph->ip_src), fp);
+            fputs(inet_ntoa(GET_SRC_ADDR(p)), fp);
             fwrite(" -> ", 4, 1, fp);
-            fputs(inet_ntoa(p->iph->ip_dst), fp);
+            fputs(inet_ntoa(GET_DST_ADDR(p)), fp);
         }
         else
         {
             if(!pv.obfuscation_flag)
             {
                 /* print the header complete with port information */
-                fputs(inet_ntoa(p->iph->ip_src), fp);
+                fputs(inet_ntoa(GET_SRC_ADDR(p)), fp);
                 fprintf(fp, ":%d -> ", p->sp);
-                fputs(inet_ntoa(p->iph->ip_dst), fp);
+                fputs(inet_ntoa(GET_DST_ADDR(p)), fp);
                 fprintf(fp, ":%d", p->dp);
             }
             else
             {
                 /* print the header complete with port information */
-                fprintf(fp, "xxx.xxx.xxx.xxx:%d -> xxx.xxx.xxx.xxx:%d", p->sp, p->dp);
+                if(IS_IP4(p))
+                    fprintf(fp, "xxx.xxx.xxx.xxx:%d -> xxx.xxx.xxx.xxx:%d", p->sp, p->dp);
+                else if(IS_IP6(p))
+                    fprintf(fp, "x:x:x:x::x:x:x:x:%d -> x:x:x:x:x:x:x:x:%d", p->sp, p->dp);
             }
         }
     }
@@ -952,22 +1040,23 @@ void PrintIPHeader(FILE * fp, Packet * p)
         fputc(' ', fp);
     }
 
-    fprintf(fp, "%s TTL:%d TOS:0x%X ID:%d IpLen:%d DgmLen:%d",
-            protocol_names[p->iph->ip_proto],
-            p->iph->ip_ttl,
-            p->iph->ip_tos,
-            ntohs(p->iph->ip_id),
-            IP_HLEN(p->iph) << 2, ntohs(p->iph->ip_len));
+    fprintf(fp, "%s TTL:%u TOS:0x%X ID:%u IpLen:%u DgmLen:%u",
+            protocol_names[GET_IPH_PROTO(p)],
+            GET_IPH_TTL(p),
+            GET_IPH_TOS(p),
+            IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((u_int16_t)GET_IPH_ID(p)),
+            GET_IPH_HLEN(p) << 2, 
+            GET_IP_DGMLEN(p));
 
     /* print the reserved bit if it's set */
-    if((u_int8_t)((ntohs(p->iph->ip_off) & 0x8000) >> 15) == 1)
+    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x8000) >> 15) == 1)
         fprintf(fp, " RB");
 
     /* printf more frags/don't frag bits */
-    if((u_int8_t)((ntohs(p->iph->ip_off) & 0x4000) >> 14) == 1)
+    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x4000) >> 14) == 1)
         fprintf(fp, " DF");
 
-    if((u_int8_t)((ntohs(p->iph->ip_off) & 0x2000) >> 13) == 1)
+    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x2000) >> 13) == 1)
         fprintf(fp, " MF");
 
     fputc('\n', fp);
@@ -983,7 +1072,7 @@ void PrintIPHeader(FILE * fp, Packet * p)
     {
         fprintf(fp, "Frag Offset: 0x%04X   Frag Size: 0x%04X\n",
                 (p->frag_offset & 0x1FFF),
-                (ntohs(p->iph->ip_len) - (IP_HLEN(p->iph) << 2)));
+                GET_IP_PAYLEN(p));
     }
 }
 
@@ -1092,6 +1181,11 @@ void PrintUDPHeader(FILE * fp, Packet * p)
  ***************************************************************************/
 void PrintICMPHeader(FILE * fp, Packet * p)
 {
+#ifdef SUP_IP6
+    /* 32 digits plus 7 colons and a NULL byte */
+    char buf[8*4 + 7 + 1];
+#endif
+
     if(p->icmph == NULL)
     {
         fprintf(fp, "ICMP header truncated\n");
@@ -1105,7 +1199,7 @@ void PrintICMPHeader(FILE * fp, Packet * p)
         case ICMP_ECHOREPLY:
             fprintf(fp, "ID:%d  Seq:%d  ", ntohs(p->icmph->s_icmp_id), 
                     ntohs(p->icmph->s_icmp_seq));
-            fwrite("ECHO REPLY\n", 10, 1, fp);
+            fwrite("ECHO REPLY", 10, 1, fp);
             break;
 
         case ICMP_DEST_UNREACH:
@@ -1219,7 +1313,18 @@ void PrintICMPHeader(FILE * fp, Packet * p)
                     break;
             }
              
+#ifdef SUP_IP6
+/* written this way since inet_ntoa was typedef'ed to use sfip_ntoa 
+ * which requires sfip_t instead of inaddr's.  This call to inet_ntoa
+ * is a rare case that doesn't use sfip_t's. */
+
+// XXX-IPv6 NOT YET IMPLEMENTED - IPV6 addresses technically not supported - need to change ICMP header 
+            
+            sfip_raw_ntop(AF_INET, (void *)&p->icmph->s_icmp_gwaddr, buf, sizeof(buf));
+            fprintf(fp, " NEW GW: %s", buf);
+#else
             fprintf(fp, " NEW GW: %s", inet_ntoa(p->icmph->s_icmp_gwaddr));
+#endif
 
             PrintICMPEmbeddedIP(fp, p);
                     
@@ -1356,6 +1461,12 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
     orig_p->sp = p->orig_sp;
     orig_p->dp = p->orig_dp;
     orig_p->icmph = p->orig_icmph;
+#ifdef SUP_IP6
+    orig_p->iph_api = p->iph_api;
+    orig_p->ip4h = p->orig_ip4h;
+    orig_p->ip6h = p->orig_ip6h;
+    orig_p->family = p->family;
+#endif
 
     if(orig_p->iph != NULL)
     {
@@ -1363,7 +1474,7 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
         PrintIPHeader(fp, orig_p);
         orig_ip_hlen = IP_HLEN(p->orig_iph) << 2;
 
-        switch(orig_p->iph->ip_proto)
+        switch(GET_IPH_PROTO(orig_p))
         {
             case IPPROTO_TCP:
                 if(orig_p->tcph != NULL)
@@ -1385,7 +1496,7 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
 
             default:
                 fprintf(fp, "Protocol: 0x%X (unknown or "
-                        "header truncated)", orig_p->iph->ip_proto);
+                        "header truncated)", GET_IPH_PROTO(orig_p));
                 break;
         }       /* switch */
 
@@ -1417,7 +1528,7 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
  * Returns: void function
  *
  ***************************************************************************/
-void PrintEmbeddedICMPHeader(FILE *fp, ICMPHdr *icmph)
+void PrintEmbeddedICMPHeader(FILE *fp, const ICMPHdr *icmph)
 {
     if (fp == NULL || icmph == NULL)
         return;
@@ -1438,7 +1549,11 @@ void PrintEmbeddedICMPHeader(FILE *fp, ICMPHdr *icmph)
             break;
 
         case ICMP_REDIRECT:
+#ifdef SUP_IP6
+// XXX-IPv6 "NOT YET IMPLEMENTED - ICMP printing"
+#else
             fprintf(fp, "  New Gwy: %s", inet_ntoa(icmph->s_icmp_gwaddr));
+#endif
             break;
 
         case ICMP_ECHO:
@@ -1508,6 +1623,10 @@ void PrintIpOptions(FILE * fp, Packet * p)
 
             case IPOPT_TS:
                 fwrite("TS ", 3, 1, fp);
+                break;
+
+            case IPOPT_ESEC:
+                fwrite("ESEC ", 5, 1, fp);
                 break;
 
             case IPOPT_SECURITY:
@@ -1679,9 +1798,11 @@ void PrintTcpOptions(FILE * fp, Packet * p)
                         else
                             fprintf(fp, "%02X", 0);
                         
-                        if((j % 2) == 0)
+                        if ((j + 1) % 2 == 0)
                             fprintf(fp, " ");
                     }
+
+                    fprintf(fp, " ");
                 }
                 else
                 {
@@ -1857,7 +1978,7 @@ void PrintWifiHeader(FILE * fp, Packet * p)
 {
   /* This assumes we are printing a data packet, could be changed
      to print other types as well */
-  u_char *da = NULL, *sa = NULL, *bssid = NULL, *ra = NULL,
+  const u_char *da = NULL, *sa = NULL, *bssid = NULL, *ra = NULL,
     *ta = NULL;
   /* per table 4, IEEE802.11 section 7.2.2 */
   if ((p->wifih->frame_control & WLAN_FLAG_TODS) &&
@@ -2144,3 +2265,4 @@ void PrintEapolKey(FILE * fp, Packet * p)
     
 
 }
+

@@ -27,6 +27,11 @@ CONFFLAGS= --prefix=/usr \
 # Cannot enable flexresp since it builds only with libnet 1.0.2a
 #	--enable-flexresp \
 
+aclocal.m4:
+	aclocal-1.9 -I m4/
+	automake-1.9 -i
+	autoconf
+
 clean-sources:
 	# Clean the sources
 	[ ! -f Makefile ] ||  $(MAKE) distclean
@@ -47,8 +52,10 @@ clean: clean-sources
 	rm -f src/snort
 # Clean documents
 	cd doc && [ ! -f Makefile ] || $(MAKE) distclean
-	rm -f doc/snort_manual.{pdf,ps,aux,log,toc}
-	rm -f doc/faq.{idx,out,log,toc,aux,pdf,ps}
+	rm -f doc/snort_manual.pdf doc/snort_manual.ps doc/snort_manual.aux \
+	    doc/snort_manual.log doc/snort_manual.toc
+	rm -f doc/faq.idx doc/faq.out doc/faq.log doc/faq.toc doc/faq.aux \
+	    doc/faq.pdf doc/faq.ps
 	dh_clean
 
 configure: configure-stamp
@@ -150,6 +157,15 @@ install-arch:
 	install -m 755 -o root -g root src/snort-pgsql $(TMP)/snort-pgsql/usr/sbin/snort
 #	install -m 755 -o root -g root src/snort-inline   $(TMP)/snort/usr/sbin/snort
 
+# Default config
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-mysql/etc/snort/snort.common.parameters
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-pgsql/etc/snort/snort.common.parameters
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort/etc/snort/snort.common.parameters
+	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort/etc/default/snort
+	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-mysql/etc/default/snort
+	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-pgsql/etc/default/snort
+#	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-inline/etc/default/snort
+
 
 #  Install init.d initscripts
 	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort/etc/init.d/snort
@@ -175,7 +191,9 @@ install-arch:
 
 # Move libraries to the snort-common-libraries package
 	mv $(TMP)/snort-common/usr/lib/ $(TMP)/snort-common-libraries/usr/
-	mv $(TMP)/snort-common/usr/src/ $(TMP)/snort-common-libraries/usr/
+# Remove headers, as this is not a -dev package
+#	mv $(TMP)/snort-common/usr/src/ $(TMP)/snort-common-libraries/usr/
+	rm -rf $(TMP)/sort-common/usr/src/
 
 # Remove useless (empty) directories
 	rmdir $(TMP)/snort-pgsql/usr/share/doc/snort
@@ -196,15 +214,6 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/snort-common/etc/snort/
-
-# Default config
-#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-mysql/etc/snort/snort.common.parameters
-#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-pgsql/etc/snort/snort.common.parameters
-#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort/etc/snort/snort.common.parameters
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort/etc/default/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-mysql/etc/default/snort
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-pgsql/etc/default/snort
-#	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort-inline/etc/default/snort
 
 
 #  Install files of the arch-independent packages

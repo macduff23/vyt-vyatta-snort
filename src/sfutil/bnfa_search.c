@@ -8,89 +8,94 @@
 ** author: marc norton
 ** date:   started 12/21/05
 **
-** Copyright(C) 2005-2007 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** 
 ** General Design
-**   Aho-Corasick based NFA state machine. 
-**   Compacted sparse storage mode for better performance.
-**   Up to 16 Million states + transitions (combined) in compacted sparse mode.
+**  Aho-Corasick based NFA state machine. 
+**  Compacted sparse storage mode for better performance.
+**  Up to 16 Million states + transitions (combined) in compacted sparse mode.
 **
-**   ** Compacted sparse array storage **  
+**  ** Compacted sparse array storage **  
 **
-**   The primary data is held in one array.
-**   The patterns themselves are stored separately.
-**   The matching lists of patterns for each state are stored separately as well.
-**   The compacted sparse format improves caching/performance.
+**  The primary data is held in one array.
+**  The patterns themselves are stored separately.
+**  The matching lists of patterns for each state are stored separately as well.
+**  The compacted sparse format improves caching/performance.
 **
-**     word 1 : state  ( only low 24 bits are used )
-**     word 2 : control word = cb << 24 | fs
-**		cb: control byte 
-**			cb = mb | fb | nt
-**          mb : 8th bit - if set state has matching patterns bit
-**		    fb : 7th bit - if set full storage array bit (256 entries used), else sparse
-**		    nt : 0-63= number of transitions (more than 63 requires full storage)
-**		fs: 24 bits for failure state transition index.
-**	   word 3+ : transition word =  input<<24 |  next-state-index
-**		input				: 8 bit character, input to state machine from search text
-**		next-state-index	: 24 bits for index of next state
-**		(if we reallly need  16M states, we can add a state->index lookup array)
-**	  ...repeat for each state ...
+**   word 1 : state  ( only low 24 bits are used )
+**   word 2 : control word = cb << 24 | fs
+**   cb: control byte 
+**       cb = mb | fb | nt
+**   mb : 8th bit - if set state has matching patterns bit
+**   fb : 7th bit - if set full storage array bit (256 entries used),
+                    else sparse
+**   nt : 0-63= number of transitions (more than 63 requires full storage)
+**   fs: 24 bits for failure state transition index.
+**   word 3+ : transition word =  input<<24 |  next-state-index
+**   input : 8 bit character, input to state machine from search text
+**   next-state-index: 24 bits for index of next state
+**     (if we reallly need 16M states, we can add a state->index lookup array)
+**     ...repeat for each state ...
 **
-**    * if a state is empty it has words 1 and 2, but no transition words.
+**   * if a state is empty it has words 1 and 2, but no transition words.
 **    
 **   Construction:
 **
 **   Patterns are added to a list based trie.
 **   The list based trie is compiled into a list based NFA with failure states.
 **   The list based NFA is converted to full or sparse format NFA. 
-**   The Zero'th state sparse transitions may be stored in full format for performance.
-**   Sparse transition arrays are searched using linear and binary search strategies
-**   depending on the number of entries to search through in each state.
+**   The Zero'th state sparse transitions may be stored in full format for
+**      performance.
+**   Sparse transition arrays are searched using linear and binary search
+**      strategies depending on the number of entries to search through in
+**      each state.
 **   The state machine in sparse mode is compacted into a single vector for 
-*    better performance.
+**      better performance.
 **   
 ** Notes:
 **   
-**   The NFA can require twice the state transitions that a DFA uses. However,
+** The NFA can require twice the state transitions that a DFA uses. However,
 ** the construction of a DFA generates many additional transitions in each
 ** state which consumes significant additional memory. This particular 
 ** implementation is best suited to environments where the very large memory 
 ** requirements of a full state table implementation is not possible and/or 
 ** the speed trade off is warranted to maintain a small memory footprint.
 **
-** Each state of an NFA usually has very few transitions but can have up to 256.
-** It is important to not degenerate into a linear search so we utilize a binary
-** search if there are more than 5 elements in the state to test for a match.
-** This allows us to use a simple sparse memory design with an acceptable worst case
-** search scenario.  The binary search over 256 elements is limtied to a max of
-** 8 tests.  The zero'th state may use a full 256 state array, so a quick index lookup
-** provides the next state transition.  The zero'th state is generally visited much
-** more than other states.
+** Each state of an NFA usually has very few transitions but can have up to
+** 256.  It is important to not degenerate into a linear search so we utilize
+** a binary search if there are more than 5 elements in the state to test for
+** a match.  This allows us to use a simple sparse memory design with an
+** acceptable worst case search scenario.  The binary search over 256 elements
+** is limtied to a max of 8 tests.  The zero'th state may use a full 256 state
+** array, so a quick index lookup provides the next state transition.  The
+** zero'th state is generally visited much more than other states.
 **
-** Compiling : gcc, Intel C/C++, Microsoft C/C++, each optimize differently. My studies
-** have shown Intel C/C++ 9,8,7 to be the fastest, Microsoft 8,7,6 is next fastest,
-** and gcc 4.x,3.x,2.x is the slowest of the three.  My testing has been mainly on x86.
-** In general gcc does a poor job with optimizing this state machine for performance, 
-** compared to other less cache and prefetch sensitive algorithms.  I've documented
-** this behavior in a paper 'Optimizing Pattern Matching for IDS' (www.sourcefire.com,
+** Compiling : gcc, Intel C/C++, Microsoft C/C++, each optimize differently.
+** My studies have shown Intel C/C++ 9,8,7 to be the fastest, Microsoft 8,7,6
+** is next fastest, and gcc 4.x,3.x,2.x is the slowest of the three.  My
+** testing has been mainly on x86.  In general gcc does a poor job with
+** optimizing this state machine for performance, compared to other less cache
+** and prefetch sensitive algorithms.  I've documented this behavior in a
+** paper 'Optimizing Pattern Matching for IDS' (www.sourcefire.com,
 ** www.idsresearch.org).
 **
-** The code is sensitive to cache optimization and prefetching, as well as instruction 
-** pipelining.  Aren't we all.  To this end, the number of patterns, length of search text,
-** and cpu cache L1,L2,L3 all affect performance. The relative performance of the sparse
-** and full format NFA and DFA varies as you vary the pattern charactersitics,and search
-** text length, but strong performance trends are present and stable.
+** The code is sensitive to cache optimization and prefetching, as well as
+** instruction pipelining.  Aren't we all.  To this end, the number of
+** patterns, length of search text, and cpu cache L1,L2,L3 all affect
+** performance. The relative performance of the sparse and full format NFA and
+** DFA varies as you vary the pattern charactersitics,and search text length,
+** but strong performance trends are present and stable.
 **
 **
 **  BNFA API SUMMARY
 **
-**  bnfa=bnfaNew();				create a state machine
-**  bnfaAddPattern(bnfa,..);	add a pattern to the state machine
-**  bnfaCompile (bnfa,..)		compile the state machine
-**  bnfaPrintInfo(bnfa);		print memory usage and state info
-**  bnfaPrint(bnfa);			print the state machine in total 
-**  state=bnfaSearch(bnfa, ...,state);	search a data buffer for a pattern match
-**  bnfaFree (bnfa);			free the bnfa
+**  bnfa=bnfaNew();             create a state machine
+**  bnfaAddPattern(bnfa,..);    add a pattern to the state machine
+**  bnfaCompile (bnfa,..)       compile the state machine
+**  bnfaPrintInfo(bnfa);        print memory usage and state info
+**  bnfaPrint(bnfa);            print the state machine in total 
+**  state=bnfaSearch(bnfa, ...,state);  search a data buffer for a pattern match
+**  bnfaFree (bnfa);            free the bnfa
 **
 **
 ** Reference - Efficient String matching: An Aid to Bibliographic Search
@@ -99,8 +104,24 @@
 **             Copyright(C) 1975 Association for Computing Machinery,Inc
 **
 ** 12/4/06 - man - modified summary
-**
-**
+** 6/26/07 - man - Added last_match tracking, and accounted for nocase/case by
+**                 preseting the last match state, and reverting if we fail the 
+**                 case memcmp test for any rule in the states matching rule
+**                 list.  The states in the defaul matcher represent either
+**                 case or nocase states, so they are dual mode, that makes
+**                 this a bit tricky.  When we sue the pure exact match, or
+**                 pure don't care matching routines, we just track the last
+**                 state, and never need to revert.  This only tracks the
+**                 single repeated states and repeated data. 
+** 01/2008 - man - added 2 phase pattern matcher using a pattern match queue.
+**                 Text is scanned and matching states are queued, duplicate
+**                 matches are dropped, and after the complete buffer scan the
+**                 queued matches are processed.  This improves cacheing
+**                 performance, and reduces duplicate rule processing.  The
+**                 queue is limited in size and is flushed if it becomes full
+**                 during the scan.  This allows simple insertions.  Tracking
+**                 queue ops is optional, as this can impose a modest
+**                 performance hit of a few percent. 
 **
 ** LICENSE (GPL)
 **
@@ -125,12 +146,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-  
+
+#define BNFA_TRACK_Q
+
+#ifdef BNFA_TRACK_Q
+#include "snort.h"
+extern PV pv;
+#endif
+
 #include "bnfa_search.h"
 
 #include "util.h"
-#define printf LogMessage
 
+/*
+ * Used to initialize last state, states are limited to 0-16M
+ * so this will not conflict.
+ */
+#define LAST_STATE_INIT  0xffffffff
+
+#define printf LogMessage
 /*
 * Case Translation Table - his guarantees we use 
 * indexed lookups for case conversion
@@ -144,7 +178,7 @@ void init_xlatcase(void)
   static int first=1;
 
   if( !first ) 
-	  return;
+      return;
 
   for(i=0; i<BNFA_MAX_ALPHABET_SIZE; i++)
   {
@@ -164,9 +198,9 @@ void * bnfa_alloc( int n, int * m )
    if( p )
    {
      if(m)
-	 {
-		 m[0] += n;
-	 }
+     {
+         m[0] += n;
+     }
    }
    return p;
 }
@@ -175,11 +209,11 @@ void bnfa_free( void *p, int n, int * m )
 {
    if( p )
    {
-	   free(p);
-	   if(m)
-	   {
-	      m[0] -= n;
-	   }
+       free(p);
+       if(m)
+       {
+          m[0] -= n;
+       }
    }
 }
 #define BNFA_MALLOC(n,memory) bnfa_alloc(n,&(memory))
@@ -243,7 +277,7 @@ int queue_add (QUEUE * s, int state)
   s->count++;
   
   if( s->count > s->maxcnt )
-	  s->maxcnt = s->count;
+      s->maxcnt = s->count;
 
   return 0;
 }
@@ -264,8 +298,8 @@ int queue_remove (QUEUE * s)
 
       if( !s->head )
       {
-	    s->tail = 0;
-	    s->count = 0;
+        s->tail = 0;
+        s->count = 0;
       }
       BNFA_FREE (q,sizeof(QNODE),queue_memory);
   }
@@ -301,9 +335,9 @@ int _bnfa_list_get_next_state( bnfa_struct_t * bnfa, int state, int input )
   {
        bnfa_state_t * p = (bnfa_state_t*)bnfa->bnfaTransTable[0];
        if(!p) 
-	   {
-		   return 0;
-	   }
+       {
+           return 0;
+       }
        return p[input];
   }
   else
@@ -329,12 +363,12 @@ int _bnfa_list_put_next_state( bnfa_struct_t * bnfa, int state, int input, int n
 {
   if( state >= bnfa->bnfaMaxStates )
   {
-	  return -1;
+      return -1;
   }
 
   if( input >= bnfa->bnfaAlphabetSize )
   {
-	  return -1;
+      return -1;
   }
 
   if( state == 0 )
@@ -346,9 +380,9 @@ int _bnfa_list_put_next_state( bnfa_struct_t * bnfa, int state, int input, int n
     {
        p = (bnfa_state_t*)BNFA_MALLOC(sizeof(bnfa_state_t)*bnfa->bnfaAlphabetSize,bnfa->list_memory);
        if( !p ) 
-	   {
-		   return -1; 
-	   }
+       {
+           return -1; 
+       }
 
        bnfa->bnfaTransTable[0] = (bnfa_trans_node_t*)p;
     }
@@ -379,9 +413,9 @@ int _bnfa_list_put_next_state( bnfa_struct_t * bnfa, int state, int input, int n
     /* Definitely not an existing transition - add it */
     tnew = (bnfa_trans_node_t*)BNFA_MALLOC(sizeof(bnfa_trans_node_t),bnfa->list_memory);
     if( !tnew )
-	{
-	  return -1; 
-	}
+    {
+      return -1; 
+    }
 
     tnew->key        = input;
     tnew->next_state = next_state;
@@ -432,6 +466,48 @@ int _bnfa_list_free_table( bnfa_struct_t * bnfa )
    return 0;
 }
 
+static
+int bnfaBuildMatchStateTrees(bnfa_struct_t *bnfa,
+                             int (*build_tree)(void *id, void **existing_tree),
+                             int (*neg_list_func)(void *id, void **list))
+{
+    int i,cnt = 0;
+    bnfa_match_node_t  * mn;
+    bnfa_match_node_t ** MatchList = bnfa->bnfaMatchList;
+    bnfa_pattern_t     * patrn;
+
+    for (i=0;i<bnfa->bnfaNumStates;i++)
+    {
+        for(mn = MatchList[i];
+            mn!= NULL;
+            mn = mn->next )
+        {
+            patrn = (bnfa_pattern_t *)mn->data;
+            if (patrn->userdata)
+            {
+                if (patrn->negative)
+                {
+                    neg_list_func(patrn->userdata, &MatchList[i]->neg_list);
+                }
+                else
+                {
+                    build_tree(patrn->userdata, &MatchList[i]->rule_option_tree);
+                }
+            }
+
+            cnt++;
+        }
+
+        /* Last call to finalize the tree */
+        if (MatchList[i])
+        {
+            build_tree(NULL, &MatchList[i]->rule_option_tree);
+        }
+    }
+
+    return cnt;
+}
+
 #ifdef ALLOW_LIST_PRINT
 /*
 * Print the transition list table to stdout
@@ -457,7 +533,7 @@ int _bnfa_list_print_table( bnfa_struct_t * bnfa )
 
      if( i == 0 )
      {
-		int k;
+        int k;
         bnfa_state_t * p = (bnfa_state_t*)bnfa->bnfaTransTable[0];
         if(!p) continue;
 
@@ -465,7 +541,7 @@ int _bnfa_list_print_table( bnfa_struct_t * bnfa )
         {
           if( p[k] == 0 ) continue;
 
-          if( isprint(p[k]) )
+          if( isascii((int)p[k]) && isprint((int)p[k]) )
              printf("%3c->%-5d\t",k,p[k]);
           else
              printf("%3d->%-5d\t",k,p[k]);
@@ -476,7 +552,7 @@ int _bnfa_list_print_table( bnfa_struct_t * bnfa )
        t = bnfa->bnfaTransTable[i];
        while( t )
        { 
-         if( isprint(t->key) )
+         if( isascii((int)t->key) && isprint((int)t->key) )
            printf("%3c->%-5d\t",t->key,t->next_state);
          else
            printf("%3d->%-5d\t",t->key,t->next_state);
@@ -487,7 +563,7 @@ int _bnfa_list_print_table( bnfa_struct_t * bnfa )
      mn =bnfa->bnfaMatchList[i];
      while( mn )
      {
-	   patrn =(bnfa_pattern_t *)mn->data;
+       patrn =(bnfa_pattern_t *)mn->data;
        printf("%.*s ",patrn->n,patrn->casepatrn);
        mn = mn->next;
      }
@@ -504,7 +580,7 @@ int _bnfa_list_conv_row_to_full(bnfa_struct_t * bnfa, bnfa_state_t state, bnfa_s
 {
     if( (int)state >= bnfa->bnfaMaxStates ) /* protects 'full' against overflow */
     {
-	return -1;
+    return -1;
     }
 
     if( state == 0 )
@@ -525,9 +601,9 @@ int _bnfa_list_conv_row_to_full(bnfa_struct_t * bnfa, bnfa_state_t state, bnfa_s
        memset(full,0,sizeof(bnfa_state_t)*bnfa->bnfaAlphabetSize);
    
        if( !t )
-	   {
-		   return 0;
-	   }
+       {
+           return 0;
+       }
 
        while(t && (t->key < BNFA_MAX_ALPHABET_SIZE ) )
        {
@@ -593,7 +669,7 @@ int _bnfa_add_pattern_states (bnfa_struct_t * bnfa, bnfa_pattern_t * p)
 
       if ( bnfa->bnfaNumStates >= bnfa->bnfaMaxStates )
       {
-	       return -1;
+           return -1;
       }
   }
 
@@ -601,7 +677,7 @@ int _bnfa_add_pattern_states (bnfa_struct_t * bnfa, bnfa_pattern_t * p)
   pmn = (bnfa_match_node_t*)BNFA_MALLOC(sizeof(bnfa_match_node_t),bnfa->matchlist_memory);
   if( !pmn )
   {
-	  return -1;
+      return -1;
   }
 
   pmn->data = p;
@@ -612,6 +688,130 @@ int _bnfa_add_pattern_states (bnfa_struct_t * bnfa, bnfa_pattern_t * p)
   return 0;
 }
 
+#ifdef XXXXX
+int _bnfa_list_get_next_state( bnfa_struct_t * bnfa, int state, int input )
+{
+  if ( state == 0 ) /* Full set of states  always */
+  {
+       bnfa_state_t * p = (bnfa_state_t*)bnfa->bnfaTransTable[0];
+       if(!p) 
+      {
+          return 0;
+      }
+       return p[input];
+  }
+  else
+  {
+    bnfa_trans_node_t * t = bnfa->bnfaTransTable[state];
+    while( t )
+    {
+      if( t->key == (unsigned)input )
+      {
+        return t->next_state;
+      }
+      t=t->next;
+    }
+    return BNFA_FAIL_STATE; /* Fail state */
+  }
+}
+#endif
+static /* used only by KcontainsJ() */
+int 
+_bnfa_conv_node_to_full(bnfa_trans_node_t *t, bnfa_state_t * full )
+{
+       int tcnt = 0;
+ 
+       memset(full,0,sizeof(bnfa_state_t)*BNFA_MAX_ALPHABET_SIZE);
+   
+       if( !t )
+      {
+          return 0;
+      }
+
+       while(t && (t->key < BNFA_MAX_ALPHABET_SIZE ) )  
+       {
+         full[ t->key ] = t->next_state;
+         tcnt++;
+         t = t->next;
+       }
+       return tcnt;
+}
+/*
+ *  containment test -
+ *  test if all of tj transitions are in tk
+ */
+#ifdef XXXX
+static 
+int KcontainsJx(bnfa_trans_node_t * tk, bnfa_trans_node_t *tj )
+{
+    bnfa_trans_node_t *t;
+    int found;
+    
+    while( tj )
+    {
+      found=0;
+      for( t=tk;t;t=t->next )
+      {
+          if( tj->key == t->key )
+          {
+              found=1;
+              break;
+          }
+      }
+      if( !found )
+          return 0;
+            
+      tj=tj->next; /* get next tj key */
+    }
+  return 1;
+}
+#endif
+static 
+int KcontainsJ(bnfa_trans_node_t * tk, bnfa_trans_node_t *tj )
+{
+    bnfa_state_t       full[BNFA_MAX_ALPHABET_SIZE];
+    
+    if( !_bnfa_conv_node_to_full(tk,full)  )
+        return 1; /* emtpy state */
+   
+    while( tj )
+    {
+      if( !full[tj->key] )
+          return 0;
+            
+      tj=tj->next; /* get next tj key */
+    }
+  return 1;
+}
+/*
+ * 1st optimization - eliminate duplicate fail states
+ *
+ * check if a fail state is a subset of the current state,
+ * if so recurse to the next fail state, and so on.
+ */
+static 
+int _bnfa_opt_nfa (bnfa_struct_t * bnfa) 
+{
+    int            cnt=0;
+    int            k, fs, fr;
+    bnfa_state_t * FailState = bnfa->bnfaFailState;
+    
+    for(k=2;k<bnfa->bnfaNumStates;k++)
+    {
+        fr = fs = FailState[k];
+        while( fs &&  KcontainsJ(bnfa->bnfaTransTable[k],bnfa->bnfaTransTable[fs]) )
+        {
+            fs = FailState[fs];
+        }
+        if( fr != fs ) 
+        {
+           cnt++;
+           FailState[ k ] = fs;
+        }
+    }
+    if( cnt)LogMessage("ac-bnfa: %d nfa optimizations found in %d states\n",cnt,bnfa->bnfaNumStates);
+    return 0;
+}
 
 /*
 *   Build a non-deterministic finite automata using Aho-Corasick construction
@@ -627,89 +827,93 @@ int _bnfa_build_nfa (bnfa_struct_t * bnfa)
     bnfa_match_node_t  * mlist;
     bnfa_match_node_t  * px;
   
-	/* Init a Queue */ 
-	queue_init (queue);
+    /* Init a Queue */ 
+    queue_init (queue);
   
-	/* Add the state 0 transitions 1st, 
-	* the states at depth 1, fail to state 0 
-	*/ 
-	for (i = 0; i < bnfa->bnfaAlphabetSize; i++)
-	{
-		/* note that state zero deos not fail, 
-		*  it just returns 0..nstates-1 
-		*/
-		s = _bnfa_list_get_next_state(bnfa,0,i); 
-		if( s ) /* don't bother adding state zero */
-		{
-		  if( queue_add (queue, s) ) 
-		  {
+    /* Add the state 0 transitions 1st, 
+    * the states at depth 1, fail to state 0 
+    */ 
+    for (i = 0; i < bnfa->bnfaAlphabetSize; i++)
+    {
+        /* note that state zero deos not fail, 
+        *  it just returns 0..nstates-1 
+        */
+        s = _bnfa_list_get_next_state(bnfa,0,i); 
+        if( s ) /* don't bother adding state zero */
+        {
+          if( queue_add (queue, s) ) 
+          {
               return -1;
-		  }
-		  FailState[s] = 0;
-		}
-	}
+          }
+          FailState[s] = 0;
+        }
+    }
   
-	/* Build the fail state successive layer of transitions */
-	while (queue_count (queue) > 0)
-	{
-		r = queue_remove (queue);
+    /* Build the fail state successive layer of transitions */
+    while (queue_count (queue) > 0)
+    {
+        r = queue_remove (queue);
       
-		/* Find Final States for any Failure */ 
-		for(i = 0; i<bnfa->bnfaAlphabetSize; i++)
-		{
-			int fs, next;
+        /* Find Final States for any Failure */ 
+        for(i = 0; i<bnfa->bnfaAlphabetSize; i++)
+        {
+            int fs, next;
 
-			s = _bnfa_list_get_next_state(bnfa,r,i);
+            s = _bnfa_list_get_next_state(bnfa,r,i);
 
-			if( s == BNFA_FAIL_STATE )
-				continue;
-		   
-			if( queue_add (queue, s) ) 
-			{
-				return -1;
-			}
+            if( s == BNFA_FAIL_STATE )
+                continue;
+           
+            if( queue_add (queue, s) ) 
+            {
+                return -1;
+            }
  
-			fs = FailState[r];
+            fs = FailState[r];
 
-			/* 
-			*  Locate the next valid state for 'i' starting at fs 
-			*/ 
-			while( (next=_bnfa_list_get_next_state(bnfa,fs,i)) == BNFA_FAIL_STATE )
-			{
-				fs = FailState[fs];
-			}
-	      
-			/*
-			*  Update 's' state failure state to point to the next valid state
-			*/ 
-			FailState[s] = next;
-	      
-			/*
-			*  Copy 'next'states MatchList into 's' states MatchList, 
-			*  we just create a new list nodes, the patterns are not copied.
-			*/ 
-			for( mlist = MatchList[next];mlist;mlist = mlist->next)
-			{
-				/* Dup the node, don't copy the data */
-				px = (bnfa_match_node_t*)BNFA_MALLOC(sizeof(bnfa_match_node_t),bnfa->matchlist_memory);
-				if( !px )
-				{
-					return 0;
-				}
+            /* 
+            *  Locate the next valid state for 'i' starting at fs 
+            */ 
+            while( (next=_bnfa_list_get_next_state(bnfa,fs,i)) == BNFA_FAIL_STATE )
+            {
+                fs = FailState[fs];
+            }
+          
+            /*
+            *  Update 's' state failure state to point to the next valid state
+            */ 
+            FailState[s] = next;
+          
+            /*
+            *  Copy 'next'states MatchList into 's' states MatchList, 
+            *  we just create a new list nodes, the patterns are not copied.
+            */ 
+            for( mlist = MatchList[next];mlist;mlist = mlist->next)
+            {
+                /* Dup the node, don't copy the data */
+                px = (bnfa_match_node_t*)BNFA_MALLOC(sizeof(bnfa_match_node_t),bnfa->matchlist_memory);
+                if( !px )
+                {
+                    return 0;
+                }
 
-				px->data = mlist->data; 
-		  
-				px->next = MatchList[s]; /* insert at head */
-		 
-				MatchList[s] = px;
-			}
-		}
-	}
+                px->data = mlist->data; 
+          
+                px->next = MatchList[s]; /* insert at head */
+         
+                MatchList[s] = px;
+            }
+        }
+    }
   
-	/* Clean up the queue */
-	queue_free (queue);
+    /* Clean up the queue */
+    queue_free (queue);
 
-	return 0;
+    /* optimize the failure states */
+    if( bnfa->bnfaOpt )
+        _bnfa_opt_nfa(bnfa);
+
+    return 0;
 }
 
 #ifdef ALLOW_NFA_FULL
@@ -744,15 +948,16 @@ int _bnfa_conv_list_to_full(bnfa_struct_t * bnfa)
 *
 *  Merges state/transition/failure arrays into one.
 *
-*  For each state we use a state-word followed by the transition list for the state
-*  sw(state 0 )...tl(state 0) sw(state 1)...tl(state1) sw(state2)...tl(state2) ....
+*  For each state we use a state-word followed by the transition list for
+*  the state sw(state 0 )...tl(state 0) sw(state 1)...tl(state1) sw(state2)...
+*  tl(state2) ....
 *  
-*  The transition and failure states are replaced with the start index of transition state,
-*  this eliminates the NextState[] lookup....
+*  The transition and failure states are replaced with the start index of
+*  transition state, this eliminates the NextState[] lookup....
 *
-*  The compaction of multiple arays into a single array reduces the total number of
-*  states that can be handled since the max index is 2^24-1, whereas without compaction
-*  we had 2^24-1 states.  
+*  The compaction of multiple arays into a single array reduces the total
+*  number of states that can be handled since the max index is 2^24-1,
+*  whereas without compaction we had 2^24-1 states.  
 */
 static 
 int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa) 
@@ -771,44 +976,44 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
   nps = 0;
   for(k=0;k<bnfa->bnfaNumStates;k++)
   {
-	nps++; /* state word */
-	nps++; /* control word */
+    nps++; /* state word */
+    nps++; /* control word */
 
-	/* count transitions */
-	nc = 0;
-	_bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, full );
-	for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
-	{
-		state = full[i] & BNFA_SPARSE_MAX_STATE;
-		if( state != 0 )
-		{
-			nc++;
-		}	
-	}
+    /* count transitions */
+    nc = 0;
+    _bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, full );
+    for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
+    {
+        state = full[i] & BNFA_SPARSE_MAX_STATE;
+        if( state != 0 )
+        {
+            nc++;
+        }    
+    }
 
-	/* add in transition count */
-   	if( (k == 0 && bnfa->bnfaForceFullZeroState) || nc > BNFA_SPARSE_MAX_ROW_TRANSITIONS )
-	{
-		nps += BNFA_MAX_ALPHABET_SIZE;
-	}
-	else
-	{
-   	    for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
-		{
-		   state = full[i] & BNFA_SPARSE_MAX_STATE;
-		   if( state != 0 )
-		   {
-		       nps++;
-		   }	
-		}
-	}
+    /* add in transition count */
+       if( (k == 0 && bnfa->bnfaForceFullZeroState) || nc > BNFA_SPARSE_MAX_ROW_TRANSITIONS )
+    {
+        nps += BNFA_MAX_ALPHABET_SIZE;
+    }
+    else
+    {
+           for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
+        {
+           state = full[i] & BNFA_SPARSE_MAX_STATE;
+           if( state != 0 )
+           {
+               nps++;
+           }    
+        }
+    }
   }
 
   /* check if we have too many states + transitions */
   if( nps > BNFA_SPARSE_MAX_STATE )
   {
-	  /* Fatal */
-	  return -1;
+      /* Fatal */
+      return -1;
   }
 
   /*
@@ -817,8 +1022,8 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
   ps = BNFA_MALLOC( nps*sizeof(bnfa_state_t),bnfa->nextstate_memory);
   if( !ps ) 
   {
-	  /* Fatal */
-	  return -1;
+      /* Fatal */
+      return -1;
   }
   bnfa->bnfaTransList = ps;
   
@@ -828,8 +1033,8 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
   pi = BNFA_MALLOC( bnfa->bnfaNumStates*sizeof(bnfa_state_t),bnfa->nextstate_memory);
   if( !pi ) 
   {
-	  /* Fatal */
-	  return -1;
+      /* Fatal */
+      return -1;
   }
 
   /* 
@@ -837,74 +1042,74 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
   */
   for(k=0;k<bnfa->bnfaNumStates;k++)
   {
-	pi[k] = ps_index; /* save index of start of state 'k' */
+    pi[k] = ps_index; /* save index of start of state 'k' */
 
-	ps[ ps_index ] = k; /* save the state were in as the 1st word */
-	
-	ps_index++;  /* skip past state word */
+    ps[ ps_index ] = k; /* save the state were in as the 1st word */
+    
+    ps_index++;  /* skip past state word */
 
-	/* conver state 'k' to full format */
-	_bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, full );
+    /* conver state 'k' to full format */
+    _bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, full );
 
-	/* count transitions */
-	nc = 0;
-	for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
-	{
-		state = full[i] & BNFA_SPARSE_MAX_STATE;
-		if( state != 0 )
-		{
-			nc++;
-		}	
-	}
+    /* count transitions */
+    nc = 0;
+    for( i=0; i<bnfa->bnfaAlphabetSize; i++ )
+    {
+        state = full[i] & BNFA_SPARSE_MAX_STATE;
+        if( state != 0 )
+        {
+            nc++;
+        }    
+    }
 
-	/* add a full state or a sparse state  */
-	if( (k == 0 && bnfa->bnfaForceFullZeroState) || 
-		nc > BNFA_SPARSE_MAX_ROW_TRANSITIONS )
-	{
-		/* set the control word */
-		ps[ps_index]  = BNFA_SPARSE_FULL_BIT;
-		ps[ps_index] |= FailState[k] & BNFA_SPARSE_MAX_STATE;
-		if( bnfa->bnfaMatchList[k] )
-		{
+    /* add a full state or a sparse state  */
+    if( (k == 0 && bnfa->bnfaForceFullZeroState) || 
+        nc > BNFA_SPARSE_MAX_ROW_TRANSITIONS )
+    {
+        /* set the control word */
+        ps[ps_index]  = BNFA_SPARSE_FULL_BIT;
+        ps[ps_index] |= FailState[k] & BNFA_SPARSE_MAX_STATE;
+        if( bnfa->bnfaMatchList[k] )
+        {
             ps[ps_index] |= BNFA_SPARSE_MATCH_BIT;
-		}
-		ps_index++;  
+        }
+        ps_index++;  
 
-		/* copy the transitions */
-		_bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, &ps[ps_index] );
+        /* copy the transitions */
+        _bnfa_list_conv_row_to_full(bnfa, (bnfa_state_t)k, &ps[ps_index] );
 
- 		ps_index += BNFA_MAX_ALPHABET_SIZE;  /* add in 256 transitions */
+         ps_index += BNFA_MAX_ALPHABET_SIZE;  /* add in 256 transitions */
 
-	}
-   	else
-	{
-		/* set the control word */
-   		ps[ps_index]  = nc<<BNFA_SPARSE_COUNT_SHIFT ;
-   		ps[ps_index] |= FailState[k]&BNFA_SPARSE_MAX_STATE;
-   		if( bnfa->bnfaMatchList[k] )
-	  	{
-       		ps[ps_index] |= BNFA_SPARSE_MATCH_BIT;
-	  	}
-		ps_index++;
+    }
+       else
+    {
+        /* set the control word */
+           ps[ps_index]  = nc<<BNFA_SPARSE_COUNT_SHIFT ;
+           ps[ps_index] |= FailState[k]&BNFA_SPARSE_MAX_STATE;
+           if( bnfa->bnfaMatchList[k] )
+          {
+               ps[ps_index] |= BNFA_SPARSE_MATCH_BIT;
+          }
+        ps_index++;
 
-		/* add in the transitions */
-   		for( m=0, i=0; i<bnfa->bnfaAlphabetSize && m<nc; i++ )
-	  	{
-       		state = full[i] & BNFA_SPARSE_MAX_STATE;
-       		if( state != 0 )
-		 	{
-           		ps[ps_index++] = (i<<BNFA_SPARSE_VALUE_SHIFT) | state;
-				m++;
-		 	}
-	  	}
-	}
+        /* add in the transitions */
+           for( m=0, i=0; i<bnfa->bnfaAlphabetSize && m<nc; i++ )
+          {
+               state = full[i] & BNFA_SPARSE_MAX_STATE;
+               if( state != 0 )
+             {
+                   ps[ps_index++] = (i<<BNFA_SPARSE_VALUE_SHIFT) | state;
+                m++;
+             }
+          }
+    }
   }
 
   /* sanity check we have not overflowed our buffer */
   if( ps_index > nps ) 
   {
-	  /* Fatal */
-	  return -1;
+      /* Fatal */
+      return -1;
   }
 
   /* 
@@ -917,57 +1122,57 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
   ps_index=0;
   for(k=0; k< bnfa->bnfaNumStates; k++ )
   {
-	 if( pi[k] >= nps )
-	 {
-		 /* Fatal */
-		 return -1;
-	 }
+     if( pi[k] >= nps )
+     {
+         /* Fatal */
+         return -1;
+     }
 
-	 //ps_index = pi[k];  /* get index of next state */
-	 ps_index++;        /* skip state id */
+     //ps_index = pi[k];  /* get index of next state */
+     ps_index++;        /* skip state id */
 
-	 /* Full Format */
+     /* Full Format */
      if( ps[ps_index] & BNFA_SPARSE_FULL_BIT )
-	 {
-	   /* Do the fail-state */
+     {
+       /* Do the fail-state */
        ps[ps_index] = ( ps[ps_index] & 0xff000000 ) | 
-		              ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ) ; 
-	   ps_index++;
+                      ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ) ; 
+       ps_index++;
 
-	   /* Do the transition-states */
-	   for(i=0;i<BNFA_MAX_ALPHABET_SIZE;i++)
-	   {
-		 ps[ps_index] = ( ps[ps_index] & 0xff000000 ) | 
-		                ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ) ; 
-		 ps_index++;
-	   }
-	 }
+       /* Do the transition-states */
+       for(i=0;i<BNFA_MAX_ALPHABET_SIZE;i++)
+       {
+         ps[ps_index] = ( ps[ps_index] & 0xff000000 ) | 
+                        ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ) ; 
+         ps_index++;
+       }
+     }
 
-	 /* Sparse Format */
-	 else
-	 {
-       	nc = (ps[ps_index] & BNFA_SPARSE_COUNT_BITS)>>BNFA_SPARSE_COUNT_SHIFT;
-	   
-	   	/* Do the cw = [cb | fail-state] */
-   		ps[ps_index] =  ( ps[ps_index] & 0xff000000 ) |
-						( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ); 
-	   	ps_index++;
+     /* Sparse Format */
+     else
+     {
+           nc = (ps[ps_index] & BNFA_SPARSE_COUNT_BITS)>>BNFA_SPARSE_COUNT_SHIFT;
+       
+           /* Do the cw = [cb | fail-state] */
+           ps[ps_index] =  ( ps[ps_index] & 0xff000000 ) |
+                        ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] ); 
+           ps_index++;
 
-	   	/* Do the transition-states */
-	   	for(i=0;i<nc;i++)
-	   	{
-       		ps[ps_index] = ( ps[ps_index] & 0xff000000 ) |
-			               ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] );
-		 	ps_index++;
-	   	}
-	 }
+           /* Do the transition-states */
+           for(i=0;i<nc;i++)
+           {
+               ps[ps_index] = ( ps[ps_index] & 0xff000000 ) |
+                           ( pi[ ps[ps_index] & BNFA_SPARSE_MAX_STATE ] );
+             ps_index++;
+           }
+     }
 
-	 /* check for buffer overflow again */
- 	 if( ps_index > nps )
-	 {
-		 /* Fatal */
-		 return -1;
-	 }
+     /* check for buffer overflow again */
+      if( ps_index > nps )
+     {
+         /* Fatal */
+         return -1;
+     }
 
   }
 
@@ -981,7 +1186,7 @@ int _bnfa_conv_list_to_csparse_array(bnfa_struct_t * bnfa)
 */
 void bnfaPrint(bnfa_struct_t * bnfa) 
 {
-  int			   k;
+  int               k;
   bnfa_match_node_t  ** MatchList = bnfa->bnfaMatchList;
   bnfa_match_node_t   * mlist;
   int              ps_index=0;
@@ -991,7 +1196,7 @@ void bnfaPrint(bnfa_struct_t * bnfa)
       return;
   
   if( !bnfa->bnfaNumStates ) 
-	  return;
+      return;
 
   if( bnfa->bnfaFormat ==BNFA_SPARSE )
   {
@@ -1015,29 +1220,29 @@ void bnfaPrint(bnfa_struct_t * bnfa)
 
     if( bnfa->bnfaFormat == BNFA_SPARSE )
     {
-	   unsigned i,cw,fs,nt,fb,mb;
+       unsigned i,cw,fs,nt,fb,mb;
        
-	   ps_index++; /* skip state number */
+       ps_index++; /* skip state number */
 
        cw = ps[ps_index]; /* control word  */
-	   fb = (cw &  BNFA_SPARSE_FULL_BIT)>>BNFA_SPARSE_VALUE_SHIFT;  /* full storage bit */ 
-	   mb = (cw &  BNFA_SPARSE_MATCH_BIT)>>BNFA_SPARSE_VALUE_SHIFT; /* matching state bit */
-	   nt = (cw &  BNFA_SPARSE_COUNT_BITS)>>BNFA_SPARSE_VALUE_SHIFT;/* number of transitions 0-63 */
-	   fs = (cw &  BNFA_SPARSE_MAX_STATE)>>BNFA_SPARSE_VALUE_SHIFT; /* fail state */
+       fb = (cw &  BNFA_SPARSE_FULL_BIT)>>BNFA_SPARSE_VALUE_SHIFT;  /* full storage bit */ 
+       mb = (cw &  BNFA_SPARSE_MATCH_BIT)>>BNFA_SPARSE_VALUE_SHIFT; /* matching state bit */
+       nt = (cw &  BNFA_SPARSE_COUNT_BITS)>>BNFA_SPARSE_VALUE_SHIFT;/* number of transitions 0-63 */
+       fs = (cw &  BNFA_SPARSE_MAX_STATE)>>BNFA_SPARSE_VALUE_SHIFT; /* fail state */
 
-	   ps_index++;  /* skip control word */
+       ps_index++;  /* skip control word */
 
-	   printf("mb=%3u fb=%3u fs=%-4u ",mb,fb,fs);
+       printf("mb=%3u fb=%3u fs=%-4u ",mb,fb,fs);
 
-	   if( fb )
+       if( fb )
        {
          printf(" nt=%-3d : ",bnfa->bnfaAlphabetSize);
 
          for( i=0; i<(unsigned)bnfa->bnfaAlphabetSize; i++, ps_index++  )
          { 
-    	    if( ps[ps_index] == 0  ) continue;
+            if( ps[ps_index] == 0  ) continue;
 
-            if( isprint(i) )
+            if( isascii((int)i) && isprint((int)i) )
                printf("%3c->%-6d\t",i,ps[ps_index]);
             else
                printf("%3d->%-6d\t",i,ps[ps_index]);
@@ -1049,10 +1254,11 @@ void bnfaPrint(bnfa_struct_t * bnfa)
 
           for( i=0; i<nt; i++, ps_index++ )
           { 
-             if( isprint(ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT) )
+              if( isascii(ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT) &&
+                  isprint(ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT) )
                printf("%3c->%-6d\t",ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT,ps[ps_index] & BNFA_SPARSE_MAX_STATE);
              else
-			   printf("%3d->%-6d\t",ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT,ps[ps_index] & BNFA_SPARSE_MAX_STATE);
+               printf("%3d->%-6d\t",ps[ps_index]>>BNFA_SPARSE_VALUE_SHIFT,ps[ps_index] & BNFA_SPARSE_MAX_STATE);
           }
        }
     }
@@ -1066,7 +1272,7 @@ void bnfaPrint(bnfa_struct_t * bnfa)
 
        NextState = (bnfa_state_t **)bnfa->bnfaNextState;
        if( !NextState ) 
-		   continue;
+           continue;
 
        p = NextState[k];
 
@@ -1078,7 +1284,7 @@ void bnfaPrint(bnfa_struct_t * bnfa)
 
           if( state != 0 && state != BNFA_FAIL_STATE )
           {
-             if( isprint(i) )
+             if( isascii(i) && isprint(i) )
                printf("%3c->%-5d\t",i,state);
              else
                printf("%3d->%-5d\t",i,state);
@@ -1096,8 +1302,8 @@ void bnfaPrint(bnfa_struct_t * bnfa)
          mlist!= NULL;
          mlist = mlist->next )
     {
-	     bnfa_pattern_t * pat;
-		 pat = (bnfa_pattern_t*)mlist->data;
+         bnfa_pattern_t * pat;
+         pat = (bnfa_pattern_t*)mlist->data;
          printf("---pattern : %.*s\n",pat->n,pat->casepatrn);
     }
   }
@@ -1106,7 +1312,9 @@ void bnfaPrint(bnfa_struct_t * bnfa)
 /*
 *  Create a new AC state machine
 */ 
-bnfa_struct_t * bnfaNew(void) 
+bnfa_struct_t * bnfaNew(void (*userfree)(void *p),
+                        void (*optiontreefree)(void **p),
+                        void (*neg_list_free)(void **p))
 {
   bnfa_struct_t * p;
   static int first=1;
@@ -1122,19 +1330,28 @@ bnfa_struct_t * bnfaNew(void)
 
   p = (bnfa_struct_t *) BNFA_MALLOC(sizeof(bnfa_struct_t),bnfa_memory);
   if(!p) 
-	  return 0;
+      return 0;
 
   if( p )
   {
+     p->bnfaOpt                = 0;
      p->bnfaCaseMode           = BNFA_PER_PAT_CASE;
      p->bnfaFormat             = BNFA_SPARSE;
      p->bnfaAlphabetSize       = BNFA_MAX_ALPHABET_SIZE;
      p->bnfaForceFullZeroState = 1;
      p->bnfa_memory            = sizeof(bnfa_struct_t);
+     p->userfree               = userfree;
+     p->optiontreefree         = optiontreefree;
+     p->neg_list_free          = neg_list_free;
   }
   
   queue_memory = 0;
   return p;
+}
+
+void bnfaSetOpt(bnfa_struct_t  * p, int flag)
+{
+   p->bnfaOpt=flag;
 }
 
 void bnfaSetCase(bnfa_struct_t  * p, int flag)
@@ -1157,11 +1374,22 @@ void bnfaFree (bnfa_struct_t * bnfa)
   {
       /* free match list entries */
       mlist = bnfa->bnfaMatchList[i];
+
       while (mlist)
       {
-		ilist = mlist;
-		mlist = mlist->next;
-		BNFA_FREE(ilist,sizeof(bnfa_match_node_t),bnfa->matchlist_memory);
+        ilist = mlist;
+        mlist = mlist->next;
+        if (ilist->rule_option_tree && bnfa->optiontreefree)
+        {
+            bnfa->optiontreefree(&(ilist->rule_option_tree));
+        }
+
+        if (ilist->neg_list && bnfa->neg_list_free)
+        {
+            bnfa->neg_list_free(&(ilist->neg_list));
+        }
+
+        BNFA_FREE(ilist,sizeof(bnfa_match_node_t),bnfa->matchlist_memory);
       }
       bnfa->bnfaMatchList[i] = 0;
 
@@ -1170,9 +1398,9 @@ void bnfaFree (bnfa_struct_t * bnfa)
       if( bnfa->bnfaFormat==BNFA_FULL )/* Full format */
       {
          if( bnfa->bnfaNextState[i] )
-		 {
+         {
             BNFA_FREE(bnfa->bnfaNextState[i],bnfa->bnfaAlphabetSize*sizeof(bnfa_state_t),bnfa->nextstate_memory);
-		 }
+         }
       }
 #endif
   }
@@ -1184,6 +1412,8 @@ void bnfaFree (bnfa_struct_t * bnfa)
      ipatrn=patrn;
      patrn=patrn->next;
      BNFA_FREE(ipatrn->casepatrn,ipatrn->n,bnfa->pat_memory);
+     if(bnfa->userfree && ipatrn->userdata)
+         bnfa->userfree(ipatrn->userdata);
      BNFA_FREE(ipatrn,sizeof(bnfa_pattern_t),bnfa->pat_memory);
   }
 
@@ -1200,10 +1430,11 @@ void bnfaFree (bnfa_struct_t * bnfa)
 */ 
 int
 bnfaAddPattern (bnfa_struct_t * p, 
-		unsigned char *pat, 
+                unsigned char *pat, 
                 int n,
                 int nocase,
-		void * userdata )
+                int negative,
+                void * userdata )
 {
   bnfa_pattern_t * plist;
 
@@ -1217,6 +1448,7 @@ bnfaAddPattern (bnfa_struct_t * p,
 
   plist->n        = n;
   plist->nocase   = nocase;
+  plist->negative = negative;
   plist->userdata = userdata;
   
   plist->next     = p->bnfaPatterns; /* insert at front of list */
@@ -1231,12 +1463,14 @@ bnfaAddPattern (bnfa_struct_t * p,
 *   Compile the patterns into an nfa state machine 
 */ 
 int
-bnfaCompile (bnfa_struct_t * bnfa) 
+bnfaCompile (bnfa_struct_t * bnfa,
+             int (*build_tree)(void * id, void **existing_tree),
+             int (*neg_list_func )(void *id, void **list))
 {
     bnfa_pattern_t  * plist;
     bnfa_match_node_t   ** tmpMatchList;
-	unsigned          cntMatchStates;
-	int               i;
+    unsigned          cntMatchStates;
+    int               i;
     static int first=1;
 
     if( first )
@@ -1244,7 +1478,7 @@ bnfaCompile (bnfa_struct_t * bnfa)
         bnfaInitSummary();
         first=0;
     }
-	queue_memory =0;
+    queue_memory =0;
 
     /* Count number of states */ 
     for(plist = bnfa->bnfaPatterns; plist != NULL; plist = plist->next)
@@ -1256,16 +1490,16 @@ bnfaCompile (bnfa_struct_t * bnfa)
     /* Alloc a List based State Transition table */
     bnfa->bnfaTransTable =(bnfa_trans_node_t**) BNFA_MALLOC(sizeof(bnfa_trans_node_t*) * bnfa->bnfaMaxStates,bnfa->list_memory );
     if(!bnfa->bnfaTransTable)
-	{
-		return -1;
-	}
+    {
+        return -1;
+    }
 
     /* Alloc a MatchList table - this has a list of pattern matches for each state */
     bnfa->bnfaMatchList=(bnfa_match_node_t**) BNFA_MALLOC(sizeof(void*)*bnfa->bnfaMaxStates,bnfa->matchlist_memory );
     if(!bnfa->bnfaMatchList)
-	{
-		return -1;
-	}
+    {
+        return -1;
+    }
 
     /* Add each Pattern to the State Table - This forms a keyword trie using lists */ 
     bnfa->bnfaNumStates = 0;
@@ -1276,87 +1510,99 @@ bnfaCompile (bnfa_struct_t * bnfa)
     bnfa->bnfaNumStates++;
 
     if( bnfa->bnfaNumStates > BNFA_SPARSE_MAX_STATE )
-	{
-		return -1;  /* Call bnfaFree to clean up */
-	}
+    {
+        return -1;  /* Call bnfaFree to clean up */
+    }
 
     /* ReAlloc a smaller MatchList table -  only need NumStates  */
     tmpMatchList=bnfa->bnfaMatchList;
 
     bnfa->bnfaMatchList=(bnfa_match_node_t**)BNFA_MALLOC(sizeof(void*) * bnfa->bnfaNumStates,bnfa->matchlist_memory);
     if(!bnfa->bnfaMatchList)
-	{
-		return -1;
-	}
+    {
+        return -1;
+    }
     
-	memcpy(bnfa->bnfaMatchList,tmpMatchList,sizeof(void*) * bnfa->bnfaNumStates);
+    memcpy(bnfa->bnfaMatchList,tmpMatchList,sizeof(void*) * bnfa->bnfaNumStates);
     
-	BNFA_FREE(tmpMatchList,sizeof(void*) * bnfa->bnfaMaxStates,bnfa->matchlist_memory);
-
+    BNFA_FREE(tmpMatchList,sizeof(void*) * bnfa->bnfaMaxStates,bnfa->matchlist_memory);
+    
+#ifdef MATCH_LIST_CNT 
+    bnfa->bnfaMatchListCnt=(unsigned*)calloc(sizeof(unsigned) * bnfa->bnfaNumStates);
+    if(!bnfa->bnfaMatchListCnt)
+    {
+        return -1;
+    }
+#endif
     /* Alloc a failure state table -  only need NumStates */
     bnfa->bnfaFailState =(bnfa_state_t*)BNFA_MALLOC(sizeof(bnfa_state_t) * bnfa->bnfaNumStates,bnfa->failstate_memory);
     if(!bnfa->bnfaFailState)
-	{
-		return -1;
-	}
+    {
+        return -1;
+    }
 
 #ifdef ALLOW_NFA_FULL
     if( bnfa->bnfaFormat == BNFA_FULL )
-	{
-	  /* Alloc a state transition table -  only need NumStates  */
+    {
+      /* Alloc a state transition table -  only need NumStates  */
       bnfa->bnfaNextState=(bnfa_state_t**)BNFA_MALLOC(sizeof(bnfa_state_t*) * bnfa->bnfaNumStates,bnfa->nextstate_memory);
       if(!bnfa->bnfaNextState) 
-	  {
-		  return -1;
-	  }
-	}
+      {
+          return -1;
+      }
+    }
 #endif
-	
+    
     /* Build the nfa w/failure states - time the nfa construction */
     if( _bnfa_build_nfa (bnfa) ) 
-	{
+    {
         return -1;
-	}
+    }
 
     /* Convert nfa storage format from list to full or sparse */
     if( bnfa->bnfaFormat == BNFA_SPARSE )
     {
       if( _bnfa_conv_list_to_csparse_array(bnfa)  )
-	  {
-		  return -1;
-	  }
+      {
+          return -1;
+      }
       BNFA_FREE(bnfa->bnfaFailState,sizeof(bnfa_state_t)*bnfa->bnfaNumStates,bnfa->failstate_memory);
-	  bnfa->bnfaFailState=0;
+      bnfa->bnfaFailState=0;
     }
 #ifdef ALLOW_NFA_FULL
-	else if( bnfa->bnfaFormat == BNFA_FULL )
+    else if( bnfa->bnfaFormat == BNFA_FULL )
     {
       if( _bnfa_conv_list_to_full( bnfa ) )
-	  {
+      {
             return -1;
-	  }
+      }
     }
 #endif
-	else
-	{
-		return -1;
-	}
+    else
+    {
+        return -1;
+    }
 
     /* Free up the Table Of Transition Lists */
     _bnfa_list_free_table( bnfa ); 
 
-	/* Count states with Pattern Matches */
-	cntMatchStates=0;
-	for(i=0;i<bnfa->bnfaNumStates;i++)
-	{
-		if( bnfa->bnfaMatchList[i] )
-			cntMatchStates++;
-	}
+    /* Count states with Pattern Matches */
+    cntMatchStates=0;
+    for(i=0;i<bnfa->bnfaNumStates;i++)
+    {
+        if( bnfa->bnfaMatchList[i] )
+            cntMatchStates++;
+    }
 
-	bnfa->bnfaMatchStates = cntMatchStates;
-	bnfa->queue_memory    = queue_memory;
+    bnfa->bnfaMatchStates = cntMatchStates;
+    bnfa->queue_memory    = queue_memory;
 
     bnfaAccumInfo( bnfa  );
+
+    if (build_tree && neg_list_func)
+    {
+        bnfaBuildMatchStateTrees( bnfa, build_tree, neg_list_func );
+    }
 
     return 0;
 }
@@ -1369,74 +1615,74 @@ bnfaCompile (bnfa_struct_t * bnfa)
 static
 inline
 unsigned 
-_bnfa_search_full_nfa(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-					int (*Match)(bnfa_pattern_t * id, int index, void *data), 
+_bnfa_search_full_nfa(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
+                    int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
                     void *data, bnfa_state_t state, int *current_state ) 
 {
   unsigned char      * Tend;
   unsigned char      * T;
   unsigned char        Tchar;
-  unsigned long        index;
+  unsigned            index;
   bnfa_state_t      ** NextState= bnfa->bnfaNextState;
   bnfa_state_t       * FailState= bnfa->bnfaFailState;
   bnfa_match_node_t ** MatchList= bnfa->bnfaMatchList;
-  bnfa_state_t       * pc;
+  bnfa_state_t       * pcs;
   bnfa_match_node_t  * mlist;
   bnfa_pattern_t     * patrn;
   unsigned             nfound = 0;
-
+  int                  res;
+  unsigned             last_match=LAST_STATE_INIT;
+  unsigned             last_match_saved=LAST_STATE_INIT;
+  
   T    = Tx;
   Tend = T + n;
  
   for( ; T < Tend; T++ )
   {
-	Tchar = xlatcase[ *T ];
+    Tchar = xlatcase[ *T ];
 
-	for(;;)
-	{
-		pc = NextState[state];
-		if( pc[Tchar] == 0 && state > 0 )
-		{
-			state = FailState[state];
-		}
-		else
-		{
-			state = pc[Tchar];
-			break;
-		}
-	}
+    for(;;)
+    {
+        pcs = NextState[state];
+        if( pcs[Tchar] == 0 && state > 0 )
+        {
+            state = FailState[state];
+        }
+        else
+        {
+            state = pcs[Tchar];
+            break;
+        }
+    }
 
-	if( state )
-	{
-    	for(	mlist = MatchList[state];
-				mlist!= NULL;
-				mlist = mlist->next )
-    	{
-		   		patrn = (bnfa_pattern_t*)mlist->data;
-	
-           		index = T - Tx - patrn->n + 1; 
-       			if( patrn->nocase )
-           		{
-                    nfound++;
-					if (Match (patrn, index, data))
-                    {
-                        *current_state = state;
-						return nfound;
-           		}
-           		else
-           		{
-					if( memcmp (patrn->casepatrn, T - patrn->n + 1, patrn->n) == 0 )
-					{
-                        nfound++;
-  						if (Match (patrn->userdata, index, data))
-                        {
-                            *current_state = state;
-  							return nfound;
-                        }
-					}
-           		}
-    	}
-	}
+    if( state )
+    {
+        if( state == last_match )
+            continue;
+       
+        last_match_saved=last_match;
+        last_match = state;
+        
+        {
+            mlist = MatchList[state];
+               patrn = (bnfa_pattern_t*)mlist->data;
+            nfound++;
+            /* Don't do anything specific for case sensitive patterns and not,
+             * since that will be covered by the rule tree itself.  Each tree
+             * might have both case sensitive & case insensitive patterns.
+             */
+            res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+            if ( res > 0 )
+            {
+              *current_state = sindex;
+              return nfound;
+            }
+            else if( res < 0 )
+            {
+              last_match = last_match_saved;
+            }
+        }
+    }
   }
   return nfound;
 }
@@ -1446,60 +1692,74 @@ _bnfa_search_full_nfa(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
 static
 inline
 unsigned 
-_bnfa_search_full_nfa_case(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-					int (*Match)(bnfa_pattern_t * id, int index, void *data), 
+_bnfa_search_full_nfa_case(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
+                    int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
                     void *data, bnfa_state_t state, int *current_state ) 
 {
   unsigned char      * Tend;
   unsigned char      * T;
   unsigned char        Tchar;
-  unsigned long        index;
+  unsigned        index;
   bnfa_state_t      ** NextState= bnfa->bnfaNextState;
   bnfa_state_t       * FailState= bnfa->bnfaFailState;
   bnfa_match_node_t ** MatchList= bnfa->bnfaMatchList;
-  bnfa_state_t       * pc;
+  bnfa_state_t       * pcs;
   bnfa_match_node_t  * mlist;
   bnfa_pattern_t     * patrn;
   unsigned             nfound = 0;
-
+  unsigned             last_match=LAST_STATE_INIT;
+  unsigned             last_match_saved=LAST_STATE_INIT;
+  int                  res;
+  
   T    = Tx;
   Tend = T + n;
  
   for( ; T < Tend; T++ )
   {
-	Tchar = *T ;
+    Tchar = *T ;
 
-	for(;;)
-	{
-		pc = NextState[state];
-		if( pc[Tchar] == 0 && state > 0 )
-		{
-			state = FailState[state];
-		}
-		else
-		{
-			state = pc[Tchar];
-			break;
-		}
-	}
+    for(;;)
+    {
+        pcs = NextState[state];
+        if( pcs[Tchar] == 0 && state > 0 )
+        {
+            state = FailState[state];
+        }
+        else
+        {
+            state = pcs[Tchar];
+            break;
+        }
+    }
 
-	if( state )
-	{
-    	for(	mlist = MatchList[state];
-				mlist!= NULL;
-				mlist = mlist->next )
-    	{
-		   		patrn = (bnfa_pattern_t*)mlist->data;
-	
-           		index = T - Tx - patrn->n + 1; 
-                nfound++;
-			    if (Match (patrn, index, data))
-                {
-                    *current_state = state;
-                    return nfound;
-                }
-    	}
-	}
+    if( state )
+    {
+        if( state == last_match )
+            continue;
+       
+        last_match_saved=last_match;
+        last_match = state;
+        
+        {
+            mlist = MatchList[state];
+               patrn = (bnfa_pattern_t*)mlist->data;
+            nfound++;
+            /* Don't do anything specific for case (in)sensitive patterns
+             * since that will be covered by the rule tree itself.  Each
+             * tree might have both case sensitive & case insensitive patterns.
+             */
+            res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+            if ( res > 0 )
+            {
+              *current_state = sindex;
+              return nfound;
+            }
+            else if( res < 0 )
+            {
+              last_match = last_match_saved;
+            }
+        }
+    }
   }
   return nfound;
 }
@@ -1509,59 +1769,74 @@ _bnfa_search_full_nfa_case(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
 static
 inline
 unsigned 
-_bnfa_search_full_nfa_nocase(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-					int (*Match)(bnfa_pattern_t * id, int index, void *data), 
+_bnfa_search_full_nfa_nocase(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
+                    int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
                     void *data, bnfa_state_t state, int *current_state ) 
 {
   unsigned char      * Tend;
   unsigned char      * T;
   unsigned char        Tchar;
-  unsigned long        index;
+  unsigned        index;
   bnfa_state_t      ** NextState= bnfa->bnfaNextState;
   bnfa_state_t       * FailState= bnfa->bnfaFailState;
   bnfa_match_node_t ** MatchList= bnfa->bnfaMatchList;
-  bnfa_state_t       * pc;
+  bnfa_state_t       * pcs;
   bnfa_match_node_t  * mlist;
   bnfa_pattern_t     * patrn;
   unsigned             nfound = 0;
+  unsigned             last_match=LAST_STATE_INIT;
+  unsigned             last_match_saved=LAST_STATE_INIT;
+  int                  res;
 
   T    = Tx;
   Tend = T + n;
  
   for( ; T < Tend; T++ )
   {
-	Tchar = xlatcase[ *T ];
+    Tchar = xlatcase[ *T ];
 
-	for(;;)
-	{
-		pc = NextState[state];
-		if( pc[Tchar] == 0 && state > 0 )
-		{
-			state = FailState[state];
-		}
-		else
-		{
-			state = pc[Tchar];
-			break;
-		}
-	}
+    for(;;)
+    {
+        pcs = NextState[state];
+        if( pcs[Tchar] == 0 && state > 0 )
+        {
+            state = FailState[state];
+        }
+        else
+        {
+            state = pcs[Tchar];
+            break;
+        }
+    }
 
-	if( state )
-	{
-    	for(	mlist = MatchList[state];
-				mlist!= NULL;
-				mlist = mlist->next )
-    	{
-		   		patrn = (bnfa_pattern_t*)mlist->data;
-           		index = T - Tx - patrn->n + 1; 
-                nfound++;
-		     	if (Match (patrn, index, data))
-                {
-                    *current_state = state;
-					return nfound;
-                }
-    	}
-	}
+    if( state )
+    {
+        if( state == last_match )
+            continue;
+       
+        last_match_saved=last_match;
+        last_match = state;
+    
+        {
+            mlist = MatchList[state];
+               patrn = (bnfa_pattern_t*)mlist->data;
+            nfound++;
+            /* Don't do anything specific for case sensitive patterns and not,
+             * since that will be covered by the rule tree itself.  Each tree
+             * might have both case sensitive & case insensitive patterns.
+             */
+            res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+            if ( res > 0 )
+            {
+              *current_state = sindex;
+              return nfound;
+            }
+            else if( res < 0 )
+            {
+              last_match = last_match_saved;
+            }
+        }
+    }
   }
   return nfound;
 }
@@ -1574,11 +1849,11 @@ _bnfa_search_full_nfa_nocase(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
    data must be in sorted order in the array.
 
    return:  = -1 => not found
-		   >= 0  => index of element 'val' 
+           >= 0  => index of element 'val' 
 
   notes:
-	val is tested against the high 8 bits of the 'a' array entry,
-	this is particular to the storage format we are using.
+    val is tested against the high 8 bits of the 'a' array entry,
+    this is particular to the storage format we are using.
 */
 static
 inline 
@@ -1594,7 +1869,7 @@ int _bnfa_binearch( bnfa_state_t * a, int a_len, int val )
    {
       m = ( r + l ) >> 1;
 
-	  c = a[m] >> BNFA_SPARSE_VALUE_SHIFT;
+      c = a[m] >> BNFA_SPARSE_VALUE_SHIFT;
 
       if( val == c )
       {
@@ -1619,12 +1894,80 @@ int _bnfa_binearch( bnfa_state_t * a, int a_len, int val )
 *
 *   word 1: state
 *   word 2: control-word = cb<<24| fs
-*           cb	: control-byte
-*				: mb | fb | nt
-*				mb : bit 8 set if match state, zero otherwise
-*				fb : bit 7 set if using full format, zero otherwise
-*				nt : number of transitions 0..63 (more than 63 requires full format)
-*			fs: failure-transition-state 
+*           cb    : control-byte
+*                : mb | fb | nt
+*                mb : bit 8 set if match state, zero otherwise
+*                fb : bit 7 set if using full format, zero otherwise
+*                nt : number of transitions 0..63 (more than 63 requires full format)
+*            fs: failure-transition-state 
+*   word 3+: byte-value(0-255) << 24 | transition-state
+*/
+static
+inline 
+unsigned 
+_bnfa_get_next_state_csparse_nfa_qx(bnfa_state_t * pcx, unsigned sindex, unsigned  input)
+{
+    int k;
+    int nc; 
+    int index;
+    register bnfa_state_t * pcs;
+
+    for(;;)
+    {
+        pcs = pcx + sindex + 1; /* skip state-id == 1st word */
+
+        if( pcs[0] & BNFA_SPARSE_FULL_BIT )
+        {   
+            if( sindex == 0 )
+            {
+                return pcs[1+input] & BNFA_SPARSE_MAX_STATE; 
+            }
+            else
+            {
+                if( pcs[1+input] & BNFA_SPARSE_MAX_STATE ) 
+                    return pcs[1+input] & BNFA_SPARSE_MAX_STATE;
+            }
+        }
+        else
+        {
+            nc = (pcs[0]>>BNFA_SPARSE_COUNT_SHIFT) & BNFA_SPARSE_MAX_ROW_TRANSITIONS;
+            if( nc > BNFA_SPARSE_LINEAR_SEARCH_LIMIT )
+            {
+                /* binary search... */
+                index = _bnfa_binearch( pcs+1, nc, input );
+                if( index >= 0 )
+                {
+                    return pcs[index+1] & BNFA_SPARSE_MAX_STATE;
+                }
+            }
+            else
+            {
+                /* linear search... */
+                for( k=0; k<nc; k++ ) 
+                {   
+                    if( (pcs[k+1]>>BNFA_SPARSE_VALUE_SHIFT) == input )
+                    {
+                        return pcs[k+1] & BNFA_SPARSE_MAX_STATE;
+                    }
+                }
+            }
+        }
+
+        return 0; /* no transition keyword match failed */
+    } 
+}
+
+/*
+*   Sparse format for state table using single array storage
+*
+*   word 1: state
+*   word 2: control-word = cb<<24| fs
+*           cb    : control-byte
+*                : mb | fb | nt
+*                mb : bit 8 set if match state, zero otherwise
+*                fb : bit 7 set if using full format, zero otherwise
+*                nt : number of transitions 0..63 (more than 63 requires full format)
+*            fs: failure-transition-state 
 *   word 3+: byte-value(0-255) << 24 | transition-state
 */
 static
@@ -1635,129 +1978,339 @@ _bnfa_get_next_state_csparse_nfa(bnfa_state_t * pcx, unsigned sindex, unsigned  
    int k;
    int nc; 
    int index;
-   register bnfa_state_t * pc;
+   register bnfa_state_t * pcs;
 
     for(;;)
-	{
-      pc = pcx + sindex + 1; /* skip state-id == 1st word */
+   {
+      pcs = pcx + sindex + 1; /* skip state-id == 1st word */
 
-      if( pc[0] & BNFA_SPARSE_FULL_BIT )
-	  {   
-		if( sindex == 0 )
-		{
-		  return pc[1+input] & BNFA_SPARSE_MAX_STATE; 
-		}
-		else
-		{
-		  if( pc[1+input] & BNFA_SPARSE_MAX_STATE ) 
-			  return pc[1+input] & BNFA_SPARSE_MAX_STATE;
-		}
-	  }
+      if( pcs[0] & BNFA_SPARSE_FULL_BIT )
+     {   
+       if( sindex == 0 )
+       {
+         return pcs[1+input] & BNFA_SPARSE_MAX_STATE; 
+       }
+       else
+       {
+         if( pcs[1+input] & BNFA_SPARSE_MAX_STATE ) 
+             return pcs[1+input] & BNFA_SPARSE_MAX_STATE;
+       }
+     }
       else
-	  {
-         nc = (pc[0]>>BNFA_SPARSE_COUNT_SHIFT) & BNFA_SPARSE_MAX_ROW_TRANSITIONS;
-
-	     if( nc > BNFA_SPARSE_LINEAR_SEARCH_LIMIT )
-		 {
-    	   /* binary search... */
-		   index = _bnfa_binearch( pc+1, nc, input );
-		   if( index >= 0 )
-		   {
-		      return pc[index+1] & BNFA_SPARSE_MAX_STATE;
-		   }
-		 }
-	     else
-		 {
-    	   /* linear search... */
+     {
+         nc = (pcs[0]>>BNFA_SPARSE_COUNT_SHIFT) & BNFA_SPARSE_MAX_ROW_TRANSITIONS;
+         if( nc > BNFA_SPARSE_LINEAR_SEARCH_LIMIT )
+         {
+           /* binary search... */
+           index = _bnfa_binearch( pcs+1, nc, input );
+           if( index >= 0 )
+           {
+              return pcs[index+1] & BNFA_SPARSE_MAX_STATE;
+           }
+         }
+         else
+         {
+           /* linear search... */
            for( k=0; k<nc; k++ ) 
-		   {   
-             if( (pc[k+1]>>BNFA_SPARSE_VALUE_SHIFT) == input )
-			 {
-                return pc[k+1] & BNFA_SPARSE_MAX_STATE;
-			 }
-		   }
-		 }
-	  }
+           {   
+             if( (pcs[k+1]>>BNFA_SPARSE_VALUE_SHIFT) == input )
+             {
+                return pcs[k+1] & BNFA_SPARSE_MAX_STATE;
+             }
+           }
+         }
+      }
 
-	  /* no transition found ... get the failure state and try again  */
-	  sindex = pc[0] & BNFA_SPARSE_MAX_STATE;
+      /* no transition found ... get the failure state and try again  */
+      sindex = pcs[0] & BNFA_SPARSE_MAX_STATE;
     } 
 }
+
 /*
  *  Per Pattern case search, case is on per pattern basis
+ *  standard snort search
+ *  note: index is not used by snort, so it's commented
+ *  TRACK_Q can impose a modest couple % performance difference in the
+ *  pattern matching rate.
  */
+
+/* Queue whole pattern groups at end states in AC */
+void bnfa_print_qinfo()
+{
+#ifdef BNFA_TRACK_Q
+    if( pv.max_inq )
+    {
+        LogMessage("ac-bnfa: queue size     = %d, max = %d\n",pv.max_inq, MAX_INQ );
+        LogMessage("ac-bnfa: queue flushes  = %d \n", (unsigned)pv.tot_inq_flush );
+        LogMessage("ac-bnfa: queue inserts  = %d \n", (unsigned)pv.tot_inq_inserts );
+        LogMessage("ac-bnfa: queue uinserts = %d \n", (unsigned)pv.tot_inq_uinserts );
+    }
+#endif
+}
+static
+inline 
+void 
+_init_queue(bnfa_struct_t * b)
+{
+    b->inq=0;
+    b->inq_flush=0;
+}
+/* uniquely insert into q, should splay elements for performance */
+static  
+inline
+int
+_add_queue(bnfa_struct_t* b, bnfa_match_node_t * p  )
+{
+    int i;
+
+#ifdef BNFA_TRACK_Q
+    pv.tot_inq_inserts++;
+#endif
+
+    for(i=(int)(b->inq)-1;i>=0;i--)
+        if( p == b->q[i] )
+            return 0;
+    
+#ifdef BNFA_TRACK_Q
+    pv.tot_inq_uinserts++;
+#endif
+
+    if( b->inq < MAX_INQ )
+    {
+        b->q[ b->inq++ ] = p;
+    }
+
+    if( b->inq == MAX_INQ )
+    {
+#ifdef BNFA_TRACK_Q
+        b->inq_flush++;
+#endif
+        return 1;
+    }
+
+    return 0;
+}
+
 static
 inline
 unsigned
-_bnfa_search_csparse_nfa(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-		    			int (*Match)(bnfa_pattern_t * id, int index, void *data), 
-						void *data, unsigned sindex, int *current_state ) 
+_process_queue( bnfa_struct_t * bnfa, 
+              int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+              void *data ) 
 {
-  bnfa_match_node_t  * mlist;
-  unsigned char      * Tend;
-  unsigned char      * T;
-  unsigned char        Tchar;
-  unsigned             index;
-  bnfa_match_node_t ** MatchList = bnfa->bnfaMatchList;
-  bnfa_pattern_t     * patrn;
-  bnfa_state_t       * transList = bnfa->bnfaTransList;
-  unsigned             nfound = 0;
+    bnfa_match_node_t  * mlist;
+    bnfa_pattern_t     * patrn;
+    int                  res;
+    unsigned int         i;
 
-  T    = Tx;
-  Tend = T + n;
+#ifdef BNFA_TRACK_Q
+    if( bnfa->inq > pv.max_inq ) 
+        pv.max_inq = bnfa->inq;
+    pv.tot_inq_flush += bnfa->inq_flush;
+#endif 
+
+    for( i=0; i<bnfa->inq; i++ )
+    {
+        mlist = bnfa->q[i];
+        if (mlist)
+        {
+            patrn = (bnfa_pattern_t*)mlist->data;
+            /*process a pattern -  case is handled by otn processing */
+            res = Match (patrn->userdata, mlist->rule_option_tree, 0, data, mlist->neg_list);
+            if ( res > 0 )
+            {    /* terminate matching */
+                bnfa->inq=0;/* clear the q */
+                return 1;
+            }
+        }
+    }
+    bnfa->inq=0;/* clear the q */
+    return 0;
+}
+
+static
+inline
+unsigned
+_bnfa_search_csparse_nfa_qx(bnfa_struct_t * bnfa, unsigned char *T, int n,
+                            int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+                            void *data ) 
+{
+    bnfa_match_node_t  * mlist;
+    unsigned char      * Tend;
+    bnfa_match_node_t ** MatchList = bnfa->bnfaMatchList;
+    bnfa_state_t       * transList = bnfa->bnfaTransList;
+    unsigned             sindex=0;
   
-  for(; T<Tend; T++)
-  {
-   	Tchar = xlatcase[ *T ];
+    Tend = T + n;
 
-   	/* Transition to next state index */
-   	sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,Tchar);
-
-   	/* Log matches in this state - if any */
-	if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
-	{
-       	for(mlist = MatchList[ transList[sindex] ];
-			mlist!= NULL;
-			mlist = mlist->next )
-		{
-		   	patrn = (bnfa_pattern_t*)mlist->data;
-
-           	index = T - Tx - patrn->n + 1;
-           	if( patrn->nocase )
-           	{
-                nfound++;
-	        	if (Match (patrn->userdata, index, data))
+    for(; T<Tend; T++)
+    {
+        /* Transition to next state index */
+        sindex = _bnfa_get_next_state_csparse_nfa_qx(transList,sindex,xlatcase[*T]);
+   
+        /* Log matches in this state - if any */
+        if( sindex )
+        {
+            if( transList[sindex+1] & BNFA_SPARSE_MATCH_BIT ) 
+            {
+                mlist = MatchList[ transList[sindex] ];
+                if( mlist )
                 {
-                  *current_state = sindex;
-				  return nfound;
+                    if( _add_queue(bnfa,mlist) )
+                    {
+                        if( _process_queue( bnfa, Match, data ) )
+                        {
+                            return 1;
+                        }
+                    }
                 }
-           	}
-           	else
-           	{  	/* If case sensitive pattern, do an exact match test */
-			  	if( memcmp (patrn->casepatrn, T - patrn->n + 1, patrn->n) == 0 )
-			  	{
-                  nfound++;
-  				  if (Match (patrn->userdata, index, data))
-                  {
+            }
+        }
+        else
+        {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static
+inline
+unsigned
+_bnfa_search_csparse_nfa_q(   bnfa_struct_t * bnfa, unsigned char *T, int n,
+                 int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+                 void *data, unsigned sindex, int *current_state ) 
+{
+    bnfa_match_node_t  * mlist;
+    unsigned char      * Tend;
+    bnfa_match_node_t ** MatchList = bnfa->bnfaMatchList;
+    bnfa_state_t       * transList = bnfa->bnfaTransList;
+    unsigned             last_sindex;
+
+    Tend = T + n;
+ 
+    _init_queue(bnfa);
+
+    for(; T<Tend; T++)
+    {
+        last_sindex = sindex;
+
+        /* Transition to next state index */
+        sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,xlatcase[*T]);
+
+        /* Log matches in this state - if any */
+        if(sindex &&  (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
+        {
+            /* Test for same as last state */
+            if( sindex == last_sindex )
+                continue;
+        
+            mlist = MatchList[ transList[sindex] ];
+            if( mlist )
+            {
+                if( _add_queue(bnfa,mlist) )
+                {
+                    if( _process_queue( bnfa, Match, data ) )
+                    {
+                        *current_state = sindex;
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    *current_state = sindex;
+
+    return _process_queue( bnfa, Match, data ); 
+}
+
+/*
+ *  Per Pattern case search, case is on per pattern basis
+ *  standard snort search
+ *
+ *  note: index is not used by snort, so it's commented
+ */
+static
+inline
+    unsigned
+_bnfa_search_csparse_nfa( bnfa_struct_t * bnfa, unsigned char *Tx, int n,
+                          int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+                          void *data, unsigned sindex, int *current_state ) 
+{
+    bnfa_match_node_t  * mlist;
+    unsigned char      * Tend;
+    unsigned char      * T;
+    unsigned char        Tchar;
+    unsigned             index;
+    bnfa_match_node_t ** MatchList = bnfa->bnfaMatchList;
+    bnfa_pattern_t     * patrn;
+    bnfa_state_t       * transList = bnfa->bnfaTransList;
+    unsigned             nfound = 0;
+    unsigned             last_match=LAST_STATE_INIT;
+    unsigned             last_match_saved=LAST_STATE_INIT;
+    int                  res;
+#ifdef MATCH_LIST_CNT
+    unsigned           * MatchTestCnt = bnfa->bnfaMatchTestCnt;
+#endif
+    T    = Tx;
+    Tend = T + n;
+
+    for(; T<Tend; T++)
+    {
+        Tchar = xlatcase[ *T ];
+
+        /* Transition to next state index */
+        sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,Tchar);
+
+        /* Log matches in this state - if any */
+        if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
+        {
+            if( sindex == last_match )
+                continue;
+
+            last_match_saved = last_match;
+            last_match = sindex;
+
+#ifdef MATCH_LIST_CNT
+            if( MatchList[ transList[sindex] ] )
+                MatchTestCnt[ transList[index] ]++;
+#endif 
+
+            {
+                mlist = MatchList[ transList[sindex] ];
+                patrn = (bnfa_pattern_t*)mlist->data;
+                index = T - Tx - patrn->n + 1;
+                nfound++;
+                /* Don't do anything specific for case sensitive patterns and not,
+                 * since that will be covered by the rule tree itself.  Each tree
+                 * might have both case sensitive & case insensitive patterns.
+                 */
+                res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+                if ( res > 0 )
+                {
                     *current_state = sindex;
-				    return nfound;
-                  }
-			  	}
-           	}
-		}
-	  }
-  }
-  return nfound;
+                    return nfound;
+                }
+                else if( res < 0 )
+                {
+                    last_match = last_match_saved;
+                }
+            }
+        }
+    }
+    return nfound;
 }
 /*
  * Case specific search, global to all patterns
+ *
+ *  note: index is not used by snort, so it's commented
  */
 static
 inline
 unsigned
 _bnfa_search_csparse_nfa_case(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-		    			int (*Match)(bnfa_pattern_t * id, int index, void *data), 
-						void *data, unsigned sindex, int *current_state ) 
+                        int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+                        void *data, unsigned sindex, int *current_state ) 
 {
   bnfa_match_node_t  * mlist;
   unsigned char      * Tend;
@@ -1767,44 +2320,62 @@ _bnfa_search_csparse_nfa_case(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
   bnfa_pattern_t     * patrn;
   bnfa_state_t       * transList = bnfa->bnfaTransList;
   unsigned             nfound = 0;
+  unsigned             last_match=LAST_STATE_INIT;
+  unsigned             last_match_saved=LAST_STATE_INIT;
+  int                  res;
 
   T    = Tx;
   Tend = T + n;
   
   for(; T<Tend; T++)
   {
-   	/* Transition to next state index */
-   	sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,*T);
+       /* Transition to next state index */
+       sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,*T);
 
-   	/* Log matches in this state - if any */
-	if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
-	{
-       	for(mlist = MatchList[ transList[sindex] ];
-			mlist!= NULL;
-			mlist = mlist->next )
-		{
-		   	patrn = (bnfa_pattern_t*)mlist->data;
-           	index = T - Tx - patrn->n + 1;
+       /* Log matches in this state - if any */
+    if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
+    {
+        if( sindex == last_match )
+            continue;
+   
+        last_match_saved = last_match;
+        last_match = sindex;
+           
+        {
+            mlist = MatchList[ transList[sindex] ];
+               patrn = (bnfa_pattern_t*)mlist->data;
+               index = T - Tx - patrn->n + 1;
             nfound++;
-	      	if (Match (patrn->userdata, index, data))
+            /* Don't do anything specific for case sensitive patterns and not,
+             * since that will be covered by the rule tree itself.  Each tree
+             * might have both case sensitive & case insensitive patterns.
+             */
+            res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+            if ( res > 0 )
             {
-                *current_state = sindex;
-			    return nfound;
+              *current_state = sindex;
+              return nfound;
             }
-		}
-	}
+            else if( res < 0 )
+            {
+              last_match = last_match_saved;
+            }
+        }
+    }
   }
   return nfound;
 }
 /*
  *  NoCase search - global to all patterns
+ *
+ *  note: index is not used by snort, so it's commented
  */
 static
 inline
 unsigned
 _bnfa_search_csparse_nfa_nocase(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-		    			int (*Match)(bnfa_pattern_t * id, int index, void *data), 
-						void *data, unsigned sindex, int *current_state ) 
+                        int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+                        void *data, unsigned sindex, int *current_state ) 
 {
   bnfa_match_node_t  * mlist;
   unsigned char      * Tend;
@@ -1815,34 +2386,50 @@ _bnfa_search_csparse_nfa_nocase(   bnfa_struct_t * bnfa, unsigned char *Tx, int 
   bnfa_pattern_t     * patrn;
   bnfa_state_t       * transList = bnfa->bnfaTransList;
   unsigned             nfound = 0;
-
+  unsigned             last_match=LAST_STATE_INIT;
+  unsigned             last_match_saved=LAST_STATE_INIT;
+  int                  res;
+  
   T    = Tx;
   Tend = T + n;
   
   for(; T<Tend; T++)
   {
-   	Tchar = xlatcase[ *T ];
+       Tchar = xlatcase[ *T ];
 
-   	/* Transition to next state index */
-   	sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,Tchar);
+       /* Transition to next state index */
+       sindex = _bnfa_get_next_state_csparse_nfa(transList,sindex,Tchar);
 
-   	/* Log matches in this state - if any */
-	if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
-	{
-       	for(mlist = MatchList[ transList[sindex] ];
-			mlist!= NULL;
-			mlist = mlist->next )
-		{
-		   	patrn = (bnfa_pattern_t*)mlist->data;
-           	index = T - Tx - patrn->n + 1;
+       /* Log matches in this state - if any */
+    if( sindex && (transList[sindex+1] & BNFA_SPARSE_MATCH_BIT) )
+    {
+        if( sindex == last_match )
+            continue;
+        
+        last_match_saved = last_match;
+        last_match = sindex;
+        
+        {
+            mlist = MatchList[ transList[sindex] ];
+               patrn = (bnfa_pattern_t*)mlist->data;
+               index = T - Tx - patrn->n + 1;
             nfound++;
-	        if (Match (patrn->userdata, index, data))
+            /* Don't do anything specific for case sensitive patterns and not,
+             * since that will be covered by the rule tree itself.  Each tree
+             * might have both case sensitive & case insensitive patterns.
+             */
+            res = Match (patrn->userdata, mlist->rule_option_tree, index, data, mlist->neg_list);
+            if ( res > 0 )
             {
-                *current_state = sindex;
-		 	    return nfound;
+              *current_state = sindex;
+              return nfound;
             }
-		}
-	  }
+            else if( res < 0 )
+            {
+              last_match = last_match_saved;
+            }
+        }
+      }
   }
   return nfound;
 }
@@ -1856,19 +2443,37 @@ _bnfa_search_csparse_nfa_nocase(   bnfa_struct_t * bnfa, unsigned char *Tx, int 
 *  Match  - function to call when a match is found
 *  data   - user supplied data that is passed to the Match function
 *  sindex - state tracker, set value to zero to reset the state machine,
-*			zero should be the value passed in on the 1st buffer or each buffer
+*            zero should be the value passed in on the 1st buffer or each buffer
 *           that is to be analyzed on its own, the state machine updates this 
-*			during searches. This allows for sequential buffer searchs without 
-*			reseting the state machine. Save this value as returned from the 
-*			previous search for the next search.
+*            during searches. This allows for sequential buffer searchs without 
+*            reseting the state machine. Save this value as returned from the 
+*            previous search for the next search.
 *
 *  returns 
-*	The state or sindex of the state machine. This can than be passed back
+*    The state or sindex of the state machine. This can than be passed back
 *   in on the next search, if desired.  
 */
 unsigned 
-bnfaSearch(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
-			int (*Match) ( void * id, int index, void *data), 
+bnfaSearchX( bnfa_struct_t * bnfa, unsigned char *T, int n,
+            int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
+            void *data, unsigned sindex, int* current_state )
+{
+    int ret;
+
+    _init_queue(bnfa);
+    while( n > 0)
+    {
+        ret = _bnfa_search_csparse_nfa_qx( bnfa, T++, n--, Match, data );
+
+        if( ret )
+            return 0;
+    }
+    return _process_queue( bnfa, Match, data ); 
+}
+
+unsigned 
+bnfaSearch( bnfa_struct_t * bnfa, unsigned char *Tx, int n,
+            int (*Match)(void * id, void *tree, int index, void *data, void *neg_list), 
             void *data, unsigned sindex, int* current_state )
 {
     int ret = 0; 
@@ -1886,18 +2491,30 @@ bnfaSearch(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
     {
         if( bnfa->bnfaCaseMode == BNFA_PER_PAT_CASE )
         {
-          ret = _bnfa_search_csparse_nfa( bnfa, Tx, n, 
-		      (int (*)(bnfa_pattern_t*,int i,void *data))Match, data, sindex, current_state );
+            if (bnfa->bnfaMethod)
+            {
+                ret = _bnfa_search_csparse_nfa( bnfa, Tx, n, 
+                    (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+                    Match, data, sindex, current_state );
+            }
+            else
+            {
+                ret = _bnfa_search_csparse_nfa_q( bnfa, Tx, n, 
+                    (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+                    Match, data, sindex, current_state );
+            }
         }
         else  if( bnfa->bnfaCaseMode == BNFA_CASE )
         {
           ret = _bnfa_search_csparse_nfa_case( bnfa, Tx, n, 
-		        (int (*)(bnfa_pattern_t *,int index,void *data) )Match, data, sindex, current_state );
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, sindex, current_state );
         }
         else /* NOCASE */
         {
           ret = _bnfa_search_csparse_nfa_nocase( bnfa, Tx, n, 
-		        (int (*)(bnfa_pattern_t *,int index,void *data) )Match, data, sindex, current_state );
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, sindex, current_state );
         }
     }
     else if( bnfa->bnfaFormat == BNFA_FULL )
@@ -1905,37 +2522,57 @@ bnfaSearch(	bnfa_struct_t * bnfa, unsigned char *Tx, int n,
         if( bnfa->bnfaCaseMode == BNFA_PER_PAT_CASE  )
         {
             ret = _bnfa_search_full_nfa( bnfa, Tx, n, 
-		     (int (*)(bnfa_pattern_t *,int index, void *data) )Match,data, (bnfa_state_t) sindex, current_state );
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, (bnfa_state_t) sindex, current_state );
         }
         else if( bnfa->bnfaCaseMode == BNFA_CASE  )
         {
             ret = _bnfa_search_full_nfa_case( bnfa, Tx, n, 
-		      (int (*)(bnfa_pattern_t *,int index, void *data) )Match,data, (bnfa_state_t) sindex, current_state );
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, (bnfa_state_t) sindex, current_state );
         }
         else
         {
             ret = _bnfa_search_full_nfa_nocase( bnfa, Tx, n, 
-		      (int (*)(bnfa_pattern_t *,int index, void *data) )Match,data, (bnfa_state_t) sindex, current_state );
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, (bnfa_state_t) sindex, current_state );
         }
     }
 #else
     if( bnfa->bnfaCaseMode == BNFA_PER_PAT_CASE )
     {
-   	    ret = _bnfa_search_csparse_nfa( bnfa, Tx, n, 
-		    (int (*)(bnfa_pattern_t *,int index,void *data) )Match, data, sindex, current_state );
+        if (bnfa->bnfaMethod)
+        {
+            ret = _bnfa_search_csparse_nfa( bnfa, Tx, n, 
+                (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+                Match, data, sindex, current_state );
+        }
+        else
+        {
+            ret = _bnfa_search_csparse_nfa_q( bnfa, Tx, n, 
+                (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+                Match, data, sindex, current_state );
+        }
     }
     else if( bnfa->bnfaCaseMode == BNFA_CASE )
     {
-   	    ret = _bnfa_search_csparse_nfa_case( bnfa, Tx, n, 
-		    (int (*)(bnfa_pattern_t *,int index,void *data) )Match, data, sindex, current_state );
+           ret = _bnfa_search_csparse_nfa_case( bnfa, Tx, n, 
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, sindex, current_state );
     }
     else/* NOCASE */
     {
-   	    ret = _bnfa_search_csparse_nfa_nocase( bnfa, Tx, n, 
-		    (int (*)(bnfa_pattern_t *,int index,void *data) )Match, data, sindex, current_state );
+           ret = _bnfa_search_csparse_nfa_nocase( bnfa, Tx, n, 
+              (int (*)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list))
+              Match, data, sindex, current_state );
     }
 #endif
     return ret;
+}
+
+int bnfaPatternCount( bnfa_struct_t * p)
+{
+    return p->bnfaPatternCnt;
 }
 
 /*
@@ -1953,10 +2590,10 @@ void bnfaPrintInfoEx( bnfa_struct_t * p, char * text )
 
     if( !p->bnfaNumStates )
     {
-	    return;
+        return;
     }
     max_memory = p->bnfa_memory + p->pat_memory + p->list_memory + 
-		         p->matchlist_memory + p->failstate_memory + p->nextstate_memory;
+                 p->matchlist_memory + p->failstate_memory + p->nextstate_memory;
 
     if( text && summary_cnt )
     {
@@ -1974,16 +2611,16 @@ void bnfaPrintInfoEx( bnfa_struct_t * p, char * text )
     if( max_memory < 1024*1024 )
     {
         printf("| Memory           :   %.2fKbytes\n", (double)max_memory/1024 );
-		printf("|   Patterns       :   %.2fK\n",(double)p->pat_memory/1024 );
-		printf("|   Match Lists    :   %.2fK\n",(double)p->matchlist_memory/1024 );
-		printf("|   Transitions    :   %.2fK\n",(double)p->nextstate_memory/1024 );
+        printf("|   Patterns       :   %.2fK\n",(double)p->pat_memory/1024 );
+        printf("|   Match Lists    :   %.2fK\n",(double)p->matchlist_memory/1024 );
+        printf("|   Transitions    :   %.2fK\n",(double)p->nextstate_memory/1024 );
     }
     else
     {
-    	printf("| Memory           :   %.2fMbytes\n", (double)max_memory/(1024*1024) );
-	    printf("|   Patterns       :   %.2fM\n",(double)p->pat_memory/(1024*1024) );
-    	printf("|   Match Lists    :   %.2fM\n",(double)p->matchlist_memory/(1024*1024) );
-	    printf("|   Transitions    :   %.2fM\n",(double)p->nextstate_memory/(1024*1024) );
+        printf("| Memory           :   %.2fMbytes\n", (double)max_memory/(1024*1024) );
+        printf("|   Patterns       :   %.2fM\n",(double)p->pat_memory/(1024*1024) );
+        printf("|   Match Lists    :   %.2fM\n",(double)p->matchlist_memory/(1024*1024) );
+        printf("|   Transitions    :   %.2fM\n",(double)p->nextstate_memory/(1024*1024) );
     }
     printf("+-------------------------------------------------\n");
 }
@@ -2013,11 +2650,38 @@ void bnfaAccumInfo( bnfa_struct_t * p )
     px->bnfaNumStates    += p->bnfaNumStates;
     px->bnfaNumTrans     += p->bnfaNumTrans;
     px->bnfaMatchStates  += p->bnfaMatchStates;
-	px->bnfa_memory      += p->bnfa_memory;
-	px->pat_memory       += p->pat_memory;
-	px->list_memory      += p->list_memory;
-	px->matchlist_memory += p->matchlist_memory;
-	px->nextstate_memory += p->nextstate_memory;
-	px->failstate_memory += p->failstate_memory;
+    px->bnfa_memory      += p->bnfa_memory;
+    px->pat_memory       += p->pat_memory;
+    px->list_memory      += p->list_memory;
+    px->matchlist_memory += p->matchlist_memory;
+    px->nextstate_memory += p->nextstate_memory;
+    px->failstate_memory += p->failstate_memory;
 }
 
+#ifdef MATCH_LIST_CNT 
+void bnfaPrintMatchListCnt( bnfa_struct_t * p )
+{
+    unsigned * cnt = p->bnfaMatchListCnt;
+    int i;
+    bnfa_match_node_t  * mn;
+    bnfa_pattern_t     * patrn;
+
+    printf("[ MatchListCnt for ac-bnfa state machine\n ]");
+
+    for(i=0;i<bnfa->bnfaNumStates;i++)
+    {
+        if( cnt[i] )
+        {
+            printf("state[%d] cnt=%d",i,cnt[i]);
+            mn = bnfa->MatchList[i] ;
+            if( mn )
+            {
+            patrn  =(bnfa_pattern_t *)mn->data;
+            //xprintOTNSidGid(cnt,patrn->userdata);
+            }
+            printf("\n");
+            fflush(stdout);
+        }
+    } 
+}  
+#endif

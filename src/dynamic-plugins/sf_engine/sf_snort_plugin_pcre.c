@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -26,15 +26,14 @@
  *
  * PCRE operations for dynamic rule engine
  */
+#include "debug.h"
 #include "sf_snort_packet.h"
 #include "sf_snort_plugin_api.h"
 #include "sf_dynamic_engine.h"
 
-#define DEBUG_WRAP(x)
-
 /* Need access to the snort-isms that were passed to the engine */
 extern DynamicEngineData _ded; /* sf_detection_engine.c */
-extern int checkCursorInternal(void *p, int flags, int offset, u_int8_t *cursor);
+extern int checkCursorInternal(void *p, int flags, int offset, const u_int8_t *cursor);
 
 
 int PCRESetup(Rule *rule, PCREInfo *pcreInfo)
@@ -42,7 +41,7 @@ int PCRESetup(Rule *rule, PCREInfo *pcreInfo)
     const char *error;
     int erroffset;
 
-    pcreInfo->compiled_expr = (void *)pcre_compile(pcreInfo->expr,
+    pcreInfo->compiled_expr = (void *)_ded.pcreCompile(pcreInfo->expr,
                                                     pcreInfo->compile_flags,
                                                     &error,
                                                     &erroffset,
@@ -57,7 +56,7 @@ int PCRESetup(Rule *rule, PCREInfo *pcreInfo)
     }
     else
     {
-        pcreInfo->compiled_extra = (void *)pcre_study(pcreInfo->compiled_expr, 0, &error);
+        pcreInfo->compiled_extra = (void *)_ded.pcreStudy(pcreInfo->compiled_expr, pcreInfo->compile_flags, &error);
     }
 
     if (error)
@@ -69,6 +68,51 @@ int PCRESetup(Rule *rule, PCREInfo *pcreInfo)
     }
 
     return 0;
+}
+
+/**
+ *  * Wrapper for pcre_exec to expose ovector.
+ *   */
+ENGINE_LINKAGE int pcreExecWrapper(const PCREInfo *pcre_info, const char *buf, int len, int start_offset,
+                                    int options, int *ovector, int ovecsize)
+{
+    int result;
+    int matched;
+
+    if(pcre_info == NULL
+        || buf == NULL
+        || len <= 0
+        || start_offset < 0
+        || start_offset >= len
+        || ovector == NULL)
+    {
+        return 0;
+    }
+
+    result = _ded.pcreExec(pcre_info->compiled_expr,    /* result of pcre_compile() */
+                     pcre_info->compiled_extra,   /* result of pcre_study()   */
+                     buf,                         /* the subject string */
+                     len,                         /* the length of the subject string */
+                     start_offset,                /* start at offset 0 in the subject */
+                     options,                     /* options(handled at compile time */
+                     ovector,                     /* vector for substring information */
+                     ovecsize);    /* number of elements in the vector */
+
+    if(result >= 0)
+    {
+        matched = 1;
+    }
+    else if(result == PCRE_ERROR_NOMATCH)
+    {
+        matched = 0;
+    }
+    else
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "pcre_exec error : %d \n", result););
+        return 0;
+    }
+
+    return matched;
 }
 
 /* 
@@ -116,7 +160,7 @@ static int pcre_test(const PCREInfo *pcre_info,
 
     *found_offset = -1;
     
-    result = pcre_exec(pcre_info->compiled_expr,    /* result of pcre_compile() */
+    result = _ded.pcreExec(pcre_info->compiled_expr,    /* result of pcre_compile() */
                        pcre_info->compiled_extra,   /* result of pcre_study()   */
                        buf,                         /* the subject string */
                        len,                         /* the length of the subject string */
@@ -150,14 +194,13 @@ static int pcre_test(const PCREInfo *pcre_info,
     return matched;
 }
 
-ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
+ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, const u_int8_t **cursor)
 {
-    char *buffer_start;
-    char *buffer_end;
+    const u_int8_t *buffer_start;
+    const u_int8_t *buffer_end;
     int buffer_len;
     int pcre_offset;
     int pcre_found;
-    int i;
     int relative = 0;
     SFSnortPacket *sp = (SFSnortPacket *) p;
 
@@ -177,10 +220,41 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
         relative = 1;
     }
 
-    if (pcre_info->flags & CONTENT_BUF_URI)
+    if (pcre_info->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD | CONTENT_BUF_COOKIE))
     {
-        for (i=0;i<sp->num_uris; i++)
+        int i;
+        for (i=0; i<sp->num_uris; i++)
         {
+            switch (i)
+            {
+                case HTTP_BUFFER_URI:
+                    if (!(pcre_info->flags & CONTENT_BUF_URI))
+                        continue; /* Go to next, not looking at URI buffer */
+                    break;
+                case HTTP_BUFFER_HEADER:
+                    if (!(pcre_info->flags & CONTENT_BUF_HEADER))
+                        continue; /* Go to next, not looking at HEADER buffer */
+                    break;
+                case HTTP_BUFFER_CLIENT_BODY:
+                    if (!(pcre_info->flags & CONTENT_BUF_POST))
+                        continue; /* Go to next, not looking at POST buffer */
+                    break;
+                case HTTP_BUFFER_METHOD:
+                    if (!(pcre_info->flags & CONTENT_BUF_METHOD))
+                        continue; /* Go to next, not looking at METHOD buffer */
+                    break;
+                case HTTP_BUFFER_COOKIE:
+                    if (!(pcre_info->flags & CONTENT_BUF_COOKIE))
+                        continue; /* Go to next, not looking at COOKIE buffer */
+                    break;
+                default:
+                    /* Uh, what buffer is this? */
+                    return CONTENT_NOMATCH;
+            }
+        
+            if (!_ded.uriBuffers[i]->uriBuffer || (_ded.uriBuffers[i]->uriLength == 0))
+                continue;
+
             if (relative)
             {
                 if (checkCursorInternal(p, pcre_info->flags, 0, *cursor) <= 0)
@@ -189,8 +263,7 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
                     continue;
                 }
                 buffer_start = *cursor;
-                buffer_end = _ded.uriBuffers[i]->uriBuffer +
-                                _ded.uriBuffers[i]->uriLength;
+                buffer_end = _ded.uriBuffers[i]->uriBuffer + _ded.uriBuffers[i]->uriLength;
                 buffer_len = buffer_end - buffer_start;
             }
             else
@@ -199,7 +272,7 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
                 buffer_len = _ded.uriBuffers[i]->uriLength;
                 buffer_end = buffer_start + buffer_len;
             }
-            pcre_found = pcre_test(pcre_info, buffer_start, buffer_len, 0, &pcre_offset);
+            pcre_found = pcre_test(pcre_info, (const char *)buffer_start, buffer_len, 0, &pcre_offset);
 
             if (pcre_found)
             {
@@ -210,13 +283,12 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
                 return RULE_MATCH;
             }
         }
-
         return RULE_NOMATCH;
     }
 
     if (relative)
     {
-        if (checkCursorInternal(p, pcre_info->flags, 0, *cursor) <= 0)
+        if (checkCursorInternal(p, pcre_info->flags, pcre_info->offset, *cursor) <= 0)
         {
             return RULE_NOMATCH;
         }
@@ -231,8 +303,8 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
             buffer_start = sp->payload;
             buffer_end = buffer_start + sp->payload_size;
         }
-        buffer_len = buffer_end - buffer_start;
         buffer_start = *cursor;
+        buffer_len = buffer_end - buffer_start;
     }
     else
     {
@@ -249,7 +321,7 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, u_int8_t **cursor)
         buffer_end = buffer_start + buffer_len;
     }
 
-    pcre_found = pcre_test(pcre_info, buffer_start, buffer_len, 0, &pcre_offset);
+    pcre_found = pcre_test(pcre_info, (const char *)buffer_start, buffer_len, pcre_info->offset, &pcre_offset);
 
     if (pcre_found)
     {

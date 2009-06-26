@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -37,9 +37,7 @@
 #include "config.h"
 #endif
 
-#ifndef UINT64
-#define UINT64 unsigned long long
-#endif
+#include "sf_types.h"
 
 double calc_percent(double amt, double total);
 double calc_percent64(UINT64 amt, UINT64 total);

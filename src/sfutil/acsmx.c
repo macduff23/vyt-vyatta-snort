@@ -6,7 +6,7 @@
 **
 ** Aho-Corasick State Machine -  uses a Deterministic Finite Automata - DFA
 **
-** Copyright (C) 2002 Sourcefire,Inc.
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Marc Norton
 **
 **  
@@ -247,6 +247,7 @@ CopyMatchListEntry (ACSM_PATTERN * px)
   p = (ACSM_PATTERN *) AC_MALLOC (sizeof (ACSM_PATTERN));
   MEMASSERT (p, "CopyMatchListEntry");
   memcpy (p, px, sizeof (ACSM_PATTERN));
+  px->udata->ref_count++;
   p->next = 0;
   return p;
 }
@@ -439,14 +440,21 @@ Convert_NFA_To_DFA (ACSM_STRUCT * acsm)
 /*
 *
 */ 
-ACSM_STRUCT * acsmNew () 
+ACSM_STRUCT * acsmNew (void (*userfree)(void *p),
+                       void (*optiontreefree)(void **p),
+                       void (*neg_list_free)(void **p))
 {
   ACSM_STRUCT * p;
   init_xlatcase ();
   p = (ACSM_STRUCT *) AC_MALLOC (sizeof (ACSM_STRUCT));
   MEMASSERT (p, "acsmNew");
   if (p)
+  {
     memset (p, 0, sizeof (ACSM_STRUCT));
+    p->userfree              = userfree;
+    p->optiontreefree        = optiontreefree;
+    p->neg_list_free         = neg_list_free;
+  }
   return p;
 }
 
@@ -456,7 +464,7 @@ ACSM_STRUCT * acsmNew ()
 */ 
 int
 acsmAddPattern (ACSM_STRUCT * p, unsigned char *pat, int n, int nocase,
-            int offset, int depth, void * id, int iid) 
+            int offset, int depth, int negative, void * id, int iid) 
 {
   ACSM_PATTERN * plist;
   plist = (ACSM_PATTERN *) AC_MALLOC (sizeof (ACSM_PATTERN));
@@ -465,23 +473,71 @@ acsmAddPattern (ACSM_STRUCT * p, unsigned char *pat, int n, int nocase,
   ConvertCaseEx (plist->patrn, pat, n);
   plist->casepatrn = (unsigned char *) AC_MALLOC (n);
   memcpy (plist->casepatrn, pat, n);
+
+  plist->udata = (ACSM_USERDATA *)AC_MALLOC(sizeof(ACSM_USERDATA));
+  MEMASSERT (plist->udata, "acsmAddPattern");
+  plist->udata->ref_count = 1;
+  plist->udata->id = id;
+
   plist->n = n;
   plist->nocase = nocase;
+  plist->negative = negative;
   plist->offset = offset;
   plist->depth = depth;
-  plist->id = id;
   plist->iid = iid;
   plist->next = p->acsmPatterns;
   p->acsmPatterns = plist;
+  p->numPatterns++;
   return 0;
 }
+
+static int acsmBuildMatchStateTrees( ACSM_STRUCT * acsm, 
+                                     int (*build_tree)(void * id, void **existing_tree),
+                                     int (*neg_list_func)(void *id, void **list) )
+{
+    int i, cnt = 0;
+    ACSM_PATTERN * mlist;
+
+    /* Find the states that have a MatchList */ 
+    for (i = 0; i < acsm->acsmMaxStates; i++)
+    {
+        for ( mlist=acsm->acsmStateTable[i].MatchList;
+              mlist!=NULL;
+              mlist=mlist->next )
+        {
+            if (mlist->udata->id)
+            {
+                if (mlist->negative)
+                {
+                    neg_list_func(mlist->udata->id, &acsm->acsmStateTable[i].MatchList->neg_list);
+                }
+                else
+                {
+                    build_tree(mlist->udata->id, &acsm->acsmStateTable[i].MatchList->rule_option_tree);
+                }
+            }
+
+            cnt++;
+        }
+
+        if (acsm->acsmStateTable[i].MatchList)
+        {
+            /* Last call to finalize the tree */
+            build_tree(NULL, &acsm->acsmStateTable[i].MatchList->rule_option_tree);
+        }
+    }
+
+    return cnt;
+} 
 
 
 /*
 *   Compile State Machine
 */ 
 int
-acsmCompile (ACSM_STRUCT * acsm) 
+acsmCompile (ACSM_STRUCT * acsm,
+             int (*build_tree)(void * id, void **existing_tree),
+             int (*neg_list_func)(void *id, void **list))
 {
     int i, k;
     ACSM_PATTERN * plist;
@@ -539,6 +595,11 @@ acsmCompile (ACSM_STRUCT * acsm)
 
     //Print_DFA( acsm );
 
+    if (build_tree && neg_list_func)
+    {
+        acsmBuildMatchStateTrees(acsm, build_tree, neg_list_func);
+    }
+
     return 0;
 }
 
@@ -550,8 +611,8 @@ static unsigned char Tc[64*1024];
 */ 
 int
 acsmSearch (ACSM_STRUCT * acsm, unsigned char *Tx, int n,
-            int (*Match) (void *  id, int index, void *data), void *data, 
-            int* current_state ) 
+            int (*Match)(void * id, void *tree, int index, void *data, void *neg_list),
+            void *data, int* current_state ) 
 {
     int state = 0;
     ACSM_PATTERN * mlist;
@@ -579,31 +640,13 @@ acsmSearch (ACSM_STRUCT * acsm, unsigned char *Tx, int n,
 
         if( StateTable[state].MatchList != NULL )
         {
-            for( mlist=StateTable[state].MatchList; mlist!=NULL;
-                 mlist=mlist->next )
+            mlist = StateTable[state].MatchList;
+            index = T - mlist->n + 1 - Tc;
+            nfound++;
+            if (Match (mlist->udata->id, mlist->rule_option_tree, index, data, mlist->neg_list) > 0)
             {
-                index = T - mlist->n + 1 - Tc;
-                if( mlist->nocase )
-                {
-                    nfound++;
-                    if (Match (mlist->id, index, data))
-                    {
-                        *current_state = state;
-                        return nfound;
-                    }
-                }
-                else
-                {
-                    if( memcmp (mlist->casepatrn, Tx + index, mlist->n) == 0 )
-                    {
-                        nfound++;
-                        if (Match (mlist->id, index, data))
-                        {
-                            *current_state = state;
-                            return nfound;
-                        }
-                    }
-                }
+                *current_state = state;
+                return nfound;
             }
         }
     }
@@ -627,6 +670,26 @@ acsmFree (ACSM_STRUCT * acsm)
         {
             ilist = mlist;
             mlist = mlist->next;
+
+            ilist->udata->ref_count--;
+            if (ilist->udata->ref_count == 0)
+            {
+                if (acsm->userfree && ilist->udata->id)
+                    acsm->userfree(ilist->udata->id);
+
+                AC_FREE(ilist->udata);
+            }
+
+            if (ilist->rule_option_tree && acsm->optiontreefree)
+            {
+                acsm->optiontreefree(&(ilist->rule_option_tree));
+            }
+
+            if (ilist->neg_list && acsm->neg_list_free)
+            {
+                acsm->neg_list_free(&(ilist->neg_list));
+            }
+
             AC_FREE (ilist);
         }
     }
@@ -641,6 +704,11 @@ acsmFree (ACSM_STRUCT * acsm)
         AC_FREE(ilist);
     }
     AC_FREE (acsm);
+}
+
+int acsmPatternCount ( ACSM_STRUCT * acsm )
+{
+    return acsm->numPatterns;
 }
 
 /*

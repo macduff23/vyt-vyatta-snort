@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -33,6 +33,8 @@
 
 #include "ipobj.h"
 
+#include "ipv6_port.h"
+
 #define PS_OPEN_PORTS 8
 
 typedef struct s_PS_PROTO
@@ -46,9 +48,9 @@ typedef struct s_PS_PROTO
     unsigned short low_p;
     unsigned short u_ports;
 
-    unsigned long  high_ip;
-    unsigned long  low_ip;
-    unsigned long  u_ips;
+    snort_ip           high_ip;
+    snort_ip           low_ip;
+    snort_ip           u_ips;
 
     unsigned short open_ports[PS_OPEN_PORTS];
     unsigned char  open_ports_cnt;
@@ -115,6 +117,8 @@ typedef struct s_PS_PKT
 int  ps_init(int detect_scans, int detect_scan_type, int sense_level,
         IPSET *ignore_scanners, IPSET *ignore_scanned, IPSET *watch_ip,
         int memcap);
+void ps_cleanup(void);
+void ps_reset(void);
         
 int  ps_detect(PS_PKT *p);
 void ps_tracker_print(PS_TRACKER *tracker);

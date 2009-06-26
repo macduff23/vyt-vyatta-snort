@@ -60,14 +60,17 @@ TODO things for Snort in Debian
 - Rewrite the "address range" question. It actually does not explain what
   it is actually used for (HOME_NET)
 
-- Determine, if the interface is configured and up and has an assigned
-  IP address, the address range for the sensor in an automatic way
+- Try to use the interface defined IP address to set the address range (and
+  lower the questions priority
   This should also handle multiple interfaces.
   (see bug #248000)
 
 - Add some common logcheck rules (see #222584, and #217175)
 
 DONE
+
+- Determine, if the interface is configured and up.
+ (see bug #248000)
 
 - Have a way in preinst to migragte from the old common.parameters to the
   new /etc/default/snort so that all users can benefit from it. 

@@ -7,7 +7,7 @@ libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
 
 lib_LTLIBRARIES = libsf_dcerpc_preproc.la
 
-libsf_dcerpc_preproc_la_LDFLAGS = -module
+libsf_dcerpc_preproc_la_LDFLAGS = -export-dynamic
 
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c 
@@ -42,7 +42,7 @@ sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
 all-local:
-	$(MAKE) DESTDIR=$(PWD)/../build install-libLTLIBRARIES
+	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
 	rm -f sf_dynamic_preproc_lib.c

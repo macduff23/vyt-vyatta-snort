@@ -134,7 +134,7 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( !p )
             return 0;
 
-        if ( ! p->iph )
+        if ( ! IPH_IS_VALID(p) )
                 return 0;
         
         ret = idmef_alert_new_source(alert, &source, IDMEF_LIST_APPEND);
@@ -155,8 +155,8 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( p->tcph || p->udph )
                 idmef_service_set_port(service, p->sp);
         
-        idmef_service_set_ip_version(service, IP_VER(p->iph));
-        idmef_service_set_iana_protocol_number(service, p->iph->ip_proto);
+        idmef_service_set_ip_version(service, GET_IPH_VER(p));
+        idmef_service_set_iana_protocol_number(service, GET_IPH_PROTO(p));
         
         ret = idmef_source_new_node(source, &node);
         if ( ret < 0 )
@@ -170,7 +170,7 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( ret < 0 )
                 return ret;
         
-        SnortSnprintf(saddr, sizeof(saddr), "%s", inet_ntoa(p->iph->ip_src));
+        SnortSnprintf(saddr, sizeof(saddr), "%s", inet_ntoa(GET_SRC_ADDR(p)));
         prelude_string_set_ref(string, saddr);
 
         ret = idmef_alert_new_target(alert, &target, IDMEF_LIST_APPEND);
@@ -191,8 +191,8 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( p->tcph || p->udph )                
                 idmef_service_set_port(service, p->dp);
         
-        idmef_service_set_ip_version(service, IP_VER(p->iph));
-        idmef_service_set_iana_protocol_number(service, p->iph->ip_proto);
+        idmef_service_set_ip_version(service, GET_IPH_VER(p));
+        idmef_service_set_iana_protocol_number(service, GET_IPH_PROTO(p));
         
         ret = idmef_target_new_node(target, &node);
         if ( ret < 0 )
@@ -206,7 +206,7 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( ret < 0 )
                 return ret;
                 
-        SnortSnprintf(daddr, sizeof(daddr), "%s", inet_ntoa(p->iph->ip_dst));
+        SnortSnprintf(daddr, sizeof(daddr), "%s", inet_ntoa(GET_DST_ADDR(p)));
         prelude_string_set_ref(string, daddr);
         
         return 0;
@@ -334,20 +334,33 @@ static int packet_to_data(Packet *p, Event *event, idmef_alert_t *alert)
         add_int_data(alert, "snort_rule_sid", event->sig_id);
         add_int_data(alert, "snort_rule_rev", event->sig_rev);
         
-        if ( p->iph ) {
-                add_int_data(alert, "ip_ver", IP_VER(p->iph));
-                add_int_data(alert, "ip_hlen", IP_HLEN(p->iph));
-                add_int_data(alert, "ip_tos", p->iph->ip_tos);
-                add_int_data(alert, "ip_len", ntohs(p->iph->ip_len));
+        if ( IPH_IS_VALID(p) ) {
+                add_int_data(alert, "ip_ver", GET_IPH_VER(p));
+                add_int_data(alert, "ip_hlen", GET_IPH_HLEN(p));
+                add_int_data(alert, "ip_tos", GET_IPH_TOS(p));
+                add_int_data(alert, "ip_len", ntohs(GET_IPH_LEN(p)));
+#ifdef SUP_IP6
+// XXX-IPv6 need fragmentation ID
+#else
                 add_int_data(alert, "ip_id", ntohs(p->iph->ip_id));
+#endif
+#ifdef SUP_IP6
+// XXX-IPv6 need fragmentation offset
+#else
                 add_int_data(alert, "ip_off", ntohs(p->iph->ip_off));
-                add_int_data(alert, "ip_ttl", p->iph->ip_ttl);
-                add_int_data(alert, "ip_proto", p->iph->ip_proto);
+#endif
+                add_int_data(alert, "ip_ttl", GET_IPH_TTL(p));
+                add_int_data(alert, "ip_proto", GET_IPH_PROTO(p));
+#ifdef SUP_IP6
+// XXX-IPv6 need checksum
+#else
                 add_int_data(alert, "ip_sum", ntohs(p->iph->ip_csum));
+#endif
                 
                 for ( i = 0; i < p->ip_option_count; i++ ) {
                         add_int_data(alert, "ip_option_code", p->ip_options[i].code);
-                        add_byte_data(alert, "ip_option_data", p->ip_options[i].data, p->ip_options[i].len);        
+                        add_byte_data(alert, "ip_option_data", 
+                            p->ip_options[i].data, p->ip_options[i].len);        
                 }
         }
         
@@ -472,7 +485,7 @@ static int event_to_impact(Event *event, idmef_alert_t *alert)
 
 
 
-static int add_snort_reference(idmef_classification_t *class, int sig_id)
+static int add_snort_reference(idmef_classification_t *class, int gen_id, int sig_id)
 {
         int ret;
         prelude_string_t *str;
@@ -491,10 +504,14 @@ static int add_snort_reference(idmef_classification_t *class, int sig_id)
         
         idmef_reference_set_origin(ref, IDMEF_REFERENCE_ORIGIN_VENDOR_SPECIFIC);
 
-        ret = prelude_string_sprintf(str, "%u", sig_id);
+        if ( gen_id == 0 )
+                ret = prelude_string_sprintf(str, "%u", sig_id);
+        else
+                ret = prelude_string_sprintf(str, "%u:%u", gen_id, sig_id);
+
         if ( ret < 0 )
                 return ret;
-        
+
         ret = idmef_reference_new_meaning(ref, &str);
         if ( ret < 0 )
                 return ret;
@@ -506,8 +523,13 @@ static int add_snort_reference(idmef_classification_t *class, int sig_id)
         ret = idmef_reference_new_url(ref, &str);
         if ( ret < 0 )
                 return ret;
+
+        if ( gen_id == 0 )
+                ret = prelude_string_sprintf(str, ANALYZER_SID_URL "%u", sig_id);
+        else
+                ret = prelude_string_sprintf(str, ANALYZER_SID_URL "%u:%u", gen_id, sig_id);
          
-        return prelude_string_sprintf(str, ANALYZER_SID_URL "%u", sig_id);
+        return ret;
 }
 
 
@@ -524,14 +546,17 @@ static int event_to_reference(Event *event, idmef_classification_t *class)
         if ( ret < 0 )
                 return ret;
 
-        ret = prelude_string_sprintf(str, "%u", event->sig_id);
+        if ( event->sig_generator == 0 )
+                ret = prelude_string_sprintf(str, "%u", event->sig_id);
+        else
+                ret = prelude_string_sprintf(str, "%u:%u", event->sig_generator, event->sig_id);
         if ( ret < 0 )
                 return ret;
 
-        ret = add_snort_reference(class, event->sig_id);
+        ret = add_snort_reference(class, event->sig_generator, event->sig_id);
         if ( ret < 0 )
                 return ret;
-        
+
         /*
          * return if we have no information about the rule.
          */

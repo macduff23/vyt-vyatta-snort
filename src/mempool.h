@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -56,6 +57,7 @@ int mempool_init(MemPool *mempool, PoolCount num_objects, size_t obj_size);
 int mempool_destroy(MemPool *mempool);
 MemBucket *mempool_alloc(MemPool *mempool);
 void mempool_free(MemPool *mempool, MemBucket *obj);
+int mempool_clean(MemPool *mempool);
 
 #endif /* _MEMPOOL_H */
 

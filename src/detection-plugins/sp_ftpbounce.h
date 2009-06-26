@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Author: Steven Sturges <ssturges@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -24,5 +24,7 @@
 #define __SP_FTP_BOUNCE_H__
 
 void SetupFTPBounce(void);
+u_int32_t FTPBounceHash(void *d);
+int FTPBounceCompare(void *l, void *r);
 
 #endif  /* __SP_FTP_BOUNCE_H__ */

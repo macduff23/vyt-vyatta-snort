@@ -1,7 +1,7 @@
 #ifndef _BOUNDS_H
 #define _BOUNDS_H
 /*
-** Copyright (C) 2003, Sourcefire, Inc.
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 **               Chris Green <cmg@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -54,7 +54,7 @@
  *
  * 1 means it's in bounds, 0 means it's not
  */
-static INLINE int inBounds(u_int8_t *start, u_int8_t *end, u_int8_t *p)
+static INLINE int inBounds(const u_int8_t *start, const u_int8_t *end, const u_int8_t *p)
 {
     if(p >= start && p < end)
     {
@@ -75,7 +75,7 @@ static INLINE int inBounds(u_int8_t *start, u_int8_t *end, u_int8_t *p)
  * 
  * @return 0 on failure, 1 on success
  */
-static INLINE int SafeMemcpy(void *dst, void *src, size_t n, void *start, void *end)
+static INLINE int SafeMemcpy(void *dst, const void *src, size_t n, const void *start, const void *end)
 {
     void *tmp;
 
@@ -84,7 +84,7 @@ static INLINE int SafeMemcpy(void *dst, void *src, size_t n, void *start, void *
         ERRORRET;
     }
 
-    if (!dst || !src)
+    if (!dst || !src || !start || !end)                                                                         
     {
         ERRORRET;
     }
@@ -101,6 +101,48 @@ static INLINE int SafeMemcpy(void *dst, void *src, size_t n, void *start, void *
     }
 
     memcpy(dst, src, n);
+
+    return SAFEMEM_SUCCESS;
+}
+
+/**
+ * A Safer Memmove
+ * dst and src can be in the same buffer
+ *
+ * @param dst where to copy to
+ * @param src where to copy from
+ * @param n number of bytes to copy
+ * @param start start of the dest buffer
+ * @param end end of the dst buffer
+ *
+ * @return 0 on failure, 1 on success
+ */
+static INLINE int SafeMemmove(void *dst, const void *src, size_t n, const void *start, const void *end)         
+{
+    void *tmp;
+    
+    if(n < 1)
+    {
+        ERRORRET;
+    }
+
+    if (!dst || !src || !start || !end)
+    {
+        ERRORRET;
+    }
+
+    tmp = ((u_int8_t*)dst) + (n-1);
+    if (tmp < dst)
+    {
+        ERRORRET;
+    }
+
+    if(!inBounds(start,end, dst) || !inBounds(start,end,tmp))
+    {
+        ERRORRET;
+    }
+
+    memmove(dst, src, n);
 
     return SAFEMEM_SUCCESS;
 }

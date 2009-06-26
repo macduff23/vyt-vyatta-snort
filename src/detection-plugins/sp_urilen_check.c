@@ -1,6 +1,6 @@
 /* $Id */
 /*  
-** Copyright (C) 2005 
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -38,28 +38,76 @@
 #include "parser.h"
 #include "plugin_enum.h"
 #include "util.h"
+#include "sfhashfcn.h"
 
 #include "sp_urilen_check.h"
+
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats urilenCheckPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 extern HttpUri UriBufs[URI_COUNT];
 
 void UriLenCheckInit( char*, OptTreeNode*, int );
 void ParseUriLen( char*, OptTreeNode* );
-int CheckUriLenGT(Packet*, struct _OptTreeNode*, OptFpList*);
-int CheckUriLenLT(Packet*, struct _OptTreeNode*, OptFpList*);
-int CheckUriLenEQ(Packet*, struct _OptTreeNode*, OptFpList*);
-int CheckUriLenRange(Packet*, struct _OptTreeNode*, OptFpList*);
+int CheckUriLen(void *option_data, Packet*p);
+
+u_int32_t UriLenCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    UriLenCheckData *data = (UriLenCheckData *)d;
+
+    a = data->urilen;
+    b = data->urilen2;
+    c = data->oper;
+
+    mix(a,b,c);
+
+    a += RULE_OPTION_TYPE_URILEN;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int UriLenCheckCompare(void *l, void *r)
+{
+    UriLenCheckData *left = (UriLenCheckData *)l;
+    UriLenCheckData *right = (UriLenCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->urilen == right->urilen) &&
+        (left->urilen2 == right->urilen2) &&
+        (left->oper == right->oper))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
+
 
 /* Called from plugbase to register any detection plugin keywords.
 * 
  * PARAMETERS:	None.
  *
- * RETURNS:	Ntohing.
+ * RETURNS:	Nothing.
  */
 void 
 SetupUriLenCheck()
 {
-	RegisterPlugin("urilen", UriLenCheckInit );
+	RegisterPlugin("urilen", UriLenCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("urilen_check", &urilenCheckPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 }
 
 /* Parses the urilen rule arguments and attaches info to 
@@ -108,12 +156,14 @@ UriLenCheckInit( char* argp, OptTreeNode* otnp, int protocol )
  *		parsed.
  * otnp:	Pointer to the current rule option list node.
  *
- * RETURNS:	Ntohing.
+ * RETURNS:	Nothing.
  */
 void
 ParseUriLen( char* argp, OptTreeNode* otnp )
 {
+    OptFpList *fpl;
 	UriLenCheckData* datap = NULL;
+    void *datap_dup;
 	char* curp = NULL; 
  	char* cur_tokenp = NULL;
 	char* endp = NULL;
@@ -134,7 +184,6 @@ ParseUriLen( char* argp, OptTreeNode* otnp )
 		cur_tokenp = strtok(curp, " <>");
 		if(!cur_tokenp)
 		{
-
 			FatalError("%s(%d): Invalid 'urilen' argument.\n",
 	       			file_name, file_line);
 		}
@@ -163,22 +212,34 @@ ParseUriLen( char* argp, OptTreeNode* otnp )
 		}
 
 		datap->urilen2 = (unsigned short)val;
-		AddOptFuncToList(CheckUriLenRange, otnp );
+		fpl = AddOptFuncToList(CheckUriLen, otnp );
+        datap->oper = URILEN_CHECK_RG;
+        if (add_detection_option(RULE_OPTION_TYPE_URILEN, (void *)datap, &datap_dup) == DETECTION_OPTION_EQUAL)
+        {
+            otnp->ds_list[PLUGIN_URILEN_CHECK] = datap_dup;
+            free(datap);
+        }
+        fpl->type = RULE_OPTION_TYPE_URILEN;
+        fpl->context = otnp->ds_list[PLUGIN_URILEN_CHECK];
+
 		return;
 	}
 	else if(*curp == '>')
 	{
 		curp++;
-		AddOptFuncToList(CheckUriLenGT, otnp);
+		fpl = AddOptFuncToList(CheckUriLen, otnp );
+        datap->oper = URILEN_CHECK_GT;
 	}
 	else if(*curp == '<')
 	{
 		curp++;
-		AddOptFuncToList(CheckUriLenLT, otnp);
+		fpl = AddOptFuncToList(CheckUriLen, otnp );
+        datap->oper = URILEN_CHECK_LT;
 	}
 	else
 	{
-		AddOptFuncToList(CheckUriLenEQ, otnp);
+		fpl = AddOptFuncToList(CheckUriLen, otnp );
+        datap->oper = URILEN_CHECK_EQ;
 	}
 
 	while(isspace((int)*curp)) curp++;
@@ -191,130 +252,54 @@ ParseUriLen( char* argp, OptTreeNode* otnp )
 	}
 
 	datap->urilen = (unsigned short)val;
-
-	
+    if (add_detection_option(RULE_OPTION_TYPE_URILEN, (void *)datap, &datap_dup) == DETECTION_OPTION_EQUAL)
+    {
+        otnp->ds_list[PLUGIN_URILEN_CHECK] = datap_dup;
+        free(datap);
+    }
+    fpl->type = RULE_OPTION_TYPE_URILEN;
+    fpl->context = otnp->ds_list[PLUGIN_URILEN_CHECK];
 }
 
-
-/* Checks the current packet for match against the Uri Len rule. 
- * 
- * PARAMETERS:
- *
- * p:		Pointer to the packet currently being inspected.
- * otn: 	Rule node
- * fp_list: 	Detection plugin callback funcs list.
- *  
- * RETURNS:	Result of a recursive call if current node matches,
- *		0 otherwise (no match)
- */
 int 
-CheckUriLenEQ(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+CheckUriLen(void *option_data, Packet *p)
 {
+    UriLenCheckData *urilenCheckData = (UriLenCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
+
+    PREPROC_PROFILE_START(urilenCheckPerfStats);
 
     if ((p->packet_flags & PKT_REBUILT_STREAM) || ( !UriBufs[0].uri  ))
     {
-        return 0;
+        PREPROC_PROFILE_END(urilenCheckPerfStats);
+        return rval;
     }
 
-    if(((UriLenCheckData *)otn->ds_list[PLUGIN_URILEN_CHECK])->urilen == 
-		UriBufs[0].length )
+    switch (urilenCheckData->oper)
     {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        case URILEN_CHECK_EQ:
+            if (urilenCheckData->urilen == UriBufs[0].length )
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case URILEN_CHECK_GT:
+            if (urilenCheckData->urilen < UriBufs[0].length )
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case URILEN_CHECK_LT:
+            if (urilenCheckData->urilen > UriBufs[0].length )
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case URILEN_CHECK_RG:
+            if ((urilenCheckData->urilen <= UriBufs[0].length ) &&
+                (urilenCheckData->urilen2 >= UriBufs[0].length ))
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        default:
+            break;
     }
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(urilenCheckPerfStats);
+    return rval;
 }
-
-/* Checks the current packet for match against the Uri Len rule. 
- * 
- * PARAMETERS:
- *
- * p:		Pointer to the packet currently being inspected.
- * otn: 	Rule node
- * fp_list: 	Detection plugin callback funcs list.
- *  
- * RETURNS:	Result of a recursive call if current node matches,
- *		0 otherwise(no match)
- */
-int 
-CheckUriLenGT(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    if ((p->packet_flags & PKT_REBUILT_STREAM) || ( !UriBufs[0].uri ))
-    {
-        return 0;
-    }
-
-    if(((UriLenCheckData *)otn->ds_list[PLUGIN_URILEN_CHECK])->urilen < 
-		UriBufs[0].length )
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-
-    /* if the test isn't successful, return 0 */
-    return 0;
-}
- 
-/* Checks the current packet for match against the Uri Len rule. 
- * 
- * PARAMETERS:
- *
- * p:		Pointer to the packet currently being inspected.
- * otn: 	Rule node
- * fp_list: 	Detection plugin callback funcs list.
- *  
- * RETURNS:	Result of a recursive call if current node matches,
- *		0 otherwise (no match)
- */
-int 
-CheckUriLenLT(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    if ((p->packet_flags & PKT_REBUILT_STREAM) || ( !UriBufs[0].uri ))
-    {
-        return 0;
-    }
-
-    if(((UriLenCheckData *)otn->ds_list[PLUGIN_URILEN_CHECK])->urilen > 
-		UriBufs[0].length )
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-
-    /* if the test isn't successful, return 0 */
-    return 0;
-}
-
-/* Checks the current packet for match against the Uri Len rule. 
- * 
- * PARAMETERS:
- *
- * p:		Pointer to the packet currently being inspected.
- * otn: 	Rule node
- * fp_list: 	Detection plugin callback funcs list.
- *  
- * RETURNS:	Result of a recursive call if current node matches,
- *		0 otherwise (no match)
- */
-int 
-CheckUriLenRange(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    if ((p->packet_flags & PKT_REBUILT_STREAM) || ( !UriBufs[0].uri ))
-    {
-        return 0;
-    }
-
-    if(((UriLenCheckData *)otn->ds_list[PLUGIN_URILEN_CHECK])->urilen <= 
-		UriBufs[0].length &&
-     ((UriLenCheckData *)otn->ds_list[PLUGIN_URILEN_CHECK])->urilen2 >= 
-		UriBufs[0].length )
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-
-    return 0;
-}
-

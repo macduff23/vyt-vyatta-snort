@@ -10,7 +10,7 @@ Abstract: An overview of Snort NIDS
  must face the commonalities that they share such as significant system
  footprint, complex deployment and high monetary cost.  Snort was designed to
  address these issues.
-Section: Apps/Net
+Section: Network/Monitoring
 
 Format: text
 Files: /usr/share/doc/snort-doc/lisapaper.txt.gz

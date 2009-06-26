@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2003-2006 Sourcefire, Inc.
+ ** Copyright (C) 2003-2009 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -26,7 +26,6 @@
    dependent files:  sfthd sfxghash sfghash sflsq 
                      util mstring
 
-   Copyright (C) 2003 Sourcefire,Inc.
    Marc Norton
 
    2003-05-29:
@@ -67,6 +66,35 @@ static int          s_enabled = 1;
 static int          s_checked = 0; /**< have we evaluated this yet? */
 static int          s_answer  = 0; /**< what was the last return value? */
 
+
+/*
+*   Fatal Integer Parser
+*   Ascii to Integer conversion with fatal error support
+*/
+static int xatol( char * s , char * etext)
+{
+    int val;
+
+    char *endptr;
+  
+    while( *s == ' ' ) s++;
+
+    errno = 0;
+    
+    /*
+    *  strtoul - errors on win32 : ERANGE (VS 6.0)
+    *            errors on linux : ERANGE, EINVAL
+    */ 
+    val =(int)strtol(s,&endptr,10);
+    
+    if(errno || endptr == s)
+    {
+       FatalError("%s(%d) => *** %s\n*** Invalid integer input: %s\n",
+                            file_name, file_line, etext, s );
+    } 
+
+    return val;
+}
 
 /*
 *   Fatal Integer Parser
@@ -145,6 +173,7 @@ void ParseThreshold2( THDX_STRUCT * thdx, char * s )
          {
             i++;
             thdx->count = xatou(argv[i],"threshold: count");
+
             count_flag++;
          }
         else if( strcmp(argv[i],"seconds") == 0  )
@@ -255,7 +284,7 @@ void ProcessThresholdOptions(char *options)
 */
 void ParseSFThreshold( char * rule )
 {
-     char        **args, **oargs;
+     char        **args, **oargs=NULL;
      int         nargs, noargs=0;
      THDX_STRUCT thdx;
      int         count_flag=0;
@@ -324,7 +353,9 @@ void ParseSFThreshold( char * rule )
 
          else if( strcmp(oargs[0],"count")==0 )
          {
-            thdx.count = xatou(oargs[1],"threshold: count");
+            thdx.count = xatol(oargs[1],"threshold: count");
+            if ((thdx.count < 0) && (thdx.count != THD_NO_THRESHOLD))
+                FatalError("%s(%d) => Threshold-Parse: invalid negative count: %d\n", file_name, file_line, thdx.count);
             count_flag++;
          }
 
@@ -404,6 +435,9 @@ void ParseSFThreshold( char * rule )
 */
 static void parseCIDR( THDX_STRUCT * thdx, char * s )
 {
+#ifdef SUP_IP6
+    sfip_pton(s, &thdx->ip_address);
+#else
    char        **args;
    int          nargs;
 
@@ -455,6 +489,7 @@ static void parseCIDR( THDX_STRUCT * thdx, char * s )
    thdx->ip_address &= thdx->ip_mask;
 
    mSplitFree(&args, nargs);
+#endif
 }
 
 /*
@@ -481,8 +516,10 @@ void ParseSFSuppress( char * rule )
 
      thdx.type      =  THD_TYPE_SUPPRESS;
      thdx.priority  =  THD_PRIORITY_SUPPRESS;
-     thdx.ip_address=  0;  //default is all ip's- ignore this event altogether
+     IP_CLEAR(thdx.ip_address);  //default is all ip's- ignore this event altogether
+#ifndef SUP_IP6
      thdx.ip_mask   =  0;
+#endif
      thdx.tracking  =  THD_TRK_DST;
 
      for( i=0; i<nargs; i++ )
@@ -577,9 +614,28 @@ int sfthreshold_init()
    return 0;
 }
 
+void sfthreshold_free(void)
+{
+    if ( !s_enabled )
+        return;
+
+    if ( s_thd )
+    {
+        sfthd_free( s_thd );
+        s_thd = NULL;
+    }
+}
+
 /*
 *  DEBUGGING ONLY
 */
+#ifdef SUP_IP6
+void print_netip(snort_ip_p ip)
+{
+    printf("%s", sfip_ntoa(ip));
+}
+
+#else
 void print_netip(unsigned long ip)
 {
     struct in_addr addr;
@@ -593,6 +649,7 @@ void print_netip(unsigned long ip)
 
     return;
 }
+#endif
 
 /*
 *  DEBUGGING ONLY
@@ -618,18 +675,31 @@ void print_thdx( THDX_STRUCT * thdx )
                        thdx->not_flag);
 
        printf(" ip=");
+#ifdef SUP_IP6
+       print_netip(&thdx->ip_address); 
+#else
        print_netip(thdx->ip_address); 
        printf(", mask=" );
        print_netip(thdx->ip_mask); 
+#endif
        printf("\n");
     }
 }
 
 static 
+#ifdef SUP_IP6
+void ntoa( char * buff, int blen, snort_ip_p ip )
+{
+   SnortSnprintf(buff,blen,"%s",
+        sfip_ntoa(ip));
+}
+#else
 void ntoa( char * buff, int blen, unsigned ip )
 {
-   SnortSnprintf(buff,blen,"%d.%d.%d.%d", ip&0xff,(ip>>8)&0xff,(ip>>16)&0xff,(ip>>24)&0xff );
+   SnortSnprintf(buff,blen,"%d.%d.%d.%d", 
+        ip&0xff,(ip>>8)&0xff,(ip>>16)&0xff,(ip>>24)&0xff );
 }
+#endif
 
 #define PRINT_GLOBAL   0
 #define PRINT_LOCAL    1
@@ -703,13 +773,37 @@ int print_thd_node( THD_NODE *p , int type )
 
     if( p->type == THD_TYPE_SUPPRESS )
     {
+#ifdef SUP_IP6
+        ntoa(buffer,80,&p->ip_address);
+        if (p->not_flag)
+        {
+            SnortSnprintfAppend(buf, STD_BUF, "ip=!%s", buffer );
+        }
+        else
+        {
+            SnortSnprintfAppend(buf, STD_BUF, "ip=%s", buffer );
+        } 
+
+   	if ((((&p->ip_address)->family == AF_INET) && ((&p->ip_address)->bits < 32)) 
+	  || (((&p->ip_address)->family == AF_INET6) && ((&p->ip_address)->bits < 128)))
+       {
+	    SnortSnprintfAppend(buf, STD_BUF, "%s%-16d",  "/" , (&p->ip_address)->bits);	
+       }
+	else
+	    SnortSnprintfAppend(buf, STD_BUF, "%-16s",  "");
+
+#else
         ntoa(buffer,80,p->ip_address);
         if (p->not_flag)
             SnortSnprintfAppend(buf, STD_BUF, "ip=!%-16s", buffer);
         else
             SnortSnprintfAppend(buf, STD_BUF, "ip=%-17s", buffer);
+	
+#endif
+#ifndef SUP_IP6
         ntoa(buffer,80,p->ip_mask);
         SnortSnprintfAppend(buf, STD_BUF, " mask=%-15s", buffer );
+#endif
     }
     else
     {
@@ -878,8 +972,12 @@ int sfthreshold_create( THDX_STRUCT * thdx  )
                        thdx->priority,
                        thdx->count,
                        thdx->seconds,
+#ifdef SUP_IP6
+                       &thdx->ip_address, 
+#else
                        thdx->ip_address, 
                        thdx->ip_mask,
+#endif
                        thdx->not_flag ); 
 }
 
@@ -908,7 +1006,7 @@ int sfthreshold_create( THDX_STRUCT * thdx  )
 
 
 */
-int sfthreshold_test( unsigned gen_id, unsigned  sig_id, unsigned sip, unsigned dip, long curtime )
+int sfthreshold_test( unsigned gen_id, unsigned  sig_id, snort_ip_p sip, snort_ip_p dip, long curtime )
 {
    if( !s_enabled )
    {
@@ -938,3 +1036,17 @@ void sfthreshold_reset(void)
 {
     s_checked = 0;
 }
+
+/* empty out active entries */
+void sfthreshold_reset_active(void)
+{
+    if (s_thd == NULL)
+        return;
+
+    if (s_thd->ip_nodes != NULL)
+        sfxhash_make_empty(s_thd->ip_nodes);
+
+    if (s_thd->ip_gnodes != NULL)
+        sfxhash_make_empty(s_thd->ip_gnodes);
+}
+

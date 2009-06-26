@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -39,11 +39,11 @@
 
 typedef struct s_HI_SERVER
 {
-    unsigned char *header;
+    const unsigned char *header;
     int           header_size;
 
 } HI_SERVER;
 
-int hi_server_inspection(void *S, unsigned char *data, int dsize);
+int hi_server_inspection(void *S, const unsigned char *data, int dsize);
 
 #endif

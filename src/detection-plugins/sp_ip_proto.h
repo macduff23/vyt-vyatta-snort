@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -22,18 +23,13 @@
 #ifndef __SP_IP_PROTO_H__
 #define __SP_IP_PROTO_H__
 
-
-#define GREATER_THAN            1
-#define LESS_THAN               2
-
-typedef struct _IpProtoData
-{
-    u_int8_t protocol;
-    u_int8_t not_flag;
-    u_int8_t comparison_flag;
-
-} IpProtoData;
+#include "rules.h"
+#include "sf_types.h"
 
 void SetupIpProto(void);
+uint32_t IpProtoCheckHash(void *);
+int IpProtoCheckCompare(void *, void *);
+int GetOtnIpProto(OptTreeNode *);
+int GetIpProtos(void *, uint8_t *, int);
 
 #endif  /* __SP_IP_PROTO_H__ */

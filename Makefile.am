@@ -1,6 +1,6 @@
 ## $Id$
 AUTOMAKE_OPTIONS=foreign no-dependencies
-SUBDIRS = src doc etc templates contrib schemas rpm m4
+SUBDIRS = src doc etc templates contrib schemas rpm m4 preproc_rules
 
 INCLUDES = @INCLUDES@
 
@@ -8,7 +8,7 @@ EXTRA_DIST = ChangeLog snort.8 LICENSE verstuff.pl RELEASE.NOTES
 
 man_MANS = snort.8
 
-DISTCLEANFILES=stamp-h.in
+DISTCLEANFILES=stamp-h.in cflags.out
 
 
 dist-hook:

@@ -3,7 +3,7 @@
 **
 ** perf-base.h
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Dan Roelker (droelker@sourcefire.com)
 ** Marc Norton (mnorton@sourcefire.com)
 ** Chris Green (stream4 instrumentation)
@@ -32,6 +32,8 @@
 
 #include "config.h"
 #include "sfprocpidstats.h"
+#include "debug.h"
+#include "sf_types.h"
 
 #include <time.h>
 
@@ -117,6 +119,18 @@ typedef struct _SFBASE {
     UINT64   iSessionsEstablished;
     UINT64   iSessionsClosing;
 
+    UINT64   iAttributeHosts;
+    UINT64   iAttributeReloads;
+
+    UINT64   total_mpls_packets;
+    UINT64   total_mpls_bytes;
+    UINT64   total_blocked_mpls_packets;
+    UINT64   total_blocked_mpls_bytes;
+
+    /**TCP packets ignored due to port/service filtering.*/
+    UINT64   total_tcp_filtered_packets;
+    /**UDP packets ignored due to port/service filtering.*/
+    UINT64   total_udp_filtered_packets;
 }  SFBASE;
 
 typedef struct _SYSTIMES {
@@ -200,7 +214,22 @@ typedef struct _SFBASE_STATS {
     double   tcp_sessions_pruned_per_second;
     double   tcp_sessions_dropped_async_per_second;
 
+    UINT64   current_attribute_hosts;
+    UINT64   attribute_table_reloads;
+    UINT64   total_mpls_packets;
+    UINT64   total_mpls_bytes;
+    UINT64   total_blocked_mpls_packets;
+    UINT64   total_blocked_mpls_bytes;
+    SYSTIMES kpackets_per_sec_mpls;
+    SYSTIMES mpls_mbits_per_sec;
+    int      avg_bytes_per_mpls_packet;
+
+    /**TCP packets ignored due to port/service filtering.*/
+    UINT64   total_tcp_filtered_packets;
+    /**UDP packets ignored due to port/service filtering.*/
+    UINT64   total_udp_filtered_packets;
 }  SFBASE_STATS;
+
 
 int InitBaseStats(SFBASE *sfBase);
 int UpdateBaseStats(SFBASE *sfBase, int len, int iRebuiltPkt);
@@ -216,8 +245,10 @@ int AddUDPSession(SFBASE *sfBase);
 int RemoveUDPSession(SFBASE *sfBase);
 
 void UpdateWireStats(SFBASE *sfBase, int len);  
+void UpdateMPLSStats(SFBASE *sfBase, int len);
 void UpdateIPFragStats(SFBASE *sfBase, int len);
 void UpdateIPReassStats(SFBASE *sfBase, int len);
+void UpdateFilteredPacketStats(SFBASE *sfBase, unsigned int proto);
 
 #endif
 

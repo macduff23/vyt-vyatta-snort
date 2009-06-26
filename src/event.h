@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,7 +36,7 @@
 #include <sys/time.h>
 #endif
 
-#include "snort_packet_header.h"
+#include "pcap_pkthdr32.h"
 
 typedef struct _Event
 {
@@ -48,7 +49,7 @@ typedef struct _Event
     u_int32_t event_reference; /* reference to other events that have gone off,
                                 * such as in the case of tagged packets...
                                 */
-    struct pcap_timeval ref_time;   /* reference time for the event reference */
+    struct timeval32 ref_time;   /* reference time for the event reference */
 
     /* Don't add to this structure because this is the serialized data
      * struct for unified logging.

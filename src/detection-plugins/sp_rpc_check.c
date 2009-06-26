@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -37,6 +38,17 @@
 #include "debug.h"
 #include "util.h"
 #include "plugin_enum.h"
+#include "sfhashfcn.h"
+
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats rpcCheckPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 /*
  * This is driven by 64-bit Solaris which doesn't
@@ -63,8 +75,45 @@ typedef struct _RpcCheckData
 
 void RpcCheckInit(char *, OptTreeNode *, int);
 void ParseRpc(char *, OptTreeNode *);
-int CheckRpc(Packet *, struct _OptTreeNode *, OptFpList *);
+int CheckRpc(void *option_data, Packet *p);
 
+u_int32_t RpcCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    RpcCheckData *data = (RpcCheckData *)d;
+
+    a = data->program;
+    b = data->vers;
+    c = data->proc;
+
+    mix(a,b,c);
+
+    a += data->flags;
+    b += RULE_OPTION_TYPE_RPC_CHECK;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int RpcCheckCompare(void *l, void *r)
+{
+    RpcCheckData *left = (RpcCheckData *)l;
+    RpcCheckData *right = (RpcCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->program == right->program) &&
+        (left->vers == right->vers) &&
+        (left->proc == right->proc) &&
+        (left->flags == right->flags))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 
 /****************************************************************************
@@ -81,7 +130,11 @@ int CheckRpc(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupRpcCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("rpc", RpcCheckInit);
+    RegisterPlugin("rpc", RpcCheckInit, NULL, OPT_TYPE_DETECTION);
+
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("rpc", &rpcCheckPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: RPCCheck Initialized\n"););
 }
@@ -102,6 +155,7 @@ void SetupRpcCheck(void)
  ****************************************************************************/
 void RpcCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_TCP && protocol != IPPROTO_UDP)
     {
         FatalError("%s(%d) => Bad protocol in RPC Check rule...\n",
@@ -126,7 +180,8 @@ void RpcCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(CheckRpc, otn);
+    fpl = AddOptFuncToList(CheckRpc, otn);
+    fpl->type = RULE_OPTION_TYPE_RPC_CHECK;
 }
 
 
@@ -146,6 +201,7 @@ void RpcCheckInit(char *data, OptTreeNode *otn, int protocol)
 void ParseRpc(char *data, OptTreeNode *otn)
 {
     RpcCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
     char *tmp = NULL;
 
     /* set the ds pointer to make it easier to reference the option's
@@ -188,6 +244,13 @@ void ParseRpc(char *data, OptTreeNode *otn)
         ds_ptr->flags|=RPC_CHECK_PROC;
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Set RPC proc to %lu\n", ds_ptr->proc););
     }
+
+    if (add_detection_option(RULE_OPTION_TYPE_RPC_CHECK, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_RPC_CHECK] = ds_ptr_dup;
+     }
+
 }
 
 
@@ -203,20 +266,24 @@ void ParseRpc(char *data, OptTreeNode *otn)
  * Returns: 0 on failure, return value of next list function on success
  *
  ****************************************************************************/
-int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int CheckRpc(void *option_data, Packet *p)
 {
-    RpcCheckData *ds_ptr;  /* data struct pointer */
+    RpcCheckData *ds_ptr = (RpcCheckData *)option_data;
     unsigned char* c=(unsigned char*)p->data;
     u_long xid, rpcvers, prog, vers, proc;
     enum msg_type direction;
+    int rval = DETECTION_OPTION_NO_MATCH;
 #ifdef DEBUG
     int i;
 #endif
+    PROFILE_VARS;
+
     if(!p->iph || (p->iph->ip_proto == IPPROTO_TCP && !p->tcph)
        || (p->iph->ip_proto == IPPROTO_UDP && !p->udph))
         return 0; /* if error occured while ip header
-                   * was processed, return 0 automagically.
-               */
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(rpcCheckPerfStats);
 
     if(p->iph->ip_proto == IPPROTO_TCP)
     {
@@ -226,7 +293,8 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
         if(p->dsize<28)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "RPC packet too small"););
-            return 0;
+            PREPROC_PROFILE_END(rpcCheckPerfStats);
+            return rval;
         }
     }
     else
@@ -235,13 +303,14 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
         if(p->dsize<24)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "RPC packet too small"););
-            return 0;
+            PREPROC_PROFILE_END(rpcCheckPerfStats);
+            return rval;
         }
     }
 
 #ifdef DEBUG
     DebugMessage(DEBUG_PLUGIN,"<---xid---> <---dir---> <---rpc--->"
-		 " <---prog--> <---vers--> <---proc-->\n");
+                              " <---prog--> <---vers--> <---proc-->\n");
     for(i=0; i<24; i++)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "%02X ",c[i]););
@@ -259,7 +328,8 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     if(direction != CALL)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "RPC packet not a call"););
-        return 0;
+        PREPROC_PROFILE_END(rpcCheckPerfStats);
+        return rval;
     }
 
     /* Read the RPC message version */
@@ -269,7 +339,8 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     if(rpcvers != RPC_MSG_VERSION)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"RPC msg version invalid"););
-        return 0;
+        PREPROC_PROFILE_END(rpcCheckPerfStats);
+        return rval;
     }
 
     /* Read the program number, version, and procedure */
@@ -278,14 +349,12 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     proc = IXDR_GET_LONG (c);
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"RPC decoded to: %lu %lu %lu\n",
-			    prog,vers,proc););
-
-    ds_ptr=(RpcCheckData *)otn->ds_list[PLUGIN_RPC_CHECK];
+                            prog,vers,proc););
 
     DEBUG_WRAP(
-	       DebugMessage(DEBUG_PLUGIN, "RPC matching on: %d %d %d\n",
-			    ds_ptr->flags & RPC_CHECK_PROG,ds_ptr->flags & RPC_CHECK_VERS,
-			    ds_ptr->flags & RPC_CHECK_PROC););
+           DebugMessage(DEBUG_PLUGIN, "RPC matching on: %d %d %d\n",
+                ds_ptr->flags & RPC_CHECK_PROG,ds_ptr->flags & RPC_CHECK_VERS,
+                ds_ptr->flags & RPC_CHECK_PROC););
     if(!(ds_ptr->flags & RPC_CHECK_PROG) ||
        ds_ptr->program == prog)
     {
@@ -298,9 +367,8 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
                ds_ptr->proc == proc)
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"RPC proc matches"););
-		DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Yippee! Found one!"););
-                /* call the next function in the function list recursively */
-                return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+                DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Yippee! Found one!"););
+                rval = DETECTION_OPTION_MATCH;
             }
         }
     }
@@ -311,5 +379,6 @@ int CheckRpc(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     }
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(rpcCheckPerfStats);
+    return rval;
 }

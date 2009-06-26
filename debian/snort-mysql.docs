@@ -11,3 +11,4 @@ doc/README.csv
 debian/my/snort_rules.html
 debian/README.Maintainer
 debian/README-database.Debian
+debian/README-database-upgrade.Debian

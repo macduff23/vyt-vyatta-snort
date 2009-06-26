@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2005 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -156,7 +157,7 @@
 
 
 /* list of function prototypes for this preprocessor */
-void BoInit(u_char *);
+void BoInit(char *);
 void BoProcess(Packet *);
 void BoFind(Packet *, void *);
 
@@ -164,7 +165,7 @@ void BoFind(Packet *, void *);
 static int  BoGetDirection(Packet *p, char *pkt_data);
 static void PrecalcPrefix();
 static char BoRand();
-static void ProcessArgs(u_char *args);
+static void ProcessArgs(char *args);
 static int  ProcessOptionList(void);
 static void PrintConfig(void);
 
@@ -211,7 +212,7 @@ void SetupBo()
 
 
 /*
- * Function: BoInit(u_char *)
+ * Function: BoInit(char *)
  *
  * Purpose: Link the BO preprocessor to the preperocessor call chain.
  *
@@ -220,7 +221,7 @@ void SetupBo()
  * Returns: void function
  *
  */
-void BoInit(u_char *args)
+void BoInit(char *args)
 {
     static int bIsInitialized = 0;
 
@@ -233,7 +234,7 @@ void BoInit(u_char *args)
         PrecalcPrefix();
 
         /* Set the preprocessor function into the function list */
-        AddFuncToPreprocList(BoFind, PRIORITY_LAST, PP_BO);
+        AddFuncToPreprocList(BoFind, PRIORITY_LAST, PP_BO, PROTO_BIT__UDP);
 
 #ifdef PERF_PROFILING
         RegisterPreprocessorProfile("backorifice", &boPerfStats, 0, &totalPerfStats);
@@ -248,7 +249,7 @@ void BoInit(u_char *args)
 
 
 /*
- * Function: ProcessArgs(u_char *)
+ * Function: ProcessArgs(char *)
  *
  * Purpose: Parse additional config items.
  *
@@ -263,14 +264,14 @@ void BoInit(u_char *args)
  * Returns: void function
  *
  */
-static void ProcessArgs(u_char *args)
+static void ProcessArgs(char *args)
 {
     char *arg;
    
     if ( args == NULL )
         return;
 
-    arg = strtok((char *)args, CONF_SEPARATORS);
+    arg = strtok(args, CONF_SEPARATORS);
     
     while ( arg != NULL )
     {
@@ -516,7 +517,7 @@ void BoFind(Packet *p, void *context)
     PROFILE_VARS;
 
     /* make sure it's UDP and that it's at least 19 bytes long */
-    if(!PacketIsUDP(p))
+    if(!IsUDP(p))
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, 
                     "   -> spp_bo: Not UDP\n"););
@@ -738,7 +739,7 @@ static int BoGetDirection(Packet *p, char *pkt_data)
     pkt_data++;
 
     /* check to make sure we don't run off end of packet */
-    if (p->dsize - ((u_int8_t *)pkt_data - p->data) < len)
+    if ((u_int32_t)(p->dsize - ((u_int8_t *)pkt_data - p->data)) < len)
     {
         /* We don't have enough data to inspect */
         return BO_FROM_UNKNOWN;

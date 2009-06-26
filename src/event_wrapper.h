@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -43,7 +43,6 @@ u_int32_t GenerateSnortEvent(Packet *p,
                             u_int32_t priority,
                             char *msg);
 
-#ifndef PREPROCESSOR_AND_DECODER_RULE_EVENTS
 OptTreeNode * GenerateSnortEventOtn(
                             u_int32_t gen_id,
                             u_int32_t sig_id,
@@ -52,7 +51,6 @@ OptTreeNode * GenerateSnortEventOtn(
                             u_int32_t priority,
                             char *msg );
 
-#endif
 int LogTagData(Packet *p,
                u_int32_t gen_id,
                u_int32_t sig_id,

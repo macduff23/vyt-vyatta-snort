@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -26,14 +26,18 @@
 #include "hi_ui_config.h"
 
 int hi_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup);
-int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long IP,
+int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, sfip_t *Ip, 
                             HTTPINSPECT_CONF *ServerConf);
 
 HTTPINSPECT_CONF *hi_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup, 
-                                            unsigned long Ip, int *iError);
+                                            snort_ip_p Ip, int *iError);
 HTTPINSPECT_CONF *hi_ui_server_lookup_first(SERVER_LOOKUP *ServerLookup,
                                             int *iError);
 HTTPINSPECT_CONF *hi_ui_server_lookup_next(SERVER_LOOKUP *ServerLookup,
                                            int *iError);
-
+void  hi_ui_server_lookup_destroy(SERVER_LOOKUP *ServerLookup);
+void hi_ui_server_iterate(
+        SERVER_LOOKUP *ServerLookup, 
+        void (*userfunc)(void *)
+        );
 #endif

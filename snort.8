@@ -2,11 +2,11 @@
 .\" groff -man -Tascii snort.8
 .\"
 .\" $Id$
-.TH SNORT 8 "January 2007" 
+.TH SNORT 8 "February 2009"
 .SH NAME
 Snort \- open source network intrusion detection system
 .SH SYNOPSIS
-.B snort [-bCdDeEfIMNoOpqQsTUvVwWXy?] [-A
+.B snort [-bCdDeEfHIMNoOpqQsTUvVwWxXy?] [-A
 .I alert-mode
 .B ] [-B
 .I address-conversion-mask
@@ -59,6 +59,7 @@ Snort \- open source network intrusion detection system
 .B ] [--snaplen
 .I snap-length 
 .B ] [--help
+.B ] [--version
 .B ] [--dynamic-engine-lib
 .I file
 .B ] [--dynamic-engine-lib-dir
@@ -78,12 +79,25 @@ Snort \- open source network intrusion detection system
 .B ] [--alert-before-pass
 .B ] [--treat-drop-as-alert
 .B ] [--process-all-events
-.B ] [--pid-path
-.I directory
 .B ] [--create-pidfile
 .B ] [--nolock-pidfile
 .B ] [--disable-inline-initialization
-.B ]
+.B ] [--pcap-single=
+.I tcpdump-file
+.B ] [--pcap-filter=
+.I filter
+.B ] [--pcap-list=
+.I list
+.B ] [--pcap-dir=
+.I directory
+.B ] [--pcap-file=
+.I file
+.B ] [--pcap-no-filter
+.B ] [--pcap-reset
+.B ] [--pcap-show
+.I count
+.B ] [--conf-error-out
+.B ] [--require-rule-sid
 .B ]
 .I expression
 .SH DESCRIPTION
@@ -189,6 +203,10 @@ the way that Snort formats its ASCII log data.  With this value set to the
 local network, all decoded output will be logged into decode directories
 with the address of the foreign computer as the directory name, which is
 very useful during traffic analysis.
+.IP "-H"
+Force hash tables to be deterministic instead of using a random number
+generator for the seed & scale.  Useful for testing and generating repeatable
+results with the same traffic.
 .IP "-i interface"
 Sniff packets on 
 .I interface.
@@ -268,7 +286,7 @@ Turn off promiscuous mode sniffing.
 .IP "-P snap-length"
 Set the packet snaplen to 
 .I snap-length
-.  By default, this is set to 1514.
+\&.  By default, this is set to 1514.
 .IP "-q"
 Quiet operation.  Don't display banner and initialization information.
 .IP "-Q"
@@ -325,10 +343,11 @@ Show management frames if runnong on an 802.11 (wireless) network.
 .IP "-W"
 .B *WIN32 ONLY*
 Enumerate the network interfaces available.
-.IP -X
-Dump the raw packet data starting at the link layer.  This switch overrides the
-\&'-d' switch.
-.IP -y
+.IP "-x"
+Exit if Snort configuration problems occur such as duplicate gid/sid or flowbits without Stream5.
+.IP "-X"
+Dump the raw packet data starting at the link layer.  This switch overrides the '-d' switch.
+.IP "-y"
 Include the year in alert and log files
 .IP "-Z pathname"
 Set the perfmonitor preprocessor path/filename to pathname.
@@ -338,12 +357,14 @@ Show the program usage statement and exit.
 Same as -G.
 .IP "--perfmon-file pathname"
 Same as -Z.
-.IP "--pid-path pathname"
-Specify the pathname for the Snort PID file.
+.IP "--pid-path directory"
+Specify the directory for the Snort PID file.
 .IP "--snaplen snap-length"
 Same as -P.
 .IP "--help"
 Same as -?
+.IP "--version"
+Same as -V
 .IP "--dynamic-engine-lib file"
 Load a dynamic detection engine shared library specified by file.
 .IP "--dynamic-engine-lib-dir directory"
@@ -378,10 +399,43 @@ Specify the path for Snort's PID file.
 Create PID file, even when not in Daemon mode.
 .IP "--nolock-pidfile"
 Do not try to lock Snort PID file.
-.IP "--disable-inline-initialization
+.IP "--disable-inline-initialization"
 Do not initialize IPTables when in inline mode.  To be used with -T
 to test for a valid configuration without requiring opening inline
 devices and adversely affecting traffic flow.
+.IP "--pcap-single=\fItcpdump-file\fP"
+Same as -r.  Added for completeness.
+.IP "--pcap-filter=\fIfilter\fP"
+Shell style filter to apply when getting pcaps from
+file or directory.  This filter will apply to any
+--pcap-file or --pcap-dir arguments following.  Use
+--pcap-no-filter to delete filter for following 
+--pcap-file or --pcap-dir arguments or specifiy
+--pcap-filter again to forget previous filter and
+to apply to following --pcap-file or --pcap-dir arguments.
+.IP "--pcap-list=\fI""list""\fP"
+A space separated list of pcaps to read.
+.IP "--pcap-dir=\fIdirectory\fP"
+A directory to recurse to look for pcaps.  Sorted in ascii order.
+.IP "--pcap-file=\fIfile\fP"
+File that contains a list of pcaps to read.  Can specifiy path to
+pcap or directory to recurse to get pcaps.
+.IP "--pcap-no-filter"
+Reset to use no filter when getting pcaps from file or directory.
+.IP "--pcap-reset"
+If reading multiple pcaps, reset snort to post-configuration state
+before reading next pcap.  The default, i.e. without this option,
+is not to reset state.
+.IP "--pcap-show"
+Print a line saying what pcap is currently being read.
+.IP "--exit-check=\fIcount\fP"
+Signal termination after <count> callbacks from pcap_dispatch(), showing the
+time it takes from signaling until pcap_close() is called.
+.IP "--conf-error-out"
+Same as -x.
+.IP "--require-rule-sid"
+Require an SID for every rule to be correctly hreshold all rules.
+
 .IP "\fI expression\fP"
 .RS
 selects which packets will be dumped.  If no \fIexpression\fP
@@ -718,6 +772,123 @@ or as multiple arguments, whichever is more convenient.
 Generally, if the expression contains Shell metacharacters, it is
 easier to pass it as a single, quoted argument.
 Multiple arguments are concatenated with spaces before being parsed.
+.SH READING PCAPS
+Instead of having Snort listen on an interface, you can give it a packet 
+capture to read.  Snort will read and analyze the packets as if they came
+off the wire.  This can be useful for testing and debugging Snort.
+
+\fBRead a single pcap\fR
+
+.RS 5
+.PD 0
+$ snort -r foo.pcap
+.PP
+$ snort --pcap-single=foo.pcap
+
+.RE 0
+\fBRead pcaps from a file\fR
+
+.RS 5
+$ cat foo.txt
+.PP
+foo1.pcap
+.PP
+foo2.pcap
+.PP
+/home/foo/pcaps
+
+$ snort --pcap-file=foo.txt
+
+This will read foo1.pcap, foo2.pcap and all files under /home/foo/pcaps.
+Note that Snort will not try to determine whether the files under that 
+directory are really pcap files or not.
+
+.RE 0
+\fBRead pcaps from a command line list\fR
+
+.RS 5
+$ snort --pcap-list="foo1.pcap foo2.pcap foo3.pcap"
+
+This will read foo1.pcap, foo2.pcap and foo3.pcap.
+
+.RE 0
+\fBRead pcaps under a directory\fR
+
+.RS 5
+$ snort --pcap-dir="/home/foo/pcaps"
+
+This will include all of the files under /home/foo/pcaps.
+
+.RE 0
+\fBUsing filters\fR
+
+.RS 5
+$ cat foo.txt
+.PP
+foo1.pcap
+.PP
+foo2.pcap
+.PP
+/home/foo/pcaps
+
+$ snort --pcap-filter="*.pcap" --pcap-file=foo.txt
+.PP
+$ snort --pcap-filter="*.pcap" --pcap-dir=/home/foo/pcaps
+
+The above will only include files that match the shell pattern "*.pcap",
+in other words, any file ending in ".pcap".
+
+$ snort --pcap-filter="*.pcap --pcap-file=foo.txt \\
+.PP
+> --pcap-filter="*.cap" --pcap-dir=/home/foo/pcaps
+
+In the above, the first filter "*.pcap" will only be applied to the
+pcaps in the file "foo.txt" (and any directories that are recursed
+in that file).  The addition of the second filter "*.cap" will cause
+the first filter to be forgotten and then applied to the directory
+/home/foo/pcaps, so only files ending in ".cap" will be included from
+that directory.
+
+$ snort --pcap-filter="*.pcap --pcap-file=foo.txt \\
+.PP
+> --pcap-no-filter --pcap-dir=/home/foo/pcaps
+
+In this example, the first filter will be applied to foo.txt, then
+no filter will be applied to the files found under /home/foo/pcaps,
+so all files found under /home/foo/pcaps will be included. 
+
+$ snort --pcap-filter="*.pcap --pcap-file=foo.txt \\
+.PP
+> --pcap-no-filter --pcap-dir=/home/foo/pcaps \\
+.PP
+> --pcap-filter="*.cap" --pcap-dir=/home/foo/pcaps2
+
+In this example, the first filter will be applied to foo.txt, then
+no filter will be applied to the files found under /home/foo/pcaps,
+so all files found under /home/foo/pcaps will be included, then the
+filter "*.cap" will be applied to files found under /home/foo/pcaps2. 
+
+.RE 0
+\fBResetting state\fR
+
+.RS 5
+$ snort --pcap-dir=/home/foo/pcaps --pcap-reset
+
+The above example will read all of the files under /home/foo/pcaps, but 
+after each pcap is read, Snort will be reset to a post-configuration 
+state, meaning all buffers will be flushed, statistics reset, etc.  For
+each pcap, it will be like Snort is seeing traffic for the first time.
+
+.RE 0
+\fBPrinting the pcap\fR
+
+.RS 5
+$ snort --pcap-dir=/home/foo/pcaps --pcap-show
+
+The above example will read all of the files under /home/foo/pcaps and
+will print a line indicating which pcap is currently being read.
+.RE 0
+.PD
 .SH RULES
 Snort uses a simple but flexible rules language to describe network packet 
 signatures and associate them with actions.  The current rules document can
@@ -735,7 +906,7 @@ error message being sent to
 .PP 
 .IP SIGUSR1
 Causes the program to dump its current packet statistical information to the
-cosole or 
+console or 
 .B syslogd(8)
 if in daemon mode.
 .

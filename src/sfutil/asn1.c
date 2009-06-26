@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -292,7 +292,7 @@ static int asn1_decode_ident(ASN1_TYPE *asn1_type, ASN1_DATA *asn1_data)
 **  @retval SF_BER_LEN_DEF_SHORT one byte length < 127
 **  @retval SF_BER_LEN_INDEF indeterminate length
 */
-static int asn1_decode_len_type(u_char *data)
+static int asn1_decode_len_type(const u_char *data)
 {
     int iExt;
 
@@ -512,7 +512,7 @@ static int asn1_is_eoc(ASN1_TYPE *asn1)
 **  @retval ASN1_ERR_INVALID_ARG invalid argument
 **  @retval ASN1_ERR_OOB out of bounds
 */
-static int asn1_decode_type(u_char **data, u_int *len, ASN1_TYPE **asn1_type)
+static int asn1_decode_type(const u_char **data, u_int *len, ASN1_TYPE **asn1_type)
 {
     ASN1_DATA asn1data;
     u_int uiRawLen;
@@ -663,14 +663,14 @@ valid:
 **  @retval  ASN1_OK function successful
 **  @retval !ASN1_OK lots of error conditions, figure it out
 */
-int asn1_decode(u_char *data, u_int len, ASN1_TYPE **asn1_type)
+int asn1_decode(const u_char *data, u_int len, ASN1_TYPE **asn1_type)
 {
     ASN1_TYPE *cur;
     ASN1_TYPE *child = NULL;
     ASN1_TYPE *indef;
     ASN1_TYPE *asnstack[ASN1_MAX_STACK];
 
-    u_char *end;
+    const u_char *end;
     u_int con_len;
     int index = 0;
     int iRet;
@@ -732,7 +732,7 @@ int asn1_decode(u_char *data, u_int len, ASN1_TYPE **asn1_type)
             */
             if(cur->cnext && cur->cnext->eoc)
             {
-                if(index && (indef = asnstack[--index]))
+                if(index && (indef = asnstack[--index]) != NULL)
                 {
                     if(indef->len.type == SF_BER_LEN_INDEF)
                     {
@@ -771,7 +771,7 @@ int asn1_decode(u_char *data, u_int len, ASN1_TYPE **asn1_type)
             */
             while(cur->next && cur->next->eoc)
             {
-                if(index && (indef = asnstack[--index]))
+                if(index && (indef = asnstack[--index]) != NULL)
                 {
                     if(indef->len.type == SF_BER_LEN_INDEF)
                     {
@@ -807,7 +807,7 @@ int asn1_decode(u_char *data, u_int len, ASN1_TYPE **asn1_type)
         **  check for additional peers for each construct, depending on the
         **  length of the parent construct.
         */
-        while(index && (cur = asnstack[--index]))
+        while(index && (cur = asnstack[--index]) != NULL)
         {
             /*
             **  Get the construct length and set the length appropriately
@@ -848,7 +848,7 @@ int asn1_decode(u_char *data, u_int len, ASN1_TYPE **asn1_type)
 
             if(cur->next && cur->next->eoc)
             {
-                if(index && (indef = asnstack[--index]))
+                if(index && (indef = asnstack[--index]) != NULL)
                 {
                     if(indef->len.type == SF_BER_LEN_INDEF)
                     {
@@ -948,7 +948,7 @@ int asn1_traverse(ASN1_TYPE *asn1, void *user,
             if(cur) continue;
         }
 
-        while(index && (cur = asnstack[--index]))
+        while(index && (cur = asnstack[--index]) != NULL)
         {
             cur = cur->next;
             if(cur)

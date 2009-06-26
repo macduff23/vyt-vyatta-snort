@@ -1,7 +1,7 @@
 /*
  * smb_andx_decode.h
  *
- * Copyright (C) 2004-2006 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -38,7 +38,7 @@ int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int1
 int ProcessSMBReadX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
 int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
 int ProcessSMBLockingX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-void SMB_TCP_Fragmentation(u_int16_t data_len);
 int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
+void ReassembleSMBWriteX(u_int8_t *, u_int16_t);
 
 #endif /* _SMB_ANDX_DECODE_H_ */

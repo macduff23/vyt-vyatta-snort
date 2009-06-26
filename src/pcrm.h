@@ -3,7 +3,7 @@
 **
 ** pcrm.h
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 ** Dan Roelker <droelker@sourcefire.com>
 **
@@ -89,6 +89,7 @@ typedef struct {
   /* Setwise Pattern Matching data structures */
   void * pgPatData;
   void * pgPatDataUri;
+  void * pgNonContentTree;
   
   int avgLen;  
   int minLen;
@@ -152,6 +153,10 @@ BYTE_RULE_MAP * prmNewByteMap( );
 
 void prmFreeMap( PORT_RULE_MAP * p );
 void prmFreeByteMap( BYTE_RULE_MAP * p );
+
+int prmxAddPortRule( PORT_GROUP * p, RULE_PTR rd );
+int prmxAddPortRuleUri( PORT_GROUP * p, RULE_PTR rd );
+int prmxAddPortRuleNC( PORT_GROUP * p, RULE_PTR rd );
 
 int prmAddRule( PORT_RULE_MAP * p, int dport, int sport, RULE_PTR rd );
 int prmAddByteRule( BYTE_RULE_MAP * p, int dport, RULE_PTR rd );

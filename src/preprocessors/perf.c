@@ -3,7 +3,7 @@
 **
 **  perf.c
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -31,18 +31,19 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <errno.h>
 #ifndef WIN32
 #include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <unistd.h>
 #endif /* WIN32 */
 
 #include "util.h"
 #include "perf.h"
 
 int InitPerfStats(SFPERF *sfPerf);
-int UpdatePerfStats(SFPERF *sfPerf, unsigned char *pucPacket, int len,
+int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
         int iRebuiltPkt);
 int ProcessPerfStats(SFPERF *sfPerf);
 
@@ -119,6 +120,8 @@ int sfSetPerformanceStatisticsEx(SFPERF *sfPerf, int iFlag, void * p)
     
     if(iFlag & SFPERF_FILE)
     {
+        static char start_up = 1;
+
         sfPerf->iPerfFlags = sfPerf->iPerfFlags | SFPERF_FILE;
         
         SnortStrncpy(sfPerf->file, (char *)p, sizeof(sfPerf->file));
@@ -128,7 +131,17 @@ int sfSetPerformanceStatisticsEx(SFPERF *sfPerf, int iFlag, void * p)
         old_umask = umask(022);
 #endif         
 
-        sfPerf->fh = fopen(sfPerf->file,"at");
+        /* append to existing perfmon file if just starting up */
+        if (start_up)
+        {
+            sfPerf->fh = fopen(sfPerf->file, "a");
+            start_up = 0;
+        }
+        /* otherwise we've rotated - start a new one */
+        else
+        {
+            sfPerf->fh = fopen(sfPerf->file, "w");
+        }
 
 #ifndef WIN32
         umask(old_umask);
@@ -171,8 +184,13 @@ int sfRotatePerformanceStatisticsFile(SFPERF *sfPerf)
     time_t     t;
     struct tm *tm;
     char       newfile[FILE_MAX];
-    char       dir[PATH_MAX];
     char      *ptr;
+    int        prefix_len = 0;
+#ifdef WIN32
+    struct _stat stat_buf;
+#else
+    struct stat stat_buf;
+#endif
 
     /* Close current stats file - if it is open already */
     if(!sfPerf->fh)
@@ -192,23 +210,103 @@ int sfRotatePerformanceStatisticsFile(SFPERF *sfPerf)
     }
     
     /* Rename current stats file with yesterday's date */
-    SnortStrncpy(dir, sfPerf->file, PATH_MAX);
-    ptr = strrchr(dir, '/');
-    if ( ptr != NULL )
-        *ptr = '\0';
+#ifndef WIN32
+    ptr = strrchr(sfPerf->file, '/');
+#else
+    ptr = strrchr(sfPerf->file, '\\');
+#endif
+
+    if (ptr != NULL)
+    {
+        /* take length of string up to path separator and add 
+         * one to include path separator */
+        prefix_len = (ptr - &sfPerf->file[0]) + 1;
+    }
 
     /* Get current time, then subtract one day to get yesterday */
     t = time(&t);
     t -= (24*60*60);
     tm = localtime(&t);
-    SnortSnprintf(newfile, FILE_MAX, "%s/%d-%02d-%02d",
-                  dir, tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+    SnortSnprintf(newfile, FILE_MAX, "%.*s%d-%02d-%02d",
+                  prefix_len, sfPerf->file, tm->tm_year + 1900,
+                  tm->tm_mon + 1, tm->tm_mday);
 
     /* Checking return code from rename */
-    if(rename(sfPerf->file, newfile) != 0)
+#ifdef WIN32
+    if (_stat(newfile, &stat_buf) == -1)
+#else
+    if (stat(newfile, &stat_buf) == -1)
+#endif
     {
-        LogMessage("Cannot move performance log file '%s' to '%s': %s\n",
-                        sfPerf->file, newfile,strerror(errno));
+        /* newfile doesn't exist - just rename sfPerf->file to newfile */
+        if(rename(sfPerf->file, newfile) != 0)
+        {
+            LogMessage("Cannot move performance log file '%s' to '%s': %s\n",
+                       sfPerf->file, newfile,strerror(errno));
+        }
+    }
+    else
+    {
+        /* append to current archive file */
+        FILE *newfh, *curfh;
+        char read_buf[1024];
+        size_t num_read, num_wrote;
+
+        do
+        {
+            newfh = fopen(newfile, "a");
+            if (newfh == NULL)
+            {
+                LogMessage("Cannot open performance log archive file "
+                           "'%s' for writing: %s\n",
+                           newfile, strerror(errno));
+                break;
+            }
+
+            curfh = fopen(sfPerf->file, "r");
+            if (curfh == NULL)
+            {
+                LogMessage("Cannot open performance log file '%s' for reading: %s\n",
+                           sfPerf->file, strerror(errno));
+                fclose(newfh);
+                break;
+            }
+
+            while (!feof(curfh))
+            {
+                num_read = fread(read_buf, sizeof(char), sizeof(read_buf), curfh);
+                if (num_read < sizeof(read_buf))
+                {
+                    if (ferror(curfh))
+                    {
+                        /* a read error occurred */
+                        LogMessage("Error reading performance log file '%s': %s\n",
+                                   sfPerf->file, strerror(errno));
+                        break;
+                    }
+                }
+
+                if (num_read > 0)
+                {
+                    num_wrote = fwrite((const char *)read_buf, sizeof(char), num_read, newfh);
+                    if (num_wrote != num_read)
+                    {
+                        if (ferror(newfh))
+                        {
+                            /* a bad write occurred */
+                            LogMessage("Error writing to performance log "
+                                       "archive file '%s': %s\n",
+                                       newfile, strerror(errno));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            fclose(newfh);
+            fclose(curfh);
+
+        } while (0);
     }
 
     ret = sfSetPerformanceStatisticsEx(sfPerf, SFPERF_FILE, sfPerf->file);
@@ -222,7 +320,7 @@ int sfRotatePerformanceStatisticsFile(SFPERF *sfPerf)
     return 0;
 }
 
-int sfPerformanceStats(SFPERF *sfPerf, unsigned char *pucPacket, int len,
+int sfPerformanceStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
                        int iRebuiltPkt)
 {
     static unsigned int cnt=0;
@@ -264,7 +362,6 @@ int CheckSampleInterval(time_t curr_time, SFPERF *sfPerf)
 
 int InitPerfStats(SFPERF *sfPerf)
 {
-    static int first = 1;
     /*
     *  Reset sample time for next sampling
     */
@@ -275,11 +372,12 @@ int InitPerfStats(SFPERF *sfPerf)
         if(InitBaseStats(&(sfPerf->sfBase)))
             return -1;
     }
+
     if(sfPerf->iPerfFlags & SFPERF_FLOW)
     {  
-        if(first) InitFlowStats(&(sfPerf->sfFlow));
-        first = 0;
+        InitFlowStats(&(sfPerf->sfFlow));
     }
+
     if(sfPerf->iPerfFlags & SFPERF_EVENT)
     {  
         InitEventStats(&(sfPerf->sfEvent));
@@ -288,7 +386,12 @@ int InitPerfStats(SFPERF *sfPerf)
     return 0;
 }
 
-int UpdatePerfStats(SFPERF *sfPerf, unsigned char *pucPacket, int len,
+int ResetPerfStats(SFPERF *sfPerf)
+{
+    return InitPerfStats(sfPerf);
+}
+
+int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
                     int iRebuiltPkt)
 {
     if(sfPerf->iPerfFlags & SFPERF_BASE)

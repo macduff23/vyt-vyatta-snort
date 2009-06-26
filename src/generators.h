@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -39,33 +40,6 @@
 #define     RPC_INCOMPLETE_SEGMENT          4
 #define     RPC_ZERO_LENGTH_FRAGMENT        5
 
-#define GENERATOR_SPP_STREAM4       111
-#define     STREAM4_STEALTH_ACTIVITY            1
-#define     STREAM4_EVASIVE_RST                 2
-#define     STREAM4_EVASIVE_RETRANS             3
-#define     STREAM4_WINDOW_VIOLATION            4
-#define     STREAM4_DATA_ON_SYN                 5
-#define     STREAM4_STEALTH_FULL_XMAS           6
-#define     STREAM4_STEALTH_SAPU                7
-#define     STREAM4_STEALTH_FIN_SCAN            8
-#define     STREAM4_STEALTH_NULL_SCAN           9
-#define     STREAM4_STEALTH_NMAP_XMAS_SCAN      10
-#define     STREAM4_STEALTH_VECNA_SCAN          11
-#define     STREAM4_STEALTH_NMAP_FINGERPRINT    12
-#define     STREAM4_STEALTH_SYN_FIN_SCAN        13
-#define     STREAM4_FORWARD_OVERLAP             14
-#define     STREAM4_TTL_EVASION                 15
-#define     STREAM4_EVASIVE_RETRANS_DATA        16
-#define     STREAM4_EVASIVE_RETRANS_DATASPLIT   17
-#define     STREAM4_MULTIPLE_ACKED              18
-#define     STREAM4_EMERGENCY                   19
-#define     STREAM4_SUSPEND                     20
-#define     STREAM4_ZERO_TIMESTAMP              21
-#define     STREAM4_OVERLAP_LIMIT               22
-#define     STREAM4_TCP_NO_ACK                  23
-#define     STREAM4_EVASIVE_FIN                 24
-#define     STREAM4_SYN_ON_ESTABLISHED          25
-
 #define GENERATOR_SPP_ARPSPOOF      112
 #define     ARPSPOOF_UNICAST_ARP_REQUEST         1
 #define     ARPSPOOF_ETHERFRAME_ARP_MISMATCH_SRC  2
@@ -78,7 +52,7 @@
 #define     DECODE_IPV4_DGRAM_LT_IPHDR            3
 #define     DECODE_IPV4OPT_BADLEN                 4
 #define     DECODE_IPV4OPT_TRUNCATED              5
-#define     DECODE_IPV4_DGRAM_GT_IPHDR            6
+#define     DECODE_IPV4_DGRAM_GT_CAPLEN           6
 
 #define     DECODE_TCP_DGRAM_LT_TCPHDR            45
 #define     DECODE_TCP_INVALID_OFFSET             46
@@ -99,7 +73,6 @@
 #define     DECODE_ICMP_DGRAM_LT_ICMPHDR          105
 #define     DECODE_ICMP_DGRAM_LT_TIMESTAMPHDR     106
 #define     DECODE_ICMP_DGRAM_LT_ADDRHDR          107
-#define     DECODE_IPV4_DGRAM_UNKNOWN             108
 
 #define     DECODE_ARP_TRUNCATED                  109
 #define     DECODE_EAPOL_TRUNCATED                110
@@ -124,7 +97,20 @@
 #ifdef GRE
 #define     DECODE_GRE_DGRAM_LT_GREHDR            160
 #define     DECODE_GRE_MULTIPLE_ENCAPSULATION     161
-#endif
+#define     DECODE_GRE_INVALID_VERSION            162
+#define     DECODE_GRE_INVALID_HEADER             163
+#define     DECODE_GRE_V1_INVALID_HEADER          164
+#define     DECODE_GRE_TRANS_DGRAM_LT_TRANSHDR    165
+#endif  /* GRE */
+
+/** MPLS takes 170 block **/
+#define     DECODE_BAD_MPLS                       170
+#define     DECODE_BAD_MPLS_LABEL0                171
+#define     DECODE_BAD_MPLS_LABEL1                172
+#define     DECODE_BAD_MPLS_LABEL2                173
+#define     DECODE_BAD_MPLS_LABEL3                174
+#define     DECODE_MPLS_RESERVED_LABEL            175
+#define     DECODE_MPLS_LABEL_STACK               176
 
 #define     DECODE_ICMP_ORIG_IP_TRUNCATED         250
 #define     DECODE_ICMP_ORIG_IP_NOT_IPV4          251
@@ -137,13 +123,10 @@
 #define     DECODE_IPV6_IS_NOT                    271
 #define     DECODE_IPV6_TRUNCATED_EXT             272
 #define     DECODE_IPV6_TRUNCATED                 273
+#define     DECODE_IPV6_DGRAM_LT_IPHDR            274
+#define     DECODE_IPV6_DGRAM_GT_CAPLEN           275
 
-
-#define GENERATOR_SPP_SCAN2         117
-#define     SCAN_TYPE                             1
-
-#define GENERATOR_SPP_CONV         118
-#define     CONV_BAD_IP_PROTOCOL                            1
+#define     DECODE_IPV6_TUNNELED_IPV4_TRUNCATED   291
 
 /*
 **  HttpInspect Generator IDs
@@ -173,15 +156,11 @@
 #define     HI_CLIENT_LARGE_CHUNK                   16  /* done */
 #define     HI_CLIENT_PROXY_USE                     17  /* done */
 #define     HI_CLIENT_WEBROOT_DIR                   18  /* done */
+#define     HI_CLIENT_LONG_HDR                      19  /* done */
+#define     HI_CLIENT_MAX_HEADERS                   20  /* done */
 
 #define GENERATOR_SPP_HTTP_INSPECT_ANOM_SERVER      120
 #define     HI_ANOM_SERVER_ALERT                    1   /* done */
-
-#define GENERATOR_FLOW_PORTSCAN                     121
-#define     FLOW_SCANNER_FIXED_ALERT                 1
-#define     FLOW_SCANNER_SLIDING_ALERT               2
-#define     FLOW_TALKER_FIXED_ALERT                  3
-#define     FLOW_TALKER_SLIDING_ALERT                4
 
 #define GENERATOR_PSNG                             122
 #define     PSNG_TCP_PORTSCAN                      1
@@ -227,6 +206,7 @@
 #define     FRAG3_ANOMALY_OVLP                      8
 #define     FRAG3_IPV6_BSD_ICMP_FRAG                9
 #define     FRAG3_IPV6_BAD_FRAG_PKT                10
+#define     FRAG3_MIN_TTL_EVASION                  11
 
 #define GENERATOR_SMTP                             124
 #define     SMTP_COMMAND_OVERFLOW                  1
@@ -235,6 +215,7 @@
 #define     SMTP_SPECIFIC_CMD_OVERFLOW             4
 #define     SMTP_UNKNOWN_CMD                       5
 #define     SMTP_ILLEGAL_CMD                       6
+#define     SMTP_HEADER_NAME_OVERFLOW              7
     
 /*
 **  FTPTelnet Generator IDs
@@ -257,6 +238,7 @@
 #define GENERATOR_SPP_FTPP_TELNET                  126
 #define FTPP_TELNET_AYT_OVERFLOW              1
 #define FTPP_TELNET_ENCRYPTED                 2
+#define FTPP_TELNET_SUBNEG_BEGIN_NO_END       3
 
 #define GENERATOR_SPP_ISAKMP                 127
 #define GENERATOR_SPP_SSH                128
@@ -270,11 +252,69 @@
 #define     STREAM5_WINDOW_TOO_LARGE                6
 #define     STREAM5_EXCESSIVE_TCP_OVERLAPS          7
 #define     STREAM5_DATA_AFTER_RESET                8
+#define     STREAM5_SESSION_HIJACKED_CLIENT         9
+#define     STREAM5_SESSION_HIJACKED_SERVER        10
+#define     STREAM5_DATA_WITHOUT_FLAGS             11
+#define     STREAM5_SMALL_SEGMENT                  12
 
 #define GENERATOR_DCERPC                          130
 #define     DCERPC_MEMORY_OVERFLOW                  1
 
 #define GENERATOR_DNS                             131
+#define     DNS_EVENT_OBSOLETE_TYPES                1
+#define     DNS_EVENT_EXPERIMENTAL_TYPES            2
+#define     DNS_EVENT_RDATA_OVERFLOW                3
+
+#define GENERATOR_SKYPE                           132
+
+#define GENERATOR_DCE2                              133
+#define     DCE2_EVENT__MEMCAP                        1
+#define     DCE2_EVENT__SMB_BAD_NBSS_TYPE             2
+#define     DCE2_EVENT__SMB_BAD_TYPE                  3
+#define     DCE2_EVENT__SMB_BAD_ID                    4
+#define     DCE2_EVENT__SMB_BAD_WCT                   5
+#define     DCE2_EVENT__SMB_BAD_BCC                   6
+#define     DCE2_EVENT__SMB_BAD_FORMAT                7
+#define     DCE2_EVENT__SMB_BAD_OFF                   8
+#define     DCE2_EVENT__SMB_TDCNT_ZERO                9
+#define     DCE2_EVENT__SMB_NB_LT_SMBHDR             10
+#define     DCE2_EVENT__SMB_NB_LT_COM                11
+#define     DCE2_EVENT__SMB_NB_LT_BCC                12
+#define     DCE2_EVENT__SMB_NB_LT_DSIZE              13
+#define     DCE2_EVENT__SMB_TDCNT_LT_DSIZE           14
+#define     DCE2_EVENT__SMB_DSENT_GT_TDCNT           15
+#define     DCE2_EVENT__SMB_BCC_LT_DSIZE             16
+#define     DCE2_EVENT__SMB_INVALID_DSIZE            17
+#define     DCE2_EVENT__SMB_EXCESSIVE_TREE_CONNECTS  18
+#define     DCE2_EVENT__SMB_EXCESSIVE_READS          19
+#define     DCE2_EVENT__SMB_EXCESSIVE_CHAINING       20
+#define     DCE2_EVENT__SMB_MULT_CHAIN_SS            21
+#define     DCE2_EVENT__SMB_MULT_CHAIN_TC            22
+#define     DCE2_EVENT__SMB_CHAIN_SS_LOGOFF          23
+#define     DCE2_EVENT__SMB_CHAIN_TC_TDIS            24
+#define     DCE2_EVENT__SMB_CHAIN_OPEN_CLOSE         25
+#define     DCE2_EVENT__SMB_INVALID_SHARE            26
+#define     DCE2_EVENT__CO_BAD_MAJ_VERSION           27
+#define     DCE2_EVENT__CO_BAD_MIN_VERSION           28
+#define     DCE2_EVENT__CO_BAD_PDU_TYPE              29
+#define     DCE2_EVENT__CO_FLEN_LT_HDR               30
+#define     DCE2_EVENT__CO_FLEN_LT_SIZE              31
+#define     DCE2_EVENT__CO_ZERO_CTX_ITEMS            32
+#define     DCE2_EVENT__CO_ZERO_TSYNS                33
+#define     DCE2_EVENT__CO_FRAG_LT_MAX_XMIT_FRAG     34
+#define     DCE2_EVENT__CO_FRAG_GT_MAX_XMIT_FRAG     35
+#define     DCE2_EVENT__CO_ALTER_CHANGE_BYTE_ORDER   36
+#define     DCE2_EVENT__CO_FRAG_DIFF_CALL_ID         37
+#define     DCE2_EVENT__CO_FRAG_DIFF_OPNUM           38
+#define     DCE2_EVENT__CO_FRAG_DIFF_CTX_ID          39
+#define     DCE2_EVENT__CL_BAD_MAJ_VERSION           40
+#define     DCE2_EVENT__CL_BAD_PDU_TYPE              41
+#define     DCE2_EVENT__CL_DATA_LT_HDR               42
+#define     DCE2_EVENT__CL_BAD_SEQ_NUM               43
+
+#define GENERATOR_PPM                             134
+#define     PPM_EVENT_RULE_TREE_DISABLED            1
+#define     PPM_EVENT_RULE_TREE_ENABLED             2
 
 /*  This is where all the alert messages will be archived for each
     internal alerts */
@@ -292,35 +332,6 @@
 #define BO_SERVER_TRAFFIC_DETECT_STR "(spo_bo) Back Orifice Server Traffic detected"
 #define BO_SNORT_BUFFER_ATTACK_STR "(spo_bo) Back Orifice Snort buffer attack"
 
-/*  spp_stream4 strings */
-#define STREAM4_MULTIPLE_ACKED_STR "(spp_stream4) Multiple Acked Packets (possible fragroute)"
-#define STREAM4_DATA_ON_SYN_STR  "(spp_stream4) DATA ON SYN detection"
-#define STREAM4_STEALTH_NMAP_FINGERPRINT_STR "(spp_stream4) NMAP FINGERPRINT (stateful) detection"
-#define STREAM4_STEALTH_FULL_XMAS_STR "(spp_stream4) STEALTH ACTIVITY (Full XMAS scan) detection"
-#define STREAM4_STEALTH_SAPU_STR "(spp_stream4) STEALTH ACTIVITY (SAPU scan) detection"
-#define STREAM4_STEALTH_FIN_SCAN_STR "(spp_stream4) STEALTH ACTIVITY (FIN scan) detection"
-#define STREAM4_STEALTH_SYN_FIN_SCAN_STR "(spp_stream4) STEALTH ACTIVITY (SYN FIN scan) detection"
-#define STREAM4_STEALTH_NULL_SCAN_STR "(spp_stream4) STEALTH ACTIVITY (NULL scan) detection"
-#define STREAM4_STEALTH_NMAP_XMAS_SCAN_STR "(spp_stream4) STEALTH ACTIVITY (XMAS scan) detection"
-#define STREAM4_STEALTH_VECNA_SCAN_STR "(spp_stream4) STEALTH ACTIVITY (Vecna scan) detection"
-#define STREAM4_STEALTH_ACTIVITY_STR "(spp_stream4) STEALTH ACTIVITY (unknown) detection"
-#define STREAM4_EVASIVE_RST_STR "(spp_stream4) possible EVASIVE RST detection"
-#define STREAM4_TTL_EVASION_STR "(spp_stream4) TTL LIMIT Exceeded"
-#define STREAM4_EVASIVE_RETRANS_STR "(spp_stream4) Possible RETRANSMISSION detection"
-#define STREAM4_WINDOW_VIOLATION_STR "(spp_stream4) WINDOW VIOLATION detection"
-#define STREAM4_EVASIVE_RETRANS_DATA_STR \
- "(spp_stream4) TCP CHECKSUM CHANGED ON RETRANSMISSION (possible fragroute) detection"
-#define STREAM4_FORWARD_OVERLAP_STR "(spp_stream4) FORWARD OVERLAP detection"
-#define STREAM4_EVASIVE_RETRANS_DATASPLIT_STR \
-"(spp_stream4) TCP TOO FAST RETRANSMISSION WITH DIFFERENT DATA SIZE (possible fragroute) detection"
-#define STREAM4_EMERGENCY_STR "(spp_stream4) Shifting to Emergency Session Mode"
-#define STREAM4_SUSPEND_STR "(spp_stream4) Shifting to Suspend Mode"
-#define STREAM4_ZERO_TIMESTAMP_STR "(spp_stream4) TCP Option Timestamp value of 0"
-#define STREAM4_OVERLAP_LIMIT_STR "(spp_stream4) TCP stream too many overlapping packets"
-#define STREAM4_TCP_NO_ACK_STR "(spp_stream4) Packet in Established TCP stream missing ACK"
-#define STREAM4_EVASIVE_FIN_STR "(spp_stream4) possible EVASIVE FIN detection"
-#define STREAM4_SYN_ON_ESTABLISHED_STR "(spp_stream4) SYN on established session detection, resetting reassembly queue"
-
 /*   FRAG3 strings */
 #define FRAG3_IPOPTIONS_STR "(spp_frag3) Inconsistent IP Options on Fragmented Packets"
 #define FRAG3_TEARDROP_STR "(spp_frag3) Teardrop attack"
@@ -332,6 +343,7 @@
 #define FRAG3_ANOM_OVLP_STR "(spp_frag3) Fragmentation overlap"
 #define FRAG3_IPV6_BSD_ICMP_FRAG_STR "(spp_frag3) IPv6 BSD mbufs remote kernel buffer overflow"
 #define FRAG3_IPV6_BAD_FRAG_PKT_STR "(spp_frag3) Bogus fragmentation packet. Possible BSD attack"
+#define FRAG3_MIN_TTL_EVASION_STR "(spp_frag3) TTL value less than configured minimum, not using for reassembly"
 
 /*   Stream5 strings */
 #define     STREAM5_SYN_ON_EST_STR "Syn on established session"
@@ -342,6 +354,14 @@
 #define     STREAM5_WINDOW_TOO_LARGE_STR "Window size (after scaling) larger than policy allows"
 #define     STREAM5_EXCESSIVE_TCP_OVERLAPS_STR "Limit on number of overlapping TCP packets reached"
 #define     STREAM5_DATA_AFTER_RESET_STR "Data sent on stream after TCP Reset"
+#define     STREAM5_SESSION_HIJACKED_CLIENT_STR "TCP Client possibly hijacked, different Ethernet Address"
+#define     STREAM5_SESSION_HIJACKED_SERVER_STR "TCP Server possibly hijacked, different Ethernet Address"
+#define     STREAM5_DATA_WITHOUT_FLAGS_STR "TCP Data with no TCP Flags set"
+#define     STREAM5_SMALL_SEGMENT_STR "Consecutive TCP small segments exceeding threshold"
+
+/* PPM strings */
+#define     PPM_EVENT_RULE_TREE_DISABLED_STR "Rule Options Disabled by Rule Latency"
+#define     PPM_EVENT_RULE_TREE_ENABLED_STR "Rule Options Re-enabled by Rule Latency"
 
 /*   Snort decoder strings */
 #define DECODE_NOT_IPV4_DGRAM_STR "(snort_decoder) WARNING: Not IPv4 datagram!"
@@ -349,7 +369,8 @@
 #define DECODE_IPV4_DGRAM_LT_IPHDR_STR "(snort_decoder) WARNING: IP dgm len < IP Hdr len!"
 #define DECODE_IPV4OPT_BADLEN_STR      "(snort_decoder): Ipv4 Options found with bad lengths"
 #define DECODE_IPV4OPT_TRUNCATED_STR   "(snort_decoder): Truncated Ipv4 Options"
-#define DECODE_IPV4_DGRAM_GT_IPHDR_STR "(snort_decoder) WARNING: IP dgm len > IP Hdr len!"
+#define DECODE_IPV4_DGRAM_GT_CAPLEN_STR "(snort_decoder) WARNING: IP dgm len > captured len!"
+#define DECODE_NOT_IPV6_DGRAM_STR      "(snort_decoder) WARNING: Not an IPv6 datagram"
 
 #define DECODE_TCP_DGRAM_LT_TCPHDR_STR "(snort_decoder) TCP packet len is smaller than 20 bytes!"
 #define DECODE_TCP_INVALID_OFFSET_STR "(snort_decoder) WARNING: TCP Data Offset is less than 5!"
@@ -392,8 +413,12 @@
 
 #ifdef GRE
 #define DECODE_GRE_DGRAM_LT_GREHDR_STR "(snort decoder) WARNING: GRE header length > payload length"
-#define DECODE_GRE_MULTIPLE_ENCAPSULATION_STR "(snort decoder) WARNING: Multiple GRE encapsulations in packet"
-#endif
+#define DECODE_GRE_MULTIPLE_ENCAPSULATION_STR "(snort decoder) WARNING: Multiple encapsulations in packet"
+#define DECODE_GRE_INVALID_VERSION_STR "(snort decoder) WARNING: Invalid GRE version"
+#define DECODE_GRE_INVALID_HEADER_STR "(snort decoder) WARNING: Invalid GRE header"
+#define DECODE_GRE_V1_INVALID_HEADER_STR "(snort decoder) WARNING: Invalid GRE v.1 PPTP header"
+#define DECODE_GRE_TRANS_DGRAM_LT_TRANSHDR_STR "(snort decoder) WARNING: GRE Trans header length > payload length"
+#endif  /* GRE */
 
 #define DECODE_ICMP_ORIG_IP_TRUNCATED_STR "(snort_decoder) WARNING: ICMP Original IP Header Truncated!"
 #define DECODE_ICMP_ORIG_IP_NOT_IPV4_STR "(snort_decoder) WARNING: ICMP Original IP Header Not IPv4!"
@@ -406,13 +431,9 @@
 #define DECODE_IPV6_IS_NOT_STR "(snort decoder) IPv6 header claims to not be IPv6"
 #define DECODE_IPV6_TRUNCATED_EXT_STR "(snort decoder) IPV6 truncated extension header"
 #define DECODE_IPV6_TRUNCATED_STR "(snort decoder) IPV6 truncated header"
-
-
-/*  Portscan2 strings */
-#define SCAN2_PREFIX_STR "(spp_portscan2) Portscan detected from "
-
-/*  spp_conversation strings */
-#define CONV_BAD_IP_PROTOCOL_STR "(spp_conversation) Bad IP protocol!"
+#define DECODE_IPV6_DGRAM_LT_IPHDR_STR "(snort_decoder) WARNING: IP dgm len < IP Hdr len!"
+#define DECODE_IPV6_DGRAM_GT_CAPLEN_STR "(snort_decoder) WARNING: IP dgm len > captured len!"
+#define DECODE_IPV6_TUNNELED_IPV4_TRUNCATED_STR "(snort_decoder) IPV6 tunneled over IPv4, IPv6 header truncated, possible Linux Kernel attack"
 
 /*  RPC decode preprocessor strings */
 #define RPC_FRAG_TRAFFIC_STR "(spp_rpc_decode) Fragmented RPC Records"
@@ -453,4 +474,12 @@
 
 #define PSNG_OPEN_PORT_STR "(portscan) Open Port"
 
+#define DECODE_BAD_MPLS_STR "(snort_decoder) WARNING: Bad MPLS Frame!"
+#define DECODE_BAD_MPLS_LABEL0_STR "(snort_decoder) WARNING: MPLS Label 0 Appears in Nonbottom Header"
+#define DECODE_BAD_MPLS_LABEL1_STR "(snort_decoder) WARNING: MPLS Label 1 Appears in Bottom Header"
+#define DECODE_BAD_MPLS_LABEL2_STR "(snort_decoder) WARNING: MPLS Label 2 Appears in Nonbottom Header"
+#define DECODE_BAD_MPLS_LABEL3_STR "(snort_decoder) WARNING: MPLS Label 3 Appears in Header"
+#define DECODE_MPLS_RESERVEDLABEL_STR "(snort_decoder) WARNING: MPLS Label 4, 5,.. or 15 Appears in Header"
+#define DECODE_MPLS_LABEL_STACK_STR "(snort_decoder) WARNING: Too Many MPLS headers"
+#define DECODE_MULTICAST_MPLS_STR "(snort_decoder) WARNING: Multicast MPLS traffic detected"
 #endif /* __GENERATORS_H__ */

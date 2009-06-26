@@ -1,4 +1,5 @@
 /*             
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000-2001 Andrew R. Baker <andrewb@uab.edu>
 **             
@@ -29,6 +30,7 @@
 
 #include "rules.h"
 #include "decode.h"
+#include "sflsq.h"
 
 #include <stdio.h>
 
@@ -51,7 +53,7 @@ int ContinuationCheck(char *);
 void ParseRule(FILE*, char *, int, int);
 void ParsePreprocessor(char *);
 void ParseOutputPlugin(char *);
-void ParseRuleOptions(char *, int, int);
+int ParseRuleOptions(char *, int, int);
 void ParseMessage(char *);
 void ParseLogto(char *);
 void DumpRuleChains();
@@ -79,7 +81,7 @@ int WhichProto(char *);
 int ParseIP(char *, IpAddrSet *);
 #endif /* Relocated to parser/IpAddrSet.h */
 int ParsePort(char *, u_short *,  u_short *, char *, int *);
-int ConvPort(char *, char *);
+u_int16_t ConvPort(char *, char *);
 
 char *VarGet(char *);
 char *ExpandVars(char *);
@@ -91,7 +93,7 @@ struct VarEntry *VarAlloc();
 ListHead *CreateRuleType(char *, int, int, ListHead *);
 
 void ProcessAlertFileOption(char *);
-char *ProcessFileOption(char *);
+char *ProcessFileOption(const char *);
 void ParseConfig(char *);
 void ParseRuleTypeDeclaration(FILE*, char *);
 /*void ParseClassificationConfig(char *); */
@@ -101,6 +103,9 @@ void SetRuleStates();
 #ifdef DYNAMIC_PLUGIN
 void ConfigureDynamicPreprocessors();
 #endif
+void ParseIPv6Options(char *);
+int GetPcaps(SF_LIST *, SF_QUEUE *);
 
+void ParserCleanup();
 #endif /* __PARSER_H__ */
 

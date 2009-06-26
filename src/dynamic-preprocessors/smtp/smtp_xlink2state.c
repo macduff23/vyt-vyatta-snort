@@ -1,5 +1,6 @@
-/*
- * smtp_xlink2state.c
+/***************************************************************************
+ *
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -16,7 +17,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ ****************************************************************************/
+
+/************************************************************************
+ * 
+ * smtp_xlink2state.c
  *
  * Author: Andy  Mullican
  *
@@ -29,32 +34,43 @@
  *    ParseXLink2State()
  *
  *
- */
+ ************************************************************************/
 
 #ifndef WIN32
 #include <strings.h>
 #endif
 
 #include <ctype.h>
-
-#include "snort_packet_header.h"
+#include <string.h>
 
 #include "snort_smtp.h"
+#include "smtp_config.h"
 #include "smtp_util.h"
+#include "smtp_log.h"
 #include "smtp_xlink2state.h"
 
-extern SMTP         *_smtp;
-extern SMTP_CONFIG   _smtp_config;
+#include "sf_dynamic_preprocessor.h"
+#include "sf_snort_packet.h"
 
-#define XLINK_OTHER     1
-#define XLINK_FIRST     2
-#define XLINK_CHUNK     3
 
-#define XLINK_LEN      12   /* strlen("X-LINK2STATE") */
+#define XLINK_OTHER  1
+#define XLINK_FIRST  2
+#define XLINK_CHUNK  3
+
+#define XLINK_LEN  12   /* strlen("X-LINK2STATE") */
+
+/* X-Link2State overlong length */
+#define XLINK2STATE_MAX_LEN  520
+
+
+extern SMTP *_smtp;
+extern SMTPConfig _smtp_config;
+extern DynamicPreprocessorData _dpd;
+
 
 /* Prototypes */
-static u_int32_t get_xlink_hex_value(u_int8_t *buf, u_int8_t *end);
-static char      get_xlink_keyword(u_int8_t *ptr, u_int8_t *end);
+static u_int32_t get_xlink_hex_value(const u_int8_t *, const u_int8_t *);
+static char      get_xlink_keyword(const u_int8_t *, const u_int8_t *);
 
 /*
  * Extract a number from a string
@@ -66,11 +82,11 @@ static char      get_xlink_keyword(u_int8_t *ptr, u_int8_t *end);
  *
  * @note    this could be more efficient, but the search buffer should be pretty short
  */
-static u_int32_t get_xlink_hex_value(u_int8_t *buf, u_int8_t *end)
+static u_int32_t get_xlink_hex_value(const u_int8_t *buf, const u_int8_t *end)
 {
     char       c;
     u_int32_t  value = 0;
-    u_int8_t *hex_end;
+    const u_int8_t *hex_end;
 
     if ((end - buf) < 8)
         return 0;
@@ -112,7 +128,7 @@ static u_int32_t get_xlink_hex_value(u_int8_t *buf, u_int8_t *end)
  *
  * @retval  int         identifies which keyword found, if any
  */
-static char get_xlink_keyword(u_int8_t *ptr, u_int8_t *end)
+static char get_xlink_keyword(const u_int8_t *ptr, const u_int8_t *end)
 {
     int len;
 
@@ -142,7 +158,6 @@ static char get_xlink_keyword(u_int8_t *ptr, u_int8_t *end)
 
     return XLINK_OTHER;
 }
-
 
 /*
  * Handle X-Link2State vulnerability
@@ -188,18 +203,18 @@ static char get_xlink_keyword(u_int8_t *ptr, u_int8_t *end)
  * @retval  1           if alert raised
  * @retval  0           if no alert raised
  */
-int ParseXLink2State(SFSnortPacket *p, u_int8_t *ptr)
+int ParseXLink2State(SFSnortPacket *p, const u_int8_t *ptr)
 {
     u_int8_t  *lf = NULL;
     u_int32_t  len = 0;
     char       x_keyword;
-    u_int8_t  *end;
+    const u_int8_t  *end;
 
     if (p == NULL || ptr == NULL)
         return 0;
 
     /* If we got a FIRST chunk on this stream, this is not an exploit */
-    if (_smtp->xlink2state_gotfirstchunk)
+    if (_smtp->session_flags & SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK)
         return 0;
 
     /* Calculate length from pointer to end of packet data */
@@ -212,12 +227,12 @@ int ParseXLink2State(SFSnortPacket *p, u_int8_t *ptr)
     if (x_keyword != XLINK_CHUNK)
     {
         if (x_keyword == XLINK_FIRST)
-            _smtp->xlink2state_gotfirstchunk = 1;
+            _smtp->session_flags |= SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK;
 
         return 0;
     }
 
-    ptr = (u_int8_t *)safe_strchr((char *)ptr, '=', end - ptr);
+    ptr = (u_int8_t *)memchr((char *)ptr, '=', end - ptr);
     if (ptr == NULL)
         return 0;
 
@@ -244,14 +259,14 @@ int ParseXLink2State(SFSnortPacket *p, u_int8_t *ptr)
     }
     else
     {
-        lf = (u_int8_t *)safe_strchr((char *)ptr, '\n', end - ptr);
+        lf = (u_int8_t *)memchr((char *)ptr, '\n', end - ptr);
         if (lf == NULL)
             return 0;
 
         len = lf - ptr;
     }
 
-    if ( len > XLINK2STATE_MAX_LEN )
+    if (len > XLINK2STATE_MAX_LEN)
     {
         /* Need to drop the packet if we're told to
          * and we're inline mode (outside of whether its
@@ -262,13 +277,13 @@ int ParseXLink2State(SFSnortPacket *p, u_int8_t *ptr)
         }
 
         _dpd.alertAdd(GENERATOR_SMTP, 1, 1, 0, 3, "X-Link2State command: attempted buffer overflow", 0);
-        _smtp->xlink2state_alerted = 1;
+        _smtp->session_flags |= SMTP_FLAG_XLINK2STATE_ALERTED;
 
         return 1;
     }
 
     /* Check for more than one command in packet */
-    ptr = (u_int8_t *)safe_strchr((char *)ptr, '\n', end - ptr);
+    ptr = (u_int8_t *)memchr((char *)ptr, '\n', end - ptr);
     if (ptr == NULL)
         return 0;
 

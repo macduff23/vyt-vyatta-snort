@@ -91,19 +91,19 @@
 
 Name: %{realname}%{inlinetext}
 %{?_with_inline:%define Name: %{realname}-inline }
-Version: 2.7.0
+Version: 2.8.4.1
 Epoch: 1
 Release: %{release}
 Summary: An open source Network Intrusion Detection System (NIDS)
 Group: Applications/Internet
 License: GPL
 Url: http://www.snort.org/
-Source0: http://www.snort.org/dl/current/%{realname}-%{version}.tar.gz
+Source0: http://www.snort.org/dl/2.8.4.1/%{realname}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}
 Vendor: %{vendor}
-BuildRequires: autoconf, automake, pcre-devel
+BuildRequires: autoconf, automake, pcre-devel, libpcap-devel
 Conflicts: %{conflicts}
 
 %if %{flexresp}
@@ -191,8 +191,8 @@ being a symlink to a binary in one of the following configurations:
 	oracle		Snort with oracle (optional, not official)
 	inline		Snort with inline support (optional)
 
-Please see the documentation in %{_docdir}/%{realname}-%{version}, especially
-README.build_rpms if you would like to build your own custom RPM.
+Please see the documentation in %{_docdir}/%{realname}-%{version} for more
+information on snort features and configuration.
 
 
 %prep
@@ -281,7 +281,7 @@ SNORT_BASE_CONFIG="--prefix=%{_prefix} \
                    --bindir=%{_sbindir} \
                    --sysconfdir=%{_sysconfdir}/snort \
                    --with-libpcap-includes=%{_includedir} \
-                   --enable-dynamicplugin \
+                   --enable-decoder-preprocessor-rules --enable-targetbased \
 		   "
 
 # Always build snort-plain
@@ -332,14 +332,14 @@ InstallSnort() {
 
 	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_sbindir}
 	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{SnortRulesDir}
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT/%{_sysconfdir}/snort
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT/%{_sysconfdir}/logrotate.d
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT/%{_var}/log/snort
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_sysconfdir}/snort
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_sysconfdir}/logrotate.d
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_var}/log/snort
 	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_initrddir}
 	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_mandir}/man8
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}/doc
-	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}/doc/schemas
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}
+	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_datadir}/%{realname}-%{version}/schemas
 
 	%__install -p -m 0755 %{name}-plain $RPM_BUILD_ROOT%{_sbindir}/%{name}-plain
 	%__mkdir_p -m 0755 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicengine
@@ -354,8 +354,12 @@ InstallSnort() {
 	%__ln_s -f %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dns_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dns_preproc.so
 	%__install -p -m 0755 plain/src/dynamic-preprocessors/build/%{_prefix}/lib/snort_dynamicpreprocessor/libsf_ssh_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor
 	%__ln_s -f %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssh_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssh_preproc.so
+	%__install -p -m 0755 plain/src/dynamic-preprocessors/build/%{_prefix}/lib/snort_dynamicpreprocessor/libsf_ssl_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor
+	%__ln_s -f %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssl_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssl_preproc.so
 	%__install -p -m 0755 plain/src/dynamic-preprocessors/build/%{_prefix}/lib/snort_dynamicpreprocessor/libsf_dcerpc_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor
 	%__ln_s -f %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dcerpc_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dcerpc_preproc.so
+	%__install -p -m 0755 plain/src/dynamic-preprocessors/build/%{_prefix}/lib/snort_dynamicpreprocessor/libsf_dce2_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor
+	%__ln_s -f %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dce2_preproc.so.0 $RPM_BUILD_ROOT%{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dce2_preproc.so
 	%__install -p -m 0644 snort.8 $RPM_BUILD_ROOT%{_mandir}/man8
 	%__gzip $RPM_BUILD_ROOT%{_mandir}/man8/snort.8
 	%__install -p -m 0755 rpm/snortd $RPM_BUILD_ROOT%{_initrddir}
@@ -363,11 +367,12 @@ InstallSnort() {
 	%__install -p -m 0644 rpm/snort.logrotate $RPM_BUILD_ROOT/%{_sysconfdir}/logrotate.d/snort
 	%__install -p -m 0644 etc/reference.config etc/classification.config \
 		etc/unicode.map etc/gen-msg.map etc/sid-msg.map \
-		etc/threshold.conf etc/snort.conf etc/generators \
+		etc/threshold.conf etc/snort.conf \
 		$RPM_BUILD_ROOT/%{_sysconfdir}/snort
-	find doc -type f -maxdepth 1 -not -name 'Makefile*' -exec %__install -p -m 0644 {} $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}/doc \;
+	find doc -maxdepth 1 -type f -not -name 'Makefile*' -exec %__install -p -m 0644 {} $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version} \;
 
-	%__rm -f $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}/doc/Makefile.*
+	%__rm -f $RPM_BUILD_ROOT%{_docdir}/%{realname}-%{version}/Makefile.*
+	%__install -p -m 0644 schemas/create_* $RPM_BUILD_ROOT%{_datadir}/%{realname}-%{version}/schemas
     fi
 }
 
@@ -511,22 +516,26 @@ fi
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/snort/reference.config
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/snort/threshold.conf
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/snort/*.map
-%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/snort/generators
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/logrotate.d/snort
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/snort/snort.conf
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/snort
 %attr(0755,root,root) %config(noreplace) %{_initrddir}/snortd
 %attr(0755,snort,snort) %dir %{_var}/log/snort
 %attr(0755,root,root) %dir %{_sysconfdir}/snort
-%attr(0755,root,root) %{_docdir}/%{realname}-%{version}/*
-%attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicengine
+%attr(0755,root,root) %dir %{_datadir}/%{realname}-%{version}
+%attr(0755,root,root) %dir %{_datadir}/%{realname}-%{version}/schemas
+%attr(0644,root,root) %{_datadir}/%{realname}-%{version}/schemas/create_*
+%attr(0644,root,root) %{_docdir}/%{realname}-%{version}/*
+%attr(0755,root,root) %dir %{_libdir}/%{realname}-%{version}_dynamicengine
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicengine/libsf_engine.*
-%attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor
+%attr(0755,root,root) %dir %{_libdir}/%{realname}-%{version}_dynamicpreprocessor
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_smtp_preproc.*
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ftptelnet_preproc.*
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dns_preproc.*
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssh_preproc.*
+%attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_ssl_preproc.*
 %attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dcerpc_preproc.*
+%attr(0755,root,root) %{_libdir}/%{realname}-%{version}_dynamicpreprocessor/libsf_dce2_preproc.*
 %dir %{_docdir}/%{realname}-%{version}
 %docdir %{_docdir}/%{realname}-%{version}
 
@@ -567,13 +576,29 @@ fi
 #	Vlatko Kosturjak <kost@linux.hr>
 
 %changelog
+* Wed Apr 02 2008 Steve Sturges <ssturges@sourcefire.com> 2.8.3
+- Added --enable-targetbased --enable-decoder-preprocessor-rules by default.
+
+* Wed Apr 02 2008 Steve Sturges <ssturges@sourcefire.com> 2.8.1
+- Added ssl
+
+* Fri Aug 03 2007 Russ Combs <rcombs@sourcefire.com> 2.8.0
+- Removed README.build_rpms from description
+- Removed 2nd "doc/" component from doc install path
+- Changed doc/ file attributes to mode 0644
+- Moved schemas/ from doc to data dir
+- Added installation of schemas/create_*
+- Removed redundant '/'s from mkdir path specs
+- Eliminated find warning by moving -maxdepth ahead of -type
+- Fixed "warning: File listed twice: ..." for libsf so files
+
 * Wed Feb 28 2007 Steve Sturges <ssturges@sourcefire.com> 2.7.0
 - Removed smp flags to make command
 
 * Wed Jan 17 2007 Steve Sturges <ssturges@sourcefire.com> 2.7.0
 - Updated version to 2.7.0
 
-* Tue Nov 07 2006 Steve Sturges <ssturges@sourcefire.com> 2.6.1
+* Tue Nov 07 2006 Steve Sturges <ssturges@sourcefire.com> 2.6.0
 - Updated version to 2.6.1 
 
 * Thu Aug 31 2006 Steve Sturges <ssturges@sourcefire.com> 2.6.0

@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2001 Phil Wood <cpw@lanl.gov>
 **
@@ -23,5 +24,7 @@
 #define __SP_IP_SAME_CHECK_H__
 
 void SetupIpSameCheck(void);
+u_int32_t IpSameCheckHash(void *d);
+int IpSameCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_SAME_CHECK_H__ */

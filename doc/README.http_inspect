@@ -1,26 +1,24 @@
 HttpInspect
 -----------
-Daniel Roelker <droelker@sourcefire.com>
+Originally authored by Daniel Roelker
+Updated by members of Snort Team
 
 -- Overview --
 HttpInspect is a generic HTTP decoder for user applications.  Given a data 
 buffer, HttpInspect will decode the buffer, find HTTP fields, and normalize 
 the fields.  HttpInspect works on both client requests and server responses.
 
-This initial version of HttpInspect only handles stateless processing.  This
-means that HttpInspect looks for HTTP fields on a packet by packet basis, and 
-will be fooled if packets are not reassembled.  This works fine when there is 
-another module handling the reassembly, but there are limitations in analyzing 
-the protocol.  That's why future versions will have a stateful processing mode 
-which will hook into various reassembly modules.
+The current version of HTTP Inspect only handles stateless processing.  This
+means that HTTP Inspect looks for HTTP fields on a packet-by-packet basis, and
+will be fooled if packets are not reassembled.  This works fine when there is
+another module handling the reassembly, but there are limitations in analyzing
+the protocol.  Future versions will have a stateful processing mode which will
+hook into various reassembly modules.
 
--- Configuration --
+- Configuration --
 HttpInspect has a very "rich" user configuration.  Users can configure 
 individual HTTP servers with a variety of options, which should allow the 
 user to emulate any type of web server.
-
-It is VERY IMPORTANT to learn the configuration semantics, so you know what to 
-expect from the normalization routines.  So read this section over.
 
 ** Global Configuration **
 The global configuration deals with configuration options that determine the 
@@ -76,6 +74,12 @@ suggest setting your default server to:
 In the case of individual IPs the configuration is very similar:
   - preprocessor http_inspect_server: server [IP] [server options]
 
+Multiple server IPs (and/or networks using CIDR notation) can be specified
+by using a space separated list of IPs encalosed in braces {}'s:
+  - preprocessor http_inspect_server: server { 10.1.1.1 10.2.2.0/24 } [server options]
+
+NOTE: There is a limit of 40 IPs or networks per http_inspect_server line.
+
 Now we'll talk about the server options.  Some configuration options have
 an argument of 'yes' or 'no'.  This argument specifies whether the user wants
 the configuration option to generate an alert or not.  
@@ -84,17 +88,22 @@ IMPORTANT:
 The 'yes/no' argument does not specify whether the configuration option 
 itself is on or off, only the alerting functionality.
 
-* profile [all/apache/iis/iis4/iis5_0] *
+* profile [all/apache/iis/iis4_0/iis5_0] *
 Users can configure HttpInspect by using pre-defined HTTP server
 profiles.  Profiles must be specified as the first server option and
 cannot be combined with any other options except:
   - ports
   - iis_unicode_map
   - allow_proxy_use
-  - flow_depth 
+  - server_flow_depth 
+  - client_flow_depth 
   - no_alerts
   - inspect_uri_only
   - oversize_dir_length
+  - normalize_headers
+  - normalize_cookies
+  - max_header_length
+  - max_headers
 These options must be specified after the 'profile' option.
 
 Example:
@@ -117,7 +126,7 @@ There are five profiles available:
   	     unicode codemaps for each server, %u encoding, bare-byte encoding, 
          backslashes, etc.
 
-  - iis4, iis5.0: In IIS 4.0 and 5.0, there was a double decoding 
+  - iis4_0, iis5_0: In IIS 4.0 and 5.0, there was a double decoding 
         vulnerability.  These two profiles are identical to IIS, except
         they will alert by default if a URL has a double encoding.  Double
         decode is not supported in IIS 5.1 and beyond, so it's disabled in 
@@ -144,7 +153,8 @@ to use for you server, it's the ANSI codepage.  You can select the correct
 code page by looking at the available code pages that the ms_unicode_generator
 outputs.
 
-* flow_depth [integer] *
+* server_flow_depth [integer] *
+* flow_depth [integer] *  (to be deprecated)
 This specifies the amount of server response payload to inspect.  This option
 significantly increases IDS performance because we are ignoring a large part of
 the network traffic (HTTP server response payloads).  A small percentage of
@@ -169,6 +179,12 @@ inspect data in the payload of the first packet of a server response
 beyond 1460 bytes will be ineffective unless flow_depth is set to 0.
 Note that the 1460 byte maximum flow_depth applies to stream 
 reassembled packets as well.
+
+* client_flow_depth [integer] *
+This specifies the amount of raw client request payload to inspect.  It is
+similar to server_flow_depth (above), and has a default value of 300.  It
+primarily eliminates Snort fro inspecting larger HTTP Cookies that appear
+at the end of many client request Headers.
 
 * ascii [yes/no] *
 The ASCII decode option tells us whether to decode encoded ASCII chars, a.k.a
@@ -265,18 +281,9 @@ since some web sites refer to files using directory traversals.
 
 * apache_whitespace [yes/no] *
 This option deals with non-RFC standard of tab or carriage return for a space
-delimiter, as well as any characters defined with the "whitespace_chars" option.
-Apache accepts these characters as whitespace, so if the emulated web server is
-Apache you need to enable this option.  Alerts on this option may be interesting,
-but may also be false positive prone.
-
-* whitespace_chars { [byte] [0x00 . . . } *
-This option lets users define characters that will be accepted as whitespace
-before and after a URI (e.g. GET<whitespace>/index.html<whitespace>HTTP/1.0).
-The default values are 0x09, 0x0B, 0x0C and 0x0D.  The characters defined with
-this option are in addition to the default values.  As an example, if a user
-wants to add the backspace char 0x08, this option should look like:
-whitespace_chars { 0x08 }.
+delimiter.  Apache accepts this, so if the emulated web server is Apache you need
+to enable this option.  Alerts on this option may be interesting, but may also
+be false positive prone.
 
 * iis_delimiter [yes/no] *
 I originally started out with \n being IIS specific, but Apache takes this
@@ -342,6 +349,13 @@ No alert will be generated when 'inspect_uri_only' is enabled.  The
 'inspect_uri_only' configuration turns off all forms of detection except 
 uricontent inspection.
 
+* max_header_length [positive integer] *
+This option takes an integer as an argument.  The integer is the maximum length
+allowed for an HTTP client request header field.  Requests that exceed this 
+length will cause a "Long Header" alert.  This alert is off by default.  To 
+enable, specify an integer argument to max_header_length of 1 to 65535.
+Specifying a value of 0 is treated as disabling the alert.
+
 * webroot *
 This option generates an alert when a directory traversal traverses past
 the web server root directory.  This generates much less false positives than 
@@ -356,6 +370,32 @@ this option is deprecated and has been replaced by, and is enabled by default
 with, the whitespace_chars option.  For more details on its use, see the 
 whitespace_chars section above. 
 
+* normalize_headers *
+This option turns on normalization for HTTP Header Fields, not including
+Cookies (using the same configuration parameters as the URI normalization (ie,
+multi-slash, directory, etc.).  It is useful for normalizing Referrer URIs
+that may appear in the HTTP Header.
+
+* normalize_cookies *
+This option turns on normalization for HTTP Cookie Fields (using the same
+configuration parameters as the URI normalization (ie, multi-slash, directory,
+etc.).  It is useful for normalizing data in HTTP Cookies that may be
+encoded.
+
+* max_headers [positive integer] *
+This option takes an integer as an argument.  The integer is the maximum
+number of HTTP client request header fields.  Requests that contain
+more HTTP Headers than this value will cause a "Max Header" alert.  The
+alert is off by default.  To enable, specify an integer argumnet to max_headers
+of 1 to 1024.  Specifying a value of 0 is treated as disabling the alert.
+
+--Options Available Under Stateful Inspection--
+
+* base64 [yes/no] *
+
+Enables base64 decoding of certain fields where stateful inspection
+determines that base64 encoding is present. 
+
 -- Profile Breakout --
 There are three profiles that users can select.  Only the configuration 
 that are listed under the profiles are turned on.  If there is no mention 
@@ -364,7 +404,7 @@ configuration.
 
 * Apache *
 
-flow_depth 300
+server_flow_depth 300
 non_strict URL parsing is set
 chunk encoding (alert on chunks larger than 500000 bytes)
 ascii decoding is on (alert off)
@@ -373,10 +413,12 @@ directory normalization (alert off)
 webroot (alert on)
 apache whitespace (alert off)
 utf_8 encoding (alert off)
+max_header_length 0 (header length not checked)
+max_headers 0 (number of headers not checked)
 
 * IIS *
 
-flow_depth 300
+server_flow_depth 300
 non_strict URL parsing is set
 chunk encoding (alert on chunks larger than 500000 bytes)
 iis_unicode_map is set to the codepoint map in the global configuration
@@ -390,10 +432,12 @@ iis unicode codepoints (alert on)
 iis backslash (alert off)
 iis delimiter (alert off)
 apache whitespace (alert off)
+max_header_length 0 (header length not checked)
+max_headers 0 (number of headers not checked)
 
-* IIS4 and IIS5_0 *
+* IIS4_0 and IIS5_0 *
 
-flow_depth 300
+server_flow_depth 300
 non_strict URL parsing is set
 chunk encoding (alert on chunks larger than 500000 bytes)
 iis_unicode_map is set to the codepoint map in the global configuration
@@ -408,10 +452,12 @@ iis unicode codepoints (alert on)
 iis backslash (alert off)
 iis delimiter (alert off)
 apache whitespace (alert off)
+max_header_length 0 (header length not checked)
+max_headers 0 (number of headers not checked)
 
 * All * 
 
-flow_depth 300
+server_flow_depth 300
 non_strict URL parsing is set
 chunk encoding (alert on chunks larger than 500000 bytes)
 iis_unicode_map is set to the codepoint map in the global configuration
@@ -426,11 +472,14 @@ iis unicode codepoints (alert on)
 iis backslash (alert off)
 iis delimiter (alert off)
 webroot (alert on)
+max_header_length 0 (header length not checked)
+max_headers 0 (number of headers not checked)
 
 The following lists the defaults:
 
 Port 80
-flow_depth 300
+server_flow_depth 300
+client_flow_depth 300
 non_strict URL parsing is set
 chunk encoding (alert on chunks larger than 500000 bytes)
 ascii decoding is on (alert off)
@@ -440,6 +489,8 @@ directory normalization (alert off)
 webroot (alert on)
 apache whitespace (alert off)
 iis delimiter (alert off)
+max_header_length 0 (header length not checked)
+max_headers 0 (number of headers not checked)
 
 -- Writing uricontent rules --
 The uricontent parameter in the snort rule language searches the NORMALIZED
@@ -469,10 +520,43 @@ characters.  You can accomplish this type of detection by using the 'content'
 rule parameter, since this rule inspects the unnormalized buffer.
 
 -- Conclusion --
-So you got to the end?  Good for you.  I'm sure you know more about HTTP
-encodings and evasions then you ever wanted to.  My suggestions are to stick
-with the "profile" options, since they are much easier to read and have been
-researched.
+My suggestions are to stick with the "profile" options, since they are much 
+easier to read and have been researched.
 
 If you feel like giving us profiles for other web servers, please do.
 We'll incorporate them into the default server profiles for HttpInspect.
+
+
+Alerts
+======
+
+HTTP Inspect used generator ID 119 and 120.  HTTP Inspect can generate the 
+following alerts under generator ID 119:
+
+SID   Description
+---   -----------
+1     ASCII encoding
+2     Double decoding attack
+3     U encoding
+4     Bare byte Unicode encoding
+5     Base36 encoding
+6     UTF-8 encoding
+7     IIS Unicode codepoint encoding
+8     multi-slash encoding
+9     IIS backslash evasion
+10    self-directory traversal
+11    directory traversal
+12    Apache whitespace (tab)
+13    Non-RFC HTTP delimiter
+14    Non-RFC defined char
+15    Oversize request-URI directory
+16    Oversize chunk encoding
+17    Unauthorized proxy use detected
+18    Webroot directory traversal
+19    Long header
+
+The following alert is generated with generator ID 120:
+
+SID   Description
+---   -----------
+1     Anomalous HTTP server on undefined HTTP port

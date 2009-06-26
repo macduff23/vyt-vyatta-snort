@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -23,6 +23,7 @@
 #define STREAM5_TCP_H_
 
 void Stream5CleanTcp(void);
+void Stream5ResetTcp(void);
 void Stream5InitTcp(void);
 int Stream5VerifyTcpConfig(void);
 void Stream5TcpPolicyInit(char *);
@@ -32,7 +33,7 @@ int Stream5FlushTalker(Packet *p, Stream5LWSession *lwssn);
 int Stream5FlushClient(Packet *p, Stream5LWSession *lwssn);
 int Stream5FlushServer(Packet *p, Stream5LWSession *lwssn);
 void TcpUpdateDirection(Stream5LWSession *ssn, char dir,
-                        u_int32_t ip, u_int16_t port);
+                        snort_ip_p ip, u_int16_t port);
 void Stream5TcpBlockPacket(Packet *p);
 Stream5LWSession *GetLWTcpSession(SessionKey *key);
 int GetTcpRebuiltPackets(Packet *p, Stream5LWSession *ssn,
@@ -43,4 +44,13 @@ char Stream5GetReassemblyDirectionTcp(Stream5LWSession *lwssn);
 char Stream5SetReassemblyTcp(Stream5LWSession *lwssn, u_int8_t flush_policy, char dir, char flags);
 char Stream5GetReassemblyFlushPolicyTcp(Stream5LWSession *lwssn, char dir);
 char Stream5IsStreamSequencedTcp(Stream5LWSession *lwssn, char dir);
+int Stream5MissingInReassembledTcp(Stream5LWSession *lwssn, char dir);
+char Stream5PacketsMissingTcp(Stream5LWSession *lwssn, char dir);
+void s5TcpSetPortFilterStatus(
+        unsigned short port, 
+        int status
+        );
+int s5TcpGetPortFilterStatus(
+        unsigned short port 
+        );
 #endif /* STREAM5_TCP_H_ */

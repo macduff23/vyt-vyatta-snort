@@ -3,7 +3,7 @@
 **
 **  perf-event.h
 **
-**  Copyright (C) 2002 Sourcefire,Inc
+**  Copyright (C) 2002-2009 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -32,6 +32,7 @@
 #define __PERF_EVENT__
 
 #include "perf.h"
+#include "sf_types.h"
 
 typedef struct _SFEVENT {
 

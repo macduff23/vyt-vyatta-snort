@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Portions Copyright (C) 1998-2006 Sourcefire, Inc.
+ ** Portions Copyright (C) 1998-2009 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License as published by
@@ -35,7 +35,6 @@
 #include "inline.h"
 #include "rules.h"
 #include "stream_api.h"
-#include "snort.h"
 
 #define PKT_BUFSIZE 65536
 

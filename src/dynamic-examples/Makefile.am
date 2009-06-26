@@ -2,11 +2,14 @@
 AUTOMAKE_OPTIONS=foreign no-dependencies
 
 BUILT_SOURCES = \
+	include/bounds.h \
 	include/debug.h \
 	include/preprocids.h \
 	include/profiler.h \
+	include/cpuclock.h \
 	include/sf_dynamic_common.h \
 	include/sf_dynamic_engine.h \
+	include/sf_dynamic_define.h \
 	include/sf_dynamic_meta.h \
 	include/sf_dynamic_preprocessor.h \
 	include/sf_dynamic_preproc_lib.c \
@@ -14,36 +17,102 @@ BUILT_SOURCES = \
 	include/sfghash.h \
 	include/sfhashfcn.h \
 	include/bitop.h \
+	include/sf_ip.h \
+	include/sf_ip.c \
+	include/sf_ipvar.h \
+	include/sf_vartable.h \
+	include/ipv6_port.h \
 	include/sfsnort_dynamic_detection_lib.c \
 	include/sfsnort_dynamic_detection_lib.h \
 	include/sf_snort_packet.h \
 	include/sf_snort_plugin_api.h \
-	include/snort_packet_header.h \
+	include/pcap_pkthdr32.h \
 	include/stream_api.h \
-	include/str_search.h
+	include/str_search.h \
+	include/sf_types.h
+
+sed_ipv6_headers = \
+	sed -e "s/->iph->ip_src/->ip4_header->source/" \
+	    -e "s/->iph->ip_dst/->ip4_header->destination/" \
+	    -e "s/->iph->/->ip4_header->/" \
+	    -e "s/->iph$$/->ip4_header/" \
+	    -e "s/orig_iph/orig_ip4_header/" \
+	    -e "s/ip_verhl/version_headerlength/" \
+	    -e "s/ip_tos/type_service/" \
+	    -e "s/ip_len/data_length/" \
+	    -e "s/ip_id/identifier/" \
+	    -e "s/ip_off/offset/" \
+	    -e "s/ip_ttl/time_to_live/" \
+	    -e "s/ip_proto/proto/" \
+	    -e "s/ip_csum/checksum/" \
+	    $$dst_header.new > $$dst_header
+
+massage_ipv6_headers = \
+	mkdir -p include; \
+	mkdir -p build; \
+	if test -f $$dst_header; then \
+		x=`diff $$src_header $$dst_header.new >> /dev/null`; \
+		if test "$$x" != "0"; then \
+			echo "Updating " $$dst_header; \
+			cp $$src_header $$dst_header.new; \
+			$(sed_ipv6_headers); \
+		fi \
+	else \
+		echo "Updating " $$dst_header; \
+		cp $$src_header $$dst_header.new; \
+		$(sed_ipv6_headers); \
+	fi
+
+sed_headers = \
+	sed -e "s/Packet /SFSnortPacket /" \
+	    -e "s/decode\.h/sf_snort_packet.h/" \
+	    $$dst_header.new > $$dst_header
 
 massage_headers = \
 	mkdir -p include; \
 	mkdir -p build; \
 	if test -f $$dst_header; then \
-		x=`diff $$src_header $$dst_header.new >> /dev/null`; \
-        if test "$$x" != "0"; then \
+		x=`diff $$src_header $$dst_header.new.new >> /dev/null`; \
+		if test "$$x" != "0"; then \
 			echo "Updating " $$dst_header; \
 			cp $$src_header $$dst_header.new; \
-			sed -e "s/Packet /SFSnortPacket /" $$dst_header.new > $$dst_header; \
+			$(sed_headers); \
 		fi \
 	else \
 		echo "Updating " $$dst_header; \
 		cp $$src_header $$dst_header.new; \
-		sed -e "s/Packet /SFSnortPacket /" $$dst_header.new > $$dst_header; \
+		$(sed_headers); \
+	fi
+
+sed_debug_header = \
+	sed -e "s/DebugMessageFile = /*_dpd.debugMsgFile = /" \
+	    -e "s/DebugMessageLine = /*_dpd.debugMsgLine = /" \
+	    -e "s/; DebugMessageFunc$$/; _dpd.debugMsg/" \
+	    -e "s/; DebugWideMessageFunc$$/; _dpd.debugWideMsg/" \
+	    $$dst_header.new > $$dst_header
+
+copy_debug_header = \
+	mkdir -p include; \
+	mkdir -p build; \
+	if test -f $$dst_header; then \
+		x=`diff $$src_header $$dst_header.new.new >> /dev/null`; \
+		if test "$$x" != "0"; then \
+			echo "Updating " $$dst_header; \
+			cp $$src_header $$dst_header.new; \
+			$(sed_debug_header); \
+		fi \
+	else \
+		echo "Updating " $$dst_header; \
+		cp $$src_header $$dst_header.new; \
+		$(sed_debug_header); \
 	fi
     
 copy_headers = \
 	mkdir -p include; \
 	mkdir -p build; \
 	if test -f $$dst_header; then \
-		x=`diff $$src_header $$dst_header >> /dev/null`; \
-        if test "$$x" != "0"; then \
+		x=`diff $$src_header $$dst_header.new.new >> /dev/null`; \
+		if test "$$x" != "0"; then \
 			echo "Updating " $$dst_header; \
 			cp $$src_header $$dst_header; \
 		fi \
@@ -54,7 +123,7 @@ copy_headers = \
     
 # From main src tree
 include/debug.h: $(srcdir)/../debug.h 
-	@src_header=$?; dst_header=$@; $(copy_headers)
+	@src_header=$?; dst_header=$@; $(copy_debug_header)
 
 include/preprocids.h: $(srcdir)/../preprocids.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
@@ -62,14 +131,29 @@ include/preprocids.h: $(srcdir)/../preprocids.h
 include/profiler.h: $(srcdir)/../profiler.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
     
-include/snort_packet_header.h: $(srcdir)/../snort_packet_header.h
+include/cpuclock.h: $(srcdir)/../cpuclock.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
     
+include/pcap_pkthdr32.h: $(srcdir)/../pcap_pkthdr32.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+    
+include/bounds.h: $(srcdir)/../bounds.h 
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/ipv6_port.h: $(srcdir)/../ipv6_port.h 
+	@src_header=$?; dst_header=$@; $(massage_ipv6_headers)
+
+include/sf_types.h: $(srcdir)/../sf_types.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
 # From dynamic-plugins
 include/sf_dynamic_common.h: $(srcdir)/../dynamic-plugins/sf_dynamic_common.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
 include/sf_dynamic_engine.h: $(srcdir)/../dynamic-plugins/sf_dynamic_engine.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/sf_dynamic_define.h: $(srcdir)/../dynamic-plugins/sf_dynamic_define.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
 include/sf_dynamic_meta.h: $(srcdir)/../dynamic-plugins/sf_dynamic_meta.h
@@ -93,6 +177,18 @@ include/sfhashfcn.h: $(srcdir)/../sfutil/sfhashfcn.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
 include/bitop.h: $(srcdir)/../sfutil/bitop.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/sf_ip.h: $(srcdir)/../sfutil/sf_ip.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/sf_ip.c: $(srcdir)/../sfutil/sf_ip.c
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/sf_ipvar.h: $(srcdir)/../sfutil/sf_ipvar.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/sf_vartable.h: $(srcdir)/../sfutil/sf_vartable.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
 # From dynamic-plugins/sf_engine/examples
