@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
 Uploaders: Pascal Hakim <pasc@debian.org>
-Build-Depends: libnet1-dev, libpcap0.8-dev, libpcre3-dev, debhelper (>= 4.1.13), libmysqlclient15-dev | libmysqlclient-dev, libpq-dev, po-debconf (>= 0.5.0), libprelude-dev, iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], libgnutls-dev
+Build-Depends: libnet0-dev, libpcap0.8-dev, libpcre3-dev, debhelper (>= 4.1.13), libmysqlclient15-dev | libmysqlclient-dev, libpq-dev, po-debconf (>= 0.5.0), libprelude-dev, iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], libgnutls-dev
 Build-Depends-Indep: texlive, texlive-latex-base, gs-common
 Standards-Version:  3.8.0
 Homepage: http://www.snort.org/

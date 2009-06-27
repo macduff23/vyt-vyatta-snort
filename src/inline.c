@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Portions Copyright (C) 1998-2009 Sourcefire, Inc.
+ ** Portions Copyright (C) 1998-2006 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 #include "inline.h"
 #include "rules.h"
 #include "stream_api.h"
+#include "snort.h"
 
 #define PKT_BUFSIZE 65536
 
@@ -149,7 +150,7 @@ void InitInlinePostConfig(void)
 #ifndef IPFW
     if(pv.layer2_resets)
     {
-        tcp_size = LIBNET_ETH_H + LIBNET_IPV4_H + LIBNET_TCP_H;
+        tcp_size = LIBNET_ETH_H + LIBNET_IP_H + LIBNET_TCP_H;
         icmp_size = 128 + LIBNET_ETH_H;
     }
     else
@@ -163,7 +164,7 @@ void InitInlinePostConfig(void)
 	    exit(-1);
 	}
 
-        tcp_size = LIBNET_IPV4_H + LIBNET_TCP_H;
+        tcp_size = LIBNET_IP_H + LIBNET_TCP_H;
         icmp_size = 128;
     }
 
@@ -192,13 +193,13 @@ void InitInlinePostConfig(void)
                         IPPROTO_TCP, 0, 0, NULL, 0, l_tcp + LIBNET_ETH_H);
 
         libnet_build_tcp(0, 0, 0, 0, TH_RST|TH_ACK, 0, 0, NULL, 0,
-                         l_tcp + LIBNET_ETH_H + LIBNET_IPV4_H);
+                         l_tcp + LIBNET_ETH_H + LIBNET_IP_H);
 
         /* create icmp cached packet */
-        libnet_build_ip(LIBNET_ICMPV4_UNREACH_H, 0, libnet_get_prand(PRu16), 0,
+        libnet_build_ip(LIBNET_ICMP_UNREACH_H, 0, libnet_get_prand(PRu16), 0,
                         255, IPPROTO_ICMP, 0, 0, NULL, 0, l_icmp + LIBNET_ETH_H);
         libnet_build_icmp_unreach(3, 3, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0,
-                                  l_icmp + LIBNET_ETH_H + LIBNET_IPV4_H);
+                                  l_icmp + LIBNET_ETH_H + LIBNET_IP_H);
     }
     else 
 #endif
@@ -210,13 +211,13 @@ void InitInlinePostConfig(void)
                         IPPROTO_TCP, 0, 0, NULL, 0, l_tcp);
 
         libnet_build_tcp(0, 0, 0, 0, TH_RST|TH_ACK, 0, 0, NULL, 0,
-                         l_tcp + LIBNET_IPV4_H);
+                         l_tcp + LIBNET_IP_H);
 
         /* create icmp cached packet */
-        libnet_build_ip(LIBNET_ICMPV4_UNREACH_H, 0, libnet_get_prand(PRu16), 0,
+        libnet_build_ip(LIBNET_ICMP_UNREACH_H, 0, libnet_get_prand(PRu16), 0,
                         255, IPPROTO_ICMP, 0, 0, NULL, 0, l_icmp);
         libnet_build_icmp_unreach(3, 3, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0,
-                                  l_icmp + LIBNET_IPV4_H);
+                                  l_icmp + LIBNET_IP_H);
     }  
 
 }
@@ -445,9 +446,9 @@ RejectSocket(void)
         case IPPROTO_TCP:
             if (!tmpP->frag_flag)
             {
-                size = LIBNET_IPV4_H + LIBNET_TCP_H;
+                size = LIBNET_IP_H + LIBNET_TCP_H;
                 iph = (IPHdr *)l_tcp;
-                tcph = (TCPHdr *)(l_tcp + LIBNET_IPV4_H);
+                tcph = (TCPHdr *)(l_tcp + LIBNET_IP_H);
 
                 iph->ip_src.s_addr = tmpP->iph->ip_dst.s_addr;
                 iph->ip_dst.s_addr = tmpP->iph->ip_src.s_addr;
@@ -480,7 +481,7 @@ RejectSocket(void)
             if (!tmpP->frag_flag)
             {
                 iph = (IPHdr *)l_icmp;
-                icmph = (ICMPHdr *)(l_icmp + LIBNET_IPV4_H);
+                icmph = (ICMPHdr *)(l_icmp + LIBNET_IP_H);
 						
                 iph->ip_src.s_addr = tmpP->iph->ip_dst.s_addr;
                 iph->ip_dst.s_addr = tmpP->iph->ip_src.s_addr;
@@ -491,16 +492,16 @@ RejectSocket(void)
                     payload_len = 8;
                 }
 
-                memcpy((char *)icmph + LIBNET_ICMPV4_UNREACH_H, tmpP->iph, 
+                memcpy((char *)icmph + LIBNET_ICMP_UNREACH_H, tmpP->iph, 
                        (IP_HLEN(tmpP->iph) << 2) + payload_len);
                         
-                size = LIBNET_IPV4_H + LIBNET_ICMPV4_UNREACH_H + 
+                size = LIBNET_IP_H + LIBNET_ICMP_UNREACH_H + 
                        (IP_HLEN(tmpP->iph) << 2) + payload_len;
 
                 iph->ip_len = htons(size);
                         
                 /* calculate checksums */
-                if (libnet_do_checksum(l_icmp, IPPROTO_ICMP, size - LIBNET_IPV4_H) == -1)
+                if (libnet_do_checksum(l_icmp, IPPROTO_ICMP, size - LIBNET_IP_H) == -1)
 	        {
                     libnet_error(LIBNET_ERR_CRITICAL,
                                  "SendICMPRST: libnet_do_checksum failed for IPPROTO_ICMP");
@@ -619,10 +620,10 @@ RejectLayer2(ipq_packet_msg_t *m)
         case IPPROTO_TCP:
             if (!tmpP->frag_flag)
             {
-                size = LIBNET_ETH_H + LIBNET_IPV4_H + LIBNET_TCP_H;
+                size = LIBNET_ETH_H + LIBNET_IP_H + LIBNET_TCP_H;
                 eh = (EtherHdr *)l_tcp;
                 iph = (IPHdr *)(l_tcp + LIBNET_ETH_H);
-                tcph = (TCPHdr *)(l_tcp + LIBNET_ETH_H + LIBNET_IPV4_H);
+                tcph = (TCPHdr *)(l_tcp + LIBNET_ETH_H + LIBNET_IP_H);
 
                 iph->ip_src.s_addr = tmpP->iph->ip_dst.s_addr;
                 iph->ip_dst.s_addr = tmpP->iph->ip_src.s_addr;
@@ -641,10 +642,10 @@ RejectLayer2(ipq_packet_msg_t *m)
             	                "SendEthTCPRST: libnet_do_checksum failed for LIBNET_TCP_H");
                     return;
                 }
-                if (libnet_do_checksum(l_tcp + LIBNET_ETH_H, IPPROTO_IP, LIBNET_IPV4_H) == -1)
+                if (libnet_do_checksum(l_tcp + LIBNET_ETH_H, IPPROTO_IP, LIBNET_IP_H) == -1)
                 {
                     libnet_error(LIBNET_ERR_CRITICAL,
-                                 "SendEthTCPRST: libnet_do_checksum failed for LIBNET_IPV4_H");
+                                 "SendEthTCPRST: libnet_do_checksum failed for LIBNET_IP_H");
                     return;
                 }
                 /* build the ethernet packet */
@@ -669,7 +670,7 @@ RejectLayer2(ipq_packet_msg_t *m)
             {
                 eh = (EtherHdr *)l_icmp; 
                 iph = (IPHdr *)(l_icmp + LIBNET_ETH_H);
-                icmph = (ICMPHdr *) (l_icmp + LIBNET_ETH_H + LIBNET_IPV4_H);
+                icmph = (ICMPHdr *) (l_icmp + LIBNET_ETH_H + LIBNET_IP_H);
 						
                 iph->ip_src.s_addr = tmpP->iph->ip_dst.s_addr;
                 iph->ip_dst.s_addr = tmpP->iph->ip_src.s_addr;
@@ -680,22 +681,22 @@ RejectLayer2(ipq_packet_msg_t *m)
                     payload_len = 8;
                 }
 
-                memcpy((char *)icmph + LIBNET_ICMPV4_UNREACH_H, tmpP->iph, 
+                memcpy((char *)icmph + LIBNET_ICMP_UNREACH_H, tmpP->iph, 
                    (IP_HLEN(tmpP->iph) << 2) + payload_len);
                         
-                size = LIBNET_ETH_H + LIBNET_IPV4_H + LIBNET_ICMPV4_UNREACH_H + 
+                size = LIBNET_ETH_H + LIBNET_IP_H + LIBNET_ICMP_UNREACH_H + 
                        (IP_HLEN(tmpP->iph) << 2) + payload_len;
 
                 iph->ip_len = htons(size);
                         
                 /* calculate the checksums */
-                if (libnet_do_checksum(l_icmp + LIBNET_ETH_H, IPPROTO_ICMP, size - LIBNET_IPV4_H) == -1)
+                if (libnet_do_checksum(l_icmp + LIBNET_ETH_H, IPPROTO_ICMP, size - LIBNET_IP_H) == -1)
                 {
                     libnet_error(LIBNET_ERR_CRITICAL,
                                  "SendEthICMPRST: libnet_do_checksum failed for IPPROTO_ICMP");
 		    return;
                 }
-                if (libnet_do_checksum(l_icmp + LIBNET_ETH_H, IPPROTO_IP, LIBNET_IPV4_H) == -1)
+                if (libnet_do_checksum(l_icmp + LIBNET_ETH_H, IPPROTO_IP, LIBNET_IP_H) == -1)
                 {
                     libnet_error(LIBNET_ERR_CRITICAL,
                                  "SendEthICMPRST: libnet_do_checksum failed for IPPROTO_IP");
