@@ -49,62 +49,6 @@ Description: flexible Network Intrusion Detection System [common files]
  This is a common package which holds cron jobs, tools and config files used
  by all Snort-based packages.
 
-Package: snort-doc
-Architecture: all
-Priority: optional
-Section: doc
-Description: Documentation for the Snort IDS [documentation]
- Snort is a libpcap-based packet sniffer/logger which can be used as a
- lightweight network intrusion detection system. It features rules
- based logging and can perform content searching/matching in addition
- to being used to detect a variety of other attacks and probes, such
- as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
- much more. Snort has a real-time alerting capability, with alerts being
- sent to syslog, a separate "alert" file, or even to a Windows computer
- via Samba.
-
-Package: snort-mysql
-Provides: snort
-Architecture: any
-Priority: extra
-Pre-Depends: adduser (>= 3.11)
-Depends: snort-common-libraries (>=${binary:Version}), snort-rules-default (>= ${source:Version}), debconf (>= 0.2.80) | debconf-2.0, syslogd | system-log-daemon, ${shlibs:Depends}, snort-common (>= ${source:Version}), logrotate
-Recommends: iproute
-Suggests: snort-doc
-Conflicts: snort, snort-pgsql
-Homepage: http://www.snort.org/
-Description: flexible Network Intrusion Detection System [MySQL]
- Distribution of Snort with support for logging to a MySQL database.
- .
- Snort is a libpcap-based packet sniffer/logger which can be used as a
- lightweight network intrusion detection system. It features rules
- based logging and can perform content searching/matching in addition
- to being used to detect a variety of other attacks and probes, such
- as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
- much more. Snort has a real-time alerting capability, with alerts being
- sent to syslog, a separate "alert" file, or even to a Windows computer
- via Samba.
-
-Package: snort-pgsql
-Provides: snort
-Architecture: any
-Priority: optional
-Depends: snort-common-libraries (>=${binary:Version}), snort-rules-default (>= ${source:Version}), debconf (>= 0.2.80) | debconf-2.0, adduser (>= 3.11), syslogd | system-log-daemon, ${shlibs:Depends}, snort-common (>= ${source:Version}), logrotate
-Recommends: iproute
-Suggests: snort-doc
-Conflicts: snort, snort-mysql
-Description: flexible Network Intrusion Detection System [PostgreSQL]
- Distribution of Snort with support for logging to a PostgreSQL dbase.
- .
- Snort is a libpcap-based packet sniffer/logger which can be used as a
- lightweight network intrusion detection system. It features rules
- based logging and can perform content searching/matching in addition
- to being used to detect a variety of other attacks and probes, such
- as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
- much more. Snort has a real-time alerting capability, with alerts being
- sent to syslog, a separate "alert" file, or even to a Windows computer
- via Samba.
-
 Package: snort-rules-default
 Provides: snort-rules
 Architecture: all

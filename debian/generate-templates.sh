@@ -3,7 +3,7 @@
 # Generate templates for the Snort packages
 # This should be done whenever the templates are modified
 
-for package in "" mysql pgsql inline; do
+for package in ""; do
     packagename=$package
     [ -n "$package" ] && packagename="-$packagename"
     OUTPUT="snort$packagename.templates"
