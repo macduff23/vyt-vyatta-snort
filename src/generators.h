@@ -316,6 +316,11 @@
 #define     PPM_EVENT_RULE_TREE_DISABLED            1
 #define     PPM_EVENT_RULE_TREE_ENABLED             2
 
+/* clamav: using the IDs from the snort-inline fork */
+#define GENERATOR_SPP_CLAMAV                       133
+#define     CLAMAV_VIRUSFOUND                        1
+#define     CLAMAV_SCANFAILED                        2
+
 /*  This is where all the alert messages will be archived for each
     internal alerts */
 
@@ -482,4 +487,8 @@
 #define DECODE_MPLS_RESERVEDLABEL_STR "(snort_decoder) WARNING: MPLS Label 4, 5,.. or 15 Appears in Header"
 #define DECODE_MPLS_LABEL_STACK_STR "(snort_decoder) WARNING: Too Many MPLS headers"
 #define DECODE_MULTICAST_MPLS_STR "(snort_decoder) WARNING: Multicast MPLS traffic detected"
+
+#define CLAMAV_VIRUSFOUND_STR "(spp_clamav) Virus Found:"
+#define CLAMAV_SCANFAILED_STR "(spp_clamav) Scanning Failed:"
+
 #endif /* __GENERATORS_H__ */

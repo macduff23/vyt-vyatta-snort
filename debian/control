@@ -10,6 +10,7 @@ Build-Depends: libnet0-dev,
  libpq-dev, 
  po-debconf (>= 0.5.0), 
  libprelude-dev, 
+ libclamav-dev,
  iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], 
  libgnutls-dev
 Build-Depends-Indep: texlive, texlive-latex-base, gs-common
@@ -24,6 +25,7 @@ Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  debconf (>= 0.2.80) | debconf-2.0, syslogd | system-log-daemon, 
  ${shlibs:Depends}, 
  vyatta-snort-common (>= ${source:Version}), 
+ clamav,
  logrotate
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort

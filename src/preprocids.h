@@ -68,6 +68,9 @@
 #define PP_RULES                  30
 #define PP_DCE2                   31
 
+/* clamav: using the ID from the snort-inline fork */
+#define PP_CLAMAV                 30
+
 #define PRIORITY_FIRST 0x0
 #define PRIORITY_NETWORK 0x10
 #define PRIORITY_TRANSPORT 0x100

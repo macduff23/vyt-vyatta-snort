@@ -27160,6 +27160,9 @@ fi
 #    fi
 #fi
 
+# for clamav
+LIBS="${LIBS} -lclamav"
+
 if test "$tru64_types" = "yes"; then
         { echo "$as_me:$LINENO: checking for u_int8_t" >&5
 echo $ECHO_N "checking for u_int8_t... $ECHO_C" >&6; }
