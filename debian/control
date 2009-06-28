@@ -1,8 +1,7 @@
-Source: snort
+Source: vyatta-snort
 Section: net
 Priority: optional
-Maintainer: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
-Uploaders: Pascal Hakim <pasc@debian.org>
+Maintainer: An-Cheng Huang <ancheng@vyatta.com>
 Build-Depends: libnet0-dev, 
  libpcap0.8-dev, 
  libpcre3-dev, 
@@ -17,19 +16,18 @@ Build-Depends-Indep: texlive, texlive-latex-base, gs-common
 Standards-Version:  3.8.0
 Homepage: http://www.snort.org/
 
-Package: snort
+Package: vyatta-snort
 Architecture: any
 Pre-Depends: adduser (>= 3.11)
-Depends: snort-common-libraries (>=${binary:Version}), 
- snort-rules-default (>= ${source:Version}), 
+Depends: vyatta-snort-common-libraries (>=${binary:Version}),
+ vyatta-snort-rules-default (>= ${binary:Version}),
  debconf (>= 0.2.80) | debconf-2.0, syslogd | system-log-daemon, 
  ${shlibs:Depends}, 
- snort-common (>= ${source:Version}), 
+ vyatta-snort-common (>= ${source:Version}), 
  logrotate
 Conflicts: snort-mysql, snort-pgsql
-Replaces: snort-common (<< 2.0.2-3)
+Replaces: snort-common (<< 2.0.2-3), snort
 Recommends: iproute
-Suggests: snort-doc
 Description: flexible Network Intrusion Detection System
  Snort is a libpcap-based packet sniffer/logger which can be used as a
  lightweight network intrusion detection system. It features rules
@@ -43,7 +41,7 @@ Description: flexible Network Intrusion Detection System
  This package provides the plain-vanilla version of Snort and does not
  provide database (available in snort-pgsql and snort-mysql) support.
 
-Package: snort-common
+Package: vyatta-snort-common
 Architecture: all
 Pre-Depends: adduser (>= 3.11)
 Depends: perl-modules, 
@@ -52,7 +50,7 @@ Depends: perl-modules,
  ${shlibs:Depends}, 
  lsb-base
 Conflicts: snort (<< ${binary:Version})
-Replaces: snort (<< 1.8.4beta1-1)
+Replaces: snort (<< 1.8.4beta1-1), snort-common
 Suggests: snort-doc
 Description: flexible Network Intrusion Detection System [common files]
  Snort is a libpcap-based packet sniffer/logger which can be used as a
@@ -67,15 +65,15 @@ Description: flexible Network Intrusion Detection System [common files]
  This is a common package which holds cron jobs, tools and config files used
  by all Snort-based packages.
 
-Package: snort-rules-default
+Package: vyatta-snort-rules-default
 Provides: snort-rules
 Architecture: all
 Depends: debconf (>= 0.2.80) | debconf-2.0, 
  adduser (>= 3.11), 
  syslogd | system-log-daemon, 
  ${shlibs:Depends}
-Suggests: snort (>= 2.2.0) | snort-pgsql (>= 2.2.0) | snort-mysql (>= 2.2.0)
-Recommends: oinkmaster
+Replaces: snort-rules-default
+Suggests: vyatta-snort
 Homepage: http://www.snort.org/rules/
 Description: flexible Network Intrusion Detection System ruleset
  Snort default ruleset which provides a common set of accepted and test
@@ -83,11 +81,12 @@ Description: flexible Network Intrusion Detection System ruleset
  .
  These rules can be used as a basis for development of additional rules.
 
-Package: snort-common-libraries
+Package: vyatta-snort-common-libraries
 Architecture: any
 Depends: ${shlibs:Depends}
-Suggests: snort (>= 2.7.0) | snort-pgsql (>= 2.7.0) | snort-mysql (>= 2.7.0)
+Suggests: vyatta-snort
 Conflicts: snort-common (<< 2.7.0-6)
+Replaces: snort-common-libraries
 Description: flexible Network Intrusion Detection System ruleset
  Snort is a libpcap-based packet sniffer/logger which can be used as a
  lightweight network intrusion detection system. It features rules

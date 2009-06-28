@@ -98,36 +98,36 @@ install-arch:
 	dh_installdirs -s
 
 # Install the common binaries
-	$(MAKE) install prefix=$(TMP)/snort-common/usr/
-	rm -f  $(TMP)/snort-common/usr/sbin/snort 
+	$(MAKE) install prefix=$(TMP)/vyatta-snort-common/usr/
+	rm -f  $(TMP)/vyatta-snort-common/usr/sbin/snort 
 
 # Snort binaries
-	install -m 755 -o root -g root src/snort-basic $(TMP)/snort/usr/sbin/snort
+	install -m 755 -o root -g root src/snort-basic $(TMP)/vyatta-snort/usr/sbin/snort
 
 # Default config
 #	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-mysql/etc/snort/snort.common.parameters
 #	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-pgsql/etc/snort/snort.common.parameters
 #	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort/etc/snort/snort.common.parameters
-	install -m 644 -o root -g root `pwd`/debian/snort.default $(TMP)/snort/etc/default/snort
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
 
 
 #  Install init.d initscripts
-	install -m 755 -o root -g root `pwd`/debian/snort.init.d $(TMP)/snort/etc/init.d/snort
+	install -m 755 -o root -g root `pwd`/debian/vyatta-snort.init.d $(TMP)/vyatta-snort/etc/init.d/snort
 
 
 #  Install PPP initscripts
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/snort/etc/ppp/ip-up.d/snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/snort/etc/ppp/ip-down.d/snort
+	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/vyatta-snort/etc/ppp/ip-up.d/snort
+	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/vyatta-snort/etc/ppp/ip-down.d/snort
 
 
 # Logrotate files
-	install -m 644 -o root -g root `pwd`/debian/snort.logrotate $(TMP)/snort/etc/logrotate.d/snort
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.logrotate $(TMP)/vyatta-snort/etc/logrotate.d/snort
 
 # Move libraries to the snort-common-libraries package
-	mv $(TMP)/snort-common/usr/lib/ $(TMP)/snort-common-libraries/usr/
+	mv $(TMP)/vyatta-snort-common/usr/lib/ $(TMP)/vyatta-snort-common-libraries/usr/
 # Remove headers, as this is not a -dev package
-#	mv $(TMP)/snort-common/usr/src/ $(TMP)/snort-common-libraries/usr/
-	rm -rf $(TMP)/sort-common/usr/src/
+#	mv $(TMP)/vyatta-snort-common/usr/src/ $(TMP)/vyatta-snort-common-libraries/usr/
+	rm -rf $(TMP)/vyatta-sort-common/usr/src/
 
 	dh_install -s
 
@@ -139,27 +139,26 @@ install-indep:
 
 # Install Debian specific, scripts and files of the snort-common
 # package
-	install -m 755 -o root -g root `pwd`/debian/snort.cron.daily $(TMP)/snort-common/etc/cron.daily/5snort
-	install -m 755 -o root -g root `pwd`/debian/my/snort-stat $(TMP)/snort-common/usr/sbin/
-	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/snort-common/etc/snort/
-	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/snort-common/etc/snort/
-	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/snort-common/etc/snort/
+	install -m 755 -o root -g root `pwd`/debian/vyatta-snort.cron.daily $(TMP)/vyatta-snort-common/etc/cron.daily/5snort
+	install -m 755 -o root -g root `pwd`/debian/my/snort-stat $(TMP)/vyatta-snort-common/usr/sbin/
+	install -m 644 -o root -g root `pwd`/etc/snort.conf $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
 
+# Default config
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
 
 #  Install files of the arch-independent packages
-	cp rules/*.rules $(TMP)/snort-rules-default/etc/snort/rules/
-#	mkdir -p $(TMP)/snort-rules-default/usr/share/snort/
-#	install -m 644 -o root -g root `pwd`/debian/oldrules.md5 $(TMP)/snort-rules-default/usr/share/snort/oldrules.md5
+	cp rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/rules/
 	
-	cp etc/sid-msg.map $(TMP)/snort-rules-default/etc/snort/
-	cp etc/gen-msg.map $(TMP)/snort-rules-default/etc/snort/
-	cp etc/community-sid-msg.map $(TMP)/snort-rules-default/etc/snort/
-	cp etc/classification.config $(TMP)/snort-rules-default/etc/snort/
-	cp etc/reference.config $(TMP)/snort-rules-default/etc/snort/
+	cp etc/sid-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
+	cp etc/gen-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
+	cp etc/community-sid-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
+	cp etc/classification.config $(TMP)/vyatta-snort-rules-default/etc/snort/
+	cp etc/reference.config $(TMP)/vyatta-snort-rules-default/etc/snort/
 
 # Remove useless directories
-	rm -rf $(TMP)/snort-common/etc/ppp
-
+	rm -rf $(TMP)/vyatta-snort-common/etc/ppp
 	dh_install -i
 
 # Build architecture-independent files here.
@@ -172,10 +171,10 @@ binary-indep: build-indep install-indep
 	dh_installdebconf -i
 	dh_installman -i 
 # Other adjustments
-	chmod +x $(TMP)/snort-common/usr/share/doc/snort-common/examples/snort*
-	rm -rf $(TMP)/snort-rules-default/usr/share/man
+	chmod +x $(TMP)/vyatta-snort-common/usr/share/doc/vyatta-snort-common/examples/snort*
+	rm -rf $(TMP)/vyatta-snort-rules-default/usr/share/man
 	dh_undocumented -i
-	rm -rf $(TMP)/snort-common/usr/share/man/man8/snort.*
+	rm -rf $(TMP)/vyatta-snort-common/usr/share/man/man8/snort.*
 	dh_installchangelogs -i ChangeLog
 	dh_link -i
 	dh_strip -i
@@ -197,10 +196,10 @@ binary-arch: build-arch install-arch
 	dh_installexamples -a
 	dh_installdebconf -a
 	dh_installman -a 
-	cp $(TMP)/copyright $(TMP)/snort/usr/share/doc/snort/
-	rm -rf $(TMP)/snort-rules-default/usr/share/man
-	rm -f $(TMP)/snort/usr/share/man/man8/snort-stat.*
-	rm -f $(TMP)/snort-common/usr/share/man/man8/snort.*
+	cp $(TMP)/copyright $(TMP)/vyatta-snort/usr/share/doc/vyatta-snort/
+	rm -rf $(TMP)/vyatta-snort-rules-default/usr/share/man
+	rm -f $(TMP)/vyatta-snort/usr/share/man/man8/snort-stat.*
+	rm -f $(TMP)/vyatta-snort-common/usr/share/man/man8/snort.*
 	
 	dh_undocumented -a
 	dh_installchangelogs -a ChangeLog
@@ -226,7 +225,7 @@ update-rules:
 	if [ -d rules ] ; then mv rules.old/Makefile* rules/; rm -rf rules.old; fi
 
 # Update the Debconf templates for all packages using the common templates
-update-templates: debian/snort.TEMPLATE.templates
+update-templates: debian/vyatta-snort.TEMPLATE.templates
 	cd debian && sh generate-templates.sh
 	cd debian && debconf-updatepo
 

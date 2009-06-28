@@ -1,3 +1,9 @@
+vyatta-snort (2.8.4.1-vyatta-1) experimental; urgency=low
+
+  * Rename snort package to vyatta-snort
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Wed, 26 Jun 2009 12:33:43 -0700
+
 snort (2.8.4.1-1) experimental; urgency=low
 
   * New upstream release. 
