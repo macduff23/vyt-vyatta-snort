@@ -120,9 +120,6 @@ install-arch:
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/vyatta-snort/etc/ppp/ip-down.d/snort
 
 
-# Logrotate files
-	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.logrotate $(TMP)/vyatta-snort/etc/logrotate.d/snort
-
 # Move libraries to the snort-common-libraries package
 	mv $(TMP)/vyatta-snort-common/usr/lib/ $(TMP)/vyatta-snort-common-libraries/usr/
 # Remove headers, as this is not a -dev package
