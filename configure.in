@@ -1188,15 +1188,26 @@ if test "$enable_inline" != "no"; then
                       [with_libipq_libraries="$withval"],[with_libipq_libraries="no"])
            if test "$with_libipq_includes" != "no"; then
                 CPPFLAGS="${CPPFLAGS} -I${with_libipq_includes}"
+           else
+             if test -d /usr/include/libnetfilter_queue; then
+               CPPFLAGS="${CPPFLAGS} -I/usr/include/libnetfilter_queue"
+             else
+               CPPFLAGS="${CPPFLAGS} -I/usr/include/libipq"
+             fi
            fi
 
            AC_CHECK_HEADER(libipq.h,,[AC_ERROR(libipq.h not found ...)])
+
            if test "$with_libipq_libraries" != "no"; then
                 LDFLAGS="${LDFLAGS}  -L${with_libipq_libraries}"
            fi
 
            LIPQ=""
-           AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
+           AC_CHECK_LIB(netfilter_queue_libipq, ipq_set_mode,, LIPQ="no")
+           if test "$LIPQ" = "no"; then
+             LIPQ=""
+             AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
+           fi
 
            if test "$LIPQ" = "no"; then
                echo

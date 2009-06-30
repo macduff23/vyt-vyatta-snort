@@ -25,10 +25,7 @@ CONFFLAGS= --prefix=/usr \
 	--enable-smbalerts \
 	--enable-prelude \
 	--enable-inline \
-        --enable-flexresp \
-	--with-libipq-includes=/usr/include/libipq
-# Cannot enable flexresp since it builds only with libnet 1.0.2a
-#	--enable-flexresp \
+        --enable-flexresp 
 
 aclocal.m4:
 	aclocal-1.9 -I m4/

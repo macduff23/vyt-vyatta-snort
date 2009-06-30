@@ -42,6 +42,10 @@
 /* Define to 1 if you have the `net' library (-lnet). */
 #undef HAVE_LIBNET
 
+/* Define to 1 if you have the `netfilter_queue_libipq' library
+   (-lnetfilter_queue_libipq). */
+#undef HAVE_LIBNETFILTER_QUEUE_LIBIPQ
+
 /* Define to 1 if you have the <libnet.h> header file. */
 #undef HAVE_LIBNET_H
 
