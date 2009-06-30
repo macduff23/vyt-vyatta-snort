@@ -22,10 +22,10 @@ Architecture: any
 Pre-Depends: adduser (>= 3.11)
 Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  vyatta-snort-rules-default (>= ${binary:Version}),
- debconf (>= 0.2.80) | debconf-2.0, syslogd | system-log-daemon, 
+ debconf (>= 0.2.80) | debconf-2.0, 
+ syslogd | system-log-daemon, 
  ${shlibs:Depends}, 
  vyatta-snort-common (>= ${source:Version}), 
- clamav,
  logrotate
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort
