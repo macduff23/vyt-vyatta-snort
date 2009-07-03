@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2002-2009 Sourcefire, Inc.
  * Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -88,11 +89,11 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                      int iMode)
 {
     int ret = FTPP_NORMALIZED;
-    unsigned char *read_ptr, *sb_start = NULL;
+    const unsigned char *read_ptr, *sb_start = NULL;
     int saw_ayt = 0;
-    unsigned char *start = (char *) _dpd.altBuffer; /* decode.c */
+    const unsigned char *start = _dpd.altBuffer; /* decode.c */
     unsigned char *write_ptr;
-    unsigned char *end;
+    const unsigned char *end;
     int normalization_required = 0;
     int consec_8bit_chars = 0;
     
@@ -165,7 +166,7 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
     
     if(!normalization_required)
     {
-        DEBUG_WRAP(_dpd.debugMsg(DEBUG_FTPTELNET, "Nothing to process!\n"););
+        DEBUG_WRAP(DebugMessage(DEBUG_FTPTELNET, "Nothing to process!\n"););
         if (tnssn && iMode == FTPP_SI_CLIENT_MODE)
             tnssn->consec_ayt = 0;
         return FTPP_SUCCESS;
@@ -403,7 +404,7 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
         }
         else
         {
-            DEBUG_WRAP(_dpd.debugMsg(DEBUG_FTPTELNET,
+            DEBUG_WRAP(DebugMessage(DEBUG_FTPTELNET,
                 "overwriting %2X(%c) with %2X(%c)\n",
                 (unsigned char)(*write_ptr&0xFF), *write_ptr, 
                 (unsigned char)(*read_ptr & 0xFF), *read_ptr););
@@ -434,7 +435,7 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
     
     p->normalized_payload_size = write_ptr - start;
     
-    /* DEBUG_WRAP(_dpd.debugMsg(DEBUG_FTPTELNET, 
+    /* DEBUG_WRAP(DebugMessage(DEBUG_FTPTELNET, 
     "Converted buffer after telnet normalization:\n");
     PrintNetData(stdout, (char *) _dpd.altBuffer, p->normalized_payload_size););
     */

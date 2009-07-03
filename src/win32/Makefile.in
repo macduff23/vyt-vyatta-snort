@@ -84,6 +84,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -114,6 +115,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -174,6 +176,7 @@ EXTRA_DIST = \
 ./WIN32-Code/getopt.c \
 ./WIN32-Code/getopt_long.c \
 ./WIN32-Code/inet_aton.c \
+./WIN32-Code/inet_pton.c \
 ./WIN32-Code/misc.c \
 ./WIN32-Code/name.aps \
 ./WIN32-Code/name.h \
@@ -186,6 +189,7 @@ EXTRA_DIST = \
 ./WIN32-Includes/getopt.h \
 ./WIN32-Includes/getopt1.h \
 ./WIN32-Includes/gnuc.h \
+./WIN32-Includes/inttypes.h \
 ./WIN32-Includes/libnet/Devioctl.h \
 ./WIN32-Includes/libnet/IPExport.h \
 ./WIN32-Includes/libnet/IPHlpApi.h \
@@ -297,6 +301,7 @@ EXTRA_DIST = \
 ./WIN32-Prj/snort.dsp \
 ./WIN32-Prj/build_all.dsp \
 ./WIN32-Prj/sf_engine.dsp \
+./WIN32-Prj/sf_engine_initialize.dsp \
 ./WIN32-Prj/snort.dsw
 
 noinst_LIBRARIES = 

@@ -1,7 +1,7 @@
 /* $Id$ */
 /*
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
-** Copyright (C) 2002, Sourcefire, Inc.
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 **    Dan Roelker <droelker@sourcefire.com>
 **    Marc Norton <mnorton@sourcefire.com>
 **
@@ -51,13 +51,25 @@
 #include "event_queue.h"
 #include "stream_api.h"
 #include "inline.h"
+#include "signature.h"
+#include "ipv6_port.h"
+#include "ppm.h"
+#include "sf_types.h"
 
-/* XXX modularization violation */
-#include "preprocessors/spp_flow.h"
+#ifdef PORTLISTS
+#include "sfutil/sfportobject.h"
+#endif
 
 #include "profiler.h"
 #ifdef PERF_PROFILING
 PreprocStats detectPerfStats;
+#endif
+
+extern uint8_t ip_proto_array[NUM_IP_PROTOS];
+extern int preproc_proto_mask;
+
+#ifdef TARGET_BASED
+#include "target-based/sftarget_protocol_reference.h"
 #endif
 
 /* #define ITERATIVE_ENGINE */
@@ -78,6 +90,7 @@ extern OptTreeNode *otn_tmp;       /* OptTreeNode temp ptr */
 extern ListHead *head_tmp;         /* ListHead temp ptr */
 
 extern RuleListNode *RuleLists;
+extern RuleListNode *nonDefaultRules;
 
 extern int dynamic_rules_present;
 extern int active_dynamic_nodes;
@@ -85,6 +98,7 @@ extern int active_dynamic_nodes;
 extern PreprocessFuncNode *PreprocessList;  /* Preprocessor function list */
 extern OutputFuncNode *AlertList;   /* Alert function list */
 extern OutputFuncNode *LogList; /* log function list */
+extern PreprocGetReassemblyPktFuncNode *PreprocGetReassemblyPktList;
 
 /*
 **  The HTTP decode structre
@@ -107,10 +121,30 @@ PreprocStats eventqPerfStats;
 
 int Preprocess(Packet * p)
 {
-    PreprocessFuncNode *idx;
     int retval = 0;
     PROFILE_VARS;
 
+#ifdef PPM_MGR
+    UINT64 pktcnt=0;
+
+    /* Begin Packet Performance Monitoring  */
+    if( PPM_PKTS_ENABLED() )
+    {
+        pktcnt = PPM_INC_PKT_CNT();
+        PPM_GET_TIME();
+        PPM_INIT_PKT_TIMER();
+        if( PPM_DEBUG_PKTS() )
+        {
+           /* for debugging, info gathering, so don't worry about
+           *  (unsigned) casting of pktcnt, were not likely to debug
+           *  4G packets
+           */
+           LogMessage("PPM: Process-BeginPkt[%u] caplen=%u\n",
+             (unsigned)pktcnt,p->pkth->caplen);
+        }
+    }
+#endif
+    
     /*
      *  If the packet has an invalid checksum marked, throw that
      *  traffic away as no end host should accept it.
@@ -120,7 +154,6 @@ int Preprocess(Packet * p)
     if(!p->csum_flags)
     {
         do_detect = do_detect_content = 1;
-        idx = PreprocessList;
 
         /*
         **  Reset the appropriate application-layer protocol fields
@@ -128,19 +161,29 @@ int Preprocess(Packet * p)
         p->uri_count = 0;
         UriBufs[0].decode_flags = 0;
 
-        /*
-        **  Turn on all preprocessors
-        */
-        boSetAllBits(p->preprocessor_bits);
-
-        while ((idx != NULL) && (!(p->packet_flags & PKT_PASS_RULE)))
+        /* Most preprocessor protocols are over TCP and 90+ percent of traffic in most
+         * environments is TCP so this check almost always passes.  Initial performance
+         * tests indicate this check hinders performance slightly, but keep it here
+         * commented in case initial performance tests are wrong.  Its main purpose is
+         * to filter out traffic that no preprocessors are going to look at thus
+         * avoiding iterating through each preprocessor */
+        //if (p->proto_bits & preproc_proto_mask)
         {
-            assert(idx->func != NULL);
-            if (IsPreprocBitSet(p, idx->preproc_bit))
+            PreprocessFuncNode *idx = PreprocessList;
+
+            /*
+             **  Turn on all preprocessors
+             */
+            boSetAllBits(p->preprocessor_bits);
+
+            for (; (idx != NULL) && !(p->packet_flags & PKT_PASS_RULE); idx = idx->next)
             {
-                idx->func(p, idx->context);
+                if (((p->proto_bits & idx->proto_mask) || (idx->proto_mask == PROTO_BIT__ALL)) &&
+                    IsPreprocBitSet(p, idx->preproc_bit))
+                {
+                    idx->func(p, idx->context);
+                }
             }
-            idx = idx->next;
         }
 
         check_tags_flag = 1;
@@ -155,6 +198,7 @@ int Preprocess(Packet * p)
                     p->bytes_to_inspect, p->dsize););
                 p->dsize = (u_int16_t)p->bytes_to_inspect;
             }
+
             Detect(p);
         }
         else if (p->bytes_to_inspect == -1)
@@ -172,12 +216,52 @@ int Preprocess(Packet * p)
     ** By checking tagging here, we make sure that we log the
     ** tagged packet whether it generates an alert or not.
     */
-    PREPROC_PROFILE_START(eventqPerfStats);
-    CheckTagging(p);
+    if (IPH_IS_VALID(p))
+        CheckTagging(p);
 
+    PREPROC_PROFILE_START(eventqPerfStats);
     retval = SnortEventqLog(p);
     SnortEventqReset();
     PREPROC_PROFILE_END(eventqPerfStats);
+
+    /* Simulate above behavior for preprocessor reassembled packets */
+    if ((p->packet_flags & PKT_PREPROC_RPKT) && do_detect && (p->bytes_to_inspect != -1))
+    {
+        PreprocGetReassemblyPktFuncNode *rpkt_idx = PreprocGetReassemblyPktList;
+
+        /* Loop through the preprocessors that have registered a 
+         * function to get a reassembled packet */
+        while (rpkt_idx != NULL)
+        {
+            Packet *pp = NULL;
+
+            assert(rpkt_idx->func != NULL);
+
+            /* If the preprocessor bit is set, get the reassembled packet */
+            if (IsPreprocGetReassemblyPktBitSet(p, rpkt_idx->preproc_id))
+                pp = (Packet *)rpkt_idx->func();
+
+            if (pp != NULL)
+            {
+                /* If the original packet's bytes to inspect is set,
+                 * set it for the reassembled packet */
+                if (p->bytes_to_inspect > 0)
+                    pp->dsize = (u_int16_t)p->bytes_to_inspect;
+
+                if (Detect(pp))
+                {
+                    PREPROC_PROFILE_START(eventqPerfStats);
+
+                    retval |= SnortEventqLog(pp);
+                    SnortEventqReset();
+
+                    PREPROC_PROFILE_END(eventqPerfStats);
+                }
+            }
+
+            rpkt_idx = rpkt_idx->next;
+        }
+    }
 
     otn_tmp = NULL;
 
@@ -186,16 +270,36 @@ int Preprocess(Packet * p)
     **  the stream to make sure that we didn't miss any
     **  attacks before this packet.
     */
-    if(retval && stream_api)
+    if(retval && IsTCP(p) && stream_api)
         stream_api->alert_flush_stream(p);
 
-    /**
-     * See if we should go ahead and remove this flow from the
-     * flow_preprocessor -- cmg
-     */
-    CheckFlowShutdown(p);
-    
-    return retval;
+#ifdef PPM_MGR
+    if( PPM_PKTS_ENABLED() )
+    {
+        PPM_GET_TIME();
+        PPM_TOTAL_PKT_TIME();
+        PPM_ACCUM_PKT_TIME();
+        if( PPM_DEBUG_PKTS() )
+        {
+            LogMessage("PPM: Pkt[%u] Used= ",(unsigned)pktcnt);
+            PPM_PRINT_PKT_TIME("%g usecs\n");
+            LogMessage("PPM: Process-EndPkt[%u]\n\n",(unsigned)pktcnt);
+        }
+        PPM_PKT_LOG();
+     }
+     if( PPM_RULES_ENABLED() )
+     {
+        PPM_RULE_LOG(pktcnt,p);
+     }
+     if( PPM_PKTS_ENABLED() )
+     {
+        /* resets current packet time to ignore ip/tcp reassembly time */
+        PPM_END_PKT_TIMER();
+        PPM_RESET_PKT_TIMER();
+     }
+#endif
+
+     return retval;
 }
 
 /*
@@ -251,12 +355,12 @@ void CallLogFuncs(Packet *p, char *message, ListHead *head, Event *event)
     /* set the event number */
     event->event_id = event_id | pv.event_log_id;
 
-    if(BsdPseudoPacket &&
-       !(p->packet_flags & PKT_REBUILT_FRAG) && 
-       !(p->packet_flags & PKT_REBUILT_STREAM))
+#ifndef SUP_IP6
+    if(BsdPseudoPacket) 
     {
         p = BsdPseudoPacket;
     }
+#endif
 
     if(head == NULL)
     {
@@ -342,13 +446,12 @@ void CallAlertFuncs(Packet * p, char *message, ListHead * head, Event *event)
     /* set the event reference info */
     event->event_reference = event->event_id;
 
-    if(BsdPseudoPacket &&
-       !(p->packet_flags & PKT_REBUILT_FRAG) && 
-       !(p->packet_flags & PKT_REBUILT_STREAM))
-       
+#ifndef SUP_IP6
+    if(BsdPseudoPacket) 
     {
         p = BsdPseudoPacket;
     }
+#endif
 
     if(head == NULL)
     {
@@ -413,9 +516,37 @@ int Detect(Packet * p)
     int detected = 0;
     PROFILE_VARS;
 
-    if(p == NULL || p->iph == NULL)
+    if ((p == NULL) || !IPH_IS_VALID(p))
     {
         return 0;
+    }
+
+    if (!ip_proto_array[GET_IPH_PROTO(p)])
+    {
+#ifdef GRE
+# ifdef SUP_IP6
+        switch (p->outer_family)
+        {
+            case AF_INET:
+                if (!ip_proto_array[p->outer_ip4h.ip_proto])
+                    return 0;
+                break;
+
+            case AF_INET6:
+                if (!ip_proto_array[p->outer_ip6h.next])
+                    return 0;
+                break;
+
+            default:
+                return 0;
+        }
+# else
+        if ((p->outer_iph == NULL) || !ip_proto_array[p->outer_iph->ip_proto])
+            return 0;
+# endif  /* SUP_IP6 */
+#else
+        return 0;
+#endif  /* GRE */
     }
 
     if (p->packet_flags & PKT_PASS_RULE)
@@ -425,6 +556,21 @@ int Detect(Packet * p)
          */
         return 0;
     }
+
+#ifdef PPM_MGR
+    /*
+     * Packet Performance Monitoring
+     * (see if preprocessing took too long)
+     */
+    if( PPM_PKTS_ENABLED() )
+    {
+        PPM_GET_TIME();
+        PPM_PACKET_TEST();
+
+        if( PPM_PACKET_ABORT_FLAG() )
+            return 0; 
+    }
+#endif
 
     /*
     **  This is where we short circuit so 
@@ -454,23 +600,35 @@ void TriggerResponses(Packet * p, OptTreeNode * otn)
 
 }
 
-int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port, 
-        Packet *p, u_int32_t flags, int mode)
+int CheckAddrPort(
+#ifdef SUP_IP6
+                sfip_var_t *rule_addr,
+#else
+                IpAddrSet *rule_addr,
+#endif
+#ifdef PORTLISTS
+                PortObject * po, 
+#else
+                u_int16_t hi_port, u_int16_t lo_port, 
+#endif 
+                Packet *p, 
+                u_int32_t flags, int mode)
 {
-    u_long pkt_addr;         /* packet IP address */
-    u_short pkt_port;        /* packet port */
+    snort_ip_p pkt_addr;              /* packet IP address */
+    u_short pkt_port;           /* packet port */
     int global_except_addr_flag = 0; /* global exception flag is set */
     int any_port_flag = 0;           /* any port flag set */
-    int except_addr_flag = 0;        /* any addr flag set */
     int except_port_flag = 0;        /* port exception flag set */
     int ip_match = 0;                /* flag to indicate addr match made */
-    IpAddrSet *idx;  /* ip addr struct indexer */
+#ifndef SUP_IP6
+    IpAddrNode *idx;            /* ip addr struct indexer */
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "CheckAddrPort: "););
     /* set up the packet particulars */
-    if(mode & CHECK_SRC)
+    if(mode & CHECK_SRC_IP)
     {
-        pkt_addr = p->iph->ip_src.s_addr;
+        pkt_addr = GET_SRC_IP(p);
         pkt_port = p->sp;
 
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"SRC "););
@@ -490,7 +648,7 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
     }
     else
     {
-        pkt_addr = p->iph->ip_dst.s_addr;
+        pkt_addr = GET_DST_IP(p);
         pkt_port = p->dp;
 
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "DST "););
@@ -512,24 +670,45 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "addr %lx, port %d ", pkt_addr, 
                 pkt_port););
 
-    idx = rule_addr;
+    if(!rule_addr)
+        goto bail;
+
     if(!(global_except_addr_flag)) /*modeled after Check{Src,Dst}IP function*/
     {
-        while(idx != NULL)
-        {
-            except_addr_flag = idx->addr_flags & EXCEPT_IP;
+#ifdef SUP_IP6
+        if(sfvar_ip_in(rule_addr, pkt_addr)) 
+            ip_match = 1;
+#else
+        ip_match = 0;
 
-            /* test the rule address vs. the packet address */
-            if(!((idx->ip_addr==(pkt_addr & idx->netmask)) ^ except_addr_flag))
+        if(rule_addr->iplist)
+        {
+            for(idx=rule_addr->iplist; idx; idx=idx->next)
             {
-                idx = idx->next;
-            }
-            else
-            {
-                ip_match = 1;
-                goto bail;
+                if(idx->ip_addr == (pkt_addr & idx->netmask)) 
+                {
+                    ip_match = 1; 
+                    break;
+                }
             }
         }
+        else 
+            ip_match = 1;
+        
+        if(ip_match)
+        {
+            for(idx=rule_addr->neg_iplist; idx; idx=idx->next)
+            {
+                if(idx->ip_addr == (pkt_addr & idx->netmask)) 
+                {
+                    ip_match = 0; break;
+                }
+            }
+        }
+        
+        if(ip_match) 
+            goto bail;
+#endif
     }
     else
     {
@@ -537,26 +716,45 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
         /* global exception flag is up, we can't match on *any* 
          * of the source addresses 
          */
-        while(idx != NULL)
+
+#ifdef SUP_IP6
+        if(sfvar_ip_in(rule_addr, pkt_addr)) 
+            return 0;
+
+        ip_match=1;
+#else
+        if(rule_addr->iplist)
         {
-            except_addr_flag = idx->addr_flags & EXCEPT_IP;
-
-            /* test the rule address vs. the packet address */
-            if(((idx->ip_addr == (pkt_addr & idx->netmask)) ^ 
-                        except_addr_flag))
+            ip_match = 0;
+            for(idx=rule_addr->iplist; idx; idx=idx->next)
             {
-                DEBUG_WRAP(DebugMessage(DEBUG_DETECT, 
-                            ", address matched, packet rejected\n"));
-
-                /* got address match on globally negated rule, fail */
-                return 0;
+                if(idx->ip_addr == (pkt_addr & idx->netmask)) 
+                {
+                    ip_match = 1; 
+                    break;
+                }
             }
-            idx = idx->next;
         }
-        ip_match = 1;
+        else 
+            ip_match = 1;
+        
+        if(ip_match)
+        {
+            for(idx=rule_addr->neg_iplist; idx; idx=idx->next)
+            {
+                if(idx->ip_addr == (pkt_addr & idx->netmask)) 
+                {
+                    ip_match = 0; break;
+                }
+            }
+        }
+       
+        if(!ip_match) 
+            return 0;
+#endif
     }
 
-    bail:
+bail:
     if(!ip_match)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, ", no address match,  "
@@ -574,8 +772,30 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
         return 1;
     }
 
+#ifdef PORTLISTS
+#ifdef TARGET_BASED
+    if (!(mode & (CHECK_SRC_PORT | CHECK_DST_PORT)))
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckAddrPort..."
+                "target-based-protocol=%d,ignoring ports\n",
+                GetProtocolReference(p)););
+        return 1;
+    }
+    else
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckAddrPort..."
+                "target-based-protocol=%d,not ignoring ports\n",
+                GetProtocolReference(p)););
+    }
+#endif /* TARGET_BASED */
+
     /* check the packet port against the rule port */
-    if((pkt_port > hi_port) || (pkt_port < lo_port))
+    if( !PortObjectHasPort(po,pkt_port) )
+#else
+    if( (pkt_port > hi_port) || (pkt_port < lo_port) )
+#endif /* PORTLISTS */
     {
         /* if the exception flag isn't up, fail */
         if(!except_port_flag)
@@ -604,11 +824,57 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
 
 }
 
+
+/****************************************************************************
+ *
+ * Function: DumpList(IpAddrNode*)
+ *
+ * Purpose: print out the chain lists by header block node group
+ *
+ * Arguments: node => the head node
+ *           
+ * Returns: void function
+ *
+ ***************************************************************************/
+void DumpList(IpAddrNode *idx, int negated)
+{
+    DEBUG_WRAP(int i=0;);
+    if(!idx)
+        return;
+
+    while(idx != NULL)
+    {
+#ifdef SUP_IP6
+       DEBUG_WRAP(DebugMessage(DEBUG_RULES,
+                        "[%d]    %s",
+                        i++, sfip_ntoa(idx->ip)););
+#else
+       DEBUG_WRAP(DebugMessage(DEBUG_RULES,
+                        "[%d]    0x%.8lX / 0x%.8lX",
+                        i++, (u_long) idx->ip_addr,
+                        (u_long) idx->netmask););
+#endif
+
+       if(negated)
+       {
+           DEBUG_WRAP(DebugMessage(DEBUG_RULES, 
+                       "    (EXCEPTION_FLAG Active)\n"););
+       }
+       else
+       {
+           DEBUG_WRAP(DebugMessage(DEBUG_RULES, "\n"););
+       }
+
+       idx = idx->next;
+    }    
+}
+
+
 /****************************************************************************
  *
  * Function: DumpChain(RuleTreeNode *, char *, char *)
  *
- * Purpose: print out the chain lists by header block node group
+ * Purpose: Iterate over RTNs calling DumpList on each
  *
  * Arguments: rtn_idx => the RTN index pointer
  *                       rulename => the name of the rule the list belongs to
@@ -619,15 +885,15 @@ int CheckAddrPort(IpAddrSet *rule_addr, u_int16_t hi_port, u_int16_t lo_port,
  ***************************************************************************/
 void DumpChain(RuleTreeNode * rtn_head, char *rulename, char *listname)
 {
+#ifdef SUP_IP6
+    // XXX Not yet implemented - Rule chain dumping
+#else
+
     RuleTreeNode *rtn_idx;
-    IpAddrSet *idx;  /* indexing pointer */
-    int i;
 #ifdef DEBUG
     OptTreeNode *otn_idx;
 #endif
 
-
-    
     DEBUG_WRAP(DebugMessage(DEBUG_RULES, "%s %s\n", rulename, listname););
 
     rtn_idx = rtn_head;
@@ -644,49 +910,25 @@ void DumpChain(RuleTreeNode * rtn_head, char *rulename, char *listname)
                 DebugMessage(DEBUG_RULES, "Rule type: %d\n", rtn_idx->type);
                 DebugMessage(DEBUG_RULES, "SRC IP List:\n");
                 );
-        idx = rtn_idx->sip;
-        i = 0;
-        while(idx != NULL)
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_RULES,
-                        "[%d]    0x%.8lX / 0x%.8lX",
-                        i++, (u_long) idx->ip_addr,
-                        (u_long) idx->netmask););
 
-            if(idx->addr_flags & EXCEPT_IP)
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_RULES, 
-                            "    (EXCEPTION_FLAG Active)\n"););
-            }
-            else
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_RULES, "\n"););
-            }
-            idx = idx->next;
+        if(rtn_idx->sip) 
+        {
+            if(rtn_idx->sip->iplist)
+                DumpList(rtn_idx->sip->iplist, 0);
+            if(rtn_idx->sip->neg_iplist)
+                DumpList(rtn_idx->sip->neg_iplist, 1);
         }
 
         DEBUG_WRAP(DebugMessage(DEBUG_RULES, "DST IP List:\n"););
-        idx = rtn_idx->dip;
-        i = 0;
 
-        while(idx != NULL)
+        if(rtn_idx->dip) 
         {
-            DEBUG_WRAP(DebugMessage(DEBUG_RULES,
-                        "[%d]    0x%.8lX / 0x%.8lX",
-                        i++,(u_long)  idx->ip_addr,
-                        (u_long)  idx->netmask););    
-            if(idx->addr_flags & EXCEPT_IP)
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_RULES, 
-                            "    (EXCEPTION_FLAG Active)\n"););
-            }
-            else
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_RULES, "\n"););
-            }
-
-            idx = idx->next;
+            if(rtn_idx->dip->iplist)
+                DumpList(rtn_idx->dip->iplist, 0);
+            if(rtn_idx->dip->neg_iplist)
+                DumpList(rtn_idx->dip->neg_iplist, 1);
         }
+
 #ifdef DEBUG
         DebugMessage(DEBUG_RULES, "SRC PORT: %d - %d \n", rtn_idx->lsp, 
                 rtn_idx->hsp);
@@ -731,6 +973,7 @@ void DumpChain(RuleTreeNode * rtn_head, char *rulename, char *listname)
 #endif
         rtn_idx = rtn_idx->right;
     }
+#endif
 }
 
 
@@ -797,29 +1040,36 @@ void IntegrityCheck(RuleTreeNode * rtn_head, char *rulename, char *listname)
 }
 
 
+#ifdef PORTLISTS
+#define CHECK_ADDR_SRC_ARGS(x) (x)->src_portobject
+#define CHECK_ADDR_DST_ARGS(x) (x)->dst_portobject
+#else
+#define CHECK_ADDR_SRC_ARGS(x) (x)->hsp, (x)->lsp
+#define CHECK_ADDR_DST_ARGS(x) (x)->hdp, (x)->ldp
+#endif
 
 int CheckBidirectional(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
+        RuleFpList *fp_list, int check_ports)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "Checking bidirectional rule...\n"););
-    
-    if(CheckAddrPort(rtn_idx->sip, rtn_idx->hsp, rtn_idx->lsp, p,
-                     rtn_idx->flags, CHECK_SRC))
+
+    if(CheckAddrPort(rtn_idx->sip, CHECK_ADDR_SRC_ARGS(rtn_idx), p,
+                     rtn_idx->flags, CHECK_SRC_IP | (check_ports ? CHECK_SRC_PORT : 0)))
     {
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "   Src->Src check passed\n"););
-        if(! CheckAddrPort(rtn_idx->dip, rtn_idx->hdp, rtn_idx->ldp, p,
-                           rtn_idx->flags, CHECK_DST))
+        if(! CheckAddrPort(rtn_idx->dip, CHECK_ADDR_DST_ARGS(rtn_idx), p,
+                           rtn_idx->flags, CHECK_DST_IP | (check_ports ? CHECK_DST_PORT : 0)))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                                     "   Dst->Dst check failed,"
                                     " checking inverse combination\n"););
-            if(CheckAddrPort(rtn_idx->dip, rtn_idx->hdp, rtn_idx->ldp, p,
-                             rtn_idx->flags, (CHECK_SRC | INVERSE)))
+            if(CheckAddrPort(rtn_idx->dip, CHECK_ADDR_DST_ARGS(rtn_idx), p,
+                             rtn_idx->flags, (CHECK_SRC_IP | INVERSE | (check_ports ? CHECK_SRC_PORT : 0))))
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                                     "   Inverse Dst->Src check passed\n"););
-                if(!CheckAddrPort(rtn_idx->sip, rtn_idx->hsp, rtn_idx->lsp, p,
-                                  rtn_idx->flags, (CHECK_DST | INVERSE)))
+                if(!CheckAddrPort(rtn_idx->sip, CHECK_ADDR_SRC_ARGS(rtn_idx), p,
+                                  rtn_idx->flags, (CHECK_DST_IP | INVERSE | (check_ports ? CHECK_DST_PORT : 0))))
                 {
                     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                                     "   Inverse Src->Dst check failed\n"););
@@ -846,14 +1096,14 @@ int CheckBidirectional(Packet *p, struct _RuleTreeNode *rtn_idx,
     {
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                                 "   Src->Src check failed, trying inverse test\n"););
-        if(CheckAddrPort(rtn_idx->dip, rtn_idx->hdp, rtn_idx->ldp, p,
-                         rtn_idx->flags, CHECK_SRC | INVERSE))
+        if(CheckAddrPort(rtn_idx->dip, CHECK_ADDR_DST_ARGS(rtn_idx), p,
+                         rtn_idx->flags, CHECK_SRC_IP | INVERSE | (check_ports ? CHECK_SRC_PORT : 0)))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                         "   Dst->Src check passed\n"););
 
-            if(! CheckAddrPort(rtn_idx->sip, rtn_idx->hsp, rtn_idx->lsp, p, 
-                        rtn_idx->flags, CHECK_DST | INVERSE))
+            if(!CheckAddrPort(rtn_idx->sip, CHECK_ADDR_SRC_ARGS(rtn_idx), p, 
+                        rtn_idx->flags, CHECK_DST_IP | INVERSE | (check_ports ? CHECK_DST_PORT : 0)))
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                             "   Src->Dst check failed\n"););
@@ -878,10 +1128,9 @@ int CheckBidirectional(Packet *p, struct _RuleTreeNode *rtn_idx,
 }
 
 
-
 /****************************************************************************
  *
- * Function: CheckSrcIpEqual(Packet *, struct _RuleTreeNode *, RuleFpList *)
+ * Function: CheckSrcIp(Packet *, struct _RuleTreeNode *, RuleFpList *)
  *
  * Purpose: Test the source IP and see if it equals the SIP of the packet
  *
@@ -892,37 +1141,40 @@ int CheckBidirectional(Packet *p, struct _RuleTreeNode *rtn_idx,
  * Returns: 0 on failure (no match), 1 on success (match)
  *
  ***************************************************************************/
-int CheckSrcIP(Packet * p, struct _RuleTreeNode * rtn_idx, RuleFpList * fp_list)
+int CheckSrcIP(Packet * p, struct _RuleTreeNode * rtn_idx, RuleFpList * fp_list, int check_ports)
 {
-    IpAddrSet *idx; /* ip address indexer */
+#ifndef SUP_IP6
+    int match = 0;
+    IpAddrNode *pos_idx, *neg_idx; /* ip address indexer */
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckSrcIPEqual: "););
 
-    /* check for global exception flag */
-    if(!(rtn_idx->flags & EXCEPT_SRC_IP))
+#ifdef SUP_IP6
+    if(!(rtn_idx->flags & EXCEPT_SRC_IP)) 
     {
-        /* do the check */
-        for(idx=rtn_idx->sip; idx != NULL; idx=idx->next)
+        if( sfvar_ip_in(rtn_idx->sip, GET_SRC_IP(p)) )
         {
-            if( ((idx->ip_addr == (p->iph->ip_src.s_addr & idx->netmask)) 
-                        ^ (idx->addr_flags & EXCEPT_IP)) )
-            {
+// XXX NOT YET IMPLEMENTED - debugging in Snort6
+#if 0
 #ifdef DEBUG
-                if(idx->addr_flags & EXCEPT_IP) {
-                    DebugMessage(DEBUG_DETECT, "  SIP exception match\n");
-                } 
-                else
-                {
-                    DebugMessage(DEBUG_DETECT, "  SIP match\n");
-                }
-
-                DebugMessage(DEBUG_DETECT, "Rule: 0x%X     Packet: 0x%X\n", 
-                        idx->ip_addr, (p->iph->ip_src.s_addr & idx->netmask));
-#endif /* DEBUG */
-
-                /* the packet matches this test, proceed to the next test */
-                return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+            sfip_t ip;
+            if(idx->addr_flags & EXCEPT_IP) {
+                DebugMessage(DEBUG_DETECT, "  SIP exception match\n");
+            } 
+            else
+            {
+                DebugMessage(DEBUG_DETECT, "  SIP match\n");
             }
+ 
+            ip = *iph_ret_src(p);    /* necessary due to referencing/dereferencing */
+            DebugMessage(DEBUG_DETECT, "Rule: %s     Packet: %s\n", 
+                   inet_ntoa(idx->ip_addr), inet_ntoa(ip));
+#endif /* DEBUG */
+#endif
+
+            /* the packet matches this test, proceed to the next test */
+            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
         }
     }
     else
@@ -932,72 +1184,86 @@ int CheckSrcIP(Packet * p, struct _RuleTreeNode * rtn_idx, RuleFpList * fp_list)
          */
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  global exception flag, \n"););
 
-        /* do the check */
-        for(idx=rtn_idx->sip; idx != NULL; idx=idx->next)
-        {
-            if( ((idx->ip_addr == (p->iph->ip_src.s_addr & idx->netmask)) 
-                        ^ (idx->addr_flags & EXCEPT_IP)) )
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"address matched, failing on SIP\n"););
-                /* got address match on globally negated rule, fail */
-                return 0;
-            }
-        }
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"no matches on SIP, passed\n"););
+        if( sfvar_ip_in(rtn_idx->sip, GET_SRC_IP(p)) ) return 0;
 
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
-    
+
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on SIP\n"););
 
-    /* return 0 on a failed test */
     return 0;
-}
 
+#else
 
-
-/****************************************************************************
- *
- * Function: CheckSrcIpNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *)
- *
- * Purpose: Test the source IP and see if it's unequal to the SIP of the
- *          packet
- *
- * Arguments: p => ptr to the decoded packet data structure
- *            rtn_idx => ptr to the current rule data struct
- *            fp_list => ptr to the current function pointer node
- *
- * Returns: 0 on failure (no match), 1 on success (match)
- *
- ***************************************************************************/
-int CheckSrcIPNotEq(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
-{
-    IpAddrSet *idx;  /* IP address indexer */
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "CheckSrcIPNotEq: "););
-
-    /* do the check */
-    for(idx=rtn_idx->sip; idx != NULL; idx=idx->next)
+    if(rtn_idx->sip)
     {
-        if( idx->ip_addr != (p->iph->ip_src.s_addr & idx->netmask) )
+        match = 0;
+
+        pos_idx = rtn_idx->sip->iplist;                  
+        neg_idx = rtn_idx->sip->neg_iplist;                  
+
+        if(!pos_idx) 
         {
-            DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  SIP exception match\n"););
-            /* the packet matches this test, proceed to the next test */
-            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+            for( ; neg_idx; neg_idx = neg_idx->next) 
+            {
+                if(neg_idx->ip_addr == 
+                           (p->iph->ip_src.s_addr & neg_idx->netmask)) 
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on SIP\n"););
+                    return 0;
+                }
+            } 
+
+            DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  SIP match\n"););
+            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
         }
+    
+        while(pos_idx)              
+        {
+            if(neg_idx)
+            {
+                if(neg_idx->ip_addr == 
+                           (p->iph->ip_src.s_addr & neg_idx->netmask)) 
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on SIP\n"););
+                    return 0;
+                }
+            
+                neg_idx = neg_idx->next;
+            } 
+            /* No more potential negations.  Check if we've already matched. */
+            else if(match)
+            {
+                DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  SIP match\n"););
+                return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+            }
+
+            if(!match) 
+            {
+                if(pos_idx->ip_addr == 
+                   (p->iph->ip_src.s_addr & pos_idx->netmask)) 
+                {
+                     match = 1;
+                }
+                else
+                {
+                    pos_idx = pos_idx->next;
+                }
+            }
+        } 
     }
 
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  Mismatch on SIP\n"););
-    
+    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on SIP\n"););
+
+#endif
     /* return 0 on a failed test */
     return 0;
 }
 
 
-
 /****************************************************************************
  *
- * Function: CheckDstIpEqual(Packet *, struct _RuleTreeNode *, RuleFpList *)
+ * Function: CheckDstIp(Packet *, struct _RuleTreeNode *, RuleFpList *)
  *
  * Purpose: Test the dest IP and see if it equals the DIP of the packet
  *
@@ -1008,115 +1274,140 @@ int CheckSrcIPNotEq(Packet *p, struct _RuleTreeNode *rtn_idx,
  * Returns: 0 on failure (no match), 1 on success (match)
  *
  ***************************************************************************/
-int CheckDstIP(Packet *p, struct _RuleTreeNode *rtn_idx, RuleFpList *fp_list)
+int CheckDstIP(Packet *p, struct _RuleTreeNode *rtn_idx, RuleFpList *fp_list, int check_ports)
 {
-    IpAddrSet *idx;  /* ip address indexer */
+#ifndef SUP_IP6
+    IpAddrNode *pos_idx, *neg_idx;  /* ip address indexer */
+    int match;
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "CheckDstIPEqual: ");)
 
-    /* check for global exception flag */
-    if(!(rtn_idx->flags & EXCEPT_DST_IP))
+#ifdef SUP_IP6
+    if(!(rtn_idx->flags & EXCEPT_DST_IP)) 
     {
-        /* do the check */
-        for(idx=rtn_idx->dip; idx != NULL; idx=idx->next)
+        if( sfvar_ip_in(rtn_idx->dip, GET_DST_IP(p)) )
         {
-            if( ((idx->ip_addr == (p->iph->ip_dst.s_addr & idx->netmask)) 
-                        ^ (idx->addr_flags & EXCEPT_IP)) )
-            {
-#ifdef DEBUG
-                if(idx->addr_flags & EXCEPT_IP)
-                {
-                    DebugMessage(DEBUG_DETECT, "  DIP exception match\n");
-                }
-                else
-                {
-                    DebugMessage(DEBUG_DETECT, "  DIP match\n");
-                }
-                
-                DebugMessage(DEBUG_DETECT, "Rule: 0x%X     Packet: 0x%X\n", 
-                        idx->ip_addr, (p->iph->ip_src.s_addr & idx->netmask));
-#endif /* DEBUG */
-                /* the packet matches this test, proceed to the next test */
-                return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
-            }
+// #ifdef DEBUG
+// XXX idx's equivalent is lost inside of sfvar_ip_in
+//            DebugMessage(DEBUG_DETECT, "Rule: %s     Packet: ",
+//                   inet_ntoa(idx->ip_addr));
+//            DebugMessage(DEBUG_DETECT, "%s\n", sfip_ntoa(iph_ret_dst(p)));
+// #endif
+
+            /* the packet matches this test, proceed to the next test */
+            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
         }
     }
     else
     {
         /* global exception flag is up, we can't match on *any* 
-         * of the source addresses 
-         */
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  global exception flag, \n"););
+         * of the source addresses */
+        DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  global exception flag, \n"););
 
-        /* do the check */
-        for(idx=rtn_idx->dip; idx != NULL; idx=idx->next)
-        {
-            if( ((idx->ip_addr == (p->iph->ip_dst.s_addr & idx->netmask)) 
-                        ^ (idx->addr_flags & EXCEPT_IP)) )
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
-                                        "address matched, failing on DIP\n"););
-                /* got address match on globally negated rule, fail */
-                return 0;
-            }
-        }
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "no matches on DIP, passed\n"););
+        if( sfvar_ip_in(rtn_idx->dip, GET_DST_IP(p)) ) return 0;
 
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
 
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  Mismatch on DIP\n"););
-    /* return 0 on a failed test */
     return 0;
-}
+#else
 
-
-/****************************************************************************
- *
- * Function: CheckDstIpNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *)
- *
- * Purpose: Test the dest IP and see if it equals the DIP of the packet
- *
- * Arguments: p => ptr to the decoded packet data structure
- *            rtn_idx => ptr to the current rule data struct
- *            fp_list => ptr to the current function pointer node
- *
- * Returns: 0 on failure (no match), 1 on success (match)
- *
- ***************************************************************************/
-int CheckDstIPNotEq(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
-{
-    IpAddrSet *idx; /* ip address indexer */
-
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckDstIPNotEq: "););
-
-    /* same as above */
-    for(idx=rtn_idx->dip;idx != NULL; idx=idx->next)
+    if(rtn_idx->dip)
     {
-        if( idx->ip_addr != (p->iph->ip_dst.s_addr & idx->netmask) )
+        match = 0;
+
+        pos_idx = rtn_idx->dip->iplist;                  
+        neg_idx = rtn_idx->dip->neg_iplist;                  
+
+        if(!pos_idx) 
         {
-            DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  DIP exception match\n"););
-            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+            for( ; neg_idx; neg_idx = neg_idx->next) 
+            {
+                if(neg_idx->ip_addr == 
+                           (p->iph->ip_dst.s_addr & neg_idx->netmask)) 
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on DIP\n"););
+                    return 0;
+                }
+            } 
+
+            DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  DIP match\n"););
+            return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
         }
+
+        while(pos_idx)              
+        {
+            if(neg_idx)
+            {
+                if(neg_idx->ip_addr == 
+                           (p->iph->ip_dst.s_addr & neg_idx->netmask)) 
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  DIP exception match\n"););
+                    return 0;
+                }
+            
+                neg_idx = neg_idx->next;
+            } 
+            /* No more potential negations.  Check if we've already matched. */
+            else if(match)
+            {
+                DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  DIP match\n"););
+                return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+            }
+
+            if(!match) 
+            {
+                if(pos_idx->ip_addr == 
+                   (p->iph->ip_dst.s_addr & pos_idx->netmask)) 
+                {
+                     match = 1;
+                }
+                else 
+                {
+                    pos_idx = pos_idx->next;
+                }
+            }
+        } 
     }
 
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"  Mismatch on DIP\n"););
-
+    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  DIP exception match\n"););
     return 0;
+#endif
 }
-
 
 
 int CheckSrcPortEqual(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
+        RuleFpList *fp_list, int check_ports)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckSrcPortEqual: "););
 
+#ifdef PORTLISTS
+#ifdef TARGET_BASED
+    /* Check if attributes provided match earlier */
+    if (check_ports == 0)
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckSrcPortEq..."
+                "target-based-protocol=%d,ignoring ports\n",
+                GetProtocolReference(p)););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+    }
+    else
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckSrcPortEq..."
+                "target-based-protocol=%d,not ignoring ports\n",
+                GetProtocolReference(p)););
+    }
+#endif /* TARGET_BASED */
+    if( PortObjectHasPort(rtn_idx->src_portobject,p->sp) )
+#else
     if( (p->sp <= rtn_idx->hsp) && (p->sp >= rtn_idx->lsp) )
+#endif /* PORTLISTS */
     {
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  SP match!\n"););
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
     else
     {
@@ -1126,41 +1417,77 @@ int CheckSrcPortEqual(Packet *p, struct _RuleTreeNode *rtn_idx,
     return 0;
 }
 
-
-
-
-
 int CheckSrcPortNotEq(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
+        RuleFpList *fp_list, int check_ports)
 {
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "CheckSrcPortNotEq: "););
+    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckSrcPortNotEq: "););
 
-    if( (p->sp > rtn_idx->hsp) || (p->sp < rtn_idx->lsp) )
+#ifdef PORTLISTS
+#ifdef TARGET_BASED
+    /* Check if attributes provided match earlier */
+    if (check_ports == 0)
     {
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  SP exception match!\n"););
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckSrcPortNotEq..."
+                "target-based-protocol=%d,ignoring ports\n",
+                GetProtocolReference(p)););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
     else
     {
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"   SP mismatch!\n"););
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckSrcPortNotEq..."
+                "target-based-protocol=%d,not ignoring ports\n",
+                GetProtocolReference(p)););
+    }
+#endif /* TARGET_BASED */
+    if( !PortObjectHasPort(rtn_idx->src_portobject,p->sp) )
+#else
+    if( (p->sp > rtn_idx->hsp) || (p->sp < rtn_idx->lsp) )
+#endif /* PORTLISTS */
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  !SP match!\n"););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+    }
+    else
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "  !SP mismatch!\n"););
     }
 
     return 0;
 }
 
-
-
-
-
 int CheckDstPortEqual(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
+        RuleFpList *fp_list, int check_ports)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckDstPortEqual: "););
 
+#ifdef PORTLISTS
+#ifdef TARGET_BASED
+    /* Check if attributes provided match earlier */
+    if (check_ports == 0)
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckDstPortEq..."
+            "target-based-protocol=%d,ignoring ports\n",
+            GetProtocolReference(p)););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+    }
+    else
+    {
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckDstPortEq..."
+            "target-based-protocol=%d,not ignoring ports\n",
+            GetProtocolReference(p)););
+    }
+#endif /* TARGET_BASED */
+    if( PortObjectHasPort(rtn_idx->dst_portobject,p->dp) )
+#else
     if( (p->dp <= rtn_idx->hdp) && (p->dp >= rtn_idx->ldp) )
+#endif /* PORTLISTS */
     {
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, " DP match!\n"););
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
     else
     {
@@ -1168,41 +1495,83 @@ int CheckDstPortEqual(Packet *p, struct _RuleTreeNode *rtn_idx,
     }
     return 0;
 }
-
-
 
 
 int CheckDstPortNotEq(Packet *p, struct _RuleTreeNode *rtn_idx, 
-        RuleFpList *fp_list)
+        RuleFpList *fp_list, int check_ports)
 {
-    DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "CheckDstPortNotEq: "););
+    DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"CheckDstPortNotEq: "););
 
-    if( (p->dp > rtn_idx->hdp) || (p->dp < rtn_idx->ldp) )
+#ifdef PORTLISTS
+#ifdef TARGET_BASED
+    /* Check if attributes provided match earlier */
+    if (check_ports == 0)
     {
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT," DP exception match!\n"););
-        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next);
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckDstPortNotEq..."
+            "target-based-protocol=%d,ignoring ports\n",
+            GetProtocolReference(p)););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
     }
     else
     {
-        DEBUG_WRAP(DebugMessage(DEBUG_DETECT," DP mismatch!\n"););
+        DEBUG_WRAP(
+            DebugMessage(DEBUG_ATTRIBUTE, "detect.c: CheckDstPortNotEq..."
+            "target-based-protocol=%d,not ignoring ports\n",
+            GetProtocolReference(p)););
+    }
+#endif /* TARGET_BASED */
+    if( !PortObjectHasPort(rtn_idx->dst_portobject,p->dp) )
+#else
+    if( (p->dp > rtn_idx->hdp) || (p->dp < rtn_idx->ldp) )
+#endif /* PORTLISTS */
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_DETECT, " !DP match!\n"););
+        return fp_list->next->RuleHeadFunc(p, rtn_idx, fp_list->next, check_ports);
+    }
+    else
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_DETECT," !DP mismatch!\n"););
     }
 
     return 0;
 }
 
 
-
-int RuleListEnd(Packet *p, struct _RuleTreeNode *rtn_idx, RuleFpList *fp_list)
+int RuleListEnd(Packet *p, struct _RuleTreeNode *rtn_idx, RuleFpList *fp_list, int check_ports)
 {
     return 1;
 }
 
 
-int OptListEnd(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
+int OptListEnd(void *option_data, Packet *p)
 {
-    return 1;
+    return DETECTION_OPTION_MATCH;
 }
 
+/*
+ * sets the nonDefaultRules variable
+ */
+void SetNonDefaultRules()
+{
+	RuleListNode *prev = NULL;
+	RuleListNode *node = RuleLists;
+	
+	if(!RuleLists)
+	{
+		nonDefaultRules = NULL;
+		return;
+	}
+	
+	while(node->next)
+	{
+		prev = node;
+		node = node->next;
+	}
+	nonDefaultRules = node;
+	
+	return;
+}
 
 void CreateDefaultRules()
 {
@@ -1216,13 +1585,13 @@ void CreateDefaultRules()
 #endif /* GIDS */
     CreateRuleType("alert", RULE_ALERT, 1, &Alert);
     CreateRuleType("log", RULE_LOG, 1, &Log);
+    SetNonDefaultRules(); /* set nonDefaultRules */
 }
 
 void printRuleOrder()
 {
     printRuleListOrder(RuleLists);
 }
-
 /****************************************************************************
  *
  * Function: CreateRuleType
@@ -1241,6 +1610,12 @@ ListHead *CreateRuleType(char *name, int mode, int rval, ListHead *head)
 {
     RuleListNode *node;
     int evalIndex = 0;
+
+    /* Using calloc() because code isn't initializing
+     * all of the structure fields before returning.  This is a non-
+     * time-critical function, and is only called a half dozen times
+     * on startup.
+     */
 
     /*
      * if this is the first rule list node, then we need to create a new
@@ -1471,6 +1846,9 @@ int AlertAction(Packet * p, OptTreeNode * otn, Event *event)
     if(otn->outputFuncs)
         CallSigOutputFuncs(p, otn, event);
     
+//PORTLISTS
+    if( pv.alert_packet_count )
+        print_packet_count();
     CallAlertFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "   => Finishing alert packet!\n"););
@@ -1623,41 +2001,91 @@ int LogAction(Packet * p, OptTreeNode * otn, Event *event)
 
 void ObfuscatePacket(Packet *p)
 {
+    snort_ip cleared;
+    IP_CLEAR(cleared);
+
     /* only obfuscate once */
     if(p->packet_flags & PKT_OBFUSCATED)
         return;
     
     /* we only obfuscate IP packets */
-    if(!p->iph)
+    if(!IPH_IS_VALID(p))
         return;
+
+#ifdef SUP_IP6
+    if(!IS_SET(pv.obfuscation_net))
+    {
+        sfip_t *tmp = GET_SRC_IP(p);
+
+        if(!tmp)
+        {
+            /* XXX we're hosed */
+            return;
+        }   
+        memset(tmp->ip8, 0, 16);
     
+        tmp = GET_DST_IP(p);
+        if(!tmp)
+        {
+            return;
+        }   
+        memset(tmp->ip8, 0, 16);
+    }
+#else
     if(pv.obfuscation_net == 0)
     {
-        p->iph->ip_src.s_addr = 0x00000000;
-        p->iph->ip_dst.s_addr = 0x00000000;
+        ((IPHdr *)p->iph)->ip_src.s_addr = 0x00000000;
+        ((IPHdr *)p->iph)->ip_dst.s_addr = 0x00000000;
     }
+#endif
     else
     {
+#ifdef SUP_IP6
+        sfip_t *src;
+        sfip_t *dst;
+
+        src = GET_SRC_IP(p);
+        dst = GET_DST_IP(p);
+
+        if(IS_SET(pv.homenet))
+        {
+            if(sfip_contains(&pv.homenet, src) == SFIP_CONTAINS)
+            {
+                sfip_obfuscate(&pv.obfuscation_net, src);
+            } 
+
+            if(sfip_contains(&pv.homenet, dst) == SFIP_CONTAINS)
+            {
+                sfip_obfuscate(&pv.obfuscation_net, dst);
+            }
+        }
+        else
+        {
+            sfip_obfuscate(&pv.obfuscation_net, src);
+            sfip_obfuscate(&pv.obfuscation_net, dst);
+        }
+#else
         if(pv.homenet != 0)
         {
             if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
             {
-                p->iph->ip_src.s_addr = pv.obfuscation_net |
+                ((IPHdr *)p->iph)->ip_src.s_addr = pv.obfuscation_net |
                     (p->iph->ip_src.s_addr & pv.obfuscation_mask);
             }
             if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
             {
-                p->iph->ip_dst.s_addr = pv.obfuscation_net |
+                ((IPHdr *)p->iph)->ip_dst.s_addr = pv.obfuscation_net |
                     (p->iph->ip_dst.s_addr & pv.obfuscation_mask);
             }
         }
         else
         {
-            p->iph->ip_src.s_addr = pv.obfuscation_net |
+            ((IPHdr *)p->iph)->ip_src.s_addr = pv.obfuscation_net |
                 (p->iph->ip_src.s_addr & pv.obfuscation_mask);
-            p->iph->ip_dst.s_addr = pv.obfuscation_net |
+            ((IPHdr *)p->iph)->ip_dst.s_addr = pv.obfuscation_net |
                 (p->iph->ip_dst.s_addr & pv.obfuscation_mask);
         }
+#endif
     }
     p->packet_flags |= PKT_OBFUSCATED;
 }

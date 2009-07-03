@@ -1,9 +1,10 @@
 /*
  * ftpp_ui_server_lookup.c
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -35,10 +36,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "ftpp_util_kmap.h"
+#include "hi_util_kmap.h"
 #include "ftpp_ui_config.h"
 #include "ftpp_return_codes.h"
 #include "snort_ftptelnet.h"
+
+static void serverConfFree(void *pData);
 
 /*
  * Function: ftpp_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup)
@@ -55,9 +58,15 @@
  * Returns: int => return code indicating error or success
  *
  */
+#define FTPP_UI_CONFIG_MAX_SERVERS 20
 int ftpp_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup)
 {
-    *ServerLookup = KMapNew(FTPTelnetCleanupFTPServerConf); 
+#ifdef SUP_IP6
+    *ServerLookup =  sfrt_new(DIR_16_4x4_16x5_4x4, IPv6, FTPP_UI_CONFIG_MAX_SERVERS, 20);
+#else
+    *ServerLookup =  sfrt_new(DIR_16x2, IPv4, FTPP_UI_CONFIG_MAX_SERVERS, 20);
+#endif
+
     if(*ServerLookup == NULL)
     {
         return FTPP_MEM_ALLOC_FAIL;
@@ -80,18 +89,12 @@ int ftpp_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup)
  */
 int ftpp_ui_server_lookup_cleanup(SERVER_LOOKUP **ServerLookup)
 {
-    KMAP *km;
-
-    if (ServerLookup == NULL)
+    if ((ServerLookup == NULL) || (*ServerLookup == NULL))
         return FTPP_INVALID_ARG;
 
-    km = *ServerLookup;
-
-    if (km)
-    {
-        KMapDelete(km);
-        *ServerLookup = NULL;
-    }
+    sfrt_cleanup(*ServerLookup, serverConfFree);
+    sfrt_free(*ServerLookup);
+    *ServerLookup = NULL;
 
     return FTPP_SUCCESS;
 }
@@ -116,8 +119,8 @@ int ftpp_ui_server_lookup_cleanup(SERVER_LOOKUP **ServerLookup)
  * Returns: int => return code indicating error or success
  *
  */
-int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
-                            FTP_SERVER_PROTO_CONF *ServerConf)
+int ftpp_ui_server_lookup_add(
+    SERVER_LOOKUP *ServerLookup, sfip_t* Ip, FTP_SERVER_PROTO_CONF *ServerConf ) 
 {
     int iRet;
 
@@ -126,20 +129,15 @@ int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
         return FTPP_INVALID_ARG;
     }
 
-    iRet = KMapAdd(ServerLookup, (void *)&Ip, 4, (void *)ServerConf);
+#ifdef SUP_IP6
+    iRet = sfrt_insert((void *)Ip, (unsigned char)Ip->bits, (void *)ServerConf, RT_FAVOR_SPECIFIC, ServerLookup);
+#else
+    iRet = sfrt_insert((void *)&(Ip->ip.u6_addr32[0]), (unsigned char)Ip->bits, (void *)ServerConf, RT_FAVOR_SPECIFIC, ServerLookup);
+#endif
+
     if (iRet)
     {
-        /*
-         *  This means the key has already been added.
-         */
-        if(iRet == 1)
-        {
-            return FTPP_NONFATAL_ERR;
-        }
-        else
-        {
-            return FTPP_MEM_ALLOC_FAIL;
-        }
+        return FTPP_MEM_ALLOC_FAIL;
     }
 
     return FTPP_SUCCESS;
@@ -147,8 +145,7 @@ int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
 
 /*
  * Function: ftpp_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup,
- *                                  char *ip, int len,
- *                                  int *iError)
+ *                                  snort_ip_p ip, int *iError)
  *
  * Purpose: Find a server configuration given a IP.
  *          We look up a server configuration given an IP and
@@ -156,7 +153,6 @@ int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
  *
  * Arguments: ServerLookup => a pointer to the lookup structure
  *            IP           => the ftp server address
- *            len          => Length of the address 
  *            iError       => a pointer to an error code
  *
  * Returns: int => return code indicating error or success
@@ -165,8 +161,9 @@ int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
  *                            structure matching IP if found, NULL otherwise.
  *
  */
-FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup, 
-                                            unsigned long Ip, int *iError)
+FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_find(
+    SERVER_LOOKUP *ServerLookup, snort_ip_p Ip, int *iError
+) 
 {
     FTP_SERVER_PROTO_CONF *ServerConf = NULL;
 
@@ -183,8 +180,11 @@ FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup,
 
     *iError = FTPP_SUCCESS;
 
-    /* TODO: change this to use a quick find of IP/mask */
-    ServerConf = (FTP_SERVER_PROTO_CONF *) KMapFind(ServerLookup,(void *)&Ip,4);
+#ifdef SUP_IP6
+    ServerConf = (FTP_SERVER_PROTO_CONF *)sfrt_lookup((void *)Ip, ServerLookup);
+#else
+    ServerConf = (FTP_SERVER_PROTO_CONF *)sfrt_lookup((void *)&Ip, ServerLookup);
+#endif
     if (!ServerConf)
     {
         *iError = FTPP_NOT_FOUND;
@@ -192,6 +192,44 @@ FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup,
 
     return ServerConf;
 }
+
+
+/**Iterate over all the stored IP addresses, calling the callback for
+ * all elements.
+ *
+ * @param ServerLookup => a pointer to the lookup structure
+ * @param userfunc => user defined callback function 
+ * @param iError => a pointer to an error code
+ *
+ * @returns iError => return code indicating error or success
+ *
+ */
+void ftpp_ui_server_iterate(
+    SERVER_LOOKUP *ServerLookup, 
+    sfrt_iterator_callback userfunc,
+    int *iError
+    )
+{
+    if(!iError)
+    {
+        return;
+    }
+
+    if(!ServerLookup)
+    {
+        *iError = FTPP_INVALID_ARG;
+        return;
+    }
+
+    *iError = FTPP_SUCCESS;
+
+    sfrt_iterate(ServerLookup, userfunc);
+}
+
+#if 0
+/** Obsoleted. After changing underlying KMAP to SFRT. SFRT provides an iterator with 
+ * a callback function but does not support getFirst, getNext operations.
+ */
 
 /*
  * Function: ftpp_ui_server_lookup_first(SERVER_LOOKUP *ServerLookup,
@@ -277,3 +315,29 @@ FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_next(SERVER_LOOKUP *ServerLookup,
 
     return ServerConf;
 }
+#endif    
+
+/**Free pData buffer, which may be referenced multiple times. ReferenceCount 
+ * is the number of times the buffer is referenced.  For freeing the buffer, 
+ * we just decrement referenceCount till it reaches 0, at which time the 
+ * buffer is also freed.
+ */
+static void serverConfFree(void *pData)
+{
+    FTP_SERVER_PROTO_CONF *serverConf = (FTP_SERVER_PROTO_CONF *)pData;
+
+    if (serverConf)
+    {
+        serverConf->referenceCount--;
+        if (serverConf->referenceCount == 0)
+        {
+            if (serverConf->serverAddr)
+            {
+                free (serverConf->serverAddr);
+            }
+
+            free(serverConf);
+        }
+    }
+}
+

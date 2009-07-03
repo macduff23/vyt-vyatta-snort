@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -50,7 +51,7 @@
 #include "snort.h"
 
 /* list of function prototypes for this output plugin */
-void LogNullInit(u_char *);
+void LogNullInit(char *);
 void LogNull(Packet *, char *, void *, Event *);
 void LogNullCleanExitFunc(int, void *);
 void LogNullRestartFunc(int, void *);
@@ -65,7 +66,7 @@ void LogNullSetup()
 }
 
 
-void LogNullInit(u_char *args)
+void LogNullInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogNull Initialized\n"););
 

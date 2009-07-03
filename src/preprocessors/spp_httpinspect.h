@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -27,7 +27,7 @@
 #ifndef __SPP_HTTPINSPECT_H__
 #define __SPP_HTTPINSPECT_H__
 
-void SetupHttpInspect(void);
-void HttpInspectDropStats(void);
+void SetupHttpInspect();
+int  HttpInspect_isinitialized();
 
 #endif

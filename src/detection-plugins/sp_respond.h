@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 1999,2000,2001 Christian Lademann <cal@zls.de>
 **
@@ -29,6 +30,8 @@
 #if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
 
 void SetupRespond(void);
+u_int32_t RespondHash(void *d);
+int RespondCompare(void *l, void *r);
 
 #endif /* ENABLE_RESPONSE && !ENABLE_RESPONSE2 */
 #endif /* __RESPOND_H__ */

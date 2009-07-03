@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **           (C) 2002 Sourcefire, Inc.
 **
@@ -73,7 +74,7 @@
 extern OptTreeNode *otn_tmp;
 
 /* internal functions */
-void LogAsciiInit(u_char *args);
+void LogAsciiInit(char *args);
 void LogAscii(Packet *p, char *msg, void *arg, Event *event);
 void LogAsciiCleanExit(int signal, void *arg);
 void LogAsciiRestart(int signal, void *arg);
@@ -96,7 +97,7 @@ void LogAsciiSetup()
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogAscii is setup\n"););
 }
 
-void LogAsciiInit(u_char *args)
+void LogAsciiInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: Ascii logging initialized\n"););
 
@@ -116,7 +117,7 @@ void LogAscii(Packet *p, char *msg, void *arg, Event *event)
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "LogPkt started\n"););
     if(p)
     { 
-        if(p->iph)
+        if(IPH_IS_VALID(p))
             log_ptr = OpenLogFile(0, p);
         else if(p->ah)
             log_ptr = OpenLogFile(ARP, p);
@@ -145,8 +146,8 @@ void LogAscii(Packet *p, char *msg, void *arg, Event *event)
     }
     if(p)
     {
-        if(p->iph)
-            PrintIPPkt(log_ptr, p->iph->ip_proto, p);
+        if(IPH_IS_VALID(p))
+            PrintIPPkt(log_ptr, GET_IPH_PROTO(p), p);
         else if(p->ah)
             PrintArpHeader(log_ptr, p);
     }
@@ -186,6 +187,10 @@ FILE *OpenLogFile(int mode, Packet * p)
     char proto[5];      /* logged packet protocol */
     char suffix[5];     /* filename suffix */
     FILE *log_ptr = NULL;
+#ifdef SUP_IP6
+    snort_ip_p ip;
+#endif
+
 #ifdef WIN32
     SnortStrncpy(suffix, ".ids", sizeof(suffix));
 #else
@@ -227,46 +232,59 @@ FILE *OpenLogFile(int mode, Packet * p)
             return log_ptr;
         }
     }
-    /* figure out which way this packet is headed in relation to the homenet */
+#ifdef SUP_IP6
+    ip = GET_DST_IP(p);
+    if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+#else
     if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
+#endif
     {
+#ifdef SUP_IP6
+        if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+#else
         if((p->iph->ip_src.s_addr & pv.netmask) != pv.homenet)
+#endif
         {
             SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                          inet_ntoa(p->iph->ip_src));
+                    inet_ntoa(GET_SRC_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
                 SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                              inet_ntoa(p->iph->ip_src));
+                        inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
                 SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                              inet_ntoa(p->iph->ip_dst));
+                        inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }
     else
     {
+#ifdef SUP_IP6
+        ip = GET_SRC_IP(p);
+        if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+#else
         if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
+#endif
         {
             SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                          inet_ntoa(p->iph->ip_dst));
+                    inet_ntoa(GET_DST_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
                 SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                              inet_ntoa(p->iph->ip_src));
+                        inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
                 SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
-                              inet_ntoa(p->iph->ip_dst));
+                        inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }
@@ -287,8 +305,8 @@ FILE *OpenLogFile(int mode, Packet * p)
     DEBUG_WRAP(DebugMessage(DEBUG_FLOW, "Directory Created!\n"););
 
     /* build the log filename */
-    if(p->iph->ip_proto == IPPROTO_TCP ||
-            p->iph->ip_proto == IPPROTO_UDP)
+    if(GET_IPH_PROTO(p) == IPPROTO_TCP ||
+            GET_IPH_PROTO(p) == IPPROTO_UDP)
     {
         if(p->frag_flag)
         {
@@ -300,20 +318,20 @@ FILE *OpenLogFile(int mode, Packet * p)
             {
 #ifdef WIN32
                 SnortSnprintf(log_file, STD_BUF, "%s/%s_%d-%d%s", log_path,
-                              protocol_names[p->iph->ip_proto], p->sp, p->dp, suffix);
+                        protocol_names[GET_IPH_PROTO(p)], p->sp, p->dp, suffix);
 #else
                 SnortSnprintf(log_file, STD_BUF, "%s/%s:%d-%d%s", log_path,
-                              protocol_names[p->iph->ip_proto], p->sp, p->dp, suffix);
+                        protocol_names[GET_IPH_PROTO(p)], p->sp, p->dp, suffix);
 #endif
             }
             else
             {
 #ifdef WIN32
                 SnortSnprintf(log_file, STD_BUF, "%s/%s_%d-%d%s", log_path,
-                              protocol_names[p->iph->ip_proto], p->dp, p->sp, suffix);
+                        protocol_names[GET_IPH_PROTO(p)], p->dp, p->sp, suffix);
 #else
                 SnortSnprintf(log_file, STD_BUF, "%s/%s:%d-%d%s", log_path,
-                              protocol_names[p->iph->ip_proto], p->dp, p->sp, suffix);
+                        protocol_names[GET_IPH_PROTO(p)], p->dp, p->sp, suffix);
 #endif
             }
         }
@@ -326,7 +344,7 @@ FILE *OpenLogFile(int mode, Packet * p)
         }
         else
         {
-            if(p->iph->ip_proto == IPPROTO_ICMP)
+            if(GET_IPH_PROTO(p) == IPPROTO_ICMP)
             {
                 SnortSnprintf(log_file, STD_BUF, "%s/%s_%s%s", log_path, "ICMP",
                               IcmpFileName(p), suffix);
@@ -334,7 +352,7 @@ FILE *OpenLogFile(int mode, Packet * p)
             else
             {
                 SnortSnprintf(log_file, STD_BUF, "%s/PROTO%d%s", log_path,
-                              p->iph->ip_proto, suffix);
+                         GET_IPH_PROTO(p), suffix);
             }
         }
     }

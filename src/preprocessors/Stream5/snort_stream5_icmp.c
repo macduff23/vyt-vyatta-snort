@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -205,16 +205,22 @@ void IcmpSessionCleanup(Stream5LWSession *ssn)
     s5stats.icmp_sessions_released++;
 }
 
-void Stream5CleanIcmp()
+void Stream5ResetIcmp(void)
+{
+    PurgeLWSessionCache(icmp_lws_cache);
+    mempool_clean(&icmp_session_mempool);
+}
+
+void Stream5CleanIcmp(void)
 {
     /* Clean up hash table -- delete all sessions */
-    PurgeLWSessionCache(icmp_lws_cache);
+    DeleteLWSessionCache(icmp_lws_cache);
     icmp_lws_cache = NULL;
 
     mempool_destroy(&icmp_session_mempool);
 }
 
-int Stream5VerifyIcmpConfig()
+int Stream5VerifyIcmpConfig(void)
 {
     if (!icmp_lws_cache)
         return -1;
@@ -250,6 +256,10 @@ static int ProcessIcmpUnreach(Packet *p)
     Stream5LWSession *ssn = NULL;
     u_int16_t sport;
     u_int16_t dport;
+#ifdef SUP_IP6
+    sfip_t *src;
+    sfip_t *dst;
+#endif
 
     /* No "orig" IP Header */
     if (!p->orig_iph)
@@ -259,21 +269,25 @@ static int ProcessIcmpUnreach(Packet *p)
      * embedded in the ICMP Unreach message.  This is already decoded
      * in p->orig_foo.  TCP/UDP ports are decoded as p->orig_sp/dp.
      */
-    skey.protocol = p->orig_iph->ip_proto;
+    skey.protocol = GET_ORIG_IPH_PROTO(p);
     sport = p->orig_sp;
     dport = p->orig_dp;
 
-    if (p->orig_iph->ip_src.s_addr < p->orig_iph->ip_dst.s_addr)
+#ifdef SUP_IP6
+    src = GET_ORIG_SRC(p);
+    dst = GET_ORIG_DST(p);
+
+    if (sfip_fast_lt6(src, dst))
     {
-        skey.ip_l = p->orig_iph->ip_src.s_addr;
+        COPY4(skey.ip_l, src->ip32);
         skey.port_l = sport;
-        skey.ip_h = p->orig_iph->ip_dst.s_addr;
+        COPY4(skey.ip_h, dst->ip32);
         skey.port_h = dport;
     }
-    else if (p->orig_iph->ip_dst.s_addr == p->orig_iph->ip_src.s_addr)
+    else if (IP_EQUALITY(GET_ORIG_SRC(p), GET_ORIG_DST(p)))
     {
-        skey.ip_l = p->orig_iph->ip_src.s_addr;
-        skey.ip_h = p->orig_iph->ip_src.s_addr;
+        COPY4(skey.ip_l, src->ip32);
+        COPY4(skey.ip_h, skey.ip_l);
         if (sport < dport)
         {
             skey.port_l = sport;
@@ -285,11 +299,40 @@ static int ProcessIcmpUnreach(Packet *p)
             skey.port_h = sport;
         }
     }
+#else
+    if (p->orig_iph->ip_src.s_addr < p->orig_iph->ip_dst.s_addr)
+    {
+        skey.ip_l = p->orig_iph->ip_src.s_addr;
+        skey.port_l = sport;
+        skey.ip_h = p->orig_iph->ip_dst.s_addr;
+        skey.port_h = dport;
+    }
+    else if (p->orig_iph->ip_dst.s_addr == p->orig_iph->ip_src.s_addr)
+    {
+        skey.ip_l = p->orig_iph->ip_src.s_addr;
+        skey.ip_h = skey.ip_l;
+        if (sport < dport)
+        {
+            skey.port_l = sport;
+            skey.port_h = dport;
+        }
+        else
+        {
+            skey.port_l = dport;
+            skey.port_h = sport;
+        }
+    }
+#endif
     else
     {
+#ifdef SUP_IP6
+        COPY4(skey.ip_l, dst->ip32);
+        COPY4(skey.ip_h, src->ip32);
+#else
         skey.ip_l = p->orig_iph->ip_dst.s_addr;
-        skey.port_l = dport;
         skey.ip_h = p->orig_iph->ip_src.s_addr;
+#endif
+        skey.port_l = dport;
         skey.port_h = sport;
     }
 
@@ -319,9 +362,9 @@ static int ProcessIcmpUnreach(Packet *p)
         /* Mark this session as dead. */
         DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
             "Marking session as dead, per ICMP Unreachable!\n"););
-        ssn->session_flags |= STREAM5_STATE_DROP_CLIENT;
-        ssn->session_flags |= STREAM5_STATE_DROP_SERVER;
-        ssn->session_flags |= STREAM5_STATE_UNREACH;
+        ssn->session_flags |= SSNFLAG_DROP_CLIENT;
+        ssn->session_flags |= SSNFLAG_DROP_SERVER;
+        ssn->session_state |= STREAM5_STATE_UNREACH;
     }
 
     return 0;
@@ -336,10 +379,10 @@ static int ProcessIcmpEcho(Packet *p)
 }
 
 void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
-                        u_int32_t ip, u_int16_t port)
+                        snort_ip_p ip, u_int16_t port)
 {
     IcmpSession *icmpssn = ssn->proto_specific_data->data;
-    u_int32_t tmpIp;
+    snort_ip tmpIp;
 
     if (!icmpssn)
     {
@@ -347,7 +390,8 @@ void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
         return;
     }
 
-    if (icmpssn->icmp_sender_ip == ip)
+#ifdef SUP_IP6
+    if (IP_EQUALITY(&icmpssn->icmp_sender_ip, ip))
     {
         if ((dir == SSN_DIR_SENDER) && (ssn->direction == SSN_DIR_SENDER))
         {
@@ -355,7 +399,7 @@ void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
             return;
         }
     }
-    else if (icmpssn->icmp_responder_ip == ip)
+    else if (IP_EQUALITY(&icmpssn->icmp_responder_ip, ip))
     {
         if ((dir == SSN_DIR_RESPONDER) && (ssn->direction == SSN_DIR_RESPONDER))
         {
@@ -363,6 +407,24 @@ void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
             return;
         }
     }
+#else
+    if (IP_EQUALITY(icmpssn->icmp_sender_ip, ip))
+    {
+        if ((dir == SSN_DIR_SENDER) && (ssn->direction == SSN_DIR_SENDER))
+        {
+            /* Direction already set as SENDER */
+            return;
+        }
+    }
+    else if (IP_EQUALITY(icmpssn->icmp_responder_ip, ip))
+    {
+        if ((dir == SSN_DIR_RESPONDER) && (ssn->direction == SSN_DIR_RESPONDER))
+        {
+            /* Direction already set as RESPONDER */
+            return;
+        }
+    }
+#endif
 
     /* Swap them -- leave ssn->direction the same */
     tmpIp = icmpssn->icmp_sender_ip;

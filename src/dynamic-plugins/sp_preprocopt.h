@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -27,16 +27,28 @@
 
 #include "sf_dynamic_engine.h"
 
-void PreprocessorRuleOptionsInit();
-void PreprocessorRuleOptionsFree();
+void PreprocessorRuleOptionsInit(void);
+void PreprocessorRuleOptionsFree(void);
 int RegisterPreprocessorRuleOption(char *optionName,
                                    PreprocOptionInit initFunc,
                                    PreprocOptionEval evalFunc,
-                                   PreprocOptionCleanup cleanupFunc);
-int GetPreprocessorRuleOptionFuncs(char *optionName,
-                                   void **initFunc,
-                                   void **evalFunc);
+                                   PreprocOptionCleanup cleanupFunc,
+                                   PreprocOptionHash hashFunc,
+                                   PreprocOptionKeyCompare keyCompareFunc
+                                  );
+void RegisterPreprocessorRuleOptionOverride(char *keyword, char *option,
+                                            PreprocOptionInit initFunc,
+                                            PreprocOptionEval evalFunc,
+                                            PreprocOptionCleanup cleanupFunc,
+                                            PreprocOptionHash hashFunc,
+                                            PreprocOptionKeyCompare keyCompareFunc
+                                           );
+int GetPreprocessorRuleOptionFuncs(char *optionName, void **initFunc, void **evalFunc);
 int AddPreprocessorRuleOption(char *, OptTreeNode *, void *, PreprocOptionEval);
+
+u_int32_t PreprocessorRuleOptionHash(void *d);
+int PreprocessorRuleOptionCompare(void *l, void *r);
+void PreprocessorRuleOptionsFreeFunc(void *);
 
 #endif  /* __SP_PREPROCOPT_H_ */
 

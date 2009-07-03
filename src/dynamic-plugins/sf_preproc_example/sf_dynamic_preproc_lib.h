@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005-2006 Sourcefire, Inc
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Author: Steven Sturges
 **
 ** This program is free software; you can redistribute it and/or modify

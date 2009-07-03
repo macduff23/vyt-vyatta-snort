@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2006 Sourcefire, Inc.
+ ** Copyright (C) 2002-2009 Sourcefire, Inc.
  ** Author: Martin Roesch
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,7 @@
  *      ["oct"]: converted string data is represented in octal
  *      ["align"]: round the number of converted bytes up to the next 
  *                 32-bit boundry
+ *      ["post_offset"]: number of bytes to adjust after applying 
  *   
  *   sample rules:
  *   alert udp any any -> any 32770:34000 (content: "|00 01 86 B8|"; \
@@ -84,9 +85,28 @@
 #include "plugin_enum.h"
 #include "mstring.h"
 #include "byte_extract.h"
+#include "sfhashfcn.h"
 
-extern u_int8_t *doe_ptr;
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats byteJumpPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+extern const u_int8_t *doe_ptr;
 extern u_int8_t DecodeBuffer[DECODE_BLEN];
+
+typedef struct _ByteJumpOverrideData
+{
+    char *keyword;
+    char *option;
+    RuleOverrideFunc func;
+    struct _ByteJumpOverrideData *next;
+} ByteJumpOverrideData;
+
+static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func);
+ByteJumpOverrideData *byteJumpOverrideFuncs = NULL;
 
 typedef struct _ByteJumpData
 {
@@ -99,12 +119,81 @@ typedef struct _ByteJumpData
     u_int8_t endianess;
     u_int32_t base;
     u_int32_t multiplier;
+    int32_t post_offset;
 
 } ByteJumpData;
 
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 void ByteJumpInit(char *, OptTreeNode *, int);
-void ByteJumpParse(char *, ByteJumpData *, OptTreeNode *);
-int ByteJump(Packet *, struct _OptTreeNode *, OptFpList *);
+ByteJumpOverrideData * ByteJumpParse(char *, ByteJumpData *, OptTreeNode *);
+int ByteJump(void *option_data, Packet *);
+
+u_int32_t ByteJumpHash(void *d)
+{
+    u_int32_t a,b,c;
+    ByteJumpData *data = (ByteJumpData *)d;
+
+    a = data->bytes_to_grab;
+    b = data->offset;
+    c = data->base;
+
+    mix(a,b,c); 
+                                     
+    a += (data->relative_flag << 24 |
+          data->data_string_convert_flag << 16 |
+          data->from_beginning_flag << 8 |
+          data->align_flag); 
+    b += data->endianess;
+    c += data->multiplier;
+
+    mix(a,b,c);
+                                                         
+    a += RULE_OPTION_TYPE_BYTE_JUMP;
+    b += data->post_offset;
+
+    final(a,b,c);
+                                                                     
+    return c;
+}   
+    
+int ByteJumpCompare(void *l, void *r)
+{
+    ByteJumpData *left = (ByteJumpData *)l;
+    ByteJumpData *right = (ByteJumpData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (( left->bytes_to_grab == right->bytes_to_grab) &&
+        ( left->offset == right->offset) &&
+        ( left->relative_flag == right->relative_flag) &&
+        ( left->data_string_convert_flag == right->data_string_convert_flag) &&
+        ( left->from_beginning_flag == right->from_beginning_flag) &&
+        ( left->align_flag == right->align_flag) &&
+        ( left->endianess == right->endianess) &&
+        ( left->base == right->base) &&
+        ( left->multiplier == right->multiplier) &&
+        ( left->post_offset == right->post_offset))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
+
+static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func)
+{
+    ByteJumpOverrideData *new = SnortAlloc(sizeof(ByteJumpOverrideData));
+
+    new->keyword = strdup(keyword);
+    new->option = strdup(option);
+    new->func = func;
+    
+    new->next = byteJumpOverrideFuncs;
+    byteJumpOverrideFuncs = new;
+}
 
 /****************************************************************************
  * 
@@ -120,7 +209,11 @@ int ByteJump(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupByteJump(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("byte_jump", ByteJumpInit);
+    RegisterPlugin("byte_jump", ByteJumpInit, ByteJumpOverride, OPT_TYPE_DETECTION);
+
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("byte_jump", &byteJumpPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: ByteJump Setup\n"););
 }
@@ -145,6 +238,8 @@ void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
 {
     ByteJumpData *idx;
     OptFpList *fpl;
+    ByteJumpOverrideData *override;
+    void *idx_dup;
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
@@ -158,9 +253,46 @@ void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
-    ByteJumpParse(data, idx, otn);
+    override = ByteJumpParse(data, idx, otn);
+    if (override != NULL)
+    {
+        /* There is an override function */
+        free(idx);
+        override->func(override->keyword, override->option, data, otn, protocol);
+        return;
+    }
 
     fpl = AddOptFuncToList(ByteJump, otn);
+    fpl->type = RULE_OPTION_TYPE_BYTE_JUMP;
+
+    if (add_detection_option(RULE_OPTION_TYPE_BYTE_JUMP, (void *)idx, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+#ifdef DEBUG_RULE_OPTION_TREE
+        LogMessage("Duplicate ByteJump:\n%d %d %c %c %c %c %c %d %d\n"
+            "%d %d %c %c %c %c %c %d %d %d\n\n",
+            idx->bytes_to_grab,
+            idx->offset,
+            idx->relative_flag,
+            idx->data_string_convert_flag,
+            idx->from_beginning_flag,
+            idx->align_flag,
+            idx->endianess,
+            idx->base, idx->multiplier,
+            ((ByteJumpData *)idx_dup)->bytes_to_grab,
+            ((ByteJumpData *)idx_dup)->offset,
+            ((ByteJumpData *)idx_dup)->relative_flag,
+            ((ByteJumpData *)idx_dup)->data_string_convert_flag,
+            ((ByteJumpData *)idx_dup)->from_beginning_flag,
+            ((ByteJumpData *)idx_dup)->align_flag,
+            ((ByteJumpData *)idx_dup)->endianess,
+            ((ByteJumpData *)idx_dup)->base,
+            ((ByteJumpData *)idx_dup)->multiplier,
+            ((ByteJumpData *)idx_dup)->post_offset);
+#endif
+        free(idx);
+        idx = idx_dup;
+    }
+
 
     /* attach it to the context node so that we can call each instance
      * individually
@@ -169,10 +301,7 @@ void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
 
     if (idx->relative_flag == 1)
         fpl->isRelative = 1;
-
 }
-
-
 
 /****************************************************************************
  * 
@@ -188,7 +317,7 @@ void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
  * Returns: void function
  *
  ****************************************************************************/
-void ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
+ByteJumpOverrideData * ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
 {
     char **toks;
     char *endp;
@@ -299,10 +428,42 @@ void ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
                 }
                 idx->multiplier = factor;
             }
+            else if(!strncasecmp(cptr, "post_offset ", 12))
+            {
+                /* Format of this option is post_offset xx.
+                 * xx is a positive or negative base 10 integer.
+                 */
+                char *mval = &cptr[12];
+                int32_t factor = 0;
+                int postoffset_len = strlen(cptr);
+                if (postoffset_len > 12)
+                {
+                    factor = strtol(mval, &endp, 10);
+                }
+                if (endp != cptr + postoffset_len)
+                {
+                    FatalError("%s(%d): invalid post_offset \"%s\"\n", 
+                            file_name, file_line, cptr);
+                }
+                idx->post_offset = factor;
+            }
             else
             {
+                ByteJumpOverrideData *override = byteJumpOverrideFuncs;
+
+                while (override != NULL)
+                {
+                    if (strcasecmp(cptr, override->option) == 0)
+                    {
+                        mSplitFree(&toks, num_toks);
+                        return override;
+                    }
+
+                    override = override->next;
+                }
+
                 FatalError("%s(%d): unknown modifier \"%s\"\n", 
-                        file_name, file_line, cptr);
+                           file_name, file_line, cptr);
             }
 
             i++;
@@ -317,6 +478,7 @@ void ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
     }
 
     mSplitFree(&toks, num_toks);
+    return NULL;
 }
 
 
@@ -335,21 +497,25 @@ void ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
  *          On success, it calls the next function in the detection list 
  *
  ****************************************************************************/
-int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int ByteJump(void *option_data, Packet *p)
 {
-    ByteJumpData *bjd;
+    ByteJumpData *bjd = (ByteJumpData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
     u_int32_t value = 0;
     u_int32_t jump_value = 0;
+    u_int32_t payload_bytes_grabbed = 0;
+    int32_t tmp = 0;
     int dsize;
     int use_alt_buffer = p->packet_flags & PKT_ALT_DECODE;
-    char *base_ptr, *end_ptr, *start_ptr;
+    const u_int8_t *base_ptr, *end_ptr, *start_ptr;
+    PROFILE_VARS;
 
-    bjd = (ByteJumpData *) fp_list->context;
+    PREPROC_PROFILE_START(byteJumpPerfStats);
 
     if(use_alt_buffer)
     {
         dsize = p->alt_dsize;
-        start_ptr = (char *) DecodeBuffer;        
+        start_ptr = DecodeBuffer;        
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                     "Using Alternative Decode buffer!\n"););
 
@@ -376,7 +542,9 @@ int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "[*] byte jump bounds check failed..\n"););
-            return 0;
+
+            PREPROC_PROFILE_END(byteJumpPerfStats);
+            return rval;
         }
     }
 
@@ -404,25 +572,30 @@ int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "Byte Extraction Failed\n"););
 
-            return 0;
+            PREPROC_PROFILE_END(byteJumpPerfStats);
+            return rval;
         }
+
+        payload_bytes_grabbed = bjd->bytes_to_grab;
     }
     else
     {
-        if(string_extract(bjd->bytes_to_grab, bjd->base,
-                          base_ptr, start_ptr, end_ptr, &value))
+        payload_bytes_grabbed = tmp = string_extract(bjd->bytes_to_grab, bjd->base,
+                                               base_ptr, start_ptr, end_ptr, &value);
+        if (tmp < 0)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "Byte Extraction Failed\n"););
 
-            return 0;
+            PREPROC_PROFILE_END(byteJumpPerfStats);
+            return rval;
         }
 
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                "grabbed %d bytes, value = %08X\n", 
-                bjd->bytes_to_grab, value););
+                            "grabbed %d of %d bytes, value = %08X\n", 
+                            payload_bytes_grabbed, bjd->bytes_to_grab, value););
 
     /* Adjust the jump_value (# bytes to jump forward) with
      * the multiplier.
@@ -430,8 +603,8 @@ int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     jump_value = value * bjd->multiplier;
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                "grabbed %d bytes, after multiplier value = %08X\n", 
-                bjd->bytes_to_grab, jump_value););
+                            "grabbed %d of %d bytes, after multiplier value = %08X\n", 
+                            payload_bytes_grabbed, bjd->bytes_to_grab, jump_value););
 
 
     /* if we need to align on 32-bit boundries, round up to the next
@@ -450,8 +623,8 @@ int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                "Grabbed %d bytes at offset %d, value = 0x%08X\n",
-                bjd->bytes_to_grab, bjd->offset, jump_value););
+                            "Grabbed %d bytes at offset %d, value = 0x%08X\n",
+                            payload_bytes_grabbed, bjd->offset, jump_value););
 
     if(bjd->from_beginning_flag)
     {
@@ -462,23 +635,29 @@ int ByteJump(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
 
         /* from base, push doe_ptr ahead "value" number of bytes */
         doe_ptr = base_ptr + jump_value;
+
     }
     else
     {
-        doe_ptr = base_ptr + bjd->bytes_to_grab + jump_value;
+        doe_ptr = base_ptr + payload_bytes_grabbed + jump_value;
+
     }
    
+    /* now adjust using post_offset -- before bounds checking */
+    doe_ptr += bjd->post_offset;
+
     if(!inBounds(start_ptr, end_ptr, doe_ptr))
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                 "tmp ptr is not in bounds %p\n", doe_ptr););
-        return 0;
+        PREPROC_PROFILE_END(byteJumpPerfStats);
+        return rval;
     }
     else
     {        
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
 
-    /* Never reached */
-    return 0;
+    PREPROC_PROFILE_END(byteJumpPerfStats);
+    return rval;
 }

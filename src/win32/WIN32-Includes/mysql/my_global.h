@@ -614,7 +614,8 @@ typedef SOCKET_SIZE_TYPE size_socket;
 #define SET_STACK_SIZE(X)	/* Not needed on real machines */
 
 #if !defined(HAVE_mit_thread) && !defined(HAVE_STRTOK_R)
-#define strtok_r(A,B,C) strtok((A),(B))
+//we have our own implementation of strtok_r that gets linked into Snort
+//#define strtok_r(A,B,C) strtok((A),(B))
 #endif
 
 /* Remove some things that mit_thread break or doesn't support */

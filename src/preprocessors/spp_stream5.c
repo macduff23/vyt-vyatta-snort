@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -19,7 +19,6 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  ****************************************************************************/
- 
 
 /**
  * @file    spp_stream5.c
@@ -29,7 +28,6 @@
  *
  * @brief   You can never have too many stream reassemblers...
  */
-
 
 /*  I N C L U D E S  ************************************************/
 #ifdef HAVE_CONFIG_H
@@ -55,7 +53,6 @@
 #include "snort_stream5_tcp.h"
 #include "snort_stream5_udp.h"
 #include "snort_stream5_icmp.h"
-
 #include "checksum.h"
 #include "mstring.h"
 #include "parser/IpAddrSet.h"
@@ -67,6 +64,13 @@
 #include "stream_api.h"
 #include "perf.h"
 
+#include "ipv6_port.h"
+
+#ifdef TARGET_BASED
+#include "sftarget_protocol_reference.h"
+#include "sftarget_hostentry.h"
+#endif
+
 #include "profiler.h"
 #ifdef PERF_PROFILING
 PreprocStats s5PerfStats;
@@ -74,6 +78,7 @@ extern PreprocStats s5TcpPerfStats;
 extern PreprocStats s5UdpPerfStats;
 extern PreprocStats s5IcmpPerfStats;
 #endif
+extern RuleListNode *RuleLists;
 
 extern OptTreeNode *otn_tmp;
 
@@ -82,6 +87,7 @@ extern OptTreeNode *otn_tmp;
 /* default limits */
 #define S5_DEFAULT_PRUNE_QUANTA  30       /* seconds to timeout a session */
 #define S5_DEFAULT_MEMCAP        8388608  /* 8MB */
+#define S5_DEFAULT_PRUNE_LOG_MAX 1048576  /* 1MB */
 #define S5_RIDICULOUS_HI_MEMCAP  1024*1024*1024 /* 1GB */
 #define S5_RIDICULOUS_LOW_MEMCAP 32768    /* 32k*/
 #define S5_DEFAULT_MIN_TTL       1        /* default for min TTL */
@@ -90,6 +96,8 @@ extern OptTreeNode *otn_tmp;
 #define S5_DEFAULT_MAX_TCP_SESSIONS 262144 /* 256k TCP sessions by default */
 #define S5_DEFAULT_MAX_UDP_SESSIONS 131072 /* 128k UDP sessions by default */
 #define S5_DEFAULT_MAX_ICMP_SESSIONS 65536 /* 64k ICMP sessions by default */
+#define S5_MIN_PRUNE_LOG_MAX     1024      /* 1k packet data stored */
+#define S5_MAX_PRUNE_LOG_MAX     S5_RIDICULOUS_HI_MEMCAP  /* 1GB packet data stored */
 /*  G L O B A L S  **************************************************/
 Stream5GlobalConfig s5_global_config;
 static char s5_global_config_complete = 0;
@@ -97,35 +105,37 @@ static char s5_process_registered = 0;
 u_int32_t firstPacketTime = 0;
 Stream5Stats s5stats;
 MemPool s5FlowMempool;
-
-/* Define this locally when Flow preprocessor has actually been removed */
-#ifdef FLOWPP_IS_EIGHTYSIXED
-unsigned int giFlowbitSize = 64;
-#else
-extern unsigned int giFlowbitSize;
-//#include "flow.h"
+#ifdef TARGET_BASED
+static int16_t s5ServiceFilter[MAX_PROTOCOL_ORDINAL];
 #endif
 
+/* Define this locally when Flow preprocessor has actually been removed */
+unsigned int giFlowbitSize = 64;
+
 /*  P R O T O T Y P E S  ********************************************/
-static void Stream5GlobalInit(u_char *);
-static void Stream5ParseGlobalArgs(u_char *);
-static void Stream5PolicyInitTcp(unsigned char *);
-static void Stream5PolicyInitUdp(unsigned char *);
-static void Stream5PolicyInitIcmp(unsigned char *);
+static void Stream5GlobalInit(char *);
+static void Stream5ParseGlobalArgs(char *);
+static void Stream5PolicyInitTcp(char *);
+static void Stream5PolicyInitUdp(char *);
+static void Stream5PolicyInitIcmp(char *);
 static void Stream5Restart(int, void *);
 static void Stream5CleanExit(int, void *);
+static void Stream5Reset(int, void *);
+static void Stream5ResetStats(int, void *);
 static void Stream5VerifyConfig(void);
 static void Stream5PrintGlobalConfig();
-static void Stream5PrintStats();
+static void Stream5PrintStats(int);
 static void Stream5Process(Packet *p, void *context);
 static INLINE int IsEligible(Packet *p);
-
+#ifdef TARGET_BASED
+static void s5InitServiceFilterStatus();
+#endif
 /*  S T R E A M  A P I **********************************************/
-static int Stream5MidStreamDropAlert() { return s5_global_config.flags & STREAM5_CONFIG_MIDSTREAM_DROP_NOALERT; }
+static int Stream5MidStreamDropAlert() { return (s5_global_config.flags & STREAM5_CONFIG_MIDSTREAM_DROP_NOALERT) ? 0 : 1; }
 static void Stream5UpdateDirection(
                     void * ssnptr,
                     char dir,
-                    u_int32_t ip,
+                    snort_ip_p ip,
                     u_int16_t port);
 static u_int32_t Stream5GetPacketDirection(
                     Packet *p);
@@ -136,9 +146,9 @@ static void Stream5StopInspection(
                     int32_t bytes,
                     int response);
 static int Stream5IgnoreChannel(
-                    u_int32_t srcIP,
+                    snort_ip_p srcIP,
                     u_int16_t srcPort,
-                    u_int32_t dstIP,
+                    snort_ip_p dstIP,
                     u_int16_t dstPort,
                     char protocol,
                     char direction,
@@ -180,12 +190,31 @@ static char Stream5SetReassembly(void *ssnptr,
 static char Stream5GetReassemblyDirection(void *ssnptr);
 static char Stream5GetReassemblyFlushPolicy(void *ssnptr, char dir);
 static char Stream5IsStreamSequenced(void *ssnptr, char dir);
+static int Stream5MissingInReassembled(void *ssnptr, char dir);
+static char Stream5PacketsMissing(void *ssnptr, char dir);
 
 static int Stream5GetRebuiltPackets(
                             Packet *p,
                             PacketIterator callback,
                             void *userdata);
 static StreamFlowData *Stream5GetFlowData(Packet *p);
+#ifdef TARGET_BASED
+static int16_t Stream5GetApplicationProtocolId(void *ssnptr);
+static int16_t Stream5SetApplicationProtocolId(void *ssnptr, int16_t id);
+static void s5SetServiceFilterStatus(
+        int protocolId, 
+        int status
+        );
+static int s5GetServiceFilterStatus (
+        int protocolId
+        );
+#endif
+static void s5SetPortFilterStatus(
+        int protocol, 
+        u_int16_t port, 
+        int status
+        );
+
 StreamAPI s5api = {
     STREAM_API_VERSION5,
     Stream5MidStreamDropAlert,
@@ -209,7 +238,15 @@ StreamAPI s5api = {
     Stream5SetReassembly,
     Stream5GetReassemblyDirection,
     Stream5GetReassemblyFlushPolicy,
-    Stream5IsStreamSequenced
+    Stream5IsStreamSequenced,
+    Stream5MissingInReassembled,
+    Stream5PacketsMissing,
+#ifdef TARGET_BASED
+    Stream5GetApplicationProtocolId,
+    Stream5SetApplicationProtocolId,
+    s5SetServiceFilterStatus,
+#endif
+    s5SetPortFilterStatus
             /* More to follow */
 };
 
@@ -222,19 +259,13 @@ void SetupStream5()
     DEBUG_WRAP(DebugMessage(DEBUG_STREAM, "Preprocessor stream5 is setup\n"););
 }
 
-void Stream5GlobalInit(u_char *args)
+void Stream5GlobalInit(char *args)
 {
-    PoolCount total_sessions;
     if (s5_global_config_complete)
     {
         FatalError("%s(%d) ==> Cannot duplicate Stream5 global "
                    "configuration\n", file_name, file_line);
     }
-
-    if (stream_api == NULL)
-        stream_api = &s5api;
-    else
-        FatalError("Cannot use both Stream4 & Stream5 simultaneously\n");
 
     s5_global_config.track_tcp_sessions = S5_TRACK_YES;
     s5_global_config.max_tcp_sessions = S5_DEFAULT_MAX_TCP_SESSIONS;
@@ -244,15 +275,9 @@ void Stream5GlobalInit(u_char *args)
     s5_global_config.max_icmp_sessions = S5_DEFAULT_MAX_ICMP_SESSIONS;
     s5_global_config.memcap = S5_DEFAULT_MEMCAP;
     s5_global_config.mem_in_use = 0;
+    s5_global_config.prune_log_max = S5_DEFAULT_PRUNE_LOG_MAX;
 
     Stream5ParseGlobalArgs(args);
-
-    total_sessions = s5_global_config.max_tcp_sessions + 
-                     s5_global_config.max_udp_sessions +
-                     s5_global_config.max_icmp_sessions;
-
-    /* Initialize the memory pool for Flowbits Data */
-    mempool_init(&s5FlowMempool, total_sessions, giFlowbitSize);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("s5", &s5PerfStats, 0, &totalPerfStats);
@@ -265,13 +290,26 @@ void Stream5GlobalInit(u_char *args)
     Stream5InitUdp();
     Stream5InitIcmp();
 
+    if ((s5_global_config.track_tcp_sessions == S5_TRACK_NO) &&
+        (s5_global_config.track_udp_sessions == S5_TRACK_NO) &&
+        (s5_global_config.track_icmp_sessions == S5_TRACK_NO))
+    {
+        FatalError("%s(%d) ==> Stream5 enabled, but not configured to track "
+                   "TCP, UDP, or ICMP.\n", file_name, file_line);
+    }
+
+    stream_api = &s5api;
+
     snort_runtime.capabilities.stateful_inspection = 1;
 
     Stream5PrintGlobalConfig();
 
     AddFuncToPreprocCleanExitList(Stream5CleanExit, NULL, PRIORITY_FIRST, PP_STREAM5);
     AddFuncToPreprocRestartList(Stream5Restart, NULL, PRIORITY_FIRST, PP_STREAM5);
+    AddFuncToPreprocResetList(Stream5Reset, NULL, PRIORITY_FIRST, PP_STREAM5);
+    AddFuncToPreprocResetStatsList(Stream5ResetStats, NULL, PRIORITY_FIRST, PP_STREAM5);
     AddFuncToConfigCheckList(Stream5VerifyConfig);
+    RegisterPreprocStats("stream5", Stream5PrintStats);
 
     s5_global_config_complete = 1;
 
@@ -280,7 +318,7 @@ void Stream5GlobalInit(u_char *args)
     return;
 }
 
-static void Stream5ParseGlobalArgs(u_char *args)
+static void Stream5ParseGlobalArgs(char *args)
 {
     char **toks;
     int num_toks;
@@ -521,6 +559,31 @@ static void Stream5ParseGlobalArgs(u_char *args)
             {
                 s5_global_config.flags |= STREAM5_CONFIG_SHOW_PACKETS;
             }
+            else if(!strcasecmp(stoks[0], "prune_log_max"))
+            {
+                if (stoks[1])
+                {
+                    s5_global_config.prune_log_max = strtoul(stoks[1], &endPtr, 10);
+
+                }
+
+                if (!stoks[1] || (endPtr == &stoks[1][0]))
+                {
+                    FatalError("%s(%d) => Invalid prune_log_max in config file.  Requires integer parameter.\n",
+                                file_name, file_line);
+                }
+
+                if (((s5_global_config.prune_log_max > S5_MAX_PRUNE_LOG_MAX) ||
+                     (s5_global_config.prune_log_max < S5_MIN_PRUNE_LOG_MAX)) &&
+                    (s5_global_config.prune_log_max != 0))
+                {
+                    FatalError("%s(%d) => Invalid Prune Log Max."
+                        "  Must be 0 (disabled) or between %d and %d\n",
+                        file_name, file_line,
+                        S5_MIN_PRUNE_LOG_MAX, S5_MAX_PRUNE_LOG_MAX);
+
+                }
+            }
 #ifdef TBD
             else if(!strcasecmp(stoks[0], "no_midstream_drop_alerts"))
             {
@@ -573,9 +636,15 @@ static void Stream5PrintGlobalConfig()
     if (s5_global_config.track_icmp_sessions == S5_TRACK_YES)
         LogMessage("    Max ICMP sessions: %lu\n",
             s5_global_config.max_icmp_sessions);
+    if (s5_global_config.prune_log_max)
+    {
+        LogMessage("    Log info if session memory consumption exceeds %d\n",
+            s5_global_config.prune_log_max);
+    }
+
 }
 
-void Stream5PolicyInitTcp(u_char *args)
+void Stream5PolicyInitTcp(char *args)
 {
     PreprocessFuncNode *pfn;
 
@@ -587,7 +656,8 @@ void Stream5PolicyInitTcp(u_char *args)
 
     if (!s5_process_registered)
     {
-        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5);
+        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5,
+                                   PROTO_BIT__TCP | PROTO_BIT__UDP | PROTO_BIT__ICMP);
         s5_process_registered = 1;
     }
 
@@ -597,12 +667,12 @@ void Stream5PolicyInitTcp(u_char *args)
     }
 
     /* Call the protocol specific initializer */
-    Stream5TcpPolicyInit((char *)args);
+    Stream5TcpPolicyInit(args);
 
     return;
 }
 
-void Stream5PolicyInitUdp(unsigned char *args)
+void Stream5PolicyInitUdp(char *args)
 {
     PreprocessFuncNode *pfn;
 
@@ -614,7 +684,8 @@ void Stream5PolicyInitUdp(unsigned char *args)
 
     if (!s5_process_registered)
     {
-        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5);
+        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5,
+                                   PROTO_BIT__TCP | PROTO_BIT__UDP | PROTO_BIT__ICMP);
         s5_process_registered = 1;
     }
 
@@ -624,12 +695,12 @@ void Stream5PolicyInitUdp(unsigned char *args)
     }
 
     /* Call the protocol specific initializer */
-    Stream5UdpPolicyInit((char *)args);
+    Stream5UdpPolicyInit(args);
 
     return;
 }
 
-void Stream5PolicyInitIcmp(unsigned char *args)
+void Stream5PolicyInitIcmp(char *args)
 {
     PreprocessFuncNode *pfn;
 
@@ -641,7 +712,8 @@ void Stream5PolicyInitIcmp(unsigned char *args)
 
     if (!s5_process_registered)
     {
-        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5);
+        pfn = AddFuncToPreprocList(Stream5Process, PRIORITY_TRANSPORT, PP_STREAM5,
+                                   PROTO_BIT__TCP | PROTO_BIT__UDP | PROTO_BIT__ICMP);
         s5_process_registered = 1;
     }
 
@@ -651,15 +723,28 @@ void Stream5PolicyInitIcmp(unsigned char *args)
     }
 
     /* Call the protocol specific initializer */
-    Stream5IcmpPolicyInit((char *)args);
+    Stream5IcmpPolicyInit(args);
 
     return;
 }
 
 static void Stream5Restart(int signal, void *foo)
 {
-    Stream5PrintStats();
     return;
+}
+
+static void Stream5Reset(int signal, void *foo)
+{
+    Stream5ResetTcp();
+    Stream5ResetUdp();
+    Stream5ResetIcmp();
+
+    mempool_clean(&s5FlowMempool);
+}
+
+static void Stream5ResetStats(int signal, void *foo)
+{
+    memset(&s5stats, 0, sizeof(s5stats));
 }
 
 static void Stream5CleanExit(int signal, void *foo)
@@ -669,10 +754,10 @@ static void Stream5CleanExit(int signal, void *foo)
     Stream5CleanUdp();
     Stream5CleanIcmp();
 
-    /* And print some stats */
-    Stream5PrintStats();
-
     mempool_destroy(&s5FlowMempool);
+
+    /* Free up the ignore data that was queued */
+    CleanupIgnore();
 
     return;
 }
@@ -682,6 +767,9 @@ static void Stream5VerifyConfig()
     int tcpNotConfigured = 0;
     int udpNotConfigured = 0;
     int icmpNotConfigured = 0;
+    PoolCount total_sessions = 0;
+    int obj_size = 0;
+
     if (s5_global_config_complete)
     {
         if (s5_global_config.track_tcp_sessions)
@@ -690,6 +778,10 @@ static void Stream5VerifyConfig()
             if (tcpNotConfigured)
             {
                 LogMessage("WARNING: Stream5 TCP misconfigured\n");
+            }
+            else
+            {
+                total_sessions += s5_global_config.max_tcp_sessions;
             }
         }
 
@@ -700,6 +792,10 @@ static void Stream5VerifyConfig()
             {
                 LogMessage("WARNING: Stream5 UDP misconfigured\n");
             }
+            else
+            {
+                total_sessions += s5_global_config.max_udp_sessions;
+            }
         }
 
         if (s5_global_config.track_icmp_sessions)
@@ -709,16 +805,40 @@ static void Stream5VerifyConfig()
             {
                 LogMessage("WARNING: Stream5 ICMP misconfigured\n");
             }
+            else
+            {
+                total_sessions += s5_global_config.max_icmp_sessions;
+            }
         }
 
         if (tcpNotConfigured || udpNotConfigured || icmpNotConfigured)
         {
             FatalError("Stream5 not properly configured... exiting\n");
         }
+
+        /* Initialize the memory pool for Flowbits Data */
+        /* use giFlowbitSize - 1, since there is already 1 byte in the
+         * StreamFlowData structure */
+        obj_size = sizeof(StreamFlowData) + giFlowbitSize - 1;
+
+        if (obj_size % sizeof(long) != 0)
+        {
+            /* Increase obj_size by sizeof(long) to force sizeof(long) byte
+             * alignment for each object in the mempool.  Without this,
+             * the mempool data buffer was not aligned. Overlaying the
+             * StreamFlowData structure caused problems on some Solaris
+             * platforms. */
+            obj_size += ( sizeof(long) - (obj_size % sizeof(long)));
+        }
+        mempool_init(&s5FlowMempool, total_sessions, obj_size);
+
+#ifdef TARGET_BASED
+        s5InitServiceFilterStatus();
+#endif
     }
 }
 
-void Stream5PrintStats()
+static void Stream5PrintStats(int exiting)
 {
     LogMessage("Stream5 statistics:\n");
     LogMessage("            Total sessions: %lu\n",
@@ -750,9 +870,14 @@ void Stream5PrintStats()
     LogMessage("              UDP Timeouts: %lu\n", s5stats.udp_timeouts);
     LogMessage("              UDP Discards: %lu\n", s5stats.udp_discards);
     LogMessage("                    Events: %lu\n", s5stats.events);
-
-    LogMessage("===================================================="
-            "===========================\n");
+    LogMessage("           TCP Port Filter\n");
+    LogMessage("                   Dropped: %lu\n", s5stats.tcp_port_filter.dropped);
+    LogMessage("                 Inspected: %lu\n", s5stats.tcp_port_filter.inspected);
+    LogMessage("                   Tracked: %lu\n", s5stats.tcp_port_filter.session_tracked);
+    LogMessage("           UDP Port Filter\n");
+    LogMessage("                   Dropped: %lu\n", s5stats.udp_port_filter.dropped);
+    LogMessage("                 Inspected: %lu\n", s5stats.udp_port_filter.inspected);
+    LogMessage("                   Tracked: %lu\n", s5stats.udp_port_filter.session_tracked);
 }
 
 /*
@@ -777,8 +902,8 @@ void Stream5Process(Packet *p, void *context)
 
     PREPROC_PROFILE_START(s5PerfStats);
 
-    /* Call individual TCP/UDP/ICMP processing, per p->iph->ip_proto */
-    switch(p->iph->ip_proto)
+    /* Call individual TCP/UDP/ICMP processing, per GET_IPH_PROTO(p) */
+    switch(GET_IPH_PROTO(p))
     {
         case IPPROTO_TCP:
             if (s5_global_config.track_tcp_sessions)
@@ -806,10 +931,10 @@ static INLINE int IsEligible(Packet *p)
     if (p->packet_flags & PKT_REBUILT_STREAM)
         return 0;
 
-    if (p->iph == NULL)
+    if (!IPH_IS_VALID(p))
         return 0;
 
-    switch(p->iph->ip_proto)
+    switch(GET_IPH_PROTO(p))
     {
         case IPPROTO_TCP:
         {
@@ -1024,7 +1149,7 @@ static int Stream5AddSessionAlert(void *ssnptr,
     if (ssnptr)
     {
         ssn = (Stream5LWSession *)ssnptr;
-        switch (p->iph->ip_proto)
+        switch (GET_IPH_PROTO(p))
         {
             case IPPROTO_TCP:
                 return Stream5AddSessionAlertTcp(ssn, p, gid, sid);
@@ -1055,7 +1180,7 @@ static int Stream5CheckSessionAlert(void *ssnptr,
     if (ssnptr)
     {
         ssn = (Stream5LWSession *)ssnptr;
-        switch (p->iph->ip_proto)
+        switch (GET_IPH_PROTO(p))
         {
             case IPPROTO_TCP:
                 return Stream5CheckSessionAlertTcp(ssn, p, gid, sid);
@@ -1075,9 +1200,9 @@ static int Stream5CheckSessionAlert(void *ssnptr,
 }
 
 static int Stream5IgnoreChannel(
-                    u_int32_t srcIP,
+                    snort_ip_p      srcIP,
                     u_int16_t srcPort,
-                    u_int32_t dstIP,
+                    snort_ip_p      dstIP,
                     u_int16_t dstPort,
                     char protocol,
                     char direction,
@@ -1174,7 +1299,7 @@ static void Stream5ResumeInspection(
 static void Stream5UpdateDirection(
                     void * ssnptr,
                     char dir,
-                    u_int32_t ip,
+                    snort_ip_p ip,
                     u_int16_t port)
 {
     Stream5LWSession *ssn = (Stream5LWSession *)ssnptr;
@@ -1222,11 +1347,13 @@ static void Stream5DropTraffic(
     if (dir & SSN_DIR_CLIENT)
     {
         ssn->session_flags |= STREAM5_STATE_DROP_CLIENT;
+        ssn->session_flags |= SSNFLAG_DROP_CLIENT;
     }
 
     if (dir & SSN_DIR_SERVER)
     {
         ssn->session_flags |= STREAM5_STATE_DROP_SERVER;
+        ssn->session_flags |= SSNFLAG_DROP_SERVER;
     }
 
     /* XXX: Issue resets if TCP or ICMP Unreach if UDP? */
@@ -1319,3 +1446,267 @@ static char Stream5IsStreamSequenced(void *ssnptr, char dir)
 
     return Stream5IsStreamSequencedTcp(ssn, dir);
 }
+
+static int Stream5MissingInReassembled(void *ssnptr, char dir)
+{
+    Stream5LWSession *ssn = (Stream5LWSession *)ssnptr;
+
+    if (!ssn || ssn->protocol != IPPROTO_TCP)
+        return SSN_MISSING_NONE;
+
+    return Stream5MissingInReassembledTcp(ssn, dir);
+}
+
+static char Stream5PacketsMissing(void *ssnptr, char dir)
+{
+    Stream5LWSession *ssn = (Stream5LWSession *)ssnptr;
+
+    if (!ssn || ssn->protocol != IPPROTO_TCP)
+        return 1;
+
+    return Stream5PacketsMissingTcp(ssn, dir);
+}
+
+static void s5SetPortFilterStatus(
+        int protocol, 
+        u_int16_t port, 
+        int status
+        )
+{
+    switch (protocol)
+    {
+        case IPPROTO_TCP:
+            s5TcpSetPortFilterStatus(port, status);
+            break;
+        case IPPROTO_UDP:
+            s5UdpSetPortFilterStatus(port, status);
+            break;
+        case IPPROTO_ICMP:
+            break;
+        default:
+            break;
+    }
+}
+
+#ifdef TARGET_BASED
+void Stream5SetIPProtocol(Stream5LWSession *lwssn)
+{
+    switch (lwssn->protocol)
+    {
+    case IPPROTO_TCP:
+        lwssn->ipprotocol = FindProtocolReference("tcp");
+        break;
+    case IPPROTO_UDP:
+        lwssn->ipprotocol = FindProtocolReference("udp");
+        break;
+    case IPPROTO_ICMP:
+        lwssn->ipprotocol = FindProtocolReference("icmp");
+        break;
+    }
+}
+
+void Stream5SetApplicationProtocolIdFromHostEntry(Stream5LWSession *lwssn,
+                                           HostAttributeEntry *host_entry,
+                                           int direction)
+{
+    if (!lwssn || !host_entry)
+        return;
+
+    /* Cool, its already set! */
+    if (lwssn->application_protocol != 0)
+        return;
+
+    if (lwssn->ipprotocol == 0)
+    {
+        Stream5SetIPProtocol(lwssn);
+    }
+
+    if (direction == SSN_DIR_SERVER)
+    {
+        lwssn->application_protocol = getApplicationProtocolId(host_entry,
+                                        lwssn->ipprotocol,
+                                        ntohs(lwssn->server_port),
+                                        SFAT_SERVICE);
+    }
+    else
+    {
+        lwssn->application_protocol = getApplicationProtocolId(host_entry,
+                                        lwssn->ipprotocol,
+                                        ntohs(lwssn->client_port),
+                                        SFAT_SERVICE);
+    }
+}
+
+static void s5InitServiceFilterStatus()
+{
+    RuleListNode *rule;
+    RuleTreeNode *rtn;
+    OptTreeNode *otn;
+    RuleTreeNode *pProtocolRuleList;
+
+    for (rule=RuleLists; rule; rule=rule->next)
+    {
+        if(!rule->RuleList)
+            continue;
+        //pProtocolRuleList = protocolRuleList(rule, IPPROTO_TCP);
+        pProtocolRuleList = rule->RuleList->TcpList;
+        for(rtn = pProtocolRuleList; rtn != NULL; rtn = rtn->right)
+        {
+            for (otn = rtn->down; otn; otn = otn->next)
+            {
+                if (otn->sigInfo.service_ordinal)
+                {
+                    stream_api->set_service_filter_status(otn->sigInfo.service_ordinal, PORT_MONITOR_SESSION);
+                }
+            }
+        }
+    }
+}
+
+static void s5SetServiceFilterStatus(
+        int protocolId, 
+        int status
+        )
+{
+    //set ordinal number to allow sessions
+    s5ServiceFilter[protocolId] = status;
+}
+
+static int s5GetServiceFilterStatus (
+        int protocolId
+        )
+{
+    return s5ServiceFilter[protocolId];
+}
+
+static int16_t Stream5GetApplicationProtocolId(void *ssnptr)
+{
+    Stream5LWSession *lwssn = (Stream5LWSession *)ssnptr;
+    /* Not caching the source and dest host_entry in the session so we can
+     * swap the table out after processing this packet if we need
+     * to.  */
+    HostAttributeEntry *host_entry = NULL;
+    int16_t protocol = 0;
+
+    if (!lwssn)
+        return protocol;
+
+    if (lwssn->application_protocol != 0)
+        return lwssn->application_protocol;
+
+    if (lwssn->ipprotocol == 0)
+    {
+        Stream5SetIPProtocol(lwssn);
+    }
+
+#ifdef SUP_IP6
+    host_entry = SFAT_LookupHostEntryByIP(&lwssn->server_ip);
+#else
+    host_entry = SFAT_LookupHostEntryByIp4Addr(ntohl(lwssn->server_ip));
+#endif
+    if (host_entry)
+    {
+        Stream5SetApplicationProtocolIdFromHostEntry(lwssn,
+                                           host_entry, SSN_DIR_SERVER);
+
+        if (lwssn->application_protocol != 0)
+        {
+            return lwssn->application_protocol;
+        }
+    }
+
+#ifdef SUP_IP6
+    host_entry = SFAT_LookupHostEntryByIP(&lwssn->client_ip);
+#else
+    host_entry = SFAT_LookupHostEntryByIp4Addr(ntohl(lwssn->client_ip));
+#endif
+    if (host_entry)
+    {
+        Stream5SetApplicationProtocolIdFromHostEntry(lwssn,
+                                           host_entry, SSN_DIR_CLIENT);
+        if (lwssn->application_protocol != 0)
+        {
+            return lwssn->application_protocol;
+        }
+    }
+
+    return lwssn->application_protocol;
+}
+
+static int16_t Stream5SetApplicationProtocolId(void *ssnptr, int16_t id)
+{
+    Stream5LWSession *ssn = (Stream5LWSession *)ssnptr;
+    if (!ssn)
+        return 0;
+
+    ssn->application_protocol = id;
+
+    return id;
+}
+#endif
+
+int isPacketFilterDiscard(
+        Packet *p,
+        int ignore_any_rules
+        )
+{
+    u_int8_t  action = 0;
+    tPortFilterStats   *pPortFilterStats = NULL;
+#ifdef TARGET_BASED
+    int protocolId = 0;
+#endif
+
+#ifdef TARGET_BASED
+    protocolId = GetProtocolReference(p);
+    if ((protocolId > 0) && s5GetServiceFilterStatus(protocolId))
+    {
+        return PORT_MONITOR_PACKET_PROCESS;
+    }
+#endif
+
+    switch(GET_IPH_PROTO(p))
+    {
+        case IPPROTO_TCP:
+            if (s5_global_config.track_tcp_sessions)
+            {
+                action = s5TcpGetPortFilterStatus(p->sp) | s5TcpGetPortFilterStatus(p->dp);
+            }
+
+            pPortFilterStats = &s5stats.tcp_port_filter;
+            break;
+
+        case IPPROTO_UDP:
+            if (s5_global_config.track_udp_sessions)
+            {
+                action = s5UdpGetPortFilterStatus(p->sp) | s5UdpGetPortFilterStatus(p->dp);
+            }
+
+            pPortFilterStats = &s5stats.udp_port_filter;
+            break;
+        default:
+            return PORT_MONITOR_PACKET_PROCESS;
+    }
+
+    if (!(action & PORT_MONITOR_SESSION))
+    {
+        if (!(action & PORT_MONITOR_INSPECT) && ignore_any_rules)
+        {
+            /* Ignore this TCP packet entirely */
+            DisableDetect(p);
+            SetPreprocBit(p, PP_SFPORTSCAN);
+            SetPreprocBit(p, PP_PERFMONITOR);
+            //otn_tmp = NULL;
+            pPortFilterStats->dropped++;
+        }
+        else
+        {
+            pPortFilterStats->inspected++;
+        }
+
+        return PORT_MONITOR_PACKET_DISCARD;
+    }
+
+    pPortFilterStats->session_tracked++;
+    return PORT_MONITOR_PACKET_PROCESS;
+}
+

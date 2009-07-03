@@ -47,14 +47,13 @@ ARFLAGS = cru
 libspp_a_AR = $(AR) $(ARFLAGS)
 libspp_a_LIBADD =
 am_libspp_a_OBJECTS = spp_arpspoof.$(OBJEXT) spp_bo.$(OBJEXT) \
-	spp_rpc_decode.$(OBJEXT) spp_stream4.$(OBJEXT) \
-	snort_stream4_session.$(OBJEXT) snort_stream4_udp.$(OBJEXT) \
-	stream_ignore.$(OBJEXT) spp_perfmonitor.$(OBJEXT) \
-	perf.$(OBJEXT) perf-base.$(OBJEXT) perf-flow.$(OBJEXT) \
-	perf-event.$(OBJEXT) sfprocpidstats.$(OBJEXT) \
-	spp_httpinspect.$(OBJEXT) snort_httpinspect.$(OBJEXT) \
-	spp_flow.$(OBJEXT) portscan.$(OBJEXT) spp_sfportscan.$(OBJEXT) \
-	spp_frag3.$(OBJEXT) str_search.$(OBJEXT) spp_stream5.$(OBJEXT) \
+	spp_rpc_decode.$(OBJEXT) stream_ignore.$(OBJEXT) \
+	spp_perfmonitor.$(OBJEXT) perf.$(OBJEXT) perf-base.$(OBJEXT) \
+	perf-flow.$(OBJEXT) perf-event.$(OBJEXT) \
+	sfprocpidstats.$(OBJEXT) spp_httpinspect.$(OBJEXT) \
+	snort_httpinspect.$(OBJEXT) portscan.$(OBJEXT) \
+	spp_sfportscan.$(OBJEXT) spp_frag3.$(OBJEXT) \
+	str_search.$(OBJEXT) spp_stream5.$(OBJEXT) \
 	stream_api.$(OBJEXT) spp_clamav.$(OBJEXT)
 libspp_a_OBJECTS = $(am_libspp_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
@@ -120,6 +119,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -150,6 +150,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -204,12 +205,9 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 noinst_LIBRARIES = libspp.a
-SUBDIRS = flow HttpInspect Stream5
+SUBDIRS = HttpInspect Stream5
 libspp_a_SOURCES = spp_arpspoof.c spp_arpspoof.h spp_bo.c spp_bo.h \
 spp_rpc_decode.c spp_rpc_decode.h  \
-spp_stream4.c spp_stream4.h stream.h \
-snort_stream4_session.c snort_stream4_session.h \
-snort_stream4_udp.c snort_stream4_udp.h \
 stream_ignore.c stream_ignore.h \
 spp_perfmonitor.c spp_perfmonitor.h \
 perf.c perf.h \
@@ -219,7 +217,6 @@ perf-event.c perf-event.h \
 sfprocpidstats.c sfprocpidstats.h \
 spp_httpinspect.c spp_httpinspect.h \
 snort_httpinspect.c snort_httpinspect.h \
-spp_flow.c spp_flow.h \
 portscan.c portscan.h \
 spp_sfportscan.c spp_sfportscan.h \
 spp_frag3.c spp_frag3.h \

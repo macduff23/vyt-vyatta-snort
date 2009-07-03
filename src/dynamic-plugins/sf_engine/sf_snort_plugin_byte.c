@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -29,9 +29,8 @@
 #include "sf_snort_packet.h"
 #include "sf_snort_plugin_api.h"
 
-extern int checkCursorSimple(u_int8_t *cursor, int flags, u_int8_t *start, u_int8_t *end, int offset);
-extern int getBuffer(SFSnortPacket *p, int flags, u_int8_t **start, u_int8_t **end);
-extern int setCursorInternal(void *p, int flags, int offset, u_int8_t **cursor);
+extern int checkCursorSimple(const u_int8_t *cursor, int flags, const u_int8_t *start, const u_int8_t *end, int offset);
+extern int setCursorInternal(void *p, int flags, int offset, const u_int8_t **cursor);
 
 #define BYTE_STRING_LEN     11
 
@@ -41,15 +40,15 @@ extern int setCursorInternal(void *p, int flags, int offset, u_int8_t **cursor);
  * Return 1 if successfully extract value.
  * Return < 0 if fail to extract value.
  */
-int extractValueInternal(void *p, ByteData *byteData, u_int32_t *value, u_int8_t *cursor)
+int extractValueInternal(void *p, ByteData *byteData, u_int32_t *value, const u_int8_t *cursor)
 {
     char byteArray[BYTE_STRING_LEN];
     u_int32_t i;
     char *endPtr;
     u_int32_t extracted = 0;
     int base = 10;
-    u_int8_t *start;
-    u_int8_t *end;
+    const u_int8_t *start;
+    const u_int8_t *end;
     int ret;
     SFSnortPacket *sp = (SFSnortPacket *) p;
 
@@ -142,7 +141,7 @@ int extractValueInternal(void *p, ByteData *byteData, u_int32_t *value, u_int8_t
  * Return 1 if success
  * Return 0 if can't extract.
  */
-ENGINE_LINKAGE int extractValue(void *p, ByteExtract *byteExtract, u_int8_t *cursor)
+ENGINE_LINKAGE int extractValue(void *p, ByteExtract *byteExtract, const u_int8_t *cursor)
 {
     ByteData byteData;
     int ret;
@@ -171,7 +170,7 @@ ENGINE_LINKAGE int extractValue(void *p, ByteExtract *byteExtract, u_int8_t *cur
  * Return 1 if check is true (e.g. value > byteData.value)
  * Return 0 if check is not true.
  */
-ENGINE_LINKAGE int checkValue(void *p, ByteData *byteData, u_int32_t value, u_int8_t *cursor)
+ENGINE_LINKAGE int checkValue(void *p, ByteData *byteData, u_int32_t value, const u_int8_t *cursor)
 {
     switch (byteData->op)
     {
@@ -227,7 +226,7 @@ ENGINE_LINKAGE int checkValue(void *p, ByteData *byteData, u_int32_t value, u_in
  * Return 1 if check is true (e.g. value > byteData.value)
  * Return 0 if check is not true.
  */
-ENGINE_LINKAGE int byteTest(void *p, ByteData *byteData, u_int8_t *cursor)
+ENGINE_LINKAGE int byteTest(void *p, ByteData *byteData, const u_int8_t *cursor)
 {
     int       ret;
     u_int32_t value;
@@ -250,7 +249,7 @@ ENGINE_LINKAGE int byteTest(void *p, ByteData *byteData, u_int8_t *cursor)
  * Return 0 if cursor out of bounds
  * Return < 0 if error
  */
-ENGINE_LINKAGE int byteJump(void *p, ByteData *byteData, u_int8_t **cursor)
+ENGINE_LINKAGE int byteJump(void *p, ByteData *byteData, const u_int8_t **cursor)
 {
     int       ret;
     u_int32_t readValue;
@@ -279,6 +278,8 @@ ENGINE_LINKAGE int byteJump(void *p, ByteData *byteData, u_int8_t **cursor)
     {
         jumpValue += byteData->bytes + byteData->offset;
     }
+
+    jumpValue += byteData->post_offset;
 
     ret = setCursorInternal(sp, byteData->flags, jumpValue, cursor);
     

@@ -116,6 +116,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -146,6 +147,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -200,7 +202,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 lib_LTLIBRARIES = libsf_dcerpc_preproc.la
-libsf_dcerpc_preproc_la_LDFLAGS = -module
+libsf_dcerpc_preproc_la_LDFLAGS = -export-dynamic
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c 
 
@@ -500,7 +502,7 @@ sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
 all-local:
-	$(MAKE) DESTDIR=$(PWD)/../build install-libLTLIBRARIES
+	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
 	rm -f sf_dynamic_preproc_lib.c

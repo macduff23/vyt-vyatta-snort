@@ -1,7 +1,7 @@
 /*
  * ftpp_ui_config.c
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -240,6 +240,10 @@ void ftpp_ui_config_reset_ftp_cmd_format(FTP_PARAM_FMT *ThisFmt)
     {
         ftpp_ui_config_reset_ftp_cmd_date_format(ThisFmt->format.date_fmt);
     }
+    if (ThisFmt->type == e_literal)
+    {
+        free (ThisFmt->format.literal);
+    }
 
     memset(ThisFmt, 0, sizeof(FTP_PARAM_FMT));
     free(ThisFmt);
@@ -282,8 +286,8 @@ int ftpp_ui_config_reset_ftp_cmd(FTP_CMD_CONF *FTPCmd)
 int ftpp_ui_config_reset_ftp_server(FTP_SERVER_PROTO_CONF *ServerConf,
                                     char first)
 {
-    int iRet;
-    FTP_CMD_CONF *NextFTPCmd = NULL;
+    int iRet = FTPP_SUCCESS;
+    //FTP_CMD_CONF *NextFTPCmd = NULL;
 
     if (first == 0)
     {
@@ -303,7 +307,7 @@ int ftpp_ui_config_reset_ftp_server(FTP_SERVER_PROTO_CONF *ServerConf,
 
     ServerConf->def_max_param_len = FTPP_UI_CONFIG_FTP_DEF_CMD_PARAM_MAX;
 
-    return FTPP_SUCCESS;
+    return iRet;
 }
 
 /*
@@ -325,8 +329,7 @@ int ftpp_ui_config_reset_ftp_server(FTP_SERVER_PROTO_CONF *ServerConf,
  *
  */
 int ftpp_ui_config_add_ftp_server(FTPTELNET_GLOBAL_CONF *GlobalConf,
-                            unsigned long ServerIP,
-                            FTP_SERVER_PROTO_CONF *ServerConf)
+                            sfip_t * ServerIP, FTP_SERVER_PROTO_CONF *ServerConf)
 {
     int iRet;
 
@@ -359,8 +362,8 @@ int ftpp_ui_config_add_ftp_server(FTPTELNET_GLOBAL_CONF *GlobalConf,
 int ftpp_ui_config_reset_ftp_client(FTP_CLIENT_PROTO_CONF *ClientConf,
                                     char first)
 {
-    int iRet;
-    FTP_BOUNCE_TO *NextBounceTo = NULL;
+    int iRet = FTPP_SUCCESS;
+    //FTP_BOUNCE_TO *NextBounceTo = NULL;
 
     if (first == 0)
     {
@@ -377,7 +380,7 @@ int ftpp_ui_config_reset_ftp_client(FTP_CLIENT_PROTO_CONF *ClientConf,
 
     ClientConf->max_resp_len = (unsigned int)FTPP_UI_CONFIG_FTP_DEF_RESP_MSG_MAX;
 
-    return FTPP_SUCCESS;
+    return iRet;
 }
 
 /*
@@ -399,8 +402,7 @@ int ftpp_ui_config_reset_ftp_client(FTP_CLIENT_PROTO_CONF *ClientConf,
  *
  */
 int ftpp_ui_config_add_ftp_client(FTPTELNET_GLOBAL_CONF *GlobalConf,
-                            unsigned long ClientIP,
-                            FTP_CLIENT_PROTO_CONF *ClientConf)
+                            sfip_t * ClientIP, FTP_CLIENT_PROTO_CONF *ClientConf)
 {
     int iRet;
 

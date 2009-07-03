@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -42,19 +43,21 @@
 #define FRAME_SIZE        66
 #define C_OFFSET          49
 
-
 /*  P R O T O T Y P E S  ******************************************************/
 
 
 void PrintIPPkt(FILE *, int,Packet*);
 void PrintEapolPkt(FILE *, Packet *);
 void PrintEapolKey(FILE *, Packet *);
-void PrintNetData(FILE *, u_char *, const int);
+void PrintNetData(FILE *, const u_char *, const int);
 void ClearDumpBuf();
 void Print2ndHeader(FILE *, Packet *);
 void PrintWifiPkt(FILE *, Packet *);
 void PrintTrHeader(FILE *, Packet *);
 void PrintEthHeader(FILE *, Packet *);
+#ifdef MPLS
+void PrintMPLSHeader(FILE *, Packet *);
+#endif
 void PrintWifiHeader(FILE *, Packet *);
 void PrintSLLHeader(FILE *, Packet *);
 void PrintArpHeader(FILE *, Packet *);
@@ -65,17 +68,17 @@ void PrintTcpOptions(FILE *, Packet *);
 void PrintIpOptions(FILE *, Packet *);
 void PrintICMPHeader(FILE *, Packet *);
 void PrintICMPEmbeddedIP(FILE *, Packet *);
-void PrintEmbeddedICMPHeader(FILE *, ICMPHdr *);
+void PrintEmbeddedICMPHeader(FILE *, const ICMPHdr *);
 void PrintUDPHeader(FILE *, Packet *);
 void PrintEAPHeader(FILE *, Packet *);
 void PrintPriorityData(FILE *, int);
 void PrintXrefs(FILE *, int);
 void CreateTCPFlagString(Packet *, char *);
 
-
 void NoLog(Packet *, char *, void *, Event *);
 void NoAlert(Packet *, char *, void *, Event *);
-FILE *OpenAlertFile(char *);
+FILE *OpenAlertFile(const char *);
+int RollAlertFile(const char *);
 
 #ifndef WIN32
 void SetEvent(Event *, u_int32_t, u_int32_t, u_int32_t, u_int32_t, u_int32_t, 
@@ -87,5 +90,5 @@ void SnortSetEvent(Event *, u_int32_t, u_int32_t, u_int32_t, u_int32_t,
         u_int32_t, u_int32_t); 
 #endif
 
-
 #endif /* __LOG_H__ */
+

@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -47,51 +47,54 @@
 #define SFXHASH_OK        0
 #define SFXHASH_INTABLE   1
 
-/*
+/**
 *   HASH NODE
 */
 typedef struct _sfxhash_node
 {
-  struct _sfxhash_node * gnext, * gprev; /* global node list - used for ageing nodes */
-  struct _sfxhash_node * next,  * prev;  /* row node list */
+  struct _sfxhash_node * gnext, * gprev; /// global node list - used for ageing nodes 
+  struct _sfxhash_node * next,  * prev;  /// row node list 
 
-  int    rindex; /* row index of table this node belongs to. */
+  int    rindex; /// row index of table this node belongs to. 
 
-  void * key;   /* Pointer to the key. */
-  void * data;  /* Pointer to the users data, this is not copied ! */
+  void * key;   /// Pointer to the key. 
+  void * data;  /// Pointer to the users data, this is not copied ! 
      
 } SFXHASH_NODE;
 
-/*
+/**
 *    SFGX HASH Table
 */
 typedef struct _sfxhash
 {
-  SFHASHFCN     * sfhashfcn; /* hash function */
-  int             keysize; /* bytes in key, if <= 0 -> keys are strings */
-  int             datasize;/* bytes in key, if == 0 -> user data */
-  SFXHASH_NODE ** table;   /* array of node ptr's */
-  unsigned        nrows;   /* # rows int the hash table use a prime number 211, 9871 */
-  unsigned        count;   /* total # nodes in table */
+  SFHASHFCN     * sfhashfcn; /// hash function
+  int             keysize;   /// bytes in key, if <= 0 -> keys are strings 
+  int             datasize;  /// bytes in key, if == 0 -> user data
+  SFXHASH_NODE ** table;     /// array of node ptr's */
+  unsigned        nrows;     /// # rows int the hash table use a prime number 211, 9871 
+  unsigned        count;     /// total # nodes in table 
   
-  unsigned        crow;    // findfirst/next row in table
-  SFXHASH_NODE  * cnode;   // findfirst/next node ptr
-  int             splay;
+  unsigned        crow;    /// findfirst/next row in table
+  SFXHASH_NODE  * cnode;   /// findfirst/next node ptr
+  int             splay;   /// whether to splay nodes with same hash bucket
 
-  unsigned        max_nodes;
+  unsigned        max_nodes; ///maximum # of nodes within a hash
   MEMCAP          mc;
-  unsigned        overhead_bytes;  /** # of bytes that will be unavailable for nodes inside the table */    
-  unsigned        overhead_blocks; /** # of blocks consumed by the table */
+  unsigned        overhead_bytes;  /// # of bytes that will be unavailable for nodes inside the table    
+  unsigned        overhead_blocks; /// # of blocks consumed by the table
   unsigned        find_fail;
   unsigned        find_success;
     
-  SFXHASH_NODE  * ghead, * gtail;  /* global - root of all nodes allocated in table */
+  SFXHASH_NODE  * ghead, * gtail;  /// global - root of all nodes allocated in table
 
-  SFXHASH_NODE  * fhead, * ftail;  /* free list of nodes */
-  int             recycle_nodes;
-  unsigned        anr_tries; /* ANR requests to the userfunc */
-  unsigned        anr_count; /* # ANR ops performaed */
-  int             anr_flag;  /* 0=off, !0=on */
+  SFXHASH_NODE  * fhead, * ftail;  /// list of free nodes, which are recyled
+  int             recycle_nodes;   /// recycle nodes. Nodes are not freed, but are used for subsequent new nodes
+  
+  /**Automatic Node Recover (ANR): When number of nodes in hash is equal to max_nodes, remove the least recently 
+   * used nodes and use it for the new node. anr_tries indicates # of ANR tries.*/
+  unsigned        anr_tries; 
+  unsigned        anr_count; /// # ANR ops performaed 
+  int             anr_flag;  /// 0=off, !0=on 
 
   int (*anrfree)( void * key, void * data );
   int (*usrfree)( void * key, void * data );
@@ -111,6 +114,7 @@ SFXHASH       * sfxhash_new( int nrows, int keysize, int datasize, int memcap,
 void            sfxhash_set_max_nodes( SFXHASH *h, int max_nodes );
 
 void            sfxhash_delete( SFXHASH * h );
+int             sfxhash_make_empty(SFXHASH *);
 
 int             sfxhash_add ( SFXHASH * h, void * key, void * data );
 SFXHASH_NODE * sfxhash_get_node( SFXHASH * t, void * key );

@@ -30,6 +30,8 @@
 #if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
 
 void SetupRespond2(void);
+u_int32_t Respond2Hash(void *d);
+int Respond2Compare(void *l, void *r);
 
 #endif /* ENABLE_RESPONSE2 && !ENABLE_RESPONSE */
 #endif /* __RESPOND2_H__ */

@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,5 +36,7 @@ typedef struct _IcmpTypeCheckData
 } IcmpTypeCheckData;
 
 void SetupIcmpTypeCheck(void);
+u_int32_t IcmpTypeCheckHash(void *d);
+int IcmpTypeCheckCompare(void *l, void *r);
 
 #endif  /* __SP_ICMP_TYPE_CHECK_H__ */

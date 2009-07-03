@@ -1,12 +1,68 @@
 $Id$
 
+Dilbagh Chahal
+    * HTTP & FTP/Telnet Multiple IP/CIDR configuration support
+
+Ryan Jordan
+    * Application preprocessor adaptive support
+
+Kevin Liu
+    * MPLS Support
+    * SSL preprocessor updates
+    * FTP/Telnet preprocessor IPv6 support
+    * DNS preprocessor IPv6 support
+
+Russ Combs
+    * Major cleanup of pedantic warnings and compiler issues
+    * FTP/Telnet preprocessor IPv6 support
+
+Todd Wease
+    * DCE/RPC preprocessor updates and improvements
+    * DCE2 preprocessor 
+    * SMTP preprocessor updates
+    * CVS detection plugin
+    * CVS repository maintenance
+    * 64 bit compilation cleanup
+    * Snort Manual preprocessor documentation
+
+Adam Keeton
+    * IPv6 support
+    * SSL preprocessor
+    * Snort Manual preprocessor documentation
+
+Chris Sherwin
+    * SSH preprocessor
+    * HTTPInspect updates
+
+Steven Sturges
+    * FTP/Telnet preprocessor
+    * DNS preprocessor
+    * Dynamic library preprocessor and rule APIs
+    * Stream4 performance improvements
+    * Frag3 performance improvements
+    * Frag3 OpSys policy additions
+    * Stream API
+    * Stream5
+    * Rule and preprocessor performance profiling
+    * Rule processing performance improvements
+    * HTTPInspect performance improvements
+    * Target-Based processing
+    * CVS repository maintenance
+
+Anderw Mullican
+    * SMTP preprocessor
+    * DCE/RPC preprocessor
+    * Dynamic library preprocessor and rule APIs
+
 Marc Norton     <mnorton@idsresearch.org>
     * Snort 2.0 detection engine
     * Aho-Corasick pattern matchers
     * Wu-Manber pattern matchers
+    * Pattern Matcher CPU cache performance improvements
     * sfxhash, sflsq, ipobj libraries
     * Thresholding/suppression
     * Performance monitoring preprocessor
+    * Packet performance monitoring
 
 Daniel Roelker  <djr@idsresearch.org>
     * Snort 2.0 detection engine
@@ -16,6 +72,7 @@ Daniel Roelker  <djr@idsresearch.org>
     * sfPortscan detection engine
     * Snort-inline integration from snort-inline project
     * Performance monitoring preprocessor
+    * Frag3 integration
 
 Jeremy Hewlett <jh@sourcefire.com>
     * CVS and release manager

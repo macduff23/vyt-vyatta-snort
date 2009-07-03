@@ -1,8 +1,7 @@
-/* $Id$ */
 /*
 ** Copyright (C) 2003 Brian Caswell <bmc@snort.org>
 ** Copyright (C) 2003 Michael J. Pomraning <mjp@securepipe.com>
-** Copyright (C) 2003 Sourcefire, Inc
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -29,5 +28,21 @@
 #define __SNORT_PCRE_H__
 
 void SetupPcre(void);
+
+#include <pcre.h>
+typedef struct _PcreData
+{
+    pcre *re;           /* compiled regex */
+    pcre_extra *pe;     /* studied regex foo */
+    int options;        /* sp_pcre specfic options (relative & inverse) */
+    char *expression;
+    u_int32_t search_offset;
+} PcreData;
+
+void PcreFree(void *d);
+u_int32_t PcreHash(void *d);
+int PcreCompare(void *l, void *r);
+void PcreDuplicatePcreData(void *src, PcreData *pcre_dup);
+int PcreAdjustRelativeOffsets(PcreData *pcre, u_int32_t search_offset);
 
 #endif /* __SNORT_PCRE_H__ */

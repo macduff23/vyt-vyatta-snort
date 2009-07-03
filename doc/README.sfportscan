@@ -107,16 +107,11 @@ off the orginal scan alert.
 
 -- Configuration --
 
-Users may wish to disable evasion alerts within stream4 because some
-scan packets can cause these alerts to be generated.
+Use of the "stream5" preprocessor is required for sfPortscan.  Stream gives
+portscan direction in the case of connectionless protocols like UDP.
 
-  preprocessor stream4: disable_evasion_alerts
-
-Use of the "flow" preprocessor is required for sfPortscan. Flow gives
-portscan direction in the case of connectionless protocols like ICMP
-and UDP.
-
-  preprocessor flow: stats_interval 0 hash 2
+  preprocessor stream5_global: track_udp yes
+  preprocessor stream5_udp:
 
 The parameters you can use to configure the portscan module are:
 
@@ -160,24 +155,28 @@ The parameters you can use to configure the portscan module are:
   monitoring, but is very sensitive to active hosts. This most
   definitely will require the user to tune sfPortscan.
 
-* watch_ip { <ip1|ip2/cidr[:[port1|port2-port3]]> }
+* watch_ip { <ip1|ip2/cidr[ [port1|port2-port3]]> }
 
   Defines which IPs, networks, and specific ports on those hosts to watch.
   The list is a comma seperated list of IP addresses, IP address using CIDR
   notation.  Optionally, ports are specified after the IP address/CIDR using
-  a colon and can be either a single port or a range denoted by a dash.
+  a space and can be either a single port or a range denoted by a dash.
   IPs or networks not falling into this range are ignored if this option
   is used.
 
-* ignore_scanners { <ip_list> }
+* ignore_scanners { <ip1|ip2/cidr[ [port1|port2-port3]]> }
 
-  Ignores the source of scan alerts.  <ip_list> can be a comma
-  seperated list of IP addresses or IP addresses using CIDR notation.
+  Ignores the source of scan alerts.  The parameter is the same format as
+  that of watch_ip.
 
-* ignore_scanned { <ip_list> }
+* ignore_scanned { <ip1|ip2/cidr[ [port1|port2-port3]]> }
 
-  Ignores the destination of scan alerts.  <ip_list> can be a comma
-  seperated list of IP addresses or IP addresses using CIDR notation.
+  Ignores the destination of scan alerts.  The parameter is the same format as
+  that of watch_ip.
+
+* memcap { positive integer }
+  The maximum number of bytes to allocate for portscan detection.  The
+  higher this number the more nodes that can be tracked.
 
 * logfile { <file> } 
   This option will output portscan events to the file specified. If
@@ -185,8 +184,8 @@ The parameters you can use to configure the portscan module are:
   the Snort config dir.
 
 * include_midstream
-  This option will include sessions picked up in midstream by the stream4
-  module.  This can lead to false alerts, especially under heavy load with
+  This option will include sessions picked up in midstream by Stream4 or
+  Stream5.  This can lead to false alerts, especially under heavy load with
   dropped packets; which is why the option is off by default.
 
 * detect_ack_scans
@@ -372,3 +371,39 @@ for your network(s).  Here are some tuning tips:
      least tuning.  The low sensitivity level does not catch filtered scans,
      since these are more prone to false positives.
      
+
+Alerts
+======
+
+SFPortscan uses generator ID 122 and can generate the following alerts:
+
+SID   Description
+---   -----------
+1     TCP Portscan
+2     TCP Decoy Portscan
+3     TCP Portsweep
+4     TCP Distributed Portscan
+5     TCP Filtered Portscan
+6     TCP Filtered Decoy Portscan
+7     TCP Filtered Portsweep
+8     TCP Filtered Distributed Portscan
+9     IP Protocol Scan
+10    IP Decoy Protocol Scan
+11    IP Protocol Sweep
+12    IP Distributed Protocol Scan
+13    IP Filtered Protocol Scan
+14    IP Filtered Decoy Protocol Scan
+15    IP Filtered Protocol Sweep
+16    IP Filtered Distributed Protocol Scan
+17    UDP Portscan
+18    UDP Decoy Portscan
+19    UDP Portsweep
+20    UDP Distributed Portscan
+21    UDP Filtered Portscan
+22    UDP Filtered Decoy Portscan
+23    UDP Filtered Portsweep
+24    UDP Filtered Distributed Portscan
+25    ICMP Sweep
+26    ICMP Filtered Sweep
+27    Open Port
+

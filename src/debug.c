@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -26,14 +27,9 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
-#ifdef HAVE_WCHAR_H
-#include <wchar.h>
-#endif
 #include "debug.h"
 
 #include "snort.h"
-
-
 
 #ifdef DEBUG
 
@@ -55,14 +51,19 @@ int DebugThis(int level)
 int GetDebugLevel (void)
 {
     static int debug_init = 0;
-    static int debug_level = 0;
+    static unsigned int debug_level = 0;
+
+    // declared here for compatibility with older compilers
+    // not initialized here cuz the next step is done once
+    const char* key;
 
     if(debug_init) {
         return debug_level;
     }
+    key = getenv(DEBUG_VARIABLE);
 
-    if (getenv(DEBUG_VARIABLE))
-        debug_level = atoi(getenv(DEBUG_VARIABLE));
+    if ( key )
+        debug_level = strtoul(key, NULL, 0);
     else
         debug_level = 0;
 

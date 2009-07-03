@@ -13,7 +13,7 @@
 ** - [Un]set a bitmask stored with the session
 ** - Check the value of the bitmask
 **
-** Copyright (C) 2003 Sourcefire, Inc
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 ** 
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -46,10 +46,19 @@
 #include "snort.h"
 #include "bitop_funcs.h"
 #include "sfghash.h"
-#include "spp_flow.h"
 #include "sp_flowbits.h"
 
 #include "stream_api.h"
+
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats flowBitsPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 /**
 **  This structure is the context ptr for each detection option
@@ -61,16 +70,64 @@ typedef struct _FLOWBITS_OP
 {
     u_int32_t id;
     u_int8_t  type;        /* Set, Unset, Invert, IsSet, IsNotSet, Reset  */
+    char *name;
 } FLOWBITS_OP;
 
 extern unsigned int giFlowbitSize;
 
 u_int32_t flowbits_count = 0;
-SFGHASH *flowbits_hash=0;
+SFGHASH *flowbits_hash=NULL;
 
 static void FlowBitsInit(char *, OptTreeNode *, int);
 static void FlowBitsParse(char *, FLOWBITS_OP *, OptTreeNode *);
-static int  FlowBitsCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+static int  FlowBitsCheck(void *option_data, Packet *p);
+
+void FlowBitsFree(void *d)
+{
+    FLOWBITS_OP *data = (FLOWBITS_OP *)d;
+
+    free(data->name);
+    free(data);
+}
+
+u_int32_t FlowBitsHash(void *d)
+{
+    u_int32_t a,b,c;
+    FLOWBITS_OP *data = (FLOWBITS_OP *)d;
+
+    a = data->id;
+    b = data->type;
+    c = RULE_OPTION_TYPE_FLOWBIT;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int FlowBitsCompare(void *l, void *r)
+{
+    FLOWBITS_OP *left = (FLOWBITS_OP *)l;
+    FLOWBITS_OP *right = (FLOWBITS_OP *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+                                
+    if (( left->id == right->id) &&
+        ( left->type == right->type))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
+
+void FlowBitsCleanExit(int sig, void *data)
+{
+    sfghash_delete(flowbits_hash);
+    flowbits_hash = NULL;
+    flowbits_count = 0;
+}
+
 
 /****************************************************************************
  * 
@@ -90,13 +147,19 @@ static int  FlowBitsCheck(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupFlowBits()
 {
     /* setup our storage hash */
-    flowbits_hash = sfghash_new( 10000, 0 , 0, 0);
+    flowbits_hash = sfghash_new( 10000, 0 , 0, free);
     if (!flowbits_hash) {
         FatalError("Could not setup flowbits hash\n");
     }
 
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("flowbits", FlowBitsInit);
+    RegisterPlugin("flowbits", FlowBitsInit, NULL, OPT_TYPE_DETECTION);
+    AddFuncToCleanExitList(FlowBitsCleanExit, NULL);
+    AddFuncToRestartList(FlowBitsCleanExit, NULL);
+
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("flowbits", &flowBitsPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: FlowBits Setup\n"););
 }
@@ -118,14 +181,23 @@ static void FlowBitsInit(char *data, OptTreeNode *otn, int protocol)
 {
     FLOWBITS_OP *flowbits;
     OptFpList *fpl;
+    void *idx_dup;
  
     /* Flow bits are handled by Stream5 if its enabled */
-    if(!SppFlowIsRunning() &&
-       (stream_api && stream_api->version != STREAM_API_VERSION5))
+    if( stream_api && stream_api->version != STREAM_API_VERSION5)
     {
-        LogMessage("Warning: %s (%d) => flowbits without flow or Stream5. "
-                "either flow or Stream5 must be enabled for this plugin.\n",
+        if(pv.conf_error_out)
+        {
+            FatalError("Warning: %s (%d) => flowbits without Stream5. "
+                "Stream5 must be enabled for this plugin.\n",
                 file_name,file_line);
+        }
+        else
+        {
+            LogMessage("Warning: %s (%d) => flowbits without Stream5. "
+                "Stream5 must be enabled for this plugin.\n",
+                file_name,file_line);
+        }
     }
 
     flowbits = (FLOWBITS_OP *) SnortAlloc(sizeof(FLOWBITS_OP));
@@ -138,7 +210,22 @@ static void FlowBitsInit(char *data, OptTreeNode *otn, int protocol)
     otn->ds_list[PLUGIN_FLOWBIT] = (void *)1;
 
     FlowBitsParse(data, flowbits, otn);
+    if (add_detection_option(RULE_OPTION_TYPE_FLOWBIT, (void *)flowbits, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+#ifdef DEBUG_RULE_OPTION_TREE
+        LogMessage("Duplicate FlowBit:\n%d %c\n%d %c\n\n",
+            flowbits->id,
+            flowbits->type,
+            ((FLOWBITS_OP *)idx_dup)->id,
+            ((FLOWBITS_OP *)idx_dup)->type);
+#endif
+        free(flowbits->name);
+        free(flowbits);
+        flowbits = idx_dup;
+     }
+
     fpl = AddOptFuncToList(FlowBitsCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_FLOWBIT;
 
     /*
      * attach it to the context node so that we can call each instance 
@@ -171,12 +258,7 @@ static void FlowBitsParse(char *data, FLOWBITS_OP *flowbits, OptTreeNode *otn)
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "flowbits parsing %s\n",data););
     
-    str = strdup(data);
-
-    if(str == NULL)
-    {
-        FatalError("ParseFlowArgs: Can't strdup data\n");
-    }
+    str = SnortStrdup(data);
 
     p = str;
 
@@ -313,6 +395,7 @@ static void FlowBitsParse(char *data, FLOWBITS_OP *flowbits, OptTreeNode *otn)
     }
 
     flowbits->id = id;
+    flowbits->name = SnortStrdup(token);
 
     free(str);
 }
@@ -369,24 +452,6 @@ StreamFlowData *GetFlowbitsData(Packet *p)
     {
         flowdata = stream_api->get_flow_data(p);
     }
-    else
-    {
-        /* What?  Stream isn't enabled? */
-        /* XXX, need to remove this when flow preprocessor is removed */
-        FLOW *fp;
-        FLOWDATA *flow_data;
-
-        if (!p->flow)
-        {
-            return NULL;
-        }
-
-        fp = (FLOW *)p->flow;
-
-        flow_data = &(fp->data);
-
-        return (StreamFlowData *)flow_data;
-    }
 
     if(!flowdata)
         return NULL;
@@ -419,27 +484,30 @@ StreamFlowData *GetFlowbitsData(Packet *p)
  * Returns: 0 on failure
  *
  ****************************************************************************/
-static int FlowBitsCheck(Packet *p,struct _OptTreeNode *otn, OptFpList *fp_list)
+static int FlowBitsCheck(void *option_data, Packet *p)
 {
-    FLOWBITS_OP *flowbits;   /* pointer to the eval struct */
+    FLOWBITS_OP *flowbits = (FLOWBITS_OP*)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
     StreamFlowData *flowdata;
     int result = 0;
+    PROFILE_VARS;
 
     if(!p)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, 
                    "FLOWBITSCHECK: No pkt."););
-        return 0;
+        return rval;
     }
+
+    PREPROC_PROFILE_START(flowBitsPerfStats);
 
     flowdata = GetFlowbitsData(p);
     if(!flowdata)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "No FLOWBITS_DATA"););
-        return 0;
+        PREPROC_PROFILE_END(flowBitsPerfStats);
+        return rval;
     }
-
-    flowbits = (FLOWBITS_OP *) fp_list->context;
 
     DEBUG_WRAP
     (
@@ -468,11 +536,10 @@ static int FlowBitsCheck(Packet *p,struct _OptTreeNode *otn, OptFpList *fp_list)
             if(boIsBitSet(&(flowdata->boFlowbits),flowbits->id))
             {
                 result = 1;
-                otn->failedCheckBits = 0;
             }
             else
             {
-                otn->failedCheckBits = 1;
+                rval = DETECTION_OPTION_FAILED_BIT;
             }
             break;
 
@@ -507,17 +574,15 @@ static int FlowBitsCheck(Packet *p,struct _OptTreeNode *otn, OptFpList *fp_list)
             **  in the detection chain, and still do bit ops after this
             **  option.
             */
-            if (fp_list->next->OptTestFunc(p, otn, fp_list->next))
-            {
-                OTN_PROFILE_NOALERT(otn);
-            }
-            return 0;
+            PREPROC_PROFILE_END(flowBitsPerfStats);
+            return DETECTION_OPTION_NO_ALERT;
 
         default:
             /*
             **  Always return failure here.
             */
-            return 0;
+            PREPROC_PROFILE_END(flowBitsPerfStats);
+            return rval;
     }
     
     /*
@@ -525,10 +590,11 @@ static int FlowBitsCheck(Packet *p,struct _OptTreeNode *otn, OptFpList *fp_list)
     */
     if (result == 1)
     {
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
 
-    return 0;
+    PREPROC_PROFILE_END(flowBitsPerfStats);
+    return rval;
 }
 
 /******************************************************************************

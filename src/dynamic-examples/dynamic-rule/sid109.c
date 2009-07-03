@@ -1,7 +1,7 @@
 /*
  * sid109.c
  *
- * Copyright (C) 2006-2007 Sourcefire,Inc
+ * Copyright (C) 2006-2008 Sourcefire,Inc
  * Steven A. Sturges <ssturges@sourcefire.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -58,7 +58,7 @@ static RuleOption sid109option1 =
 /* content:"NetBus";  */
 static ContentInfo sid109content = 
 {
-    "NetBus",               /* pattern to search for */
+    (u_int8_t *)"NetBus",               /* pattern to search for */
     0,                      /* depth */
     0,                      /* offset */
     CONTENT_BUF_NORMALIZED, /* flags */

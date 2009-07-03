@@ -57,24 +57,6 @@ This is still work in progress. Please file bugs to the snort package.
 
 -----------------------------------------------------------------------------
 
- DATABASE CHANGES
-------------------
-
-The database layout has changed a bit since 1.9.0beta4:
-
-         - DB schema v106
-         - Added the sensor.last_cid field to the schema so the
-           database can store the last used cid for a given sensor.
-           This field will ensure that a cid will never be reused.
-
-           Upgrading from v105 -> v106 is as simple as:
-
-           mysql> ALTER TABLE sensor ADD last_cid INT UNSIGNED NOT NULL;
-           mysql> UPDATE schema SET vseq=106;
-
-            psql> ALTER TABLE sensor ADD last_cid INT8;
-            psql> UPDATE schema SET vseq=106;
-
 -----------------------------------------------------------------------------
 
  FREQUENT QUESTIONS AND ANSWERS
@@ -148,4 +130,4 @@ A5. Signature updates are provided by the snort-rules-default package but
 
    See also upstreams Snort FAQ item 3.18
 
- -- Javier Fernandez-Sanguino Pen~a <jfs@computer.org>, Wed Dec  1 17:01:30 2004
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>, Wed Dec  1 17:01:30 2004

@@ -3,7 +3,7 @@
 **
 **  mpse.h       
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 **
 ** Multi-Pattern Search Engine
@@ -39,6 +39,7 @@
 #include "config.h"
 #endif
 
+#include "sf_types.h"
 #include "bitop.h"
 
 /*
@@ -49,43 +50,53 @@
 #define CDECL 
 #endif
 
-#ifndef UINT64
-#define UINT64 unsigned long long
-#endif
-
 
 /*
 *  Pattern Matching Methods 
 */
-//#define MPSE_MWM      1
-#define MPSE_AC       2
-//#define MPSE_KTBM     3
-#define MPSE_LOWMEM   4    
-//#define MPSE_AUTO     5
-#define MPSE_ACF      6 
-#define MPSE_ACS      7 
-#define MPSE_ACB      8 
-#define MPSE_ACSB     9 
+//#define MPSE_MWM       1
+#define MPSE_AC        2
+//#define MPSE_KTBM      3
+#define MPSE_LOWMEM    4
+//#define MPSE_AUTO      5
+#define MPSE_ACF       6
+#define MPSE_ACS       7
+#define MPSE_ACB       8
+#define MPSE_ACSB      9
 #define MPSE_AC_BNFA   10 
+#define MPSE_AC_BNFA_Q 11 
+#define MPSE_ACF_Q     12 
+#define MPSE_LOWMEM_Q  13 
+
+#define MPSE_INCREMENT_GLOBAL_CNT 1
+#define MPSE_DONT_INCREMENT_GLOBAL_COUNT 0
 
 /*
 ** PROTOTYPES
 */
-void * mpseNew( int method );
+void * mpseNew( int method, int use_global_counter_flag,
+                void (*userfree)(void *p),
+                void (*optiontreefree)(void **p),
+                void (*neg_list_free)(void **p));
 void   mpseFree( void * pv );
 
 int  mpseAddPattern  ( void * pv, void * P, int m, 
-     unsigned noCase,unsigned offset, unsigned depth,  void* ID, int IID );
+                       unsigned noCase, unsigned offset, unsigned depth,
+                       unsigned negative, void* ID, int IID );
 
 void mpseLargeShifts   ( void * pvoid, int flag );
 
-int  mpsePrepPatterns  ( void * pv );
+int  mpsePrepPatterns  ( void * pvoid,
+                         int ( *build_tree )(void *id, void **existing_tree),
+                         int ( *neg_list_func )(void *id, void **list) );
 
 void mpseSetRuleMask   ( void *pv, BITOP * rm );
 
-int  mpseSearch( void *pv, unsigned char * T, int n, 
-     int ( *action )(void* id, int index, void *data), 
-     void * data, int* current_state ); 
+int  mpseSearch( void *pv, const unsigned char * T, int n, 
+                 int ( *action )(void* id, void * tree, int index, void *data, void *neg_list), 
+                 void * data, int* current_state ); 
+
+int mpseGetPatternCount(void *pv);
 
 UINT64 mpseGetPatByteCount(void);
 void   mpseResetByteCount(void);
@@ -94,6 +105,8 @@ int mpsePrintInfo( void * obj );
 int mpsePrintSummary(void );
   
 void   mpseVerbose( void * pvoid );
+void   mpseSetOpt( void * pvoid,int flag);
 
+void mpse_print_qinfo(void);
 #endif
 

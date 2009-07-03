@@ -1,4 +1,4 @@
-/*
+ /*
  * sf_snort_detection_engine.c
  *
  * This program is free software; you can redistribute it and/or modify
@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy  Mullican
@@ -34,14 +34,15 @@
 #include <ctype.h>
 #include <sys/types.h>
 #include <stdarg.h>
+#include "debug.h"
 #include "sf_snort_packet.h"
 #include "sf_snort_plugin_api.h"
 #include "sf_dynamic_meta.h"
 #include "sf_dynamic_engine.h"
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   6
-#define BUILD_VERSION   11
+#define MINOR_VERSION   10
+#define BUILD_VERSION   16
 #define DETECT_NAME     "SF_SNORT_DETECTION_ENGINE"
 
 #ifdef WIN32
@@ -50,8 +51,6 @@
 #include <sys/param.h>
 #include <limits.h>
 #endif
-
-#define DEBUG_WRAP(x)
 
 DynamicEngineData _ded;
 
@@ -103,6 +102,19 @@ ENGINE_LINKAGE int InitializeEngine(DynamicEngineData *ded)
     _ded.errMsg = ded->errMsg;
     _ded.fatalMsg = ded->fatalMsg;
     _ded.getPreprocOptFuncs = ded->getPreprocOptFuncs;
+    _ded.setRuleData = ded->setRuleData;
+    _ded.getRuleData = ded->getRuleData;
+
+    _ded.debugMsg = ded->debugMsg;
+#ifdef HAVE_WCHAR_H
+    _ded.debugWideMsg = ded->debugWideMsg;
+#endif
+    _ded.debugMsgFile = ded->debugMsgFile;
+    _ded.debugMsgLine = ded->debugMsgLine;
+
+    _ded.pcreStudy = ded->pcreStudy;
+    _ded.pcreCompile = ded->pcreCompile;
+    _ded.pcreExec = ded->pcreExec;
 
     return 0;
 }
@@ -118,6 +130,33 @@ ENGINE_LINKAGE int LibVersion(DynamicPluginMeta *dpm)
     return 0;
 }
 
+/*
+ * Function: CheckCompatibility
+ * Return values: 0 -- no compatibility issue detected; 1 -- otherwise.
+ */
+ENGINE_LINKAGE int CheckCompatibility(DynamicPluginMeta *meta, DynamicPluginMeta *lib)
+{
+    int ret = 0;
+	
+    /* types match */
+    if(((void *)meta != NULL ) && ((void *)lib != NULL) && (lib->type == meta->type))
+    {
+        /* names match */
+        if (!strcmp(meta->uniqueName, lib->uniqueName) )
+        {
+            if (((meta->major == 1) && (meta->minor >= 7)) || (meta->major > 1))
+            {
+                if( (lib->major == 1) && (lib->minor < 7 ))
+                {              			                			
+                    ret = 1;
+                }               		
+            }
+        }          
+    }
+    
+    return( ret );
+}
+
 /* Variables to check type of InitializeEngine and LibVersion */
 ENGINE_LINKAGE InitEngineLibFunc initEngineFunc = &InitializeEngine;
 ENGINE_LINKAGE LibVersionFunc libVersionFunc = &LibVersion;
@@ -127,7 +166,7 @@ ENGINE_LINKAGE LibVersionFunc libVersionFunc = &LibVersion;
  * called from the SpecialPurpose detection plugin as
  * CheckRule (void *, void *);
  */
-int CheckRule(void *p, void *r)
+static int CheckRule(void *p, void *r)
 {
     Rule *rule = (Rule *)r;
     if (!rule->initialized)
@@ -146,7 +185,7 @@ int CheckRule(void *p, void *r)
         return ruleMatch(p, rule);
 }
 
-int HasFlow(void *r)
+static int HasOption (void *r, enum DynamicOptionType optionType, int flowFlag)
 {
     Rule *rule = (Rule *)r;
     RuleOption *option;
@@ -159,104 +198,21 @@ int HasFlow(void *r)
 
     for (i=0,option = rule->options[i];option != NULL; option = rule->options[++i])
     {
-        if (option->optionType == OPTION_TYPE_FLOWFLAGS)
+        if (option->optionType == optionType)
         {
-            return 1;
+            if (!flowFlag) return 1;
+
+            if (
+                (optionType == OPTION_TYPE_FLOWFLAGS) &&
+                (option->option_u.flowFlags->flags & flowFlag)
+            ) return 1;
         }
     }
 
     return 0;
 }
 
-int HasFlowBits(void *r)
-{
-    Rule *rule = (Rule *)r;
-    RuleOption *option;
-    int i;
-
-    if ((!rule) || (!rule->initialized))
-    {
-        return 0;
-    }
-
-    for (i=0,option = rule->options[i];option != NULL; option = rule->options[++i])
-    {
-        if (option->optionType == OPTION_TYPE_FLOWBIT)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int HasContent(void *r)
-{
-    Rule *rule = (Rule *)r;
-    RuleOption *option;
-    int i;
-
-    if ((!rule) || (!rule->initialized))
-    {
-        return 0;
-    }
-
-    for (i=0,option = rule->options[i];option != NULL; option = rule->options[++i])
-    {
-        if (option->optionType == OPTION_TYPE_CONTENT)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int HasByteTest(void *r)
-{
-    Rule *rule = (Rule *)r;
-    RuleOption *option;
-    int i;
-
-    if ((!rule) || (!rule->initialized))
-    {
-        return 0;
-    }
-
-    for (i=0,option = rule->options[i];option != NULL; option = rule->options[++i])
-    {
-        if (option->optionType == OPTION_TYPE_BYTE_TEST)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int HasPCRE(void *r)
-{
-    Rule *rule = (Rule *)r;
-    RuleOption *option;
-    int i;
-
-    if ((!rule) || (!rule->initialized))
-    {
-        return 0;
-    }
-
-    for (i=0,option = rule->options[i];option != NULL; option = rule->options[++i])
-    {
-        if (option->optionType == OPTION_TYPE_PCRE)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-int GetFPContent(void *r, int buf, FPContentInfo** contents, int maxNumContents)
+static int GetFPContent(void *r, int buf, FPContentInfo** contents, int maxNumContents)
 {
     Rule *rule = (Rule *)r;
     int i, j = 0;
@@ -268,8 +224,8 @@ int GetFPContent(void *r, int buf, FPContentInfo** contents, int maxNumContents)
         if (option->optionType == OPTION_TYPE_CONTENT)
         {
             if ((option->option_u.content->flags & CONTENT_FAST_PATTERN) &&
-                (((option->option_u.content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST)) && (buf == FASTPATTERN_URI)) ||
-                 (!(option->option_u.content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST)) && (buf == FASTPATTERN_NORMAL)) ))
+                (((option->option_u.content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD)) && (buf == FASTPATTERN_URI)) ||
+                 (!(option->option_u.content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD)) && (buf == FASTPATTERN_NORMAL)) ))
             {
                 FPContentInfo *content = (FPContentInfo *)calloc(1, sizeof(FPContentInfo));
                 if (content == NULL)
@@ -277,7 +233,7 @@ int GetFPContent(void *r, int buf, FPContentInfo** contents, int maxNumContents)
                     DynamicEngineFatalMessage("Failed to allocate memory\n");
                 }
 
-                content->content = option->option_u.content->patternByteForm;
+                content->content = (char *)option->option_u.content->patternByteForm;
                 content->length = option->option_u.content->patternByteFormLength;
                 content->noCaseFlag = (char)(option->option_u.content->flags & CONTENT_NOCASE);
 
@@ -295,10 +251,10 @@ int GetFPContent(void *r, int buf, FPContentInfo** contents, int maxNumContents)
 static int DecodeContentPattern(Rule *rule, ContentInfo *content)
 {
     int pat_len;
-    char *pat_begin = content->pattern;
-    char *pat_idx;
-    char *pat_end;
-    unsigned char tmp_buf[2048];
+    const u_int8_t *pat_begin = content->pattern;
+    const u_int8_t *pat_idx;
+    const u_int8_t *pat_end;
+    char tmp_buf[2048];
     char *raw_idx;
     char *raw_end;
     int tmp_len = 0;
@@ -314,7 +270,7 @@ static int DecodeContentPattern(Rule *rule, ContentInfo *content)
     /* First, setup the raw data by parsing content */
     /* XXX: Basically, duplicate the code from ParsePattern()
      * in sp_pattern_match.c */
-    pat_len = strlen(content->pattern);
+    pat_len = strlen((const char *)content->pattern);
     pat_end = pat_begin + pat_len;
 
     /* set the indexes into the temp buffer */
@@ -546,20 +502,24 @@ int RegisterOneRule(Rule *rule, int registerRule)
                 ContentInfo *content = option->option_u.content;
                 DecodeContentPattern(rule, content);
                 BoyerContentSetup(rule, content);
-                if (content->flags & CONTENT_FAST_PATTERN)
-                {
-                    if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST))
-                        fpContentFlags |= FASTPATTERN_URI;
-                    else
-                        fpContentFlags |= FASTPATTERN_NORMAL;
-                }
                 content->incrementLength =
-                    getNonRepeatingLength(content->patternByteForm, content->patternByteFormLength);
+                    getNonRepeatingLength((char *)content->patternByteForm, content->patternByteFormLength);
 
-                if (content->patternByteFormLength > longestContent)
+                if (!(content->flags & NOT_FLAG))
                 {
-                    longestContent = content->patternByteFormLength;
-                    longestContentIndex = i;
+                    if (content->flags & CONTENT_FAST_PATTERN)
+                    {
+                        if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD))
+                            fpContentFlags |= FASTPATTERN_URI;
+                        else
+                            fpContentFlags |= FASTPATTERN_NORMAL;
+                    }
+
+                    if (content->patternByteFormLength > longestContent)
+                    {
+                        longestContent = content->patternByteFormLength;
+                        longestContentIndex = i;
+                    }
                 }
             }
             break;
@@ -575,7 +535,7 @@ int RegisterOneRule(Rule *rule, int registerRule)
         case OPTION_TYPE_FLOWBIT:
             {
                 FlowBitsInfo *flowbits = option->option_u.flowBit;
-                flowbits->id = _ded.flowbitRegister(flowbits->flowBitsName, 0);
+                flowbits->id = _ded.flowbitRegister(flowbits->flowBitsName, flowbits->operation);
                 if (flowbits->operation & FLOWBIT_NOALERT)
                     rule->noAlert = 1;
             }
@@ -624,28 +584,71 @@ int RegisterOneRule(Rule *rule, int registerRule)
             {
                 PreprocessorOption *preprocOpt = option->option_u.preprocOpt;
                 PreprocOptionInit optionInit;
-                result = _ded.getPreprocOptFuncs(preprocOpt->optionName, &preprocOpt->optionInit,
-                                                 &preprocOpt->optionEval);
-                if (result)
+                char *option_name = NULL;
+                char *option_params = NULL;
+                char *tmp;
+
+                if (preprocOpt->optionName == NULL)
                 {
                     /* Don't initialize this rule */
                     rule->initialized = 0;
-                    return result;
+                    return -1;
                 }
 
-DISABLE_WARNING(4055)
-                optionInit = (PreprocOptionInit)preprocOpt->optionInit;
-ENABLE_WARNING(4055)
-
-                result = optionInit(preprocOpt->optionName,
-                                    preprocOpt->optionParameters, &preprocOpt->dataPtr);
-                if (result)
+                result = _ded.getPreprocOptFuncs((char *)preprocOpt->optionName,
+                                                 &preprocOpt->optionInit,
+                                                 &preprocOpt->optionEval);
+                if (!result)
                 {
                     /* Don't initialize this rule */
                     rule->initialized = 0;
-                    return result;
+                    return -1;
+                }
+
+                optionInit = (PreprocOptionInit)preprocOpt->optionInit;
+
+                option_name = strdup(preprocOpt->optionName);
+                if (option_name == NULL)
+                {
+                    DynamicEngineFatalMessage("Failed to allocate memory "
+                        "for so detection rule preprocessor rule option "
+                        "option name\n");
+                }
+
+                /* XXX Hack right now for override options where the rule
+                 * option is stored as <option> <override>, e.g.
+                 * "byte_test dce"
+                 * Since name is passed in to init function, the function
+                 * is expecting the first word in the option name and not
+                 * the whole string */
+                tmp = option_name;
+                while ((*tmp != '\0') && !isspace((int)*tmp)) tmp++;
+                *tmp = '\0';
+
+                if (preprocOpt->optionParameters != NULL)
+                {
+                    option_params = strdup(preprocOpt->optionParameters);
+                    if (option_params == NULL)
+                    {
+                        DynamicEngineFatalMessage("Failed to allocate memory "
+                            "for so detection rule preprocessor rule option "
+                            "parameters\n");
+                    }
+                }
+
+                result = optionInit(option_name, option_params, &preprocOpt->dataPtr);
+
+                if (option_name != NULL) free(option_name);
+                if (option_params != NULL) free(option_params);
+
+                if (!result)
+                {
+                    /* Don't initialize this rule */
+                    rule->initialized = 0;
+                    return -1;
                 }
             }
+
             break;
 
         case OPTION_TYPE_BYTE_TEST:
@@ -667,7 +670,7 @@ ENABLE_WARNING(4055)
         {
             ContentInfo *content = option->option_u.content;
 
-            if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST))
+            if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD))
                 fpContentFlags |= FASTPATTERN_URI;
             else
                 fpContentFlags |= FASTPATTERN_NORMAL;
@@ -683,11 +686,7 @@ ENABLE_WARNING(4055)
                                    rule->info.genID,
                                    (void *)rule,
                                    &CheckRule,
-                                   &HasFlow,
-                                   &HasFlowBits,
-                                   &HasContent,
-                                   &HasByteTest,
-                                   &HasPCRE,
+                                   &HasOption,
                                    fpContentFlags,
                                    &GetFPContent);
     }
@@ -723,6 +722,7 @@ char *GetProtoString(int protocol)
 static int DumpRule(FILE *fp, Rule *rule)
 {
     RuleReference *ref;
+    RuleMetaData *meta;
     int i;
 
     fprintf(fp, "alert %s %s %s %s %s %s ",
@@ -731,12 +731,11 @@ static int DumpRule(FILE *fp, Rule *rule)
         rule->ip.direction == 0 ? "->" : "<>",
         rule->ip.dst_addr, rule->ip.dst_port);
     fprintf(fp, "(msg:\"%s\"; ", rule->info.message);
-    fprintf(fp, "metadata: engine shared, soid %d|%d; ",
-            rule->info.genID, rule->info.sigID);
     fprintf(fp, "sid:%d; ", rule->info.sigID);
     fprintf(fp, "gid:%d; ", rule->info.genID);
     fprintf(fp, "rev:%d; ", rule->info.revision);
-    fprintf(fp, "classtype:%s; ", rule->info.classification);
+    if (rule->info.classification != NULL)
+        fprintf(fp, "classtype:%s; ", rule->info.classification);
     if (rule->info.priority != 0)
         fprintf(fp, "priority:%d; ", rule->info.priority);
 
@@ -750,7 +749,20 @@ static int DumpRule(FILE *fp, Rule *rule)
         }
     }
 
-    fprintf(fp, ")\n");
+    fprintf(fp, "metadata: engine shared, soid %d|%d",
+            rule->info.genID, rule->info.sigID);
+
+    if(rule->info.meta)
+    {
+        for (i=0, meta= rule->info.meta[i];
+             meta != NULL;
+             i++, meta = rule->info.meta[i])
+        {
+            fprintf(fp, ", %s", meta->data);
+        }
+    }
+
+    fprintf(fp, ";)\n");
 
     return 0;
 }
@@ -761,7 +773,10 @@ ENGINE_LINKAGE int RegisterRules(Rule **rules)
 
     for (i=0; rules[i] != NULL; i++)
     {
-        RegisterOneRule(rules[i], REGISTER_RULE);
+        if (rules[i]->initialized == 0)
+        {
+            RegisterOneRule(rules[i], REGISTER_RULE);
+        }
     }
 
     return 0;
@@ -784,7 +799,8 @@ ENGINE_LINKAGE int DumpRules(char *rulesFileName, Rule **rules)
     if ((strlen(_ded.dataDumpDirectory) + strlen(DIR_SEP) + strlen(rulesFileName) + strlen(".rules")) > PATH_MAX)
         return -1;
 
-    snprintf(ruleFile, PATH_MAX, "%s%s%s.rules", _ded.dataDumpDirectory, DIR_SEP, rulesFileName);
+    snprintf(ruleFile, PATH_MAX, "%s%s%s.rules", 
+                _ded.dataDumpDirectory, DIR_SEP, rulesFileName);
     ruleFile[PATH_MAX] = '\0';
     ruleFP = fopen(ruleFile, "w");
     if (ruleFP)

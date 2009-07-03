@@ -1,11 +1,12 @@
 /*
  * ftpp_si.c
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -262,7 +263,32 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     int iRet;
     int iTelnetSip;
     int iTelnetDip;
+#ifdef TARGET_BASED
+    int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
 
+    /* If possible, use Stream API to determine protocol. */
+    if (_dpd.streamAPI)
+    {
+        app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+    }
+    if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
+    {
+        return FTPP_INVALID_PROTO;
+    }
+    if (app_id == GlobalConf->telnet_app_id)
+    {
+        if (SiInput->pdir == FTPP_SI_CLIENT_MODE ||
+            SiInput->pdir == FTPP_SI_SERVER_MODE)
+        {
+            *piInspectMode = (int)SiInput->pdir;
+        }
+    }
+    else if (app_id && app_id != GlobalConf->telnet_app_id)
+    {
+            return FTPP_INVALID_PROTO;
+    }
+    else {
+#endif
     iTelnetSip = PortMatch((PROTO_CONF*)&GlobalConf->global_telnet,
                            SiInput->sport);
     iTelnetDip = PortMatch((PROTO_CONF*)&GlobalConf->global_telnet,
@@ -280,6 +306,9 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     {
         return FTPP_INVALID_PROTO;
     }
+#ifdef TARGET_BASED
+    }
+#endif
 
     SiInput->pproto = FTPP_SI_PROTO_TELNET;
 
@@ -415,7 +444,30 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     int iServerDip;
     int iErr = 0;
     int iRet = FTPP_SUCCESS;
+#ifdef TARGET_BASED
+    int16_t app_id = 0;
+#endif
+    snort_ip sip;
+    snort_ip dip;
 
+    //structure copy
+    sip = SiInput->sip;
+    dip = SiInput->dip;
+
+#ifdef SUP_IP6
+    if (sip.family == AF_INET)
+    {
+        sip.ip.u6_addr32[0] = ntohl(sip.ip.u6_addr32[0]);
+    }
+    if (dip.family == AF_INET)
+    {
+        dip.ip.u6_addr32[0] = ntohl(dip.ip.u6_addr32[0]);
+    }
+#else
+    sip = ntohl(sip);
+    dip = ntohl(dip);
+#endif
+    
     /*
      * We find the client configurations for both the source and dest IPs.
      * There should be a check on the global configuration to see if there
@@ -423,14 +475,26 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
      * assume the global client configuration.
      */
     ClientConfDip = ftpp_ui_client_lookup_find(GlobalConf->client_lookup, 
-            SiInput->dip, &iErr);
+#ifdef SUP_IP6
+            &dip,
+#else
+            dip,
+#endif
+            &iErr);
+
     if(!ClientConfDip)
     {
         ClientConfDip = &GlobalConf->global_ftp_client;
     }
 
     ClientConfSip = ftpp_ui_client_lookup_find(GlobalConf->client_lookup,
-            SiInput->sip, &iErr);
+#ifdef SUP_IP6
+            &sip,
+#else
+            sip,
+#endif
+            &iErr);
+
     if(!ClientConfSip)
     {
         ClientConfSip = &GlobalConf->global_ftp_client;
@@ -443,14 +507,26 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
      * assume the global client configuration.
      */
     ServerConfDip = ftpp_ui_server_lookup_find(GlobalConf->server_lookup, 
-            SiInput->dip, &iErr);
+#ifdef SUP_IP6
+            &dip,
+#else
+            dip,
+#endif
+            &iErr);
+
     if(!ServerConfDip)
     {
         ServerConfDip = &GlobalConf->global_ftp_server;
     }
 
     ServerConfSip = ftpp_ui_server_lookup_find(GlobalConf->server_lookup,
-            SiInput->sip, &iErr);
+#ifdef SUP_IP6
+            &sip,
+#else
+            sip,
+#endif
+            &iErr);
+
     if(!ServerConfSip)
     {
         ServerConfSip = &GlobalConf->global_ftp_server;
@@ -484,6 +560,16 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     switch(SiInput->pdir)
     {
         case FTPP_SI_NO_MODE:
+
+#ifdef TARGET_BASED
+            if (_dpd.streamAPI)
+            {
+                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+            }
+            if (app_id == GlobalConf->ftp_app_id || app_id == 0)
+            {
+#endif
+            
             /*
              * We check for the case where both SIP and DIP 
              * appear to be servers.  In this case, we assume server
@@ -537,9 +623,21 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
             }
             break;
 
+#ifdef TARGET_BASED
+            }
+#endif
+
         case FTPP_SI_CLIENT_MODE:
             /* Packet is from client --> dest is Server */
+#ifdef TARGET_BASED
+            if (_dpd.streamAPI)
+            {
+                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+            }
+            if ((app_id == GlobalConf->ftp_app_id) || (!app_id && iServerDip))
+#else
             if(iServerDip)
+#endif
             {
                 *piInspectMode = FTPP_SI_CLIENT_MODE;
                 *ClientConf = ClientConfSip;
@@ -555,7 +653,15 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
 
         case FTPP_SI_SERVER_MODE:
             /* Packet is from server --> src is Server */
+#ifdef TARGET_BASED
+            if (_dpd.streamAPI)
+            {
+                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+            }
+            if ((app_id == GlobalConf->ftp_app_id) || (!app_id && iServerSip))
+#else
             if(iServerSip)
+#endif
             {
                 *piInspectMode = FTPP_SI_SERVER_MODE;
                 *ClientConf = ClientConfDip;
@@ -623,9 +729,9 @@ static INLINE int FTPResetSession(FTP_SESSION *FtpSession, int first)
     FtpSession->global_conf = NULL;
 
     FtpSession->encr_state = NO_STATE;
-    FtpSession->clientIP = 0;
+    IP_CLEAR(FtpSession->clientIP);
     FtpSession->clientPort = 0;
-    FtpSession->serverIP = 0;
+    IP_CLEAR(FtpSession->serverIP);
     FtpSession->serverPort = 0;
     FtpSession->data_chan_state = NO_STATE;
     FtpSession->data_chan_index = -1;
@@ -677,9 +783,22 @@ static int FTPStatefulSessionInspection(SFSnortPacket *p,
         if (*FtpSession)
         {
             if (SiInput->pdir != FTPP_SI_NO_MODE)
+            {
                 *piInspectMode = SiInput->pdir;
+            }
             else
-                *piInspectMode = FTPGetPacketDir(p);
+            {
+                FTP_SESSION *tmp = *FtpSession;
+                /* check session pointer server conf port */
+
+                if (tmp->server_conf && tmp->server_conf->proto_ports.ports[SiInput->sport])
+                    *piInspectMode = FTPP_SI_SERVER_MODE;
+                else if (tmp->server_conf && tmp->server_conf->proto_ports.ports[SiInput->dport])
+                    *piInspectMode = FTPP_SI_CLIENT_MODE;
+                else
+                    *piInspectMode = FTPGetPacketDir(p);
+            }
+
             return FTPP_SUCCESS;
         }
     }

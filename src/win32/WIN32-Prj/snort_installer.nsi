@@ -1,17 +1,17 @@
 ; $Id$
 ;
-; NSIS Installation script for Snort 2.7.0 Win32
+; NSIS Installation script for Snort 2.8.4 Win32
 ; Written by Chris Reid <chris.reid@codecraftconsultants.com>
 ; Updated by Steven Sturges <ssturges@sourcefire.com>
 ;
-; This script will create a Win32 installer for Snort 2.7.0 (Win32 only).
+; This script will create a Win32 installer for Snort 2.8.4 (Win32 only).
 ; For more information about NSIS, see their homepage:
 ;     http://nsis.sourceforge.net/
 ;
 ; Note that this NSIS script is designed for NSIS version 2.09.
 ;
 
-Name "Snort 2.7.0"
+Name "Snort 2.8.4"
 
 CRCCheck On
 
@@ -23,7 +23,7 @@ CRCCheck On
 ;Configuration
 
   ;General
-  OutFile "Snort_270_Installer.exe"  ; The name of the installer executable
+  OutFile "Snort_2_8_4_Installer.exe"  ; The name of the installer executable
 
   ;Folder selection page
   InstallDir "C:\Snort"
@@ -174,27 +174,40 @@ Section "Snort" Snort
 
   ; CheckForMSSqlServer:
   !insertmacro MUI_INSTALLOPTIONS_READ ${TEMP} "snort_installer_options.ini" "Field 3" "State"
-  StrCmp ${TEMP} "1" "" +2
-    StrCpy $0 "MSSQL"
+  StrCmp ${TEMP} "1" 0 +2
+  StrCpy $0 "MSSQL"
 
   ; CheckForFlexResp:
   !insertmacro MUI_INSTALLOPTIONS_READ ${TEMP} "snort_installer_options.ini" "Field 4" "State"
-  StrCmp ${TEMP} "1" "" +2
-    StrCpy $0 "Oracle"
+  StrCmp ${TEMP} "1" 0 +2
+  StrCpy $0 "Oracle"
+
+  StrCpy $1 "IPv4"
+
+  !insertmacro MUI_INSTALLOPTIONS_READ ${TEMP} "snort_installer_options.ini" "Field 5" "State"
+  StrCmp ${TEMP} "1" 0 +2
+  StrCpy $1 "IPv6"
+
 
   SetOutPath "$INSTDIR\bin"
 
   ; --------------------------------------------------------------------
   ; Configurations
   ; --------------------------------------------------------------------
-  StrCmp "$0" "MySQL" "" +2
-    File ".\snort___Win32_MySQL_Release\snort.exe"
-
-  StrCmp "$0" "MSSQL" "" +2
-    File ".\snort___Win32_SQLServer_Release\snort.exe"
-
-  StrCmp "$0" "Oracle" "" +2
-    File ".\snort___Win32_Oracle_Release\snort.exe"
+  StrCmp $1 "IPv4" 0 +7
+  StrCmp $0 "MySQL" 0 +2
+  File ".\snort___Win32_MySQL_Release\snort.exe"
+  StrCmp $0 "MSSQL" 0 +2
+  File ".\snort___Win32_SQLServer_Release\snort.exe"
+  StrCmp $0 "Oracle" 0 +2
+  File ".\snort___Win32_Oracle_Release\snort.exe"
+  StrCmp $1 "IPv6" 0 +7
+  StrCmp $0 "MySQL" 0 +2
+  File ".\snort___Win32_MySQL_IPv6_Release\snort.exe"
+  StrCmp $0 "MSSQL" 0 +2
+  File ".\snort___Win32_SQLServer_IPv6_Release\snort.exe"
+  StrCmp $0 "Oracle" 0 +2
+  File ".\snort___Win32_Oracle_IPv6_Release\snort.exe"
 
   ;Create uninstaller
   SetOutPath "$INSTDIR"
@@ -205,15 +218,29 @@ Section "Dynamic Modules" Dynamic
   CreateDirectory "$INSTDIR\lib"
   CreateDirectory "$INSTDIR\lib\snort_dynamicpreprocessor"
   SetOutPath "$INSTDIR\lib\snort_dynamicpreprocessor"
+  StrCmp $1 "IPv4" 0 +8
   File "..\..\dynamic-preprocessors\ftptelnet\Release\sf_ftptelnet.dll"
   File "..\..\dynamic-preprocessors\smtp\Release\sf_smtp.dll"
   File "..\..\dynamic-preprocessors\ssh\Release\sf_ssh.dll"
   File "..\..\dynamic-preprocessors\dcerpc\Release\sf_dcerpc.dll"
   File "..\..\dynamic-preprocessors\dns\Release\sf_dns.dll"
+  File "..\..\dynamic-preprocessors\ssl\Release\sf_ssl.dll"
+  File "..\..\dynamic-preprocessors\dcerpc2\Release\sf_dce2.dll"
+  StrCmp $1 "IPv6" 0 +8
+  File "..\..\dynamic-preprocessors\ftptelnet\IPv6_Release\sf_ftptelnet.dll"
+  File "..\..\dynamic-preprocessors\smtp\IPv6_Release\sf_smtp.dll"
+  File "..\..\dynamic-preprocessors\ssh\IPv6_Release\sf_ssh.dll"
+  File "..\..\dynamic-preprocessors\dcerpc\IPv6_Release\sf_dcerpc.dll"
+  File "..\..\dynamic-preprocessors\dns\IPv6_Release\sf_dns.dll"
+  File "..\..\dynamic-preprocessors\ssl\IPv6_Release\sf_ssl.dll"
+  File "..\..\dynamic-preprocessors\dcerpc2\IPv6_Release\sf_dce2.dll"
 
   CreateDirectory "$INSTDIR\lib\snort_dynamicengine"
   SetOutPath "$INSTDIR\lib\snort_dynamicengine"
+  StrCmp $1 "IPv4" 0 +2
   File ".\SF_Engine_Release\sf_engine.dll"
+  StrCmp $1 "IPv6" 0 +2
+  File ".\SF_Engine_IPv6_Release\sf_engine.dll"
 SectionEnd
 
 Section "Documentation" Doc

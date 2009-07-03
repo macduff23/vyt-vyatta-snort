@@ -16,11 +16,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  */
-#ifndef __UTIL_H__
-#define __UTIL_H__
+#ifndef __HI_UTIL_XMALLOC_H__
+#define __HI_UTIL_XMALLOC_H__
 
 #ifdef WIN32
 
@@ -30,10 +30,7 @@
 
 #include <sys/types.h>
 
-typedef unsigned long long UINT64;
-
 #endif
-
 
 
 void *xmalloc(size_t byteSize);

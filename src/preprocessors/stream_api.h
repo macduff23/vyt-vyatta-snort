@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
- * ** Copyright (C) 2005 Sourcefire, Inc.
+ * ** Copyright (C) 2005-2009 Sourcefire, Inc.
  * ** AUTHOR: Steven Sturges
  * **
  * ** This program is free software; you can redistribute it and/or modify
@@ -41,11 +41,17 @@
 
 #include <sys/types.h>
 
-#include "snort_packet_header.h"
+#include "ipv6_port.h"
 #include "preprocids.h" /* IDs are used when setting preproc specific data */
 #include "bitop.h"
+#include "decode.h"
 
 #define IGNORE_FLAG_ALWAYS 0x01
+
+#define SSN_MISSING_NONE   0x00
+#define SSN_MISSING_BEFORE 0x01
+#define SSN_MISSING_AFTER  0x02
+#define SSN_MISSING_BOTH   (SSN_MISSING_BEFORE | SSN_MISSING_AFTER)
 
 #define SSN_DIR_NONE 0x0
 #define SSN_DIR_CLIENT 0x1
@@ -74,6 +80,10 @@
 #define SSNFLAG_COUNTED_CLOSING     0x00008000
 #define SSNFLAG_TIMEDOUT            0x00010000
 #define SSNFLAG_PRUNED              0x00020000
+#define SSNFLAG_RESET               0x00040000
+#define SSNFLAG_DROP_CLIENT         0x00080000
+#define SSNFLAG_DROP_SERVER         0x00100000
+#define SSNFLAG_LOGGED_QUEUE_FULL   0x00200000
 #define SSNFLAG_ALL                 0xFFFFFFFF /* all that and a bag of chips */
 #define SSNFLAG_NONE                0x00000000 /* nothing, an MT bag of chips */
 
@@ -98,7 +108,7 @@
 #define STREAM_API_VERSION5 5
 
 typedef void (*StreamAppDataFree)(void *);
-typedef int (*PacketIterator)(SnortPktHeader *,
+typedef int (*PacketIterator)(struct pcap_pkthdr *,
                               u_int8_t *,
                               void *); /* user-defined data pointer */
 
@@ -131,7 +141,7 @@ typedef struct _stream_api
      *     IP
      *     Port
      */
-    void (*update_direction)(void *, char, u_int32_t, u_int16_t );
+    void (*update_direction)(void *, char, snort_ip_p, u_int16_t );
 
     /* Get direction of packet
      *
@@ -174,7 +184,7 @@ typedef struct _stream_api
      *     0 on success
      *     -1 on failure
      */
-    int (*ignore_session)(u_int32_t, u_int16_t, u_int32_t, u_int16_t,
+    int (*ignore_session)(snort_ip_p, u_int16_t, snort_ip_p, u_int16_t,
                           char, char, char);
 
     /* Resume inspection for session.
@@ -346,18 +356,92 @@ typedef struct _stream_api
      * sequence or packets are missing
      *
      * Parameters
-     *     Direction
      *     Session Ptr
+     *     Direction
      *
      * Returns
      *     true/false
      */
     char (*is_stream_sequenced)(void *, char);
 
+    /* Get whether there are missing packets before, after or
+     * before and after reassembled buffer
+     *
+     * Parameters
+     *      Session Ptr
+     *      Direction
+     *
+     * Returns
+     *      SSN_MISSING_BOTH if missing before and after
+     *      SSN_MISSING_BEFORE if missing before
+     *      SSN_MISSING_AFTER if missing after
+     *      SSN_MISSING_NONE if none missing
+     */
+    int (*missing_in_reassembled)(void *, char);
+
+    /* Get true/false as to whether packets were missed on
+     * the stream
+     *
+     * Parameters
+     *     Session Ptr
+     *     Direction
+     *
+     * Returns
+     *     true/false
+     */
+    char (*missed_packets)(void *, char);
+
+#ifdef TARGET_BASED
+    /* Get the protocol identifier from a stream
+     *
+     * Parameters
+     *     Session Ptr
+     * 
+     * Returns
+     *     integer protocol identifier
+     */
+    int16_t (*get_application_protocol_id)(void *);
+
+    /* Set the protocol identifier for a stream
+     *
+     * Parameters
+     *     Session Ptr
+     *     ID
+     * 
+     * Returns
+     *     integer protocol identifier
+     */
+    int16_t (*set_application_protocol_id)(void *, int16_t);
+
+    /** Set service to either ignore, inspect or maintain session state.
+     */
+    void (*set_service_filter_status)(int service, int status);
+#endif
+
+    /** Set port to either ignore, inspect or maintain session state. 
+     */
+    void (*set_port_filter_status)(int protocol, u_int16_t port, int status);
+
+
 } StreamAPI;
 
 /* To be set by Stream5 (or Stream4) */
 extern StreamAPI *stream_api;
+
+/**Port Inspection States. Port can be either ignored,
+ * or inspected or session tracked. The values are bitmasks.
+ */
+typedef enum { 
+    /**Dont monitor the port. */
+    PORT_MONITOR_NONE = 0x00, 
+
+    /**Inspect the port. */
+    PORT_MONITOR_INSPECT = 0x01,
+
+    /**perform session tracking on the port. */
+    PORT_MONITOR_SESSION = 0x02
+
+} PortMonitorStates;
 
 #endif /* STREAM_API_H_ */
 

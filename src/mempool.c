@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -165,6 +166,47 @@ int mempool_init(MemPool *mempool, PoolCount num_objects, size_t obj_size)
     return 0;
 }
 
+/* Function: int mempool_clean(MemPool *mempool) 
+ * 
+ * Purpose: return all memory to free list
+ * Args: mempool - pointer to a MemPool struct
+ * 
+ * Returns: 0 on success, -1 on failure
+ */ 
+int mempool_clean(MemPool *mempool)
+{
+    unsigned int i;
+    int ret;
+
+    if (mempool == NULL)
+        return -1;
+
+    /* clean used list */
+    ret = sf_sdlist_delete(&mempool->used_list);
+    if (ret != 0)
+        return -1;
+    mempool->used = 0;
+
+    /* clean free list */
+    ret = sf_sdlist_delete(&mempool->free_list);
+    if (ret != 0)
+        return -1;
+    mempool->free = 0;
+
+    /* add everything back to free list */
+    for (i = 0; i < mempool->total; i++)
+    {
+        ret = sf_sdlist_append(&mempool->free_list, &mempool->bucketpool[i],
+                               &mempool->listpool[i]);
+        if (ret == -1)
+            return -1;
+
+        mempool->free++;
+    }
+
+    return 0;
+}
+
 /* Function: int mempool_destroy(MemPool *mempool) 
  * 
  * Purpose: destroy a set of mempool objects
@@ -216,14 +258,13 @@ MemBucket *mempool_alloc(MemPool *mempool)
 
     li = mempool->free_list.head;
 
-    mempool->free--;
     if((li == NULL) || sf_sdlist_remove(&mempool->free_list, li))
     {
         printf("Failure on sf_sdlist_remove\n");
         return NULL;
     }
-        
-    
+
+    mempool->free--;
     mempool->used++;
 
     if(sf_sdlist_append(&mempool->used_list, li->data, li))

@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -50,6 +51,9 @@
 
 #include "snort.h"
 
+#include "sfutil/sf_textlog.h"
+#include "log_text.h"
+
 #ifdef HAVE_STRINGS_H
 #include <strings.h>
 #endif
@@ -60,15 +64,22 @@
 
 typedef struct _SpoAlertFullData
 {
-    FILE *file;
+    TextLog* log;
 } SpoAlertFullData;
 
-void AlertFullInit(u_char *);
-SpoAlertFullData *ParseAlertFullArgs(char *);
-void AlertFull(Packet *, char *, void *, Event *);
-void AlertFullCleanExit(int, void *);
-void AlertFullRestart(int, void *);
+static void AlertFullInit(char *);
+static SpoAlertFullData *ParseAlertFullArgs(char *);
+static void AlertFull(Packet *, char *, void *, Event *);
+static void AlertFullCleanExit(int, void *);
+static void AlertFullRestart(int, void *);
 
+/*
+ * not defined for backwards compatibility
+ * (default is produced by OpenAlertFile()
+#define DEFAULT_FILE  "alert.full"
+ */
+#define DEFAULT_LIMIT (128*M_BYTES)
+#define LOG_BUFFER    (4*K_BYTES)
 
 /*
  * Function: SetupAlertFull()
@@ -93,7 +104,7 @@ void AlertFullSetup(void)
 
 
 /*
- * Function: AlertFullInit(u_char *)
+ * Function: AlertFullInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -103,7 +114,7 @@ void AlertFullSetup(void)
  * Returns: void function
  *
  */
-void AlertFullInit(u_char *args)
+static void AlertFullInit(char *args)
 {
     SpoAlertFullData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: AlertFull Initialized\n"););
@@ -120,18 +131,17 @@ void AlertFullInit(u_char *args)
     AddFuncToRestartList(AlertFullRestart, data);
 }
 
-void AlertFull(Packet *p, char *msg, void *arg, Event *event)
+static void AlertFull(Packet *p, char *msg, void *arg, Event *event)
 {
-    char timestamp[TIMEBUF_SIZE];
     SpoAlertFullData *data = (SpoAlertFullData *)arg;
 
     if(msg != NULL)
     {
-        fwrite("[**] ", 5, 1, data->file);
+        TextLog_Puts(data->log, "[**] ");
 
         if(event != NULL)
         {
-                fprintf(data->file, "[%lu:%lu:%lu] ",
+                TextLog_Print(data->log, "[%lu:%lu:%lu] ",
                         (unsigned long) event->sig_generator,
                         (unsigned long) event->sig_id,
                         (unsigned long) event->sig_rev);
@@ -139,141 +149,175 @@ void AlertFull(Packet *p, char *msg, void *arg, Event *event)
 
         if(pv.alert_interface_flag)
         {
-            fprintf(data->file, " <%s> ", PRINT_INTERFACE(pv.interface));
-            fwrite(msg, strlen(msg), 1, data->file);
-            fwrite(" [**]\n", 6, 1, data->file);
+            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pv.interface));
+            TextLog_Puts(data->log, msg);
+            TextLog_Puts(data->log, " [**]\n");
         }
         else
         {
-            fwrite(msg, strlen(msg), 1, data->file);
-            fwrite(" [**]\n", 6, 1, data->file);
+            TextLog_Puts(data->log, msg);
+            TextLog_Puts(data->log, " [**]\n");
         }
     }
     else
     {
-        fwrite("[**] Snort Alert! [**]\n", 23, 1, data->file);
+        TextLog_Puts(data->log, "[**] Snort Alert! [**]\n");
     }
 
-    if(p && p->iph)
+    if(p && IPH_IS_VALID(p))
     {
-        PrintPriorityData(data->file, 1);
+        LogPriorityData(data->log, TRUE);
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "Logging Alert data!\n"););
 
-    bzero((char *) timestamp, TIMEBUF_SIZE);
-    ts_print(p == NULL ? NULL : (struct timeval *) & p->pkth->ts, timestamp);
+    LogTimeStamp(data->log, p);
 
-    /* dump the timestamp */
-    fwrite(timestamp, strlen(timestamp), 1, data->file);
-    if(p && p->iph)
+    if(p && IPH_IS_VALID(p))
     {
         /* print the packet header to the alert file */
 
         if(pv.show2hdr_flag)
         {
-            Print2ndHeader(data->file, p);
+            Log2ndHeader(data->log, p);
         }
 
-        PrintIPHeader(data->file, p);
+      LogIPHeader(data->log, p);
 
         /* if this isn't a fragment, print the other header info */
         if(!p->frag_flag)
         {
-            switch(p->iph->ip_proto)
+            switch(GET_IPH_PROTO(p))
             {
                 case IPPROTO_TCP:
-                    PrintTCPHeader(data->file, p);
+                   LogTCPHeader(data->log, p);
                     break;
 
                 case IPPROTO_UDP:
-                    PrintUDPHeader(data->file, p);
+                   LogUDPHeader(data->log, p);
                     break;
 
                 case IPPROTO_ICMP:
-                    PrintICMPHeader(data->file, p);
+                   LogICMPHeader(data->log, p);
                     break;
 
                 default:
                     break;
             }
 
-            PrintXrefs(data->file, 1);
+           LogXrefs(data->log, 1);
         }
 
-        fputc('\n', data->file);
+        TextLog_Putc(data->log, '\n');
     } /* End of if(p) */
     else
     {
-        fputs("\n\n", data->file);
+        TextLog_Puts(data->log, "\n\n");
     }
-
-    fflush(data->file);
-    return;
- 
-
-
+    TextLog_Flush(data->log);
 }
-
 
 /*
  * Function: ParseAlertFullArgs(char *)
  *
- * Purpose: Process the preprocessor arguements from the rules file and 
- *          initialize the preprocessor's data struct.  This function doesn't
- *          have to exist if it makes sense to parse the args in the init 
- *          function.
+ * Purpose: Process positional args, if any.  Syntax is:
+ * output alert_full: [<logpath> [<limit>]]
+ * limit ::= <number>('G'|'M'|K')
  *
  * Arguments: args => argument list
  *
  * Returns: void function
- *
  */
-SpoAlertFullData *ParseAlertFullArgs(char *args)
+static SpoAlertFullData *ParseAlertFullArgs(char *args)
 {
     char **toks;
     int num_toks;
-    char *filename;
     SpoAlertFullData *data;
+    char* filename = NULL;
+    unsigned long limit = DEFAULT_LIMIT;
+    int i;
 
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "ParseAlertFullArgs: %s\n", args););
     data = (SpoAlertFullData *)SnortAlloc(sizeof(SpoAlertFullData));
-    if(args == NULL)
-    {
-        data->file = OpenAlertFile(NULL);
-        return data;
-    }
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"ParseAlertFullArgs: %s\n", args););
 
-    toks = mSplit(args, " ", 2, &num_toks, 0);
-    if(strcasecmp("stdout", toks[0]) == 0)
-        data->file = stdout;
-    else
+    if ( !data )
     {
-        filename = ProcessFileOption(toks[0]);
-        data->file = OpenAlertFile(filename);
-        free(filename);
+        FatalError("alert_full: unable to allocate memory!\n");
+    }
+    if ( !args ) args = "";
+    toks = mSplit((char *)args, " ", 3, &num_toks, '\\');
+
+    for (i = 0; i < num_toks; i++)
+    {
+        const char* tok = toks[i];
+        char *end;
+
+        switch (i)
+        {
+            case 0:
+                if ( !strcasecmp(tok, "stdout") )
+                    filename = SnortStrdup(tok);
+
+                else
+                    filename = ProcessFileOption(tok);
+                break;
+
+            case 1:
+                limit = strtol(tok, &end, 10);
+
+                if ( tok == end )
+                    FatalError("alert_full error in %s(%i): %s\n",
+                        file_name, file_line, tok);
+
+                if ( end && toupper(*end) == 'G' )
+                    limit <<= 30; /* GB */
+
+                else if ( end && toupper(*end) == 'M' )
+                    limit <<= 20; /* MB */
+
+                else if ( end && toupper(*end) == 'K' )
+                    limit <<= 10; /* KB */
+                break;
+
+            case 2:
+                FatalError("alert_full: error in %s(%i): %s\n",
+                    file_name, file_line, tok);
+                break;
+        }
     }
     mSplitFree(&toks, num_toks);
+
+#ifdef DEFAULT_FILE
+    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
+#endif
+
+    DEBUG_WRAP(DebugMessage(
+        DEBUG_INIT, "alert_full: '%s' %ld\n",
+        filename ? filename : "alert", limit
+    ););
+    data->log = TextLog_Init(filename, LOG_BUFFER, limit);
+    if ( filename ) free(filename);
+
     return data;
 }
 
-void AlertFullCleanExit(int signal, void *arg)
+static void AlertFullCleanup(int signal, void *arg, const char* msg)
 {
     SpoAlertFullData *data = (SpoAlertFullData *)arg;
-    /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertFullCleanExit\n"););
-    fclose(data->file);
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "%s\n", msg););
+
     /* free memory from SpoAlertFullData */
+    if ( data->log ) TextLog_Term(data->log);
     free(data);
 }
 
-void AlertFullRestart(int signal, void *arg)
+static void AlertFullCleanExit(int signal, void *arg)
 {
-    SpoAlertFullData *data = (SpoAlertFullData *)arg;
-    /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertFullRestart\n"););
-    fclose(data->file);
-    /* free memory from SpoAlertFullData */
-    free(data);
+    AlertFullCleanup(signal, arg, "AlertFullCleanExit");
+}
+
+static void AlertFullRestart(int signal, void *arg)
+{
+    AlertFullCleanup(signal, arg, "AlertFullRestart");
 }
 

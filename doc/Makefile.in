@@ -13,6 +13,7 @@
 # PARTICULAR PURPOSE.
 
 @SET_MAKE@
+
 VPATH = @srcdir@
 pkgdatadir = $(datadir)/@PACKAGE@
 pkglibdir = $(libdir)/@PACKAGE@
@@ -32,8 +33,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 subdir = doc
-DIST_COMMON = README $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
-	AUTHORS INSTALL NEWS TODO
+DIST_COMMON = README $(dist_doc_DATA) $(srcdir)/Makefile.am \
+	$(srcdir)/Makefile.in AUTHORS INSTALL NEWS TODO
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libprelude.m4 \
 	$(top_srcdir)/configure.in
@@ -46,6 +47,15 @@ depcomp =
 am__depfiles_maybe =
 SOURCES =
 DIST_SOURCES =
+am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
+am__vpath_adj = case $$p in \
+    $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
+    *) f=$$p;; \
+  esac;
+am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
+am__installdirs = "$(DESTDIR)$(docdir)"
+dist_docDATA_INSTALL = $(INSTALL_DATA)
+DATA = $(dist_doc_DATA)
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
@@ -83,6 +93,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -113,6 +124,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -134,7 +146,7 @@ build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
-docdir = @docdir@
+docdir = ${datadir}/doc/${PACKAGE}
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
 extra_incl = @extra_incl@
@@ -166,47 +178,68 @@ target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
-EXTRA_DIST = AUTHORS NEWS BUGS README \
+EXTRA_DIST = \
+faq.pdf \
+faq.tex \
+snort_manual.pdf \
+snort_manual.tex \
+snort_schema_v106.pdf
+
+dist_doc_DATA = \
+AUTHORS \
+BUGS \
 CREDITS \
-snort_manual.pdf snort_manual.tex INSTALL USAGE \
+generators \
+INSTALL \
+NEWS \
+PROBLEMS \
+README \
 README.alert_order \
 README.ARUBA \
 README.asn1 \
 README.csv \
 README.database \
 README.dcerpc \
+README.dcerpc2 \
+README.decode \
+README.decoder_preproc_rules \
 README.dns \
 README.event_queue \
 README.FLEXRESP \
 README.FLEXRESP2 \
-README.flow \
 README.flowbits \
-README.flow-portscan \
 README.frag3 \
 README.ftptelnet \
+README.gre \
 README.http_inspect \
 README.INLINE \
+README.ipip \
+README.ipv6 \
+README.pcap_readmode \
 README.PerfProfiling \
 README.PLUGINS \
+README.ppm \
 README.sfportscan \
 README.SMTP \
 README.ssh \
-README.stream4 \
+README.ssl \
 README.stream5 \
+README.tag \
 README.thresholding \
 README.UNSOCK \
+README.variables \
 README.WIN32 \
 README.wireless \
-snort_schema_v106.pdf \
-PROBLEMS WISHLIST faq.pdf faq.tex
+TODO \
+USAGE \
+WISHLIST
 
 DISTCLEANFILES = snort_manual.log snort_manual.toc snort_manual.aux faq.log faq.toc faq.aux snort_manual.pdf faq.pdf snort_manual.out
-doc_DIR = $(prefix)/doc
 SUFFIXES = .tex .dvi .ps
 all: all-am
 
 .SUFFIXES:
-.SUFFIXES: .tex .dvi .ps .pdf
+.SUFFIXES: .tex .dvi .ps .html .pdf
 $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__configure_deps)
 	@for dep in $?; do \
 	  case '$(am__configure_deps)' in \
@@ -242,6 +275,23 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
+install-dist_docDATA: $(dist_doc_DATA)
+	@$(NORMAL_INSTALL)
+	test -z "$(docdir)" || $(MKDIR_P) "$(DESTDIR)$(docdir)"
+	@list='$(dist_doc_DATA)'; for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  f=$(am__strip_dir) \
+	  echo " $(dist_docDATA_INSTALL) '$$d$$p' '$(DESTDIR)$(docdir)/$$f'"; \
+	  $(dist_docDATA_INSTALL) "$$d$$p" "$(DESTDIR)$(docdir)/$$f"; \
+	done
+
+uninstall-dist_docDATA:
+	@$(NORMAL_UNINSTALL)
+	@list='$(dist_doc_DATA)'; for p in $$list; do \
+	  f=$(am__strip_dir) \
+	  echo " rm -f '$(DESTDIR)$(docdir)/$$f'"; \
+	  rm -f "$(DESTDIR)$(docdir)/$$f"; \
+	done
 tags: TAGS
 TAGS:
 
@@ -277,8 +327,11 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile
+all-am: Makefile $(DATA)
 installdirs:
+	for dir in "$(DESTDIR)$(docdir)"; do \
+	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
+	done
 install: install-am
 install-exec: install-exec-am
 install-data: install-data-am
@@ -322,7 +375,7 @@ info: info-am
 
 info-am:
 
-install-data-am:
+install-data-am: install-dist_docDATA
 
 install-dvi: install-dvi-am
 
@@ -356,20 +409,21 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am:
+uninstall-am: uninstall-dist_docDATA
 
 .MAKE: install-am install-strip
 
 .PHONY: all all-am check check-am clean clean-generic clean-libtool \
 	distclean distclean-generic distclean-libtool distdir dvi \
 	dvi-am html html-am info info-am install install-am \
-	install-data install-data-am install-dvi install-dvi-am \
-	install-exec install-exec-am install-html install-html-am \
-	install-info install-info-am install-man install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
-	installcheck installcheck-am installdirs maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-generic \
-	mostlyclean-libtool pdf pdf-am ps ps-am uninstall uninstall-am
+	install-data install-data-am install-dist_docDATA install-dvi \
+	install-dvi-am install-exec install-exec-am install-html \
+	install-html-am install-info install-info-am install-man \
+	install-pdf install-pdf-am install-ps install-ps-am \
+	install-strip installcheck installcheck-am installdirs \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
+	uninstall uninstall-am uninstall-dist_docDATA
 
 
 .tex.dvi:
@@ -380,6 +434,9 @@ uninstall-am:
 
 .ps.pdf:
 	ps2pdf $<
+
+.tex.html:
+	latex2html -local_icons $< 
 
 # perhaps one day, we will have a Makefile in the signatures directory...
 # SUBDIRS = signatures

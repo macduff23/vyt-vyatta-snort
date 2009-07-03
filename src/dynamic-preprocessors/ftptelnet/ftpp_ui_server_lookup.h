@@ -1,9 +1,10 @@
 /*
  * ftpp_ui_server_lookup.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -35,14 +36,15 @@
 
 int ftpp_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup);
 int ftpp_ui_server_lookup_cleanup(SERVER_LOOKUP **ServerLookup);
-int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long IP,
+int ftpp_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, sfip_t *IP,
                             FTP_SERVER_PROTO_CONF *ServerConf);
 
 FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup, 
-                                            unsigned long Ip, int *iError);
-FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_first(SERVER_LOOKUP *ServerLookup,
-                                            int *iError);
-FTP_SERVER_PROTO_CONF *ftpp_ui_server_lookup_next(SERVER_LOOKUP *ServerLookup,
-                                           int *iError);
+                                            snort_ip_p Ip, int *iError);
+void ftpp_ui_server_iterate(
+    SERVER_LOOKUP *ServerLookup, 
+    sfrt_iterator_callback userfunc,
+    int *iError
+    );
 
 #endif

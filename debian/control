@@ -2,32 +2,35 @@ Source: vyatta-snort
 Section: net
 Priority: optional
 Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
-Build-Depends: libnet0-dev,
- libpcap0.8-dev,
- libpcre3-dev,
- debhelper (>= 4.1.13),
- po-debconf (>= 0.5.0),
- libprelude-dev,
+Build-Depends: libnet0-dev, 
+ libpcap0.8-dev, 
+ libpcre3-dev, 
+ debhelper (>= 4.1.13), 
+ libmysqlclient15-dev | libmysqlclient-dev, 
+ libpq-dev, 
+ po-debconf (>= 0.5.0), 
+ libprelude-dev, 
  libclamav-dev,
- iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386]
-Standards-Version: 3.5.6
+ iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], 
+ libgnutls-dev
+Build-Depends-Indep: texlive, texlive-latex-base, gs-common
+Standards-Version:  3.8.0
+Homepage: http://www.snort.org/
 
 Package: vyatta-snort
 Architecture: any
 Pre-Depends: adduser (>= 3.11)
 Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  vyatta-snort-rules-default (>= ${binary:Version}),
- debconf (>= 0.2.80) | debconf-2.0,
- syslogd | system-log-daemon,
- ${shlibs:Depends},
- vyatta-snort-common (>= ${binary:Version}),
+ debconf (>= 0.2.80) | debconf-2.0, 
+ syslogd | system-log-daemon, 
+ ${shlibs:Depends}, 
+ vyatta-snort-common (>= ${source:Version}), 
  logrotate
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort
 Recommends: iproute
-Suggests: snort-doc
-Homepage: http://www.snort.org/
-Description: Flexible Network Intrusion Detection System
+Description: flexible Network Intrusion Detection System
  Snort is a libpcap-based packet sniffer/logger which can be used as a
  lightweight network intrusion detection system. It features rules
  based logging and can perform content searching/matching in addition
@@ -37,22 +40,21 @@ Description: Flexible Network Intrusion Detection System
  sent to syslog, a separate "alert" file, or even to a Windows computer
  via Samba.
  .
- This package provides the plain-vanilla snort distribution and does not
+ This package provides the plain-vanilla version of Snort and does not
  provide database (available in snort-pgsql and snort-mysql) support.
 
 Package: vyatta-snort-common
 Architecture: all
 Pre-Depends: adduser (>= 3.11)
-Depends: perl-modules,
- debconf (>= 0.2.80) | debconf-2.0,
- syslogd | system-log-daemon,
- ${shlibs:Depends},
+Depends: perl-modules, 
+ debconf (>= 0.2.80) | debconf-2.0, 
+ syslogd | system-log-daemon, 
+ ${shlibs:Depends}, 
  lsb-base
 Conflicts: snort (<< ${binary:Version})
 Replaces: snort (<< 1.8.4beta1-1), snort-common
 Suggests: snort-doc
-Homepage: http://www.snort.org/
-Description: Flexible Network Intrusion Detection System [common files]
+Description: flexible Network Intrusion Detection System [common files]
  Snort is a libpcap-based packet sniffer/logger which can be used as a
  lightweight network intrusion detection system. It features rules
  based logging and can perform content searching/matching in addition
@@ -68,14 +70,14 @@ Description: Flexible Network Intrusion Detection System [common files]
 Package: vyatta-snort-rules-default
 Provides: snort-rules
 Architecture: all
-Depends: debconf (>= 0.2.80) | debconf-2.0,
- adduser (>= 3.11),
- syslogd | system-log-daemon,
+Depends: debconf (>= 0.2.80) | debconf-2.0, 
+ adduser (>= 3.11), 
+ syslogd | system-log-daemon, 
  ${shlibs:Depends}
 Replaces: snort-rules-default
 Suggests: vyatta-snort
 Homepage: http://www.snort.org/rules/
-Description: Flexible Network Intrusion Detection System ruleset
+Description: flexible Network Intrusion Detection System ruleset
  Snort default ruleset which provides a common set of accepted and test
  network intrusion detection rules developed by the Snort community.
  .
@@ -87,8 +89,7 @@ Depends: ${shlibs:Depends}
 Suggests: vyatta-snort
 Conflicts: snort-common (<< 2.7.0-6)
 Replaces: snort-common-libraries
-Homepage: http://www.snort.org/
-Description: Flexible Network Intrusion Detection System ruleset
+Description: flexible Network Intrusion Detection System ruleset
  Snort is a libpcap-based packet sniffer/logger which can be used as a
  lightweight network intrusion detection system. It features rules
  based logging and can perform content searching/matching in addition

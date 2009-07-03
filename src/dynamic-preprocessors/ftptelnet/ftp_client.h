@@ -1,7 +1,7 @@
 /*
  * ftp_client.h
  * 
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -46,18 +46,18 @@
 
 typedef struct s_FTP_CLIENT_REQ
 {
-    char *cmd_line;
+    const char *cmd_line;
     unsigned int  cmd_line_size;
 
-    char *cmd_begin;
-    char *cmd_end;
+    const char *cmd_begin;
+    const char *cmd_end;
     unsigned int  cmd_size;
 
-    char *param_begin;
-    char *param_end;
+    const char *param_begin;
+    const char *param_end;
     unsigned int param_size;
 
-    char *pipeline_req;
+    const char *pipeline_req;
 
 }  FTP_CLIENT_REQ;
 

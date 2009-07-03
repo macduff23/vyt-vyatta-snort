@@ -1,7 +1,7 @@
 /* $Id */
 
 /*
-** Copyright (C) 2005 Sourcefire Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 **
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -61,6 +61,12 @@
 PreprocStats sshPerfStats;
 #endif
 
+#include "sf_types.h"
+
+#ifdef TARGET_BASED
+int16_t ssh_app_id = SFTARGET_UNKNOWN_PROTOCOL;
+#endif
+
 /*
  * Generator id. Define here the same as the official registry
  * in generators.h
@@ -71,7 +77,7 @@ PreprocStats sshPerfStats;
  * Function prototype(s)
  */
 SSHData* GetSSHData( SFSnortPacket* );
-static void SSHInit( u_char* );
+static void SSHInit( char* );
 static void DisplaySSHConfig( void );
 static void FreeSSHData( void* );
 static void  ParseSSHArgs( u_char* );
@@ -81,6 +87,10 @@ static int ProcessSSHProtocolVersionExchange( SSHData*, SFSnortPacket*,
 		u_int8_t, u_int8_t );
 static int ProcessSSHKeyExchange( SSHData*, SFSnortPacket*, u_int8_t );
 static int ProcessSSHKeyInitExchange( SSHData*, SFSnortPacket*, u_int8_t );
+static void _addPortsToStream5Filter();
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter();
+#endif
 
 /* Ultimately calls SnortEventqAdd */
 /* Arguments are: gid, sid, rev, classification, priority, message, rule_info */
@@ -133,20 +143,35 @@ void SetupSSH(void)
  * RETURNS:     Nothing. 
  */
 static  void
-SSHInit( u_char* argp )
+SSHInit( char* argp )
 {
+#ifdef SUP_IP6
+    _dpd.fatalMsg("SSH is not currently supported when IPv6 is enabled.");
+#endif
+
     if(!_dpd.streamAPI) 
     {
         DynamicPreprocessorFatalMessage("SetupSSH(): The Stream preprocessor must be enabled.\n");
     }
 
-	_dpd.addPreproc( ProcessSSH, PRIORITY_APPLICATION, PP_SSH );
+	_dpd.addPreproc( ProcessSSH, PRIORITY_APPLICATION, PP_SSH, PROTO_BIT__TCP );
 
-	ParseSSHArgs( argp );
+	ParseSSHArgs( (u_char *)argp );
 
 #ifdef PERF_PROFILING
     _dpd.addPreprocProfileFunc("ssh", (void *)&sshPerfStats, 0, _dpd.totalPerfStats);
 #endif
+
+#ifdef TARGET_BASED
+    ssh_app_id = _dpd.findProtocolReference("ssh");
+    if (ssh_app_id == SFTARGET_UNKNOWN_PROTOCOL)
+    {
+        ssh_app_id = _dpd.addProtocolReference("ssh");
+    }
+    _addServicesToStream5Filter();
+#endif
+
+    _addPortsToStream5Filter();
 }
 
 /* Parses and processes the configuration arguments 
@@ -403,6 +428,9 @@ ProcessSSH( void* ipacketp, void* contextp )
 	u_int8_t known_port = 0;
 	u_int8_t direction; 
 	SFSnortPacket* packetp;
+#ifdef TARGET_BASED
+    int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
+#endif
     PROFILE_VARS;
 
 	packetp = (SFSnortPacket*) ipacketp;
@@ -429,6 +457,22 @@ ProcessSSH( void* ipacketp, void* contextp )
 	/* If not doing autodetection, check the ports to make sure this is 
 	 * running on an SSH port, otherwise no need to examine the traffic.
 	 */
+#ifdef TARGET_BASED
+    app_id = _dpd.streamAPI->get_application_protocol_id(packetp->stream_session_ptr);
+    if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
+    {
+        return;
+    }
+    if (app_id && (app_id != ssh_app_id))
+    {
+        return;
+    }
+    if (app_id == ssh_app_id)
+    {
+        known_port = 1;
+    }
+    if (!app_id) {
+#endif
 	source = (u_int8_t)CheckSSHPort( packetp->src_port );
 	dest = (u_int8_t)CheckSSHPort( packetp->dst_port );
 
@@ -437,12 +481,17 @@ ProcessSSH( void* ipacketp, void* contextp )
 		/* Not one of the ports we care about. */
 		return;
 	}
+#ifdef TARGET_BASED
+    }
+#endif
 
     PREPROC_PROFILE_START(sshPerfStats);
 
 	/* See if a known server port is involved. */
-	known_port = ( source || dest ? 1 : 0 );
-
+    if (!known_port)
+    {
+	    known_port = ( source || dest ? 1 : 0 );
+    }
 	/* Get the direction of the packet. */
 	direction = ( (packetp->flags & FLAG_FROM_SERVER ) ? 
 			SSH_DIR_FROM_SERVER : SSH_DIR_FROM_CLIENT );
@@ -1078,3 +1127,29 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 
 	return SSH_SUCCESS;
 }
+
+static void _addPortsToStream5Filter()
+{
+    int portNum;
+
+    if (_dpd.streamAPI)
+    {
+        for (portNum = 0; portNum < MAXPORTS; portNum++)
+        {
+            if(ssh_config.ports[(portNum/8)] & (1<<(portNum%8)))
+            {
+                //Add port the port
+                _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, portNum, PORT_MONITOR_SESSION);
+            }
+        }
+    }
+}
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter()
+{
+    if (_dpd.streamAPI)
+    {
+        _dpd.streamAPI->set_service_filter_status(ssh_app_id, PORT_MONITOR_SESSION);
+    }
+}
+#endif

@@ -1,19 +1,25 @@
 ## $Id
 AUTOMAKE_OPTIONS=foreign no-dependencies
 
-INCLUDES = -I../include
+INCLUDES = -I../include -I./includes
 
 libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
 
 lib_LTLIBRARIES = libsf_ftptelnet_preproc.la
 
-libsf_ftptelnet_preproc_la_LDFLAGS = -module
+libsf_ftptelnet_preproc_la_LDFLAGS = -export-dynamic
 
 BUILT_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c \
+sf_ip.c \
+sfrt.c \
+sfrt_dir.c
 
 nodist_libsf_ftptelnet_preproc_la_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c \
+sf_ip.c \
+sfrt.c \
+sfrt_dir.c
 
 libsf_ftptelnet_preproc_la_SOURCES = \
 ftp_bounce_lookup.c \
@@ -35,7 +41,6 @@ ftpp_ui_config.c \
 ftpp_ui_config.h \
 ftpp_ui_server_lookup.c \
 ftpp_ui_server_lookup.h \
-ftpp_util_kmap.h \
 ftp_server.h \
 hi_util_kmap.c \
 hi_util_kmap.h \
@@ -57,8 +62,20 @@ sf_ftptelnet.dsp
 sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
+sf_ip.c: ../include/sf_ip.c
+	cp $? $@
+
+sfrt.c: ../include/sfrt.c
+	cp $? $@
+
+sfrt_dir.c: ../include/sfrt_dir.c
+	cp $? $@
+
 all-local:
-	$(MAKE) DESTDIR=$(PWD)/../build install-libLTLIBRARIES
+	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
-	rm -f sf_dynamic_preproc_lib.c
+	rm -f sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c
+
+DIST_SUBDIRS = .
+

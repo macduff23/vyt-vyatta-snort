@@ -5,7 +5,7 @@
 *
 *
 *  Copyright (C) 2001 Marc Norton
-** Copyright (C) 2003 Sourcefire, Inc
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -36,6 +36,9 @@
 #define inline __inline
 #endif
 
+#define KTRIEMETHOD_STD 0
+#define KTRIEMETHOD_QUEUE 1
+
 /*
 *
 */
@@ -48,7 +51,10 @@ typedef struct _ktriepattern {
   unsigned char * Pcase; /* case sensitive */
   int             n;
   int             nocase;
+  int             negative;
   void          * id;
+  void          * rule_option_tree;
+  void          * neg_list;
 
 } KTRIEPATTERN;
 
@@ -70,6 +76,14 @@ typedef struct _ktrienode {
 
 #define KTRIE_ROOT_NODES     256
 
+#define SFK_MAX_INQ 32
+typedef struct 
+{
+    unsigned inq;
+    unsigned inq_flush;
+    void * q[SFK_MAX_INQ];
+} SFK_PMQ;
+
 /*
 *
 */
@@ -83,22 +97,36 @@ typedef struct {
   int            memory;
   int            nchars;
   int            npats;
-  int 		 duplicates;
+  int            duplicates;
+  int            method;
+  int            end_states; /* should equal npats - duplicates */
 
   int            bcSize;
   unsigned short bcShift[KTRIE_ROOT_NODES];  
+  void           (*userfree)(void *p);
+  void           (*optiontreefree)(void **p);
+  void           (*neg_list_free)(void **p);
+  SFK_PMQ        q;
  
 } KTRIE_STRUCT;
 
 
 
-KTRIE_STRUCT * KTrieNew(void);
-int            KTrieAddPattern( KTRIE_STRUCT *ts, unsigned char * P, int n, int nocase,void*  id );
-int            KTrieCompile(KTRIE_STRUCT * ts);
-int            KTrieSearch( KTRIE_STRUCT * ts, unsigned char * T, 
-                   int n, int (*match)(void* id, int index,void* data),void *data );
-unsigned       KTrieMemUsed(void);
+KTRIE_STRUCT * KTrieNew(int method, void (*userfree)(void *p),
+                        void (*optiontreefree)(void **p),
+                        void (*neg_list_free)(void **p));
+int            KTrieAddPattern( KTRIE_STRUCT *ts, unsigned char * P, int n,
+                                int nocase, int negative, void * id );
+int            KTrieCompile(KTRIE_STRUCT * ts,
+                            int (*build_tree)(void * id, void **existing_tree),
+                            int (*neg_list_func)(void *id, void **list));
+int            KTrieSearch( KTRIE_STRUCT * ts, unsigned char * T,  int n,
+                            int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+                            void *data );
+unsigned int   KTrieMemUsed(void);
 void           KTrieDelete(KTRIE_STRUCT *k);
+int            KTriePatternCount(KTRIE_STRUCT *k);
 
+void sfksearch_print_qinfo(void);
 
 #endif

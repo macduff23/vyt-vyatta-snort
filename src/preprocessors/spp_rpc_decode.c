@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -70,6 +71,13 @@
 
 #include "profiler.h"
 #include "bounds.h"
+#include "strlcatu.h"
+
+#include "stream_api.h"
+
+#ifdef TARGET_BASED
+#include "sftarget_protocol_reference.h"
+#endif
 
 extern char *file_name;
 extern int file_line;
@@ -93,6 +101,11 @@ typedef struct _RpcDecodeData
     char alert_incomplete; /* Alert when we don't see all of a request in one packet */
     char alert_multi;        /* Alert when we see multiple requests in one packet */
     char alert_large;        /* Alert when we see multiple requests in one packet */
+
+#ifdef TARGET_BASED
+    /* Cached protocol id from stream reassembler */
+    int16_t app_protocol_id;
+#endif
 } RpcDecodeData;
 
 static RpcDecodeData rpcpreprocdata; /* Configuration Set */
@@ -102,12 +115,15 @@ static char RpcDecodePorts[65536/8];
 PreprocStats rpcdecodePerfStats;
 #endif
 
-void RpcDecodeInit(u_char *);
-void RpcDecodeInitIgnore(u_char *);
+void RpcDecodeInit(char *);
+void RpcDecodeInitIgnore(char *);
 void PreprocRpcDecode(Packet *, void *);
 void SetRpcPorts(char *);
 int ConvertRPC(Packet *);
-
+static void _addPortsToStream5Filter();
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter();
+#endif
 /*
  * Function: SetupRpcDecode()
  *
@@ -130,7 +146,7 @@ void SetupRpcDecode(void)
 
 
 /*
- * Function: RpcDecodeInit(u_char *)
+ * Function: RpcDecodeInit(char *)
  *
  * Purpose: Processes the args sent to the preprocessor, sets up the
  *          port list, links the processing function into the preproc
@@ -141,7 +157,7 @@ void SetupRpcDecode(void)
  * Returns: void function
  *
  */
-void RpcDecodeInit(u_char *args)
+void RpcDecodeInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_RPC,"Preprocessor: RpcDecode Initialized\n"););
 
@@ -156,11 +172,23 @@ void RpcDecodeInit(u_char *args)
     SetRpcPorts((char *)args);
 
     /* Set the preprocessor function into the function list */
-    AddFuncToPreprocList(PreprocRpcDecode, PRIORITY_APPLICATION, PP_RPCDECODE);
+    AddFuncToPreprocList(PreprocRpcDecode, PRIORITY_APPLICATION, PP_RPCDECODE, PROTO_BIT__TCP);
+
+#ifdef TARGET_BASED
+    /* Find and cache protocol ID for packet comparison */
+    rpcpreprocdata.app_protocol_id = FindProtocolReference("sunrpc");
+    if (rpcpreprocdata.app_protocol_id == SFTARGET_UNKNOWN_PROTOCOL)
+    {
+        rpcpreprocdata.app_protocol_id = AddProtocolReference("sunrpc");
+    }
+    _addServicesToStream5Filter();
+#endif
 
 #ifdef PREF_PROFILING
     RegisterPreprocessorProfile("rpcdecode", &rpcdecodePerfStats, 0, &totalPerfStats);
 #endif
+
+    _addPortsToStream5Filter();
 }
 
 /*
@@ -278,6 +306,10 @@ void SetRpcPorts(char *portlist)
 void PreprocRpcDecode(Packet *p, void *context)
 {
     int ret = 0; /* return code for ConvertRPC */
+#ifdef TARGET_BASED
+    int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
+    int valid_app_id = 0;
+#endif
     PROFILE_VARS;
     
     DEBUG_WRAP(DebugMessage(DEBUG_RPC,"rpc decoder init on %d bytes\n", p->dsize););
@@ -298,11 +330,31 @@ void PreprocRpcDecode(Packet *p, void *context)
     }
 
 
-    /* check the port list */
+#ifdef TARGET_BASED
+    /* check stream info, fall back to checking ports */
+    if(stream_api)
+    {
+        app_id = stream_api->get_application_protocol_id(p->ssnptr);
+        if (app_id > 0)
+        {
+            valid_app_id = 1;
+        }
+    }
+
+    if(valid_app_id && app_id != rpcpreprocdata.app_protocol_id)
+    {
+        return;
+    }
+    if(!valid_app_id && !(RpcDecodePorts[(p->dp/8)] & (1<<(p->dp%8))))
+    {
+        return;
+    }
+#else
     if(!(RpcDecodePorts[(p->dp/8)] & (1<<(p->dp%8))))
     {
         return;
     }
+#endif
 
     PREPROC_PROFILE_START(rpcdecodePerfStats);
 
@@ -313,13 +365,6 @@ void PreprocRpcDecode(Packet *p, void *context)
     {
         switch(ret)
         {
-        case RPC_FRAG_TRAFFIC:
-            if(rpcpreprocdata.alert_fragments)
-            {
-                SnortEventqAdd(GENERATOR_SPP_RPC_DECODE, RPC_FRAG_TRAFFIC, 
-                        1, RPC_CLASS, 3, RPC_FRAG_TRAFFIC_STR, 0);
-            }
-            break;
         case RPC_MULTIPLE_RECORD:
             if(rpcpreprocdata.alert_multi)
             {
@@ -397,12 +442,11 @@ void PreprocRpcDecode(Packet *p, void *context)
 
 int ConvertRPC(Packet *p)
 {
-    u_int8_t *data = p->data;   /* packet data */
+    const u_int8_t *data = p->data;   /* packet data */
     u_int8_t *norm_index;
     u_int8_t *data_index;     /* this is the index pointer to walk thru the data */
     u_int8_t *data_end;       /* points to the end of the payload for loop control */
     u_int16_t psize = p->dsize;     /* payload size */
-    int i = 0;           /* loop counter */
     int length;          /* length of current fragment */
     int last_fragment = 0; /* have we seen the last fragment sign? */
     int decoded_len; /* our decoded length is always atleast a 0 byte header */
@@ -423,7 +467,7 @@ int ConvertRPC(Packet *p)
     DEBUG_WRAP(DebugMessage(DEBUG_RPC, "Got RPC traffic (%d bytes)!\n", psize););
 
     /* cheesy alignment safe fraghdr = *(uint32_t *) data*/
-    *((u_int8_t *) &fraghdr)       = data[0];
+    *((u_int8_t *)  &fraghdr)      = data[0];
     *(((u_int8_t *) &fraghdr) + 1) = data[1];
     *(((u_int8_t *) &fraghdr) + 2) = data[2];
     *(((u_int8_t *) &fraghdr) + 3) = data[3];
@@ -455,7 +499,9 @@ int ConvertRPC(Packet *p)
     }
     else if(rpcpreprocdata.alert_fragments)
     {
-        return RPC_FRAG_TRAFFIC;
+        /* Log alert but continue processing */
+        SnortEventqAdd(GENERATOR_SPP_RPC_DECODE, RPC_FRAG_TRAFFIC, 
+                       1, RPC_CLASS, 3, RPC_FRAG_TRAFFIC_STR, 0);
     }
 
     norm_index = &DecodeBuffer[0]; 
@@ -592,3 +638,28 @@ int ConvertRPC(Packet *p)
     return 0;
 }
 
+static void _addPortsToStream5Filter()
+{
+    unsigned int portNum;
+
+    if (stream_api)
+    {
+        for (portNum = 0; portNum < MAXPORTS; portNum++)
+        {
+            if(RpcDecodePorts[(portNum/8)] & (1<<(portNum%8)))
+            {
+                //Add port the port
+                stream_api->set_port_filter_status(IPPROTO_TCP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
+            }
+        }
+    }
+}
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter()
+{
+    if (stream_api)
+    {
+        stream_api->set_service_filter_status(rpcpreprocdata.app_protocol_id, PORT_MONITOR_SESSION);
+    }
+}
+#endif

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005 Sourcefire
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -34,7 +34,13 @@ typedef struct _UriLenCheckData
 {
     int urilen;
     int urilen2;
+    char oper;
 } UriLenCheckData;
+
+#define URILEN_CHECK_EQ 1
+#define URILEN_CHECK_GT 2
+#define URILEN_CHECK_LT 3
+#define URILEN_CHECK_RG 4
 
 /* 
  * Structure stored in the rule OTN struct for use by URINORMLEN
@@ -48,5 +54,7 @@ typedef struct _UriNormLenCheckData
 
 
 extern void SetupUriLenCheck();
+u_int32_t UriLenCheckHash(void *d);
+int UriLenCheckCompare(void *l, void *r);
 
 #endif /* SP_URILEN_CHECK_H */

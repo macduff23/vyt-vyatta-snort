@@ -61,5 +61,7 @@
 #define caddr_t char*
 
 #define snprintf _snprintf
+#if _MSC_VER < 1500  /* VC9 defines this */
 #define vsnprintf _vsnprintf
+#endif
 #define inline __inline 

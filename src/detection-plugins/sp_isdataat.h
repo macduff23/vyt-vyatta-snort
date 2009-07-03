@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2003 Sourcefire Inc.
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 ** 
 ** Brian Caswell <bmc@snort.org>
 **
@@ -25,5 +25,7 @@
 #define __SP_ISDATAAT_H__
 
 void SetupIsDataAt(void);
+u_int32_t IsDataAtHash(void *d);
+int IsDataAtCompare(void *l, void *r);
 
 #endif  /* __SP_ISDATAAT_H__ */

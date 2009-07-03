@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,16 +36,55 @@
 #include "plugin_enum.h"
 #include "util.h"
 
-typedef struct _IpIdData
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats ipIdPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+typedef struct _IpIdCheckData
 {
     u_long ip_id;
 
-} IpIdData;
+} IpIdCheckData;
 
 void IpIdCheckInit(char *, OptTreeNode *, int);
 void ParseIpId(char *, OptTreeNode *);
-int IpIdCheckEq(Packet *, struct _OptTreeNode *, OptFpList *);
+int IpIdCheckEq(void *option_data, Packet *p);
 
+u_int32_t IpIdCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IpIdCheckData *data = (IpIdCheckData *)d;
+
+    a = data->ip_id;
+    b = RULE_OPTION_TYPE_IP_ID;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IpIdCheckCompare(void *l, void *r)
+{
+    IpIdCheckData *left = (IpIdCheckData *)l;
+    IpIdCheckData *right = (IpIdCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->ip_id == right->ip_id)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -60,7 +100,10 @@ int IpIdCheckEq(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIpIdCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("id", IpIdCheckInit);
+    RegisterPlugin("id", IpIdCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("id", &ipIdPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: IpIdCheck Initialized\n"););
 }
@@ -81,6 +124,7 @@ void SetupIpIdCheck(void)
  ****************************************************************************/
 void IpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     /* multiple declaration check */ 
     if(otn->ds_list[PLUGIN_IP_ID_CHECK])
     {
@@ -90,8 +134,8 @@ void IpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
         
     /* allocate the data structure and attach it to the
        rule's data struct list */
-    otn->ds_list[PLUGIN_IP_ID_CHECK] = (IpIdData *)
-            SnortAlloc(sizeof(IpIdData));
+    otn->ds_list[PLUGIN_IP_ID_CHECK] = (IpIdCheckData *)
+            SnortAlloc(sizeof(IpIdCheckData));
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
@@ -99,7 +143,9 @@ void IpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IpIdCheckEq, otn);
+    fpl = AddOptFuncToList(IpIdCheckEq, otn);
+    fpl->type = RULE_OPTION_TYPE_IP_ID;
+    fpl->context = otn->ds_list[PLUGIN_IP_ID_CHECK];
 }
 
 
@@ -119,7 +165,8 @@ void IpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
  ****************************************************************************/
 void ParseIpId(char *data, OptTreeNode *otn)
 {
-    IpIdData *ds_ptr;  /* data struct pointer */
+    IpIdCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -132,6 +179,12 @@ void ParseIpId(char *data, OptTreeNode *otn)
     }
 
     ds_ptr->ip_id = htons( (u_short) atoi(data));
+
+    if (add_detection_option(RULE_OPTION_TYPE_IP_ID, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_IP_ID_CHECK] = ds_ptr_dup;
+    }
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"ID set to %ld\n", ds_ptr->ip_id););
 }
@@ -151,16 +204,22 @@ void ParseIpId(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int IpIdCheckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IpIdCheckEq(void *option_data, Packet *p)
 {
-    if(!p->iph)
-        return 0; /* if error occured while ip header
-                   * was processed, return 0 automagically.
-               */
-    if(((IpIdData *)otn->ds_list[PLUGIN_IP_ID_CHECK])->ip_id == p->iph->ip_id)
+    IpIdCheckData *ipIdCheckData = (IpIdCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
+
+    if(!IPH_IS_VALID(p))
+        return rval; /* if error occured while ip header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(ipIdPerfStats);
+
+    if(ipIdCheckData->ip_id == GET_IPH_ID(p))
     {
         /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
     else
     {
@@ -169,5 +228,6 @@ int IpIdCheckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     }
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(ipIdPerfStats);
+    return rval;
 }

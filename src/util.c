@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -24,12 +25,16 @@
 #endif
 
 #include <sys/types.h>
+
 #ifndef WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/wait.h>
+#include <dirent.h>
+#include <fnmatch.h>
 #endif /* !WIN32 */
+
 #include <stdarg.h>
 #include <syslog.h>
 #include <errno.h>
@@ -37,12 +42,14 @@
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
+
 #ifndef WIN32
 #include <grp.h>
 #include <pwd.h>
 #include <netdb.h>
 #include <limits.h>
 #endif /* !WIN32 */
+
 #include <fcntl.h>
 
 #ifdef HAVE_STRINGS_H
@@ -56,11 +63,25 @@
 #include "parser.h"
 #include "inline.h"
 #include "build.h"
-#include "spp_httpinspect.h"
+#include "plugbase.h"
+#include "sf_types.h"
+#include "sflsq.h"
+
+#include "pcre.h"
+
+#include "mpse.h"
+
+#include "ppm.h"
+
+#ifdef TARGET_BASED
+#include "sftarget_reader.h"
+#endif
 
 #ifdef WIN32
 #include "win32/WIN32-Code/name.h"
 #endif
+
+#include "stream5_common.h"
 
 #ifdef PATH_MAX
 #define PATH_MAX_UTIL PATH_MAX
@@ -68,54 +89,13 @@
 #define PATH_MAX_UTIL 1024
 #endif /* PATH_MAX */
 
-#ifdef TIMESTATS
-
-/* used for processing run time and packets per second stats */
-
 extern long start_time;
-extern float prev_pkts;
+extern PreprocessStatsList *PreprocessStats;
+extern Stream5Stats s5stats;
+extern int datalink;
 
-/* variable definition for packets types received in the last hour */
+static PcapPktStats pkt_stats;
 
-static unsigned long dhs_tcp = 0L;          /* TCP */
-static unsigned long dhs_udp = 0L;          /* UDP */
-static unsigned long dhs_icmp = 0L;         /* ICMP */
-static unsigned long dhs_arp = 0L;          /* ARP */
-static unsigned long dhs_ipx = 0L;          /* IPX */
-static unsigned long dhs_eapol = 0L;        /* EAPOL */
-static unsigned long dhs_ipv6 = 0L;         /* IPv6 */
-static unsigned long dhs_ethloopback = 0L;  /* LOOPBACK */
-static unsigned long dhs_other = 0L;        /* OTHER */
-static unsigned long dhs_frags = 0L;        /* FRAGS */
-static unsigned long dhs_discards = 0L;     /* DISCARDS */
-static unsigned long dhs_gre = 0L;	    /* GRE */
-
-/* handle wireless management, control, and data packets as well (per hour) */
-
-static unsigned long dhs_wifi_mgmt = 0L;    /* Wifi Mgmt */
-static unsigned long dhs_wifi_control = 0L; /* Wifi Control */
-static unsigned long dhs_wifi_data = 0L;    /* Wifi Data */
-
-/* handle fragment tracking (per hour) */
-
-static unsigned long dhs_frag_hourly = 0L;	/* Fragments rec'd hourly */
-static unsigned long dhs_frag_trackers = 0L;	/* Frag Trackers */
-static unsigned long dhs_frag_rebuilt = 0L;	/* Frag Rebuilt	 */
-static unsigned long dhs_frag_element = 0L;	/* Frag Element	 */
-static unsigned long dhs_frag_incomp = 0L;	/* Frag Discard (incomplete) */
-static unsigned long dhs_frag_timeout = 0L;	/* Frag Timeout	 */
-static unsigned long dhs_frag_mem_faults = 0L;	/* Frag Memory Faults */
-
-/* handle tcp stream reassembly information (per hour) */
-
-static unsigned long dhs_tcp_str_packets = 0L;		/* TCP Stream Packets */
-static unsigned long dhs_tcp_str_trackers = 0L;		/* TCP Stream Trackers */
-static unsigned long dhs_tcp_str_flushes = 0L;		/* TCP Stream Flushes */
-static unsigned long dhs_tcp_str_segs_used = 0L;	/* TCP Stream Segments Used */
-static unsigned long dhs_tcp_str_segs_queued = 0L;	/* TCP Stream Segments Queued */
-static unsigned long dhs_tcp_str_mem_faults = 0L;	/* TCP Stream Memory Faults */
-
-#endif  /* if TIMESTATS is defined */
 
 #ifdef NAME_MAX
 #define NAME_MAX_UTIL NAME_MAX
@@ -138,6 +118,9 @@ static unsigned long dhs_tcp_str_mem_faults = 0L;	/* TCP Stream Memory Faults */
  */
 void GenHomenet(char *netdata)
 {
+#ifdef SUP_IP6
+    sfip_pton(netdata, &pv.homenet);
+#else
     struct in_addr net;    /* place to stick the local network data */
     char **toks;           /* dbl ptr to store mSplit return data in */
     int num_toks;          /* number of tokens mSplit returns */
@@ -193,12 +176,16 @@ void GenHomenet(char *netdata)
     }
 
     mSplitFree(&toks, num_toks);
+#endif
 }
 
 
 
 void GenObfuscationMask(char *netdata)
 {
+#ifdef SUP_IP6
+    sfip_pton(netdata, &pv.obfuscation_net);
+#else
     struct in_addr net;       /* place to stick the local network data */
     char **toks;              /* dbl ptr to store mSplit return data in */
     int num_toks;             /* number of tokens mSplit returns */
@@ -257,6 +244,7 @@ void GenObfuscationMask(char *netdata)
     }
 
     mSplitFree(&toks, num_toks);
+#endif
 }
 
 /****************************************************************************
@@ -314,13 +302,24 @@ void DefineIfaceVar(char *iname, u_char * network, u_char * netmask)
             network[3] & 0xff, netmask[0] & 0xff, netmask[1] & 0xff, 
             netmask[2] & 0xff, netmask[3] & 0xff);
 
+#ifdef WIN32
+    {
+        unsigned int i;
+        for (i=0;i<strlen(varbuf);i++)
+        {
+            if ((i != 0) && (varbuf[i] == '\\'))
+                varbuf[i] = '_';
+        }
+    }
+#endif
+
     VarDefine(varbuf, valbuf);
 }
 
 
 /****************************************************************************
  *
- * Function: CalcPct(float, float)
+ * Function: CalcPct(UINT64, UINT64)
  *
  * Purpose:  Calculate the percentage of a value compared to a total
  *
@@ -330,16 +329,20 @@ void DefineIfaceVar(char *iname, u_char * network, u_char * netmask)
  * Returns: pct -> the percentage of cnt to value
  *
  ****************************************************************************/
-float CalcPct(float cnt, float total)
+double CalcPct(UINT64 cnt, UINT64 total)
 {
-    float pct;
+    double pct = 0.0;
 
-    if(cnt > 0.0f && total > 0.0f)
-        pct = cnt / total;
+    if (total == 0.0)
+    {
+        pct = (double)cnt;
+    }
     else
-        return 0.0f;
+    {
+        pct = (double)cnt / (double)total;
+    }
 
-    pct *= 100.0f;
+    pct *= 100.0;
 
     return pct;
 }
@@ -358,7 +361,8 @@ float CalcPct(float cnt, float total)
  ****************************************************************************/
 int DisplayBanner()
 {
-    char * info;
+    const char * info;
+    const char * pcre_ver;
 
     info = getenv("HOSTTYPE");
     if( !info )
@@ -366,19 +370,34 @@ int DisplayBanner()
         info="";
     }
 
+    pcre_ver = pcre_version();
+
     fprintf(stderr, "\n"
         "   ,,_     -*> Snort! <*-\n"
-        "  o\"  )~   Version %s (Build %s) %s %s\n"
+        "  o\"  )~   Version %s%s%s (Build %s) %s %s\n"
         "   ''''    By Martin Roesch & The Snort Team: http://www.snort.org/team.html\n"
-        "           (C) Copyright 1998-2007 Sourcefire Inc., et al.\n"   
+        "           Copyright (C) 1998-2009 Sourcefire, Inc., et al.\n"   
+        "           Using PCRE version: %s\n"
         "\n"
-        , VERSION, BUILD, 
+        , VERSION, 
+#ifdef SUP_IP6
+          " IPv6",
+#else
+          "", 
+#endif
+#ifdef GRE
+          " GRE",
+#else
+          "", 
+#endif
+        BUILD, 
 #ifdef GIDS
         "inline", 
 #else
         "",
 #endif
-        info);
+        info,
+        pcre_ver);
 
     return 0;
 }
@@ -534,6 +553,17 @@ char *copy_argv(char **argv)
 
     dst[-1] = '\0';
 
+    /* Check for an empty string */
+    dst = buf;
+    while (isspace((int)*dst))
+        dst++;
+
+    if (strlen(dst) == 0)
+    {
+        free(buf);
+        buf = NULL;
+    }
+
     return buf;
 }
 
@@ -633,23 +663,6 @@ void InitNetmasks()
     netmasks[30] = 0xFFFFFFFC;
     netmasks[31] = 0xFFFFFFFE;
     netmasks[32] = 0xFFFFFFFF;
-}
-
-/*
- * error message printing routines. in daemon mode these would go into
- * syslog.
- *
- * first would allow to print formatted error messages (similar to printf) and
- * the second is similar to perror.
- *
- */
-
-void PrintError(char *str)
-{
-    if(pv.daemon_flag || pv.logtosyslog_flag)
-        syslog(LOG_CONS | LOG_DAEMON | LOG_ERR, "%s:%m", str);
-    else
-        perror(str);
 }
 
 
@@ -798,11 +811,6 @@ void FatalError(const char *format,...)
     exit(1);
 }
 
-void FatalPrintError(char *msg)
-{
-    PrintError(msg);
-    exit(1);
-}
 
 /****************************************************************************
  *
@@ -834,12 +842,21 @@ void CreatePidFile(char *intf)
 
         if (strlen(pv.pid_path) != 0)
         {
-            stat(pv.pid_path, &pt);
-
-            if(!S_ISDIR(pt.st_mode) || access(pv.pid_path, W_OK) == -1)
+            if((stat(pv.pid_path, &pt) == -1) ||
+                !S_ISDIR(pt.st_mode) || access(pv.pid_path, W_OK) == -1)
             {
+#ifndef WIN32
+                /* Save this just in case it's reset with LogMessage call */
+                int err = errno;
+
                 LogMessage("WARNING: %s is invalid, trying "
                            "/var/run...\n", pv.pid_path);
+                if (err)
+                {
+                    LogMessage("Previous Error, errno=%d, (%s)\n",
+                               err, strerror(err) == NULL ? "Unknown error" : strerror(err));
+                }
+#endif
                 memset(pv.pid_path, '\0', STD_BUF);
             }
             else
@@ -990,40 +1007,48 @@ void SetUidGid(void)
 
     if(groupname != NULL)
     {
-        if(!InlineModeSetPrivsAllowed())
+        if (getgid() != groupid)
         {
-            ErrorMessage("Cannot set uid and gid when running Snort in "
-                "inline mode.\n");
+            if(!InlineModeSetPrivsAllowed())
+            {
+                ErrorMessage("Cannot set uid and gid when running Snort in "
+                             "inline mode.\n");
 
-            return;
+                return;
+            }
+
+            if(setgid(groupid) < 0)
+                FatalError("Can not set gid: %lu\n", (u_long) groupid);
+
+            DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
         }
-
-        if(setgid(groupid) < 0)
-            FatalError("Can not set gid: %lu\n", (u_long) groupid);
-
-        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
     }
+
     if(username != NULL)
     {
-        if(!InlineModeSetPrivsAllowed())
+        if (getuid() != userid)
         {
-            ErrorMessage("Cannot set uid and gid when running Snort in "
-                "inline mode.\n");
+            if(!InlineModeSetPrivsAllowed())
+            {
+                ErrorMessage("Cannot set uid and gid when running Snort in "
+                             "inline mode.\n");
 
-            return;
+                return;
+            }
+
+            if(getuid() == 0 && initgroups(username, groupid) < 0)
+                FatalError("Can not initgroups(%s,%lu)",
+                           username, (u_long) groupid);
+
+            /** just to be on a safe side... **/
+            endgrent();
+            endpwent();
+
+            if(setuid(userid) < 0)
+                FatalError("Can not set uid: %lu\n", (u_long) userid);
+
+            DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
         }
-
-        if(getuid() == 0 && initgroups(username, groupid) < 0)
-            FatalError("Can not initgroups(%s,%lu)",
-                    username, (u_long) groupid);
-
-        /** just to be on a safe side... **/
-        endgrent();
-        endpwent();
-
-        if(setuid(userid) < 0)
-            FatalError("Can not set uid: %lu\n", (u_long) userid);
-        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
     }
 #endif  /* WIN32 */
 
@@ -1032,280 +1057,312 @@ void SetUidGid(void)
 
 #ifdef TIMESTATS
 
-/* Print out a message once an hour */
-/* This function prints out hourly stats on how well snort is */
-/* processing packets, including types, drops, etc */
+static IntervalStats istats = {0};
 
-void DropHourlyStats()
+void ResetTimeStats(void)
 {
-   struct pcap_stat ps;      /* structure to hold packet statistics */
+    memset(&istats, 0, sizeof(istats));
+}
 
-   const int secs_per_min = 60;             /* 60 seconds in a minute */
-   const int secs_per_hr  = 3600;           /* 3600 seconds in a hour */
-   const float percent_scale = 100.0;       /* used to scale percentages */
+/* This function prints out stats based on a configurable time
+ * interval.  It is an indication on how well snort is */
+/* processing packets, including types, drops, etc */
+void DropStatsPerTimeInterval()
+{
+    double per_sec, per_minute, per_hour;
+    UINT64 recv, drop;
+    UINT64 total = 0;
 
-   unsigned int dhs_ppm = 0, dhs_pps = 0;
-   unsigned int curr_pkts = 0;
-   unsigned int curr_drop_pkts = 0;
+#ifdef PCAP_CLOSE
+    if (UpdatePcapPktStats(0) != -1)
+#else
+    if (UpdatePcapPktStats() != -1)
+#endif
+    {
+        recv = GetPcapPktStatsRecv();
+        drop = GetPcapPktStatsDrop();
 
-   /* added for more statistical data */
+        istats.recv = recv - istats.recv_total;
+        istats.recv_total = recv;
 
-   unsigned long curr_tcp = 0, curr_udp = 0, curr_icmp = 0;
-   unsigned long curr_arp = 0, curr_ipx = 0, curr_eapol = 0;
-   unsigned long curr_ipv6 = 0, curr_ethloopback = 0, curr_other = 0;
-   unsigned long curr_frags = 0, curr_discards = 0, curr_total = 0;
-   unsigned long curr_frag_trackers = 0, curr_frag_rebuilt = 0;
-   unsigned long curr_frag_element = 0, curr_frag_incomp = 0;
-   unsigned long curr_frag_timeout = 0, curr_frag_mem_faults = 0;
-   unsigned long curr_frag_hourly = 0, curr_tcp_str_packets = 0;
-   unsigned long curr_tcp_str_trackers = 0, curr_tcp_str_flushes = 0;
-   unsigned long curr_tcp_str_segs_used = 0, curr_tcp_str_segs_queued = 0;
-   unsigned long curr_tcp_str_mem_faults = 0;
+        istats.drop = drop - istats.drop_total;
+        istats.drop_total = drop;
+
+        /* calculate received packets by type */
+        istats.tcp = pc.tcp - istats.tcp_total;
+        istats.tcp_total = pc.tcp;
+
+        istats.udp = pc.udp - istats.udp_total;
+        istats.udp_total = pc.udp;
+
+        istats.icmp = pc.icmp - istats.icmp_total;
+        istats.icmp_total = pc.icmp;
+
+        istats.arp = pc.arp - istats.arp_total;
+        istats.arp_total = pc.arp;
 
 #ifdef GRE
-   unsigned long curr_gre = 0;	/* handle GRE for hourly stats */
-#endif
+        istats.ip4ip4 = pc.ip4ip4 - istats.ip4ip4_total;
+        istats.ip4ip4_total = pc.ip4ip4;
 
-#ifdef DLT_IEEE802_11
-   unsigned long curr_wifi_mgmt = 0;    /* how many mgmt pkts in last hr */
-   unsigned long curr_wifi_control = 0; /* how many control pkts in last hr */
-   unsigned long curr_wifi_data = 0;    /* how many data pkts in last hr */
-#endif
+        istats.ip4ip6 = pc.ip4ip6 - istats.ip4ip6_total;
+        istats.ip4ip6_total = pc.ip4ip6;
 
-   float percent_packets = 0.0;
+        istats.ip6ip4 = pc.ip6ip4 - istats.ip6ip4_total;
+        istats.ip6ip4_total = pc.ip6ip4;
 
-   if (pcap_stats(pd, &ps))  /* get some packet statistics */
-   {
-      pcap_perror(pd, "pcap_stats");  /* an error has happened */
-   }
-   else                      /* prepare to figure out hourly stats */
-   {
-      /* static variable definitions for timestats function */
+        istats.ip6ip6 = pc.ip6ip6 - istats.ip6ip6_total;
+        istats.ip6ip6_total = pc.ip6ip6;
 
-      static unsigned int prev_pkts;      /* used to remember the number of  */
-      static unsigned int prev_drop_pkts; /* packets processed from the last */
-                                          /* time this function was called   */
+        istats.gre = pc.gre - istats.gre_total;
+        istats.gre_total = pc.gre;
 
-      curr_pkts = ps.ps_recv - prev_pkts;
-      curr_drop_pkts = ps.ps_drop - prev_drop_pkts;
+        istats.gre_ip = pc.gre_ip - istats.gre_ip_total;
+        istats.gre_ip_total = pc.gre_ip;
 
-      /* save current receive values for next pass through function */
-      /* Since console or file I/O is slow, save current received   */
-      /* packet values right after calculations above for increased */
-      /* accuracy...                                                */
+        istats.gre_eth = pc.gre_eth - istats.gre_eth_total;
+        istats.gre_eth_total = pc.gre_eth;
 
-      prev_pkts = ps.ps_recv;       /* save current number of packets for use */
-      prev_drop_pkts = ps.ps_drop;  /* next time this function is called... */
+        istats.gre_arp = pc.gre_arp - istats.gre_arp_total;
+        istats.gre_arp_total = pc.gre_arp;
 
-      /* calculate received packets by type */
+        istats.gre_ipv6 = pc.gre_ipv6 - istats.gre_ipv6_total;
+        istats.gre_ipv6_total = pc.gre_ipv6;
 
-      curr_tcp = pc.tcp - dhs_tcp;
-      curr_udp = pc.udp - dhs_udp;
-      curr_icmp = pc.icmp - dhs_icmp;
-      curr_arp = pc.arp - dhs_arp;
+        istats.gre_ipx = pc.gre_ipx - istats.gre_ipx_total;
+        istats.gre_ipx_total = pc.gre_ipx;
 
-#ifdef GRE
-      curr_gre = pc.gre - dhs_gre;
+        istats.gre_loopback = pc.gre_loopback - istats.gre_loopback_total;
+        istats.gre_loopback_total = pc.gre_loopback;
+
+        istats.gre_vlan = pc.gre_vlan - istats.gre_vlan_total;
+        istats.gre_vlan_total = pc.gre_vlan;
+
+        istats.gre_ppp = pc.gre_ppp - istats.gre_ppp_total;
+        istats.gre_ppp_total = pc.gre_ppp;
 #endif
 
 #ifdef DLT_IEEE802_11   /* if we are tracking wireless, add this to output */
-      curr_wifi_mgmt = pc.wifi_mgmt - curr_wifi_mgmt;
-      curr_wifi_control = pc.wifi_control - curr_wifi_control;
-      curr_wifi_data = pc.wifi_data - curr_wifi_data;
+        istats.wifi_mgmt = pc.wifi_mgmt - istats.wifi_mgmt_total;
+        istats.wifi_mgmt_total = pc.wifi_mgmt;
+
+        istats.wifi_control = pc.wifi_control - istats.wifi_control_total;
+        istats.wifi_control_total = pc.wifi_control;
+
+        istats.wifi_data = pc.wifi_data - istats.wifi_data_total;
+        istats.wifi_data_total = pc.wifi_data;
 #endif
 
-      curr_ipx = pc.ipx - dhs_ipx;
-      curr_eapol = pc.eapol - dhs_eapol;
-      curr_ipv6 = pc.ipv6 - dhs_ipv6;
-      curr_ethloopback = pc.ethloopback - dhs_ethloopback;
-      curr_other = pc.other - dhs_other;
-      curr_frags = pc.frags - dhs_frags;
-      curr_discards = pc.discards - dhs_discards;
+        istats.ipx = pc.ipx - istats.ipx_total;
+        istats.ipx_total = pc.ipx;
 
-      if (pc.frags > 0) /* do we have any fragmented packets being seen? */
-      {
-         curr_frag_hourly = pc.frags - dhs_frag_hourly;
-         curr_frag_trackers = pc.frag_trackers - dhs_frag_trackers;
-         curr_frag_rebuilt = pc.rebuilt_frags - dhs_frag_rebuilt;
-         curr_frag_element = pc.rebuild_element - dhs_frag_element;
-         curr_frag_incomp = pc.frag_incomp - dhs_frag_incomp;
-         curr_frag_timeout = pc.frag_timeout - dhs_frag_timeout;
-         curr_frag_mem_faults = pc.frag_mem_faults - dhs_frag_mem_faults;
-         curr_total = curr_total + curr_frag_element;
-         curr_total = curr_total - (curr_frag_rebuilt - curr_frag_timeout);
-      }
+        istats.eapol = pc.eapol - istats.eapol_total;
+        istats.eapol_total = pc.eapol;
 
-      if (pc.tcp_stream_pkts > 0) /* do we have TCP stream re-assembly going on? */
-      {
-         curr_tcp_str_packets = pc.tcp_stream_pkts - dhs_tcp_str_packets;
-         curr_tcp_str_trackers = pc.tcp_streams - dhs_tcp_str_trackers;
-         curr_tcp_str_flushes = pc.rebuilt_tcp - dhs_tcp_str_flushes;
-         curr_tcp_str_segs_used = pc.rebuilt_segs - dhs_tcp_str_segs_used;
-         curr_tcp_str_segs_queued = pc.queued_segs - dhs_tcp_str_segs_queued;
-         curr_tcp_str_mem_faults = pc.str_mem_faults - dhs_tcp_str_mem_faults;
-      }
+        istats.ipv6 = pc.ipv6 - istats.ipv6_total;
+        istats.ipv6_total = pc.ipv6;
 
-      curr_total = curr_tcp + curr_udp + curr_icmp + curr_arp + curr_ipx;
-      curr_total = curr_total + curr_eapol + curr_ipv6 + curr_ethloopback;
-      curr_total = curr_total + curr_other + curr_frags + curr_discards;
+        istats.ethloopback = pc.ethloopback - istats.ethloopback_total;
+        istats.ethloopback_total = pc.ethloopback;
+
+        istats.other = pc.other - istats.other_total;
+        istats.other_total = pc.other;
+
+        istats.discards = pc.discards - istats.discards_total;
+        istats.discards_total = pc.discards;
+
+        if (pc.frags > 0) /* do we have any fragmented packets being seen? */
+        {
+            istats.frags = pc.frags - istats.frags_total;
+            istats.frags_total = pc.frags;
+
+            istats.frag_trackers = pc.frag_trackers - istats.frag_trackers_total;
+            istats.frag_trackers_total = pc.frag_trackers;
+
+            istats.frag_rebuilt = pc.rebuilt_frags - istats.frag_rebuilt_total;
+            istats.frag_rebuilt_total = pc.rebuilt_frags;
+
+            istats.frag_element = pc.rebuild_element - istats.frag_element_total;
+            istats.frag_element_total = pc.rebuild_element;
+
+            istats.frag_incomp = pc.frag_incomp - istats.frag_incomp_total;
+            istats.frag_incomp_total = pc.frag_incomp;
+
+            istats.frag_timeout = pc.frag_timeout - istats.frag_timeout_total;
+            istats.frag_timeout_total = pc.frag_timeout;
+
+            istats.frag_mem_faults = pc.frag_mem_faults - istats.frag_mem_faults_total;
+            istats.frag_mem_faults_total = pc.frag_mem_faults;
+        }
+
+        if (pc.tcp_stream_pkts > 0) /* do we have TCP stream re-assembly going on? */
+        {
+            istats.tcp_str_packets = pc.tcp_stream_pkts - istats.tcp_str_packets_total;
+            istats.tcp_str_packets_total = pc.tcp_stream_pkts;
+
+            istats.tcp_str_trackers = pc.tcp_streams - istats.tcp_str_trackers_total;
+            istats.tcp_str_trackers_total = pc.tcp_streams;
+
+            istats.tcp_str_flushes = pc.rebuilt_tcp - istats.tcp_str_flushes_total;
+            istats.tcp_str_flushes_total = pc.rebuilt_tcp;
+
+            istats.tcp_str_segs_used = pc.rebuilt_segs - istats.tcp_str_segs_used_total;
+            istats.tcp_str_segs_used_total = pc.rebuilt_segs;
+
+            istats.tcp_str_segs_queued = pc.queued_segs - istats.tcp_str_segs_queued_total;
+            istats.tcp_str_segs_queued_total = pc.queued_segs;
+
+            istats.tcp_str_mem_faults = pc.str_mem_faults - istats.tcp_str_mem_faults_total;
+            istats.tcp_str_mem_faults_total = pc.str_mem_faults;
+        }
+
+        istats.processed = pc.total_processed - istats.processed_total;
+        istats.processed_total = pc.total_processed;
+        total = istats.processed;
+
+        /* prepare packet type per time interval routine */
+        LogMessage("================================================"
+                   "===============================\n");
+
+        LogMessage("\n");
+        LogMessage("Statistics Report (last %d seconds)\n", pv.timestats_interval);
+        LogMessage("\n");
+
+        per_sec = (double)istats.recv / (double)pv.timestats_interval;
+
+        LogMessage("Packet Wire Totals:\n");
+        LogMessage("Packets received: " FMTu64("13") "\n", istats.recv);
+
+        if (pv.timestats_interval >= SECONDS_PER_HOUR)
+        {
+            per_hour = (double)(istats.recv * SECONDS_PER_HOUR) / (double)pv.timestats_interval;
+        LogMessage("        per hour: %13.2f\n", per_hour);
+        }
+        if (pv.timestats_interval >= SECONDS_PER_MIN)
+        {
+            per_minute = (double)(istats.recv * SECONDS_PER_MIN) / (double)pv.timestats_interval;
+        LogMessage("      per minute: %13.2f\n", per_minute);
+        }
+        LogMessage("      per second: %13.2f\n", per_sec);
+        LogMessage(" Packets dropped: " FMTu64("13") "\n", istats.drop);
+        LogMessage("\n");
+        LogMessage("Packet Breakdown by Protocol (includes rebuilt packets):\n");
+
+        LogMessage("     TCP: " FMTu64("10") " (%.3f%%)\n",
+                   istats.tcp, CalcPct(istats.tcp, total));
+        LogMessage("     UDP: " FMTu64("10") " (%.3f%%)\n",
+                   istats.udp, CalcPct(istats.udp, total));
+        LogMessage("    ICMP: " FMTu64("10") " (%.3f%%)\n",
+                   istats.icmp, CalcPct(istats.icmp, total));
+        LogMessage("     ARP: " FMTu64("10") " (%.3f%%)\n",
+                   istats.arp, CalcPct(istats.arp, total));
+        LogMessage("   EAPOL: " FMTu64("10") " (%.3f%%)\n",
+                   istats.eapol, CalcPct(istats.eapol, total));
+        LogMessage("    IPv6: " FMTu64("10") " (%.3f%%)\n",
+                   istats.ipv6, CalcPct(istats.ipv6, total));
+        LogMessage(" ETHLOOP: " FMTu64("10") " (%.3f%%)\n",
+                   istats.ethloopback, CalcPct(istats.ethloopback, total));
+        LogMessage("     IPX: " FMTu64("10") " (%.3f%%)\n",
+                   istats.ipx, CalcPct(istats.ipx, total));
 
 #ifdef GRE
-      curr_total = curr_total + curr_gre;
+        LogMessage(" IP4/IP4: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.ip4ip4, CalcPct(istats.ip4ip4, total));
+        LogMessage(" IP4/IP6: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.ip4ip6, CalcPct(istats.ip4ip6, total));
+        LogMessage(" IP6/IP4: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.ip6ip4, CalcPct(istats.ip6ip4, total));
+        LogMessage(" IP6/IP6: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.ip6ip6, CalcPct(istats.ip6ip6, total));
+        LogMessage("     GRE: " FMTu64("10") " (%.3f%%)\n",
+                   istats.gre, CalcPct(istats.gre, total));
+        LogMessage(" GRE ETH: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_eth, CalcPct(istats.gre_eth, total));
+        LogMessage("GRE VLAN: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_vlan, CalcPct(istats.gre_vlan, total));
+        LogMessage("  GRE IP: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_ip, CalcPct(istats.gre_ip, total));
+        LogMessage("GRE IPv6: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_ipv6, CalcPct(istats.gre_ipv6, total));
+        LogMessage("GRE PPTP: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_ppp, CalcPct(istats.gre_ppp, total));
+        LogMessage(" GRE ARP: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_arp, CalcPct(istats.gre_arp, total));
+        LogMessage(" GRE IPX: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_ipx, CalcPct(istats.gre_ipx, total));
+        LogMessage("GRE LOOP: " FMTu64("-10") " (%.3f%%)\n", 
+                   istats.gre_loopback, CalcPct(istats.gre_loopback, total));
 #endif
+
+        LogMessage("    FRAG: " FMTu64("10") " (%.3f%%)\n",
+                   istats.frags, CalcPct(istats.frags, total));
+        LogMessage("   OTHER: " FMTu64("10") " (%.3f%%)\n",
+                   istats.other, CalcPct(istats.other, total));
+        LogMessage(" DISCARD: " FMTu64("10") " (%.3f%%)\n",
+                   istats.discards, CalcPct(istats.discards, total));
+        LogMessage("   Total: " FMTu64("10") "\n", total);
+
+        LogMessage("\n");
+
+
+        /*   handle case where wireless is enabled...	*/
 
 #ifdef DLT_IEEE802_11
-      curr_total = curr_total + curr_wifi_mgmt + curr_wifi_control + curr_wifi_data;
-#endif
-
-      /* save current received packet by type values for next pass */
-      /* through function.  Also, since I/O is slow, save current  */
-      /* values right after calculations above for increased       */
-      /* accuracy...                                               */
-
-      dhs_tcp = pc.tcp;
-      dhs_udp = pc.udp;
-      dhs_icmp = pc.icmp;
-      dhs_arp = pc.arp;
-
-#ifdef GRE
-      dhs_gre = pc.gre;
-#endif
-
-      dhs_ipx = pc.ipx;
-      dhs_eapol = pc.eapol;
-      dhs_ipv6 = pc.ipv6;
-      dhs_ethloopback = pc.ethloopback;
-      dhs_other = pc.other;
-      dhs_frags = pc.frags;
-      dhs_discards = pc.discards;
-
-#ifdef DLT_IEEE802_11
-      dhs_wifi_mgmt = pc.wifi_mgmt;
-      dhs_wifi_control = pc.wifi_control;
-      dhs_wifi_data = pc.wifi_data;
-#endif
-
-      /* prepare packet type per hour routine */
-
-      LogMessage("\n");
-      LogMessage("Statistics Report (last %d seconds)\n", pv.timestats_interval );
-      LogMessage("\n");
-
-      dhs_ppm = curr_pkts / secs_per_min; /* how many packets per minute? */
-      dhs_pps = curr_pkts / secs_per_hr;  /* how many packets per second? */
-
-      LogMessage("Packet analysis time averages:\n");
-      LogMessage("\n");
-      LogMessage("    Packets Received per hour is: %10u\n", curr_pkts);
-      LogMessage("  Packets Received per minute is: %10u\n", dhs_ppm);
-      LogMessage("  Packets Received per second is: %10u\n", dhs_pps);
-      LogMessage("Packets Dropped in the last hour: %10u\n", curr_drop_pkts);
-      LogMessage("\n");
-      LogMessage("Packet Breakdown by Protocol:\n");
-      LogMessage("\n");
-
-      percent_packets = (float)curr_tcp / (float)curr_total * percent_scale;
-      LogMessage("    TCP: %10u (%.3f%%)\n", curr_tcp, percent_packets);
-
-      percent_packets = (float)curr_udp / (float)curr_total * percent_scale;
-      LogMessage("    UDP: %10u (%.3f%%)\n", curr_udp, percent_packets);
-
-      percent_packets = (float)curr_icmp / (float)curr_total * percent_scale;
-      LogMessage("   ICMP: %10u (%.3f%%)\n", curr_icmp, percent_packets);
-
-      percent_packets = (float)curr_arp / (float)curr_total * percent_scale;
-      LogMessage("    ARP: %10u (%.3f%%)\n", curr_arp, percent_packets);
-
-      percent_packets = (float)curr_eapol / (float)curr_total * percent_scale;
-      LogMessage("  EAPOL: %10u (%.3f%%)\n", curr_eapol, percent_packets);
-
-      percent_packets = (float)curr_ipv6 / (float)curr_total * percent_scale;
-      LogMessage("   IPv6: %10u (%.3f%%)\n", curr_ipv6, percent_packets);
-
-      percent_packets = (float)curr_ethloopback / (float)curr_total * percent_scale;
-      LogMessage("ETHLOOP: %10u (%.3f%%)\n", curr_ethloopback, percent_packets);
-
-      percent_packets = (float)curr_ipx / (float)curr_total * percent_scale;
-      LogMessage("    IPX: %10u (%.3f%%)\n", curr_ipx, percent_packets);
-
-#ifdef GRE
-      percent_packets = (float)curr_gre / (float)curr_total * percent_scale;
-      LogMessage("    GRE: %10u (%.3f%%)\n", curr_gre, percent_packets);
-#endif
-
-      percent_packets = (float)curr_frags / (float)curr_total * percent_scale;
-      LogMessage("   FRAG: %10u (%.3f%%)\n", curr_frags, percent_packets);
-
-      percent_packets = (float)curr_other / (float)curr_total * percent_scale;
-      LogMessage("  OTHER: %10u (%.3f%%)\n", curr_other, percent_packets);
-
-      percent_packets = (float)curr_discards / (float)curr_total * percent_scale;
-      LogMessage("DISCARD: %10u (%.3f%%)\n", curr_discards, percent_packets);
-      LogMessage("\n");
-
-/*   handle case where wireless is enabled...	*/
-
-#ifdef DLT_IEEE802_11
-      if (datalink == DLT_IEEE802_11)
-      {
-          LogMessage("\n");
-          LogMessage("===============================================================================\n");
-          LogMessage("Wireless Stats (last %d seconds):\n", pv.timestats_interval);
-
-          percent_packets = (float)curr_wifi_mgmt / (float)curr_total * percent_scale;
-          LogMessage("Management Packets: %10u (%.3f%%)\n", curr_wifi_mgmt, percent_packets);
-
-          percent_packets = (float)curr_wifi_control / (float)curr_total * percent_scale;
-          LogMessage("   Control Packets: %10u (%.3f%%)\n", curr_wifi_control, percent_packets);
-
-          percent_packets = (float)curr_wifi_data / (float)curr_total * percent_scale;
-          LogMessage("      Data Packets: %10u (%.3f%%)\n", curr_wifi_data, percent_packets);
-          LogMessage("\n");
-      }
+        if (datalink == DLT_IEEE802_11)
+        {
+            LogMessage("\n");
+            LogMessage("Wireless Stats:\n\n");
+            LogMessage("Management Packets: " FMTu64("10") " (%.3f%%)\n",
+                       istats.wifi_mgmt, CalcPct(istats.wifi_mgmt, total));
+            LogMessage("   Control Packets: " FMTu64("10") " (%.3f%%)\n",
+                       istats.wifi_control, CalcPct(istats.wifi_control, total));
+            LogMessage("      Data Packets: " FMTu64("10") " (%.3f%%)\n",
+                       istats.wifi_data, CalcPct(istats.wifi_data, total));
+            LogMessage("\n");
+        }
 
 #endif /* if wireless is enabled... */
 
-/*   handle case where we have snort seeing fragmented packets	*/
+        /*   handle case where we have snort seeing fragmented packets	*/
 
-      if (pc.frags > 0) /* begin if (pc.frags > 0) */
-      {
-          LogMessage("\n");
-          LogMessage("================================================"
-                "===============================\n");
-          LogMessage("Fragmentation Stats (last %d seconds):\n", pv.timestats_interval);
-          LogMessage("Fragmented IP Packets: %10u\n", curr_frag_hourly);
-          LogMessage("    Fragment Trackers: %10u\n", curr_frag_trackers);
-          LogMessage("   Rebuilt IP Packets: %10u\n", curr_frag_rebuilt);
-          LogMessage("   Frag Elements Used: %10u\n", curr_frag_element);
-          LogMessage("Discarded(incomplete): %10u\n", curr_frag_incomp);
-          LogMessage("   Discarded(timeout): %10u\n", curr_frag_timeout);
-          LogMessage("  Frag2 memory faults: %10u\n", curr_frag_mem_faults);
-          LogMessage("\n");
-      }   /* end if (pc.frags > 0) */
+        if (pc.frags > 0) /* begin if (pc.frags > 0) */
+        {
+            LogMessage("\n");
+            LogMessage("Fragmentation Stats:\n\n");
+            LogMessage("Fragmented IP Packets: " FMTu64("10") "\n", istats.frags);
+            LogMessage("    Fragment Trackers: " FMTu64("10") "\n", istats.frag_trackers);
+            LogMessage("   Rebuilt IP Packets: " FMTu64("10") "\n", istats.frag_rebuilt);
+            LogMessage("   Frag Elements Used: " FMTu64("10") "\n", istats.frag_element);
+            LogMessage("Discarded(incomplete): " FMTu64("10") "\n", istats.frag_incomp);
+            LogMessage("   Discarded(timeout): " FMTu64("10") "\n", istats.frag_timeout);
+            LogMessage("  Frag2 memory faults: " FMTu64("10") "\n", istats.frag_mem_faults);
+            LogMessage("\n");
+        }   /* end if (pc.frags > 0) */
 
-/*   handle TCP stream re-assy stuff here */ 
+        /*   handle TCP stream re-assy stuff here */ 
 
-      if (pc.tcp_stream_pkts > 0)
-      {
-          LogMessage("\n");
-          LogMessage("=============================================="
-                "=================================\n");
-          LogMessage("TCP Stream Reassembly Stats (last %d seconds):\n", pv.timestats_interval);
-          LogMessage("      TCP Packets Used: %10u\n", curr_tcp_str_packets);
-          LogMessage("       Stream Trackers: %10u\n", curr_tcp_str_trackers);
-          LogMessage("        Stream Flushes: %10u\n", curr_tcp_str_flushes);
-          LogMessage("  Stream Segments Used: %10u\n", curr_tcp_str_segs_used);
-          LogMessage("Stream Segments Queued: %10u\n", curr_tcp_str_segs_queued);
-          LogMessage(" Stream4 Memory Faults: %10u\n", curr_tcp_str_mem_faults);
-      }
- 
-   }  /* end if pcap_stats(ps, &ps) */
-   
-   alarm(pv.timestats_interval);   /* reset the alarm to go off again */
+        if (pc.tcp_stream_pkts > 0)
+        {
+            LogMessage("\n");
+            LogMessage("TCP Stream Reassembly Stats:\n\n");
+            LogMessage("      TCP Packets Used: " FMTu64("10") "\n", istats.tcp_str_packets);
+            LogMessage("       Stream Trackers: " FMTu64("10") "\n", istats.tcp_str_trackers);
+            LogMessage("        Stream Flushes: " FMTu64("10") "\n", istats.tcp_str_flushes);
+            LogMessage("  Stream Segments Used: " FMTu64("10") "\n", istats.tcp_str_segs_used);
+            LogMessage("Stream Segments Queued: " FMTu64("10") "\n", istats.tcp_str_segs_queued);
+            LogMessage(" Stream4 Memory Faults: " FMTu64("10") "\n", istats.tcp_str_mem_faults);
+            LogMessage("\n");
+        }
+
+        mpse_print_qinfo();
+
+    }  /* end if pcap_stats(ps, &ps) */
+
+    alarm(pv.timestats_interval);   /* reset the alarm to go off again */
 }
 
 /* print out stats on how long snort ran */
-void TimeStats(struct pcap_stat *ps)
+void TimeStats(void)
 {
 
 /*
@@ -1314,9 +1371,6 @@ void TimeStats(struct pcap_stat *ps)
  *  end_time = time which snort finished running (unix epoch)
  *  total_secs = total amount of time snort ran
  *  int_total_secs = used to eliminate casts from this function (temp. var)
- *  SECONDS_PER_DAY = the number of seconds in a day, 86400 (not counting leap seconds)
- *  SECONDS_PER_HOUR = the number of seconds in a hour, 3600
- *  SECONDS_PER_MIN = the number of seconds in a minute, 60
  *  days = number of days snort ran
  *  hrs  = number of hrs snort ran
  *  mins = number of minutes snort ran
@@ -1333,255 +1387,374 @@ void TimeStats(struct pcap_stat *ps)
  *
  */
 
-    long end_time = 0L, total_secs = 0L;
+    time_t end_time, total_secs;
+    u_int32_t days = 0, hrs = 0, mins = 0, secs = 0, tmp = 0;
+    UINT64 pps = 0, ppm = 0, pph = 0, ppd = 0;
+    u_int32_t int_total_secs = 0;
+    char hflag = 0, mflag = 0;
 
-    const int SECONDS_PER_DAY = 86400; /* number of seconds in a day  */
-    const int SECONDS_PER_HOUR = 3600; /* number of seconds in a hour */
-    const int SECONDS_PER_MIN = 60;    /* number of seconds in a minute */
-
-    int days = 0, hrs = 0, mins = 0, secs = 0, ival = 0;
-    int pps = 0, ppm = 0, pph = 0, ppd = 0;
-    int int_total_secs = 0;
-
-    int hflag = 0, mflag = 0;
 
     end_time = time(&end_time);         /* grab epoch for end time value (in seconds) */
     total_secs = end_time - start_time; /* total_secs is how many seconds snort ran for */
 
-    ival = total_secs;                  /* convert total_secs from type 'long' to type 'int' */
-    int_total_secs = ival;              /* used for cast elimination */
+    tmp = (u_int32_t)total_secs;        
+    int_total_secs = tmp;               /* used for cast elimination */
 
-    days = ival / SECONDS_PER_DAY;      /* 86400 is number of seconds in a day */
-    ival = ival % SECONDS_PER_DAY;      /* grab remainder to process hours */
-    hrs  = ival / SECONDS_PER_HOUR;     /* 3600 is number of seconds in a(n) hour */
-    ival = ival % SECONDS_PER_HOUR;     /* grab remainder to process minutes */
-    mins = ival / SECONDS_PER_MIN;      /* 60 is number of seconds in a minute */
-    secs = ival % SECONDS_PER_MIN;      /* grab remainder to process seconds */
+    days = tmp / SECONDS_PER_DAY;       /* 86400 is number of seconds in a day */
+    tmp  = tmp % SECONDS_PER_DAY;       /* grab remainder to process hours */
+    hrs  = tmp / SECONDS_PER_HOUR;      /* 3600 is number of seconds in a(n) hour */
+    tmp  = tmp % SECONDS_PER_HOUR;      /* grab remainder to process minutes */
+    mins = tmp / SECONDS_PER_MIN;       /* 60 is number of seconds in a minute */
+    secs = tmp % SECONDS_PER_MIN;       /* grab remainder to process seconds */
 
     if (total_secs)
-        pps = (ps->ps_recv / int_total_secs);  /* packets per second is received pkts divided by */
-    else                                        /* total number of seconds (cast as type 'int') */
-        pps = ps->ps_recv;                      /* guard against division by zero */
+        pps = (pc.total_from_pcap / int_total_secs);
+    else                                         
+        pps = pc.total_from_pcap;     /* guard against division by zero */
 
-    LogMessage("Snort ran for %d Days %d Hours %d Minutes %d Seconds\n", days, hrs, mins, secs);
-
-    if (days + hrs + mins + secs > 0) {
-        LogMessage("Packet analysis time averages:\n\n");
-    }
+    LogMessage("Snort ran for %u Days %u Hours %u Minutes %u Seconds\n", days, hrs, mins, secs);
 
     if (days > 0) {
-        ppd = (ps->ps_recv / (int_total_secs / SECONDS_PER_DAY));
-        LogMessage("Snort Analyzed %d Packets Per Day\n", ppd);
+        ppd = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_DAY));
+        LogMessage("Snort Analyzed " STDu64 " Packets Per Day\n", ppd);
         hflag = 1;
     }
 
     if (hrs > 0 || hflag == 1) {
-        pph = (ps->ps_recv / (int_total_secs / SECONDS_PER_HOUR));
-        LogMessage("Snort Analyzed %d Packets Per Hour\n", pph);
+        pph = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_HOUR));
+        LogMessage("Snort Analyzed " STDu64 " Packets Per Hour\n", pph);
         mflag = 1;
     }
 
     if (mins > 0 || mflag == 1) {
-        ppm = (ps->ps_recv / (int_total_secs / SECONDS_PER_MIN));
-        LogMessage("Snort Analyzed %d Packets Per Minute\n", ppm);
+        ppm = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_MIN));
+        LogMessage("Snort Analyzed " STDu64 " Packets Per Minute\n", ppm);
     }
 
-    LogMessage("Snort Analyzed %d Packets Per Second\n", pps);
-    LogMessage(" \n");
-
+    LogMessage("Snort Analyzed " STDu64 " Packets Per Second\n", pps);
+    LogMessage("\n");
 }
 #endif /* TIMESTATS */
 
-/* need int parameter here because of function declaration of signal(2) */
-void DropStats(int iParamIgnored)
+
+#ifdef PCAP_CLOSE
+int UpdatePcapPktStats(int cacheReturn)
+#else
+int UpdatePcapPktStats(void)
+#endif
 {
     struct pcap_stat ps;
-    static u_int32_t prev_ps = 0;
-    u_int32_t ps_total = prev_ps;
-    float drop = 0.0;
-    float recv = 0.0;
+    u_int32_t recv, drop;
+    static char not_initialized = 1;
 
-#ifndef TIMESTATS
-    if(pv.quiet_flag)
-        return;
+#ifdef PCAP_CLOSE
+    static int priorReturn = 0;
+    static int returnWasCached = 0;
+
+    if ( !cacheReturn && returnWasCached )
+    {
+        returnWasCached = 0;
+        return priorReturn;
+    }
+    priorReturn = -1;
+    returnWasCached = cacheReturn;
 #endif
 
-    puts("\n\n===============================================================================\n");
+    if (not_initialized)
+    {
+        memset(&pkt_stats, 0, sizeof(PcapPktStats));
+        not_initialized = 0;
+    }
+    
+    if ((pd == NULL) || pv.readmode_flag)
+        return -1;
 
-    /*
-     * you will hardly run snort in daemon mode and read from file i that is
-     * why no `LogMessage()' here
-     */
+    if (pcap_stats(pd, &ps) == -1)
+    {
+        pcap_perror(pd, "pcap_stats");
+        return -1;
+    }
+
+    recv = (u_int32_t)ps.ps_recv;
+    drop = (u_int32_t)ps.ps_drop;
+
+#ifdef LINUX_LIBPCAP_DOUBLES_STATS
+    recv /= 2;
+    drop /= 2;
+#endif
+
+#ifdef LIBPCAP_ACCUMULATES
+    /* pcap recv wrapped */
+    if (recv < pkt_stats.wrap_recv)
+        pkt_stats.recv += (UINT64)UINT32_MAX;
+
+    /* pcap drop wrapped */
+    if (drop < pkt_stats.wrap_drop)
+        pkt_stats.drop += (UINT64)UINT32_MAX;
+
+    pkt_stats.wrap_recv = recv;
+    pkt_stats.wrap_drop = drop;
+#else
+    pkt_stats.recv += (UINT64)recv;
+    pkt_stats.drop += (UINT64)drop;
+#endif  /* LIBPCAP_ACCUMULATES */
+
+#ifdef PCAP_CLOSE
+    priorReturn = 0;
+#endif
+    return 0;
+}
+
+UINT64 GetPcapPktStatsRecv(void)
+{
+    return pkt_stats.recv + (UINT64)pkt_stats.wrap_recv;
+}
+
+UINT64 GetPcapPktStatsDrop(void)
+{
+    return pkt_stats.drop + (UINT64)pkt_stats.wrap_drop;
+}
+
+
+#ifdef PCAP_CLOSE
+/* exiting should be 0 for if not exiting, 1 if restarting, and 2 if exiting */
+#else
+/* exiting should be 0 for if not exiting and 1 if exiting */
+#endif
+void DropStats(int exiting)
+{
+    PreprocessStatsList *idx;
+    UINT64 total = 0;
+    UINT64 pkts_recv;
+    UINT64 pkts_drop;
+
+    total = pc.total_processed;
+
+#ifdef PPM_MGR
+    PPM_PRINT_SUMMARY();
+#endif
+
+    LogMessage("================================================"
+               "===============================\n");
+
     if(pv.readmode_flag || InlineMode())
     {
-        /* this wildass line adjusts for the fragment reassembly packet injector */
-        recv = (float) (pc.tcp
-                + pc.udp 
-                + pc.icmp
-                + pc.arp
-                + pc.ipx
-                + pc.eapol
-                + pc.ipv6
-                + pc.ethloopback
-#ifdef GRE
-                + pc.gre
-#endif
-                + pc.other
-                + pc.discards
-                + pc.frags
-                + pc.rebuild_element
-                - pc.rebuilt_frags
-                - pc.frag_timeout);
-
-        printf("Snort processed %u packets.\n", (unsigned int) recv);
+        LogMessage("Snort processed " STDu64 " packets.\n", total);
     }
     else
     {
+#ifdef PCAP_CLOSE
+        if (exiting < 2 && !pd)
+#else
         if (!pd)
+#endif
         {
             LogMessage("Snort received 0 packets\n");
         }
         else
         {
-            /* collect the packet stats */
-            if(pcap_stats(pd, &ps))
+#ifdef PCAP_CLOSE
+            if (UpdatePcapPktStats(0) != -1)
+#else
+            if (UpdatePcapPktStats() != -1)
+#endif
             {
-                pcap_perror(pd, "pcap_stats");
-            }
-            else
-            {
-                //recv = (float) ps.ps_recv;
-                recv = (float) pc.total + pc.rebuilt_frags;
-                drop = (float) ps.ps_drop;
-                ps_total = ps.ps_recv;
-
 #ifdef TIMESTATS
                 {
                     int oldQFlag = pv.quiet_flag;
                     pv.quiet_flag = 0;
-                    TimeStats(&ps);     /* how long did snort run? */
+                    TimeStats();     /* how long did snort run? */
                     pv.quiet_flag = oldQFlag;
                 }
 #endif
+                pkts_recv = GetPcapPktStatsRecv();
+                pkts_drop = GetPcapPktStatsDrop();
 
-                LogMessage("Snort received %u packets\n", ps.ps_recv);
-                LogMessage("    Analyzed: %u(%.3f%%)\n", pc.total,
-                        ps_total?CalcPct((float)(pc.total), 
-                        (float) ps_total):0);
-                LogMessage("    Dropped: %u(%.3f%%)\n", ps.ps_drop, 
-                        ps.ps_recv?CalcPct((float)ps.ps_drop, (float) ps.ps_recv):0);
-                LogMessage("    Outstanding: %u(%.3f%%)\n", ps_total - ps.ps_drop - pc.total,
-                        ps_total?CalcPct((float)(ps_total-ps.ps_drop - pc.total), 
-                        (float) ps_total):0);
+                LogMessage("Packet Wire Totals:\n");
+                LogMessage("   Received: " FMTu64("12") "\n", pkts_recv);
+                LogMessage("   Analyzed: " FMTu64("12") " (%.3f%%)\n", pc.total_from_pcap,
+                           CalcPct(pc.total_from_pcap, pkts_recv));
+                LogMessage("    Dropped: " FMTu64("12") " (%.3f%%)\n", pkts_drop,
+                           CalcPct(pkts_drop, pkts_recv));
+                LogMessage("Outstanding: " FMTu64("12") " (%.3f%%)\n",
+                           pkts_recv - pkts_drop - pc.total_from_pcap,
+                           CalcPct((pkts_recv - pkts_drop - pc.total_from_pcap), pkts_recv));
             }
         }
     }
 
     LogMessage("================================================"
-            "===============================\n");
+               "===============================\n");
 
-    LogMessage("Breakdown by protocol:\n");
-    LogMessage("      TCP: %-10lu (%.3f%%)%-*s\n", 
-            pc.tcp, CalcPct((float) pc.tcp, recv), 
-            CalcPct((float)pc.tcp,recv + drop)<10?10:9 , " ");
-    LogMessage("      UDP: %-10lu (%.3f%%)%-*s\n", 
-            pc.udp, CalcPct((float) pc.udp, recv),  
-            CalcPct((float)pc.udp,recv + drop)<10?10:9, " ");
-    LogMessage("     ICMP: %-10lu (%.3f%%)%-*s\n", 
-            pc.icmp, CalcPct((float) pc.icmp, recv), 
-            CalcPct((float)pc.icmp,recv + drop)<10?10:9, " ");
-    LogMessage("      ARP: %-10lu (%.3f%%)\n", 
-            pc.arp, CalcPct((float) pc.arp, recv));
-    LogMessage("    EAPOL: %-10lu (%.3f%%)\n", 
-            pc.eapol, CalcPct((float) pc.eapol, recv));
-    LogMessage("     IPv6: %-10lu (%.3f%%)\n", 
-            pc.ipv6, CalcPct((float) pc.ipv6, recv));
-    LogMessage("  ETHLOOP: %-10lu (%.3f%%)\n", 
-            pc.ethloopback, CalcPct((float) pc.ethloopback, recv));
-    LogMessage("      IPX: %-10lu (%.3f%%)\n", 
-            pc.ipx, CalcPct((float) pc.ipx, recv));
+    LogMessage("Breakdown by protocol (includes rebuilt packets):\n");
+
+    LogMessage("      ETH: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.eth, CalcPct(pc.eth, total));
+    LogMessage("  ETHdisc: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ethdisc, CalcPct(pc.ethdisc, total));
+#ifdef GIDS
+#ifndef IPFW
+    LogMessage(" IPTables: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.iptables, CalcPct(pc.iptables, total));
+#else
+    LogMessage("     IPFW: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipfw, CalcPct(pc.ipfw, total));
+#endif  /* IPFW */
+#endif  /* GIDS */
+    LogMessage("     VLAN: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.vlan, CalcPct(pc.vlan, total));
+
+    if (pc.nested_vlan != 0)
+    LogMessage("Nested VLAN: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.nested_vlan, CalcPct(pc.nested_vlan, total));
+
+    LogMessage("     IPV6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipv6, CalcPct(pc.ipv6, total));
+    LogMessage("  IP6 EXT: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip6ext, CalcPct(pc.ip6ext, total));
+    LogMessage("  IP6opts: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipv6opts, CalcPct(pc.ipv6opts, total));
+    LogMessage("  IP6disc: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipv6disc, CalcPct(pc.ipv6disc, total));
+
+    LogMessage("      IP4: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip, CalcPct(pc.ip, total));
+    LogMessage("  IP4disc: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipdisc, CalcPct(pc.ipdisc, total));
+
+    LogMessage("    TCP 6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.tcp6, CalcPct(pc.tcp6, total));
+    LogMessage("    UDP 6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.udp6, CalcPct(pc.udp6, total));
+    LogMessage("    ICMP6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.icmp6, CalcPct(pc.icmp6, total));
+    LogMessage("  ICMP-IP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.embdip, CalcPct(pc.embdip, total));
+
+    LogMessage("      TCP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.tcp, CalcPct(pc.tcp, total));
+    LogMessage("      UDP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.udp, CalcPct(pc.udp, total));
+    LogMessage("     ICMP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.icmp, CalcPct(pc.icmp, total));
+
+    LogMessage("  TCPdisc: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.tdisc, CalcPct(pc.tdisc, total));
+    LogMessage("  UDPdisc: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.udisc, CalcPct(pc.udisc, total));
+    LogMessage("  ICMPdis: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.icmpdisc, CalcPct(pc.icmpdisc, total));
+
+    LogMessage("     FRAG: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.frags, CalcPct(pc.frags, total));
+    LogMessage("   FRAG 6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.frag6, CalcPct(pc.frag6, total));
+
+    LogMessage("      ARP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.arp, CalcPct(pc.arp, total));
+    LogMessage("    EAPOL: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.eapol, CalcPct(pc.eapol, total));
+    LogMessage("  ETHLOOP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ethloopback, CalcPct(pc.ethloopback, total));
+    LogMessage("      IPX: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ipx, CalcPct(pc.ipx, total));
 #ifdef GRE
-    LogMessage("      GRE: %-10lu (%.3f%%)\n", 
-            pc.gre, CalcPct((float) pc.gre, recv));
+    LogMessage("IPv4/IPv4: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip4ip4, CalcPct(pc.ip4ip4, total));
+    LogMessage("IPv4/IPv6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip4ip6, CalcPct(pc.ip4ip6, total));
+    LogMessage("IPv6/IPv4: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip6ip4, CalcPct(pc.ip6ip4, total));
+    LogMessage("IPv6/IPv6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.ip6ip6, CalcPct(pc.ip6ip6, total));
+    LogMessage("      GRE: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre, CalcPct(pc.gre, total));
+    LogMessage("  GRE ETH: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_eth, CalcPct(pc.gre_eth, total));
+    LogMessage(" GRE VLAN: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_vlan, CalcPct(pc.gre_vlan, total));
+    LogMessage(" GRE IPv4: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_ip, CalcPct(pc.gre_ip, total));
+    LogMessage(" GRE IPv6: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_ipv6, CalcPct(pc.gre_ipv6, total));
+    LogMessage("GRE IP6 E: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_ipv6ext, CalcPct(pc.gre_ipv6ext, total));
+    LogMessage(" GRE PPTP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_ppp, CalcPct(pc.gre_ppp, total));
+    LogMessage("  GRE ARP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_arp, CalcPct(pc.gre_arp, total));
+    LogMessage("  GRE IPX: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_ipx, CalcPct(pc.gre_ipx, total));
+    LogMessage(" GRE LOOP: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.gre_loopback, CalcPct(pc.gre_loopback, total));
+#endif  /* GRE */
+#ifdef MPLS
+    LogMessage("     MPLS: " FMTu64("-10") " (%.3f%%)\n", 
+                   pc.mpls, CalcPct(pc.mpls, total));
 #endif
-    LogMessage("     FRAG: %-10lu (%.3f%%)%-*s\n", 
-            pc.frags, CalcPct((float) pc.frags, recv),  
-            CalcPct((float)pc.udp,recv + drop)<10?10:9, " ");
-    LogMessage("    OTHER: %-10lu (%.3f%%)\n", 
-            pc.other, CalcPct((float) pc.other, recv));
-    LogMessage("  DISCARD: %-10lu (%.3f%%)\n", 
-            pc.discards, CalcPct((float) pc.discards, recv));
-    LogMessage("InvChkSum: %-10lu (%.3f%%)\n", 
-            pc.invalid_checksums, CalcPct((float) pc.invalid_checksums, recv));
+    LogMessage("    OTHER: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.other, CalcPct(pc.other, total));
+    LogMessage("  DISCARD: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.discards, CalcPct(pc.discards, total));
+    LogMessage("InvChkSum: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.invalid_checksums, CalcPct(pc.invalid_checksums, total));
 
+    LogMessage("   S5 G 1: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.s5tcp1, CalcPct(pc.s5tcp1, total));
+    LogMessage("   S5 G 2: " FMTu64("-10") " (%.3f%%)\n", 
+               pc.s5tcp2, CalcPct(pc.s5tcp2, total));
+
+    LogMessage("    Total: " FMTu64("-10") "\n", total);
 
     LogMessage("================================================"
-            "===============================\n");
+               "===============================\n");
+
     LogMessage("Action Stats:\n");
-    LogMessage("ALERTS: %u\n", pc.alert_pkts);
-    LogMessage("LOGGED: %u\n", pc.log_pkts);
-    LogMessage("PASSED: %u\n", pc.pass_pkts);
+    LogMessage("ALERTS: " STDu64 "\n", pc.alert_pkts);
+    LogMessage("LOGGED: " STDu64 "\n", pc.log_pkts);
+    LogMessage("PASSED: " STDu64 "\n", pc.pass_pkts);
+
+#ifdef TARGET_BASED
+    LogMessage("================================================"
+               "===============================\n");
+    LogMessage("Attribute Table Stats:\n");
+    LogMessage("    Number Entries: %u\n", SFAT_NumberOfHosts());
+    LogMessage("    Table Reloaded: " STDu64 "\n", pc.attribute_table_reloads);
+#endif  /* TARGET_BASED */
+
+    mpse_print_qinfo();
 
 #ifdef DLT_IEEE802_11
     if(datalink == DLT_IEEE802_11)
     {
         LogMessage("================================================"
-                "===============================\n");
+                   "===============================\n");
         LogMessage("Wireless Stats:\n");
         LogMessage("Breakdown by type:\n");
-        LogMessage("    Management Packets: %-10lu (%.3f%%)\n", 
-                pc.wifi_mgmt, CalcPct((float) pc.wifi_mgmt, recv));
-        LogMessage("    Control Packets:    %-10lu (%.3f%%)\n", 
-                pc.wifi_control, CalcPct((float) pc.wifi_control, recv));
-        LogMessage("    Data Packets:       %-10lu (%.3f%%)\n", 
-                pc.wifi_data, CalcPct((float) pc.wifi_data, recv));
+        LogMessage("    Management Packets: " FMTu64("-10") " (%.3f%%)\n", 
+                   pc.wifi_mgmt, CalcPct(pc.wifi_mgmt, total));
+        LogMessage("    Control Packets:    " FMTu64("-10") " (%.3f%%)\n", 
+                   pc.wifi_control, CalcPct(pc.wifi_control, total));
+        LogMessage("    Data Packets:       " FMTu64("-10") " (%.3f%%)\n", 
+                   pc.wifi_data, CalcPct(pc.wifi_data, total));
     }
-#endif
+#endif  /* DLT_IEEE802_11 */
 
-    if(pc.frags > 0)
-    {
-        LogMessage("================================================"
-                "===============================\n");
-        LogMessage("Fragmentation Stats:\n");
-        LogMessage("Fragmented IP Packets: %-10lu (%.3f%%)\n", 
-                pc.frags, CalcPct((float) pc.frags, recv));
-        LogMessage("    Fragment Trackers: %-10lu\n", 
-                pc.frag_trackers);
-        LogMessage("   Rebuilt IP Packets: %-10lu\n", 
-                pc.rebuilt_frags);
-        LogMessage("   Frag elements used: %-10lu\n", 
-                pc.rebuild_element);
-        LogMessage("Discarded(incomplete): %-10lu\n", 
-                pc.frag_incomp);
-        LogMessage("   Discarded(timeout): %-10lu\n", 
-                pc.frag_timeout);
-        LogMessage("   Frag memory faults: %-10lu\n", 
-                pc.frag_mem_faults);
-    }
-
-    if(pc.tcp_stream_pkts > 0)
+    for (idx = PreprocessStats; idx != NULL; idx = idx->next)
     {
         LogMessage("=============================================="
-                "=================================\n");
-        LogMessage("TCP Stream Reassembly Stats:\n");
-        LogMessage("    TCP Packets Used: %-10lu (%-3.3f%%)\n", 
-                pc.tcp_stream_pkts, 
-                CalcPct((float) pc.tcp_stream_pkts, recv));
-        LogMessage("    Stream Trackers: %-10lu\n", pc.tcp_streams);
-        LogMessage("    Stream flushes: %-10lu\n", pc.rebuilt_tcp);
-        LogMessage("    Segments used: %-10lu\n", pc.rebuilt_segs);
-        LogMessage("    Segments Queued: %-10lu\n", pc.queued_segs);
-        LogMessage("    Stream4 Memory Faults: %-10lu\n", 
-                pc.str_mem_faults);
+                   "=================================\n");
+
+#ifdef PCAP_CLOSE
+        idx->entry.func(exiting ? 1 : 0);
+#else
+        idx->entry.func(exiting);
+#endif
     }
 
-    HttpInspectDropStats();
-
     LogMessage("=============================================="
-            "=================================\n");
+               "=================================\n");
 
-    prev_ps = ps_total;
-    
     return;
 }
 
@@ -1600,7 +1773,7 @@ void InitProtoNames()
 {
     int i;
     struct protoent *pt;
-    unsigned char *tmp;
+    u_char *tmp;
     u_char protoname[12];
 
     for(i = 0; i < 256; i++)
@@ -1611,15 +1784,15 @@ void InitProtoNames()
         {
             protocol_names[i] = SnortStrdup(pt->p_name);
 
-            tmp = protocol_names[i];
+            tmp = (u_char*)protocol_names[i];
 
-            for(tmp = protocol_names[i]; *tmp != 0; tmp++)
-                *tmp = (unsigned char) toupper(*tmp);
+            for(tmp = (u_char*)protocol_names[i]; *tmp != 0; tmp++)
+                *tmp = (u_char) toupper(*tmp);
         }
         else
         {
-            SnortSnprintf(protoname, 11, "PROTO:%03d", i);
-            protocol_names[i] = SnortStrdup(protoname);
+            SnortSnprintf((char*)protoname, 11, "PROTO:%03d", i);
+            protocol_names[i] = SnortStrdup((char*)protoname);
         }
     }
 }
@@ -1700,6 +1873,7 @@ char *read_infile(char *fname)
         }
     }
 
+    /** LogMessage("BPF filter file: %s\n", fname); **/
     
     return(cp);
 }
@@ -1946,7 +2120,7 @@ int SnortSnprintf(char *buf, size_t buf_size, const char *format, ...)
     if (ret < 0)
         return SNORT_SNPRINTF_ERROR;
 
-    if (buf[buf_size - 1] != '\0' || ret >= buf_size)
+    if (buf[buf_size - 1] != '\0' || (size_t)ret >= buf_size)
     {
         /* result was truncated */
         buf[buf_size - 1] = '\0';
@@ -1978,7 +2152,10 @@ int SnortSnprintfAppend(char *buf, size_t buf_size, const char *format, ...)
      * indicates no null termination, so just start at
      * beginning of buffer */
     if (str_len == SNORT_STRNLEN_ERROR)
+    {
+        buf[0] = '\0';
         str_len = 0;
+    }
 
     buf[buf_size - 1] = '\0';
 
@@ -1991,7 +2168,7 @@ int SnortSnprintfAppend(char *buf, size_t buf_size, const char *format, ...)
     if (ret < 0)
         return SNORT_SNPRINTF_ERROR;
 
-    if (buf[buf_size - 1] != '\0' || ret >= buf_size)
+    if (buf[buf_size - 1] != '\0' || (size_t)ret >= buf_size)
     {
         /* truncation occured */
         buf[buf_size - 1] = '\0';
@@ -2003,18 +2180,24 @@ int SnortSnprintfAppend(char *buf, size_t buf_size, const char *format, ...)
 
 /* Guaranteed to be '\0' terminated even if truncation occurs.
  *
+ * Arguments:  dst - the string to contain the copy
+ *             src - the string to copy from
+ *             dst_size - the size of the destination buffer
+ *                        including the null byte.
+ *
  * returns SNORT_STRNCPY_SUCCESS if successful
  * returns SNORT_STRNCPY_TRUNCATION on truncation
  * returns SNORT_STRNCPY_ERROR on error
+ *
+ * Note: Do not set dst[0] = '\0' on error since it's possible that
+ * dst and src are the same pointer - it will at least be null
+ * terminated in any case
  */
 int SnortStrncpy(char *dst, const char *src, size_t dst_size)
 {
     char *ret = NULL;
 
     if (dst == NULL || src == NULL || dst_size <= 0)
-        return SNORT_STRNCPY_ERROR;
-
-    if (src == dst)
         return SNORT_STRNCPY_ERROR;
 
     dst[dst_size - 1] = '\0';
@@ -2036,13 +2219,29 @@ int SnortStrncpy(char *dst, const char *src, size_t dst_size)
     return SNORT_STRNCPY_SUCCESS;
 }
 
+char *SnortStrndup(const char *src, size_t dst_size)
+{
+	char *ret = SnortAlloc(dst_size + 1);
+    int ret_val;
+
+	ret_val = SnortStrncpy(ret, src, dst_size + 1);
+
+    if(ret_val == SNORT_STRNCPY_ERROR) 
+	{
+		free(ret);
+		return NULL;
+	}
+
+	return ret;
+}
+
 /* Determines whether a buffer is '\0' terminated and returns the
  * string length if so
  *
  * returns the string length if '\0' terminated
  * returns SNORT_STRNLEN_ERROR if not '\0' terminated
  */
-int SnortStrnlen(char *buf, int buf_size)
+int SnortStrnlen(const char *buf, int buf_size)
 {
     int i = 0;
 
@@ -2061,10 +2260,14 @@ int SnortStrnlen(char *buf, int buf_size)
     return i;
 }
 
-
-char * SnortStrdup(char *str)
+char * SnortStrdup(const char *str)
 {
     char *copy = NULL;
+
+    if (!str)
+    {
+        FatalError("Unable to duplicate string: NULL!\n");
+    }
 
     copy = strdup(str);
 
@@ -2074,6 +2277,97 @@ char * SnortStrdup(char *str)
     }
 
     return copy;
+}
+
+/*
+ * Find first occurrence of char of accept in s, limited by slen.
+ * A 'safe' version of strpbrk that won't read past end of buffer s
+ * in cases that s is not NULL terminated.
+ *
+ * This code assumes 'accept' is a static string.
+ */
+const char *SnortStrnPbrk(const char *s, int slen, const char *accept)
+{
+    char ch;
+    const char *s_end;
+    if (!s || !*s || !accept || slen == 0)
+        return NULL;
+
+    s_end = s + slen;
+    while (s < s_end)
+    {
+        ch = *s;
+        if (strchr(accept, ch))
+            return s;
+        s++;
+    }
+    return NULL;
+}
+
+/*
+ * Find first occurrence of searchstr in s, limited by slen.
+ * A 'safe' version of strstr that won't read past end of buffer s
+ * in cases that s is not NULL terminated.
+ */
+const char *SnortStrnStr(const char *s, int slen, const char *searchstr)
+{
+    char ch, nc;
+    int len;
+    if (!s || !*s || !searchstr || slen == 0)
+        return NULL;
+
+    if ((ch = *searchstr++) != 0)
+    {
+        len = strlen(searchstr);
+        do
+        {
+            do
+            {
+                if ((nc = *s++) == 0)
+                {
+                    return NULL;
+                }
+                slen--;
+                if (slen == 0)
+                    return NULL;
+            } while (nc != ch);
+            if (slen - len < 0)
+                return NULL;
+        } while (memcmp(s, searchstr, len) != 0);
+        s--;
+        slen++;
+    }
+    return s;
+}
+
+/*
+ * Find first occurrence of substring in s, ignore case.
+*/
+const char *SnortStrcasestr(const char *s, const char *substr)
+{
+    char ch, nc;
+    int len;
+
+    if (!s || !*s || !substr)
+        return NULL;
+
+    if ((ch = *substr++) != 0)
+    {
+        ch = tolower((char)ch);
+        len = strlen(substr);
+        do
+        {
+            do
+            {
+                if ((nc = *s++) == 0)
+                {
+                    return NULL;
+                }
+            } while ((char)tolower((u_int8_t)nc) != ch);
+        } while (strncasecmp(s, substr, len) != 0);
+        s--;
+    }
+    return s;
 }
 
 void *SnortAlloc(unsigned long size)
@@ -2119,7 +2413,7 @@ void * SnortAlloc2(size_t size, const char *format, ...)
  * Chroot and adjust the pv.log_dir reference 
  * 
  * @param directory directory to chroot to
- * @param logdir ptr to pv.log_dir
+ * @param logstore ptr to pv.log_dir which must be dynamically allocated
  */
 void SetChroot(char *directory, char **logstore)
 {
@@ -2151,6 +2445,10 @@ void SetChroot(char *directory, char **logstore)
                                        CurrentWorkingDir()));
     
     logdir = SnortStrdup(logdir);
+
+    /* We're going to reset logstore, so free it now */
+    free(*logstore);
+    *logstore = NULL;
 
     /* change to the directory */
     if(chdir(directory) != 0)
@@ -2199,15 +2497,17 @@ void SetChroot(char *directory, char **logstore)
     
     if(abslen >= strlen(logdir))
     {
-        *logstore = "/";
+        *logstore = SnortStrdup("/");
     }
     else
     {
-        *logstore = logdir + abslen;
+        *logstore = SnortStrdup(logdir + abslen);
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"new logdir from %s to %s\n",
                             logdir, *logstore));
+
+    LogMessage("Chroot directory = %s\n", directory);
 
     /* install the I can't do this signal handler */
     signal(SIGHUP, SigCantHupHandler);
@@ -2284,4 +2584,170 @@ char *GetAbsolutePath(char *dir)
     free(savedir);
     return (char *) buf;
 }
+
+
+#ifndef WIN32
+/* very slow sort - do not use at runtime! */
+SF_LIST * SortDirectory(const char *path)
+{
+    SF_LIST *dir_entries;
+    DIR *dir;
+    struct dirent *direntry;
+    int ret = 0;
+
+    if (path == NULL)
+        return NULL;
+
+    dir_entries = sflist_new();
+    if (dir_entries == NULL)
+    {
+        ErrorMessage("Could not allocate new list for directory entries\n");
+        return NULL;
+    }
+
+    dir = opendir(path);
+    if (dir == NULL)
+    {
+        ErrorMessage("Error opening directory: %s: %s\n",
+                     path, strerror(errno));
+        sflist_free_all(dir_entries, free);
+        return NULL;
+    }
+
+    /* Reset errno since we'll be checking it unconditionally */
+    errno = 0;
+
+    while ((direntry = readdir(dir)) != NULL)
+    {
+        char *node_entry_name, *dir_entry_name;
+        SF_LNODE *node;
+
+        dir_entry_name = SnortStrdup(direntry->d_name);
+
+        for (node = sflist_first_node(dir_entries);
+             node != NULL;
+             node = sflist_next_node(dir_entries))
+        {
+            node_entry_name = (char *)node->ndata;
+            if (strcmp(dir_entry_name, node_entry_name) < 0)
+                break;
+        }
+
+        if (node == NULL)
+            ret = sflist_add_tail(dir_entries, (NODE_DATA)dir_entry_name);
+        else
+            ret = sflist_add_before(dir_entries, node, (NODE_DATA)dir_entry_name);
+
+        if (ret == -1)
+        {
+            ErrorMessage("Error adding directory entry to list\n");
+            sflist_free_all(dir_entries, free);
+            closedir(dir);
+            return NULL;
+        }
+    }
+
+    if (errno != 0)
+    {
+        ErrorMessage("Error reading directory: %s: %s\n",
+                     path, strerror(errno));
+        errno = 0;
+        sflist_free_all(dir_entries, free);
+        closedir(dir);
+        return NULL;
+    }
+
+    closedir(dir);
+
+    return dir_entries;
+}
+
+int GetFilesUnderDir(const char *path, SF_QUEUE *dir_queue, const char *filter)
+{
+    SF_LIST *dir_entries;
+    char *direntry;
+    int ret = 0;
+    int num_files = 0;
+
+    if ((path == NULL) || (dir_queue == NULL))
+        return -1;
+
+    dir_entries = SortDirectory(path);
+    if (dir_entries == NULL)
+    {
+        ErrorMessage("Error sorting entries in directory: %s\n", path);
+        return -1;
+    }
+
+    for (direntry = (char *)sflist_first(dir_entries);
+         direntry != NULL;
+         direntry = (char *)sflist_next(dir_entries))
+    {
+        char path_buf[PATH_MAX];
+        struct stat file_stat;
+
+        /* Don't look at dot files */
+        if (strncmp(".", direntry, 1) == 0)
+            continue;
+            
+        ret = SnortSnprintf(path_buf, PATH_MAX, "%s%s%s",
+                            path, path[strlen(path) - 1] == '/' ? "" : "/", direntry);
+        if (ret == SNORT_SNPRINTF_TRUNCATION)
+        {
+            ErrorMessage("Error copying file to buffer: Path too long\n");
+            sflist_free_all(dir_entries, free);
+            return -1;
+        }
+        else if (ret != SNORT_SNPRINTF_SUCCESS)
+        {
+            ErrorMessage("Error copying file to buffer\n");
+            sflist_free_all(dir_entries, free);
+            return -1;
+        }
+
+        ret = stat(path_buf, &file_stat);
+        if (ret == -1)
+        {
+            ErrorMessage("Could not stat file: %s: %s\n",
+                         path_buf, strerror(errno));
+            sflist_free_all(dir_entries, free);
+            return -1;
+        }
+
+        if (file_stat.st_mode & S_IFDIR)
+        {
+            ret = GetFilesUnderDir(path_buf, dir_queue, filter);
+            if (ret == -1)
+            {
+                sflist_free_all(dir_entries, free);
+                return -1;
+            }
+
+            num_files += ret;
+        }
+        else if (file_stat.st_mode & S_IFREG)
+        {
+            if ((filter == NULL) || (fnmatch(filter, direntry, 0) == 0))
+            {
+                char *file = SnortStrdup(path_buf);
+
+                ret = sfqueue_add(dir_queue, (NODE_DATA)file);
+                if (ret == -1)
+                {
+                    ErrorMessage("Could not append item to list: %s\n", file);
+                    free(file);
+                    sflist_free_all(dir_entries, free);
+                    return -1;
+                }
+
+                num_files++;
+            }
+        }
+    }
+
+    sflist_free_all(dir_entries, free);
+
+    return num_files;
+}
+#endif
 

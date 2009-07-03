@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -33,12 +34,12 @@
 #define NT_OUTPUT_SPECIAL 0x4  /* special output node type */
 
 /***************************** Output Plugin API  *****************************/
+typedef void (*OutputInitFunc)(char *);
 typedef struct _OutputKeywordNode
 {
     char *keyword;
     char node_type;
-    void (*func)(char *);
-
+    OutputInitFunc func;
 } OutputKeywordNode;
 
 typedef struct _OutputKeywordList
@@ -56,15 +57,16 @@ typedef struct _OutputFuncNode
 
 } OutputFuncNode;
 
-void InitOutputPlugins();
+void InitOutputPlugins(void);
+void CleanupOutputPlugins(void);
 int ActivateOutputPlugin(char *plugin_name, char *plugin_options);
-void RegisterOutputPlugin(char *, int, void (*func)(u_char *));
+void RegisterOutputPlugin(char *, int, OutputInitFunc);
 OutputKeywordNode *GetOutputPlugin(char *plugin_name);
-void DumpOutputPlugins();
-void AddFuncToOutputList(void (*func) (Packet *, char *, void *, Event *),
-        char node_type, void *arg);
-void SetOutputList(void (*func) (Packet *, char *, void *, Event *),
-        char node_type, void *arg);
+void DumpOutputPlugins(void);
+void AddFuncToOutputList(void (*)(Packet *, char *, void *, Event *),
+                         char node_type, void *arg);
+void SetOutputList(void (*)(Packet *, char *, void *, Event *),
+                   char node_type, void *arg);
 /*************************** End Output Plugin API  ***************************/
 
 #endif /* __SPO_PLUGBASE_H__ */

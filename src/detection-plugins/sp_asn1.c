@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2006 Sourcefire, Inc.
+ ** Copyright (C) 2002-2009 Sourcefire, Inc.
  ** Author: Daniel Roelker
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -58,6 +58,7 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "bounds.h"
 #include "rules.h"
@@ -70,6 +71,7 @@
 #include "asn1.h"
 #include "sp_asn1.h"
 #include "sp_asn1_detect.h"
+#include "sfhashfcn.h"
 
 #define BITSTRING_OPT  "bitstring_overflow"
 #define DOUBLE_OPT     "double_overflow"
@@ -85,7 +87,64 @@
 
 #define DELIMITERS " ,\t\n"
 
-extern u_int8_t *doe_ptr;
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats asn1PerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+u_int32_t Asn1Hash(void *d)
+{
+    u_int32_t a,b,c;
+    ASN1_CTXT *data = (ASN1_CTXT *)d;
+
+    a = data->bs_overflow;
+    b = data->double_overflow;
+    c = data->print;
+
+    mix(a,b,c);
+
+    a += data->length;
+    b += data->max_length;
+    c += data->offset;
+    
+    mix(a,b,c);
+
+    a += data->offset_type;
+    b += RULE_OPTION_TYPE_ASN1;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int Asn1Compare(void *l, void *r)
+{
+    ASN1_CTXT *left = (ASN1_CTXT *)l;
+    ASN1_CTXT *right = (ASN1_CTXT *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+    
+    if ((left->bs_overflow == right->bs_overflow) &&
+        (left->double_overflow == right->double_overflow) &&
+        (left->print == right->print) &&
+        (left->length == right->length) &&
+        (left->max_length == right->max_length) &&
+        (left->offset == right->offset) &&
+        (left->offset_type == right->offset_type))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
+
+extern const u_int8_t *doe_ptr;
 
 /*
 **  NAME
@@ -135,6 +194,9 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
         }
         else if(!strcasecmp(pcTok, LENGTH_OPT))
         {
+            long int max_length;
+            char *pcEnd;
+
             pcTok = strtok(NULL, DELIMITERS);
             if(!pcTok)
             {
@@ -142,15 +204,18 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
                            "plugin\n", LENGTH_OPT, file_name, file_line);
             }
 
-            asn1->length = 1;
-            asn1->max_length = atoi(pcTok);
+            max_length = strtol(pcTok, &pcEnd, 10);
 
-            if(asn1->max_length < 0)
+            if((*pcEnd) || (max_length < 0) || (errno == ERANGE))
             {
-                FatalError("%s(%d) => Negative size to '%s' in 'asn1' "
-                           "detection plugin.  Must be positive or zero.\n", 
+                FatalError("%s(%d) => Negative size, underflow or overflow "
+                           "(of long int) to '%s' in 'asn1' detection plugin. "
+                           "Must be positive or zero.\n", 
                            LENGTH_OPT, file_name, file_line);
             }
+
+            asn1->length = 1;
+            asn1->max_length = (unsigned int)max_length;
         }
         else if(!strcasecmp(pcTok, ABS_OFFSET_OPT))
         {
@@ -188,7 +253,6 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
     return;
 }
 
-
 /*
 **  NAME
 **    Asn1Detect::
@@ -203,27 +267,35 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
 **  @retval 0 failed
 **  @retval 1 detected
 */
-static int Asn1Detect(Packet *p, OptTreeNode *otn, OptFpList *fp_list)
+static int Asn1Detect(void *context, Packet *p)
 {
     ASN1_CTXT *ctxt;
+    PROFILE_VARS;
 
     /*
     **  Failed if there is no data to decode.
     */
     if(!p->data)
-        return 0;
+        return DETECTION_OPTION_NO_MATCH;
 
-    ctxt = (ASN1_CTXT *)fp_list->context;
+    PREPROC_PROFILE_START(asn1PerfStats);
+
+    ctxt = (ASN1_CTXT *)context;
 
     if (Asn1DoDetect(p->data, p->dsize, ctxt, doe_ptr))
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+    {
+        PREPROC_PROFILE_END(asn1PerfStats);
+        return DETECTION_OPTION_MATCH;
+    }
 
-    return 0;
+    PREPROC_PROFILE_END(asn1PerfStats);
+    return DETECTION_OPTION_NO_MATCH;
 }
 
 static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
 {
     ASN1_CTXT *asn1;
+    void *ds_ptr_dup;
     OptFpList *ofl;
 
     /* 
@@ -235,9 +307,16 @@ static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
 
     Asn1RuleParse(data, otn, asn1);
 
+    if (add_detection_option(RULE_OPTION_TYPE_ASN1, (void *)asn1, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(asn1);
+        asn1 = ds_ptr_dup;
+    }
+
     ofl = AddOptFuncToList(Asn1Detect, otn);
 
     ofl->context = (void *)asn1;
+    ofl->type = RULE_OPTION_TYPE_ASN1;
 
     if (asn1->offset_type == REL_OFFSET)
         ofl->isRelative = 1;
@@ -247,7 +326,11 @@ static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
 void SetupAsn1()
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("asn1", Asn1Init);
+    RegisterPlugin("asn1", Asn1Init, NULL, OPT_TYPE_DETECTION);
+
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("asn1", &asn1PerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: ASN1 Setup\n"););
 }

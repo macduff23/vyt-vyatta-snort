@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -38,8 +38,7 @@ extern DynamicEngineData _ded;
  * but available to other code within the shared lib.
  */
 extern int RegisterOneRule(Rule *rule, int registerRule);
-extern int ruleMatchInternal(SFSnortPacket *p, Rule* rule, u_int32_t optIndex, u_int8_t **cursor);
-extern int getBuffer(SFSnortPacket *p, int flags, u_int8_t **start, u_int8_t **end);
+extern int ruleMatchInternal(SFSnortPacket *p, Rule* rule, u_int32_t optIndex, const u_int8_t **cursor);
 
 /* Initialize a byteExtract structure. */
 int ByteExtractInitialize(Rule *rule, ByteExtract *extractData)
@@ -175,15 +174,15 @@ int LoopInfoInitialize(Rule *rule, LoopInfo *loopInfo)
  *    < 0 : error
  *
  */
-int getSizeRemaining(void *p, u_int32_t flags, u_int8_t *cursor)
+int getSizeRemaining(void *p, u_int32_t flags, const u_int8_t *cursor)
 {
-    u_int8_t *start;
-    u_int8_t *end;
+    const u_int8_t *start;
+    const u_int8_t *end;
     SFSnortPacket *sp = (SFSnortPacket *) p;
     int ret;
     int size;
 
-    ret = getBuffer(sp, flags, &start, &end);
+    ret = getBuffer((void *)sp, (int)flags, (const u_int8_t **)&start, (const u_int8_t **)&end);
 
     if ( ret < 0 )
         return 0;
@@ -221,7 +220,7 @@ int getSizeRemaining(void *p, u_int32_t flags, u_int8_t *cursor)
  *    a cursor of NULL means look at the whole buffer.
  *
  */
-int32_t getLoopLimit(void *p, LoopInfo *loop, u_int8_t *cursor)
+int32_t getLoopLimit(void *p, LoopInfo *loop, const u_int8_t *cursor)
 {
     int32_t loop_max;
     int size;
@@ -293,10 +292,10 @@ int checkLoopEnd(u_int32_t op, int32_t index, int32_t end)
 }
 
 /* Function to evaluate a loop (ie, a series of nested options) */
-ENGINE_LINKAGE int loopEval(void *p, LoopInfo *loop, u_int8_t **cursor)
+ENGINE_LINKAGE int loopEval(void *p, LoopInfo *loop, const u_int8_t **cursor)
 {
-    u_int8_t *startingCursor;
-    u_int8_t *tmpCursor;
+    const u_int8_t *startingCursor;
+    const u_int8_t *tmpCursor;
     int32_t i;
     int32_t startValue;
     int32_t endValue;

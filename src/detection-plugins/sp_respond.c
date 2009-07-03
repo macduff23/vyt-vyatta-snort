@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 1999,2000,2001 Christian Lademann <cal@zls.de>
 **
@@ -47,6 +48,16 @@
 #include "plugin_enum.h"
 #include "snort.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats respondPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 typedef struct _RespondData
 {
     u_int response_flag;
@@ -55,18 +66,45 @@ typedef struct _RespondData
 void RespondInit(char *, OptTreeNode *, int ); 
 void RespondRestartFunction(int, void *);
 int ParseResponse(char *);
-int SendICMP_UNREACH(int, u_long, u_long, Packet *);
-int SendTCPRST(u_long, u_long, u_short, u_short, u_long, u_long, u_short);
+int SendICMP_UNREACH(int, snort_ip_p, snort_ip_p, Packet *);
+int SendTCPRST(snort_ip_p, snort_ip_p, u_short, u_short, u_long, u_long, u_short);
 int Respond(Packet *, RspFpList *);
 
+u_int32_t RespondHash(void *d)
+{
+    u_int32_t a,b,c;
+    RespondData *data = (RespondData *)d;
 
+    a = data->response_flag;
+    b = RULE_OPTION_TYPE_RESPOND;
+    c = 0;
 
+    final(a,b,c);
+
+    return c;
+}
+
+int RespondCompare(void *l, void *r)
+{
+    RespondData *left = (RespondData *)l;
+    RespondData *right = (RespondData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->response_flag == right->response_flag)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 int nd; /* raw socket descriptor */
 u_int8_t ttl;   /* placeholder for randomly generated TTL */
 
-char *tcp_pkt;
-char *icmp_pkt;
+u_int8_t *tcp_pkt;
+u_int8_t *icmp_pkt;
 
 void PrecacheTcp(void);
 void PrecacheIcmp(void);
@@ -84,7 +122,10 @@ void PrecacheIcmp(void);
 
 void SetupRespond(void)
 {
-    RegisterPlugin("resp", RespondInit);
+    RegisterPlugin("resp", RespondInit, NULL, OPT_TYPE_ACTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("resp", &respondPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: Respond Setup\n"););
     nd = -1;
 }
@@ -107,6 +148,7 @@ void RespondRestartFunction(int signal, void *foo)
 void RespondInit(char *data, OptTreeNode *otn, int protocol) 
 {
     RespondData *rd;
+    void *idx_dup;
 
     if(protocol != IPPROTO_TCP && protocol != IPPROTO_UDP &&
        protocol != IPPROTO_ICMP)
@@ -133,6 +175,12 @@ void RespondInit(char *data, OptTreeNode *otn, int protocol)
     
     rd->response_flag = ParseResponse(data);
     
+    if (add_detection_option(RULE_OPTION_TYPE_RESPOND, (void *)rd, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(rd);
+        rd = idx_dup;
+     }
+
     AddRspFuncToList(Respond, otn, (void *)rd );
     AddFuncToRestartList(RespondRestartFunction, NULL);
 
@@ -229,9 +277,9 @@ int ParseResponse(char *type)
 
 void PrecacheTcp(void)
 {
-    int sz = IP_H + TCP_H;
+    int sz = IP_H + TCP_H + 1;  /* extra octet required to avoid crash - why? */
 
-    if((tcp_pkt = calloc(sz, sizeof(char))) == NULL)
+    if((tcp_pkt = calloc(sz, sizeof(u_int8_t))) == NULL)
     {
         FatalError("PrecacheTCP() calloc failed!\n");
     }
@@ -320,18 +368,23 @@ void PrecacheIcmp(void)
 
 int Respond(Packet *p, RspFpList *fp_list)
 {
-    RespondData *rd = (RespondData *)fp_list->params;
+    RespondData *rd;
+    PROFILE_VARS;
+    
+    rd = (RespondData *)fp_list->params;
 
-    if(!p->iph)
+    if(!IPH_IS_VALID(p))
     {
         return 0;
     }
+
+    PREPROC_PROFILE_START(respondPerfStats);
     
     if(rd->response_flag)
     {
         if(rd->response_flag & (RESP_RST_SND | RESP_RST_RCV))
         {
-            if(p->iph->ip_proto == IPPROTO_TCP && p->tcph != NULL)
+            if(GET_IPH_PROTO(p) == IPPROTO_TCP && p->tcph != NULL)
             {
                 /*
                 **  This ensures that we don't reset packets that we just
@@ -344,8 +397,8 @@ int Respond(Packet *p, RspFpList *fp_list)
                 {
                     if(rd->response_flag & RESP_RST_SND)
                     {
-                        SendTCPRST(p->iph->ip_dst.s_addr, 
-                                   p->iph->ip_src.s_addr,
+                        SendTCPRST(GET_DST_IP(p), 
+                                   GET_SRC_IP(p),
                                    p->tcph->th_dport, p->tcph->th_sport,
                                    p->tcph->th_ack, 
                                    htonl(ntohl(p->tcph->th_seq) + p->dsize),
@@ -354,8 +407,8 @@ int Respond(Packet *p, RspFpList *fp_list)
 
                     if(rd->response_flag & RESP_RST_RCV)
                     {
-                        SendTCPRST(p->iph->ip_src.s_addr, 
-                                   p->iph->ip_dst.s_addr,
+                        SendTCPRST(GET_SRC_IP(p), 
+                                   GET_DST_IP(p),
                                    p->tcph->th_sport, p->tcph->th_dport, 
                                    p->tcph->th_seq, 
                                    htonl(ntohl(p->tcph->th_ack) + p->dsize),
@@ -377,23 +430,24 @@ int Respond(Packet *p, RspFpList *fp_list)
            (p->icmph->type == ICMP_ADDRESS))
         {
             if(rd->response_flag & RESP_BAD_NET)
-                SendICMP_UNREACH(ICMP_UNREACH_NET, p->iph->ip_dst.s_addr,
-                                 p->iph->ip_src.s_addr, p);
+                SendICMP_UNREACH(ICMP_UNREACH_NET, GET_DST_IP(p),
+                                 GET_SRC_IP(p), p);
 
             if(rd->response_flag & RESP_BAD_HOST)
-                SendICMP_UNREACH(ICMP_UNREACH_HOST, p->iph->ip_dst.s_addr,
-                                 p->iph->ip_src.s_addr, p);
+                SendICMP_UNREACH(ICMP_UNREACH_HOST, GET_DST_IP(p),
+                                 GET_SRC_IP(p), p);
 
             if(rd->response_flag & RESP_BAD_PORT)
-                SendICMP_UNREACH(ICMP_UNREACH_PORT, p->iph->ip_dst.s_addr,
-                                 p->iph->ip_src.s_addr, p);
+                SendICMP_UNREACH(ICMP_UNREACH_PORT, GET_DST_IP(p),
+                                 GET_SRC_IP(p), p);
         }
     }
+    PREPROC_PROFILE_END(respondPerfStats);
     return 1; /* always success */
 }
 
 
-int SendICMP_UNREACH(int code, u_long saddr, u_long daddr, Packet * p)
+int SendICMP_UNREACH(int code, snort_ip_p saddr, snort_ip_p daddr, Packet * p)
 {
     int payload_len, sz;
     IPHdr *iph;
@@ -403,7 +457,7 @@ int SendICMP_UNREACH(int code, u_long saddr, u_long daddr, Packet * p)
         return -1;
 
     /* don't send ICMP port unreachable errors in response to ICMP messages */
-    if (p->iph->ip_proto == 1 && code == ICMP_UNREACH_PORT)
+    if (GET_IPH_PROTO(p) == 1 && code == ICMP_UNREACH_PORT)
     {
         if (pv.verbose_flag)
         {
@@ -416,8 +470,12 @@ int SendICMP_UNREACH(int code, u_long saddr, u_long daddr, Packet * p)
     iph = (IPHdr *) icmp_pkt;
     icmph = (ICMPHdr *) (icmp_pkt + IP_H);
 
+#ifdef SUP_IP6
+// XXX-IPv6 Not yet implemented - sp_respond.c
+#else
     iph->ip_src.s_addr = saddr;
     iph->ip_dst.s_addr = daddr;
+#endif
 
     icmph->code = code;
 
@@ -446,7 +504,7 @@ int SendICMP_UNREACH(int code, u_long saddr, u_long daddr, Packet * p)
 }
 
 
-int SendTCPRST(u_long saddr, u_long daddr, u_short sport, u_short dport, 
+int SendTCPRST(snort_ip_p saddr, snort_ip_p daddr, u_short sport, u_short dport, 
         u_long seq, u_long ack, u_short win)
 {
     int sz = IP_H + TCP_H;
@@ -456,9 +514,12 @@ int SendTCPRST(u_long saddr, u_long daddr, u_short sport, u_short dport,
     iph = (IPHdr *) tcp_pkt;
     tcph = (TCPHdr *) (tcp_pkt + IP_H);
 
+#ifdef SUP_IP6
+#else
     iph->ip_src.s_addr = saddr;
     iph->ip_dst.s_addr = daddr;
-
+#endif
+    
     tcph->th_sport = sport;
     tcph->th_dport = dport;
     tcph->th_seq = seq;

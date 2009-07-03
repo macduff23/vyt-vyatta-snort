@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -26,6 +27,7 @@
 #endif
 
 #include "rules.h"
+#include "sf_types.h"
 
 #ifndef WIN32
     #include <sys/ioctl.h>
@@ -68,16 +70,24 @@
 #define DETECTION_KEYWORD 0
 #define RESPONSE_KEYWORD 1
 
+enum OptionType {
+	OPT_TYPE_ACTION = 0,
+	OPT_TYPE_LOGGING,
+	OPT_TYPE_DETECTION,
+	OPT_TYPE_MAX
+};
+
 #include "preprocids.h"
 
 /**************************** Detection Plugin API ****************************/
 
+typedef void (*RuleInitFunc)(char *, OptTreeNode *, int);
 typedef struct _KeywordXlate
 {
     char *keyword;
-    void (*func)(char *, OptTreeNode *, int);
+    RuleInitFunc func;
+    enum OptionType type;
 } KeywordXlate;
-
 
 typedef struct _KeywordXlateList
 {
@@ -85,12 +95,31 @@ typedef struct _KeywordXlateList
     struct _KeywordXlateList *next;
 } KeywordXlateList;
 
+typedef void (*RuleOverrideFunc)(char *, char *, char *, OptTreeNode *, int);
+typedef void (*RuleInitOverrideFunc)(char *, char *, RuleOverrideFunc func);
+typedef struct _KeywordOverrideXlate
+{
+    char *keyword;
+    RuleInitOverrideFunc func;
+    enum OptionType type;
+} KeywordOverrideXlate;
+
+typedef struct _KeywordOverrideXlateList
+{
+    KeywordOverrideXlate entry;
+    struct _KeywordOverrideXlateList *next;
+} KeywordOverrideXlateList;
+
 void InitPlugIns();
-void RegisterPlugin(char *, void (*func)(char *, OptTreeNode *, int));
+void CleanupPlugIns();
+int IsPreprocEnabled(unsigned int);
+void RegisterPlugin(char *, RuleInitFunc func, RuleInitOverrideFunc overridefunc, enum OptionType);
+void RegisterOverrideKeyword(char *keyword, char *option, RuleOverrideFunc func);
 void DumpPlugIns();
-OptFpList *AddOptFuncToList(int (*func)(Packet *, struct _OptTreeNode*, 
-            struct _OptFpList*), OptTreeNode *);
-void AddRspFuncToList(int (*func) (Packet *, struct _RspFpList *), 
+OptFpList *AddOptFuncToList(
+            int (*func) (void *option_data, Packet *p), 
+            OptTreeNode *);
+void AddRspFuncToList(int (*func) (Packet *, struct _RspFpList *),
                       OptTreeNode *, void *);
 
 
@@ -112,6 +141,22 @@ typedef struct _PreprocessKeywordList
 
 } PreprocessKeywordList;
 
+typedef struct _PreprocessStatsNode
+{
+    char *keyword;
+    void (*func)(int);
+
+} PreprocessStatsNode;
+
+typedef struct _PreprocessStatsList
+{
+    PreprocessStatsNode entry;
+    struct _PreprocessStatsList *next;
+
+} PreprocessStatsList;
+
+extern PreprocessStatsList *PreprocessStats;
+
 typedef struct _PreprocessFuncNode
 {
     void *context;
@@ -120,15 +165,23 @@ typedef struct _PreprocessFuncNode
     unsigned short priority;
     unsigned int preproc_id;
     unsigned int preproc_bit;
+    uint32_t proto_mask;
+
 } PreprocessFuncNode;
 
 void InitPreprocessors();
-void RegisterPreprocessor(char *, void (*func)(u_char *));
+void CleanupPreprocessors();
+void RegisterPreprocessor(char *, void (*func)(char *));
+void RegisterPreprocStats(char *keyword, void (*func)(int));
+void PreprocessStatsFree(void);
 void DumpPreprocessors();
 void MapPreprocessorIds();
-PreprocessFuncNode *AddFuncToPreprocList(void (*func)(Packet *, void *), unsigned short, unsigned int);
+PreprocessFuncNode *AddFuncToPreprocList(void (*func)(Packet *, void *),
+                                         unsigned short, unsigned int, uint32_t);
 int IsPreprocBitSet(Packet *p, unsigned int preproc_bit);
-int SetPreprocBit(Packet *p, unsigned int preproc_bit);
+int SetPreprocBit(Packet *p, unsigned int preproc_id);
+int IsPreprocGetReassemblyPktBitSet(Packet *p, unsigned int preproc_bit);
+int SetPreprocGetReassemblyPktBit(Packet *p, unsigned int preproc_id);
 
 void CheckPreprocessorsConfig();
 
@@ -149,9 +202,20 @@ typedef struct _PreprocSignalFuncNode
     unsigned int preproc_id;
 } PreprocSignalFuncNode;
 
+typedef struct _PreprocGetReassemblyPktFuncNode
+{
+    void * (*func)(void);
+    unsigned int preproc_id;
+    struct _PreprocGetReassemblyPktFuncNode *next;
+
+} PreprocGetReassemblyPktFuncNode;
+
 void AddFuncToPreprocRestartList(void (*func)(int, void*), void*, unsigned short, unsigned int);
 void AddFuncToPreprocCleanExitList(void (*func)(int, void*), void*, unsigned short, unsigned int);
 void AddFuncToPreprocShutdownList(void (*func)(int, void*), void*, unsigned short, unsigned int);
+void AddFuncToPreprocResetList(void (*func)(int, void*), void*, unsigned short, unsigned int);
+void AddFuncToPreprocResetStatsList(void (*func)(int, void*), void*, unsigned short, unsigned int);
+void AddFuncToPreprocGetReassemblyPktList(void * (*func)(void), unsigned int);
 PreprocSignalFuncNode *AddFuncToPreprocSignalList(void (*func)(int, void*), void*, PreprocSignalFuncNode *, unsigned short, unsigned int);
 /*************************** End Preprocessor API *****************************/
 
@@ -181,7 +245,7 @@ void PostConfigInitPlugins();
 #define ENCODING_HEX 0
 #define ENCODING_BASE64 1
 #define ENCODING_ASCII 2
-#define DETAIL_FAST  0 
+#define DETAIL_FAST  0
 #define DETAIL_FULL  1
 
 char *GetUniqueName(char *);
@@ -190,17 +254,17 @@ char *GetHostname();
 int GetLocalTimezone();
 
 /***********************************************************
- If you use any of the functions in this section, you need 
- to call free() on the char * that is returned after you are 
- done using it. Otherwise, you will have created a memory 
+ If you use any of the functions in this section, you need
+ to call free() on the char * that is returned after you are
+ done using it. Otherwise, you will have created a memory
  leak.
 ***********************************************************/
 char *GetTimestamp(register const struct timeval *, int);
 char *GetCurrentTimestamp();
-char *base64(u_char *, int);
-char *ascii(u_char *, int);
-char *hex(u_char *, int);
-char *fasthex(u_char *, int);
+char *base64(const u_char *, int);
+char *ascii(const u_char *, int);
+char *hex(const u_char *, int);
+char *fasthex(const u_char *, int);
 /**********************************************************/
 
 #endif /* __PLUGBASE_H__ */

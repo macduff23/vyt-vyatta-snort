@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -100,6 +100,15 @@ void    * sfghash_find( SFGHASH * h, void * key );
 SFGHASH_NODE * sfghash_findfirst( SFGHASH * h );
 SFGHASH_NODE * sfghash_findnext ( SFGHASH * h );
 void sfghash_splaymode( SFGHASH * t, int n );
+
+int sfghash_set_keyops( SFGHASH *h ,
+                        unsigned (*hash_fcn)( SFHASHFCN * p,
+                                              unsigned char *d,
+                                              int n),
+                        int (*keycmp_fcn)( const void *s1,
+                                           const void *s2,
+                                           size_t n));
+
 
 #endif
 

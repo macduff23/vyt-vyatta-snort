@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -36,7 +36,9 @@
 #define __HI_UI_CONFIG_H__
 
 #include "hi_include.h"
-#include "hi_util_kmap.h"
+#include "sfrt.h"
+#include "ipv6_port.h"
+#include "sf_ip.h"
 
 /*
 **  Defines
@@ -45,6 +47,9 @@
 #define HI_UI_CONFIG_STATEFUL  1
 #define HI_UI_CONFIG_MAX_PIPE  20
 
+#define HI_UI_CONFIG_MAX_HDR_DEFAULT 0
+#define HI_UI_CONFIG_MAX_HEADERS_DEFAULT 0
+
 /*
 **  Special characters treated as whitespace before or after URI
 */
@@ -52,12 +57,16 @@
 #define HI_UI_CONFIG_WS_BEFORE_URI 0x01
 #define HI_UI_CONFIG_WS_AFTER_URI  0x02
 
+/**Maximum number of entries in server_lookup table.
+*/
+#define HI_UI_CONFIG_MAX_SERVERS  41
+
 /**
 **  Defines a search type for the server configurations in the
 **  global configuration.  We want this generic so we can change
 **  it easily if we change the search type.
 */
-typedef KMAP SERVER_LOOKUP;
+typedef table_t SERVER_LOOKUP;
 
 /**
 **  This structure simply holds a value for on/off and whether
@@ -92,7 +101,8 @@ typedef struct s_HTTPINSPECT_CONF
 {
     int  port_count;
     char ports[65536];
-    int  flow_depth;
+    int  server_flow_depth;
+    int  client_flow_depth;
     int  post_depth;
 
     /*
@@ -103,34 +113,47 @@ typedef struct s_HTTPINSPECT_CONF
     int  iis_unicode_codepage;
 
     int  long_dir;
-    int  uri_only;
-    int  no_alerts;
     
     /*
     **  Chunk encoding anomaly detection
     */
     unsigned int chunk_length;
 
+    char uri_only;
+    char no_alerts;
+
     /*
     **  pipeline requests
     */
-    int no_pipeline;
+    char no_pipeline;
 
     /*
     **  Enable non-strict (apache) URI handling.  This allows us to catch the
     **  non-standard URI parsing that apache does.
     */
-    int non_strict;
+    char non_strict;
 
     /*
     **  Allow proxy use for this server.
     */
-    int allow_proxy;
+    char allow_proxy;
 
     /*
     **  Handle tab char (0x09) as a URI delimiter.  Apache honors this, IIS does not.
     */
-    int tab_uri_delimiter;
+    char tab_uri_delimiter;
+
+    /*
+    **  Normalize HTTP Headers if they exist.  
+    XXX Not sure what Apache & IIS do with respect to HTTP header 'uri' normalization.
+    */
+    char normalize_headers;
+
+    /*
+    **  Normalize HTTP Headers if they exist.  
+    XXX Not sure what Apache & IIS do with respect to HTTP header 'uri' normalization.
+    */
+    char normalize_cookies;
 
     /*
     **  Characters to be treated as whitespace bracketing a URI.
@@ -158,9 +181,18 @@ typedef struct s_HTTPINSPECT_CONF
     HTTPINSPECT_CONF_OPT webroot;
     HTTPINSPECT_CONF_OPT apache_whitespace;
     HTTPINSPECT_CONF_OPT iis_delimiter;
+    int max_hdr_len;
+    int max_headers;
 
     PROFILES profile;
     
+    /**Used to track references to this allocated data structure. Each additional
+     * reference should increment referenceCount. Each attempted free should 
+     * decrement it. When free is attempted and reference count is 0, then 
+     * this HTTPINSPECT_CONF should be actually freed. 
+     */ 
+    int referenceCount;
+
 }  HTTPINSPECT_CONF;
 
 /**
@@ -186,6 +218,12 @@ typedef struct s_HTTPINSPECT_GLOBAL_CONF
 
     HTTPINSPECT_CONF global_server;
     SERVER_LOOKUP    *server_lookup;
+    SERVER_LOOKUP    *server_lookupIpv6;
+
+#ifdef TARGET_BASED
+    /* Store the protocol id received from the stream reassembler */
+    int16_t app_protocol_id;
+#endif
 
 }  HTTPINSPECT_GLOBAL_CONF;    
 
@@ -198,7 +236,7 @@ int hi_ui_config_reset_global(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
 int hi_ui_config_reset_server(HTTPINSPECT_CONF *ServerConf);
 
 int hi_ui_config_add_server(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-                            unsigned long ServerIP, 
+                            sfip_t *ServerIP,
                             HTTPINSPECT_CONF *ServerConf);
 
 int hi_ui_config_set_profile_apache(HTTPINSPECT_CONF *GlobalConf);

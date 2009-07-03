@@ -2,7 +2,7 @@
 /*
  * smb_structs.h
  *
- * Copyright (C) 2004-2006 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -30,6 +30,10 @@
  */
 #ifndef _SMB_STRUCTS_H_
 #define _SMB_STRUCTS_H_
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #ifdef WIN32
 #pragma pack(push,smb_hdrs,1)
@@ -291,9 +295,6 @@ typedef struct nttransact_create_hdr
 #pragma pack()
 #endif
 
-#define HAS_UNICODE_STRINGS(smbHdr) (smbHdr->flags2 & 0x8000)
-
-
 /* from snort_smb.c */
 int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
             u_int8_t *data, u_int16_t data_size, u_int16_t size);
@@ -321,4 +322,7 @@ int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
 #define IS_LITTLE_ENDIAN 1
 #endif
 
+#define HAS_UNICODE_STRINGS(smbHdr) (smb_ntohs(smbHdr->flags2) & 0x8000)
+
 #endif /* _SMB_STRUCTS_H_ */
+

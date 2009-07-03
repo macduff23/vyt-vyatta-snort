@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -69,7 +69,7 @@
 **  @retval HI_INVALID_ARG invalid argument
 **  @retval HI_SUCCESS     function success
 */
-static int IsHttpServerData(HI_SERVER *Server, u_char *data, int dsize,
+static int IsHttpServerData(HI_SERVER *Server, const u_char *data, int dsize,
                             int flow_depth)
 {
     /* 
@@ -130,7 +130,7 @@ static int IsHttpServerData(HI_SERVER *Server, u_char *data, int dsize,
     return HI_SUCCESS;
 }
 
-static int ServerInspection(HI_SESSION *Session, unsigned char *data,
+static int ServerInspection(HI_SESSION *Session, const unsigned char *data,
                             int dsize)
 {
     HI_SERVER *Server;
@@ -142,7 +142,7 @@ static int ServerInspection(HI_SESSION *Session, unsigned char *data,
     **  There's really only one thing that we do right now for server
     **  responses, that's HTTP flow.
     */
-    iRet = IsHttpServerData(Server, data, dsize, Session->server_conf->flow_depth);
+    iRet = IsHttpServerData(Server, data, dsize, Session->server_conf->server_flow_depth);
     if (iRet)
     {
         return iRet;
@@ -151,7 +151,7 @@ static int ServerInspection(HI_SESSION *Session, unsigned char *data,
     return HI_SUCCESS;
 }
 
-int hi_server_inspection(void *S, unsigned char *data, int dsize)
+int hi_server_inspection(void *S, const unsigned char *data, int dsize)
 {
     HI_SESSION *Session;
 

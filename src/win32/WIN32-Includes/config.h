@@ -91,18 +91,22 @@
     #define VERSION_DEBUG
 #endif
 
+#define LIBPCAP_ACCUMULATES
+
 /*
  * This version number here, and package name below,
  * should both match the ones specified in the
  * AM_INIT_AUTOMAKE() macro of configure.in
  */
-#define VERSION "2.7.0"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
+#define VERSION "2.8.4.1"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
 #define PACKAGE "snort"
-
-
 
 #define IFNAMSIZ   255
 
+#undef _WIN32_WINNT
+#define _WIN32_WINNT _WIN32_WINNT_WIN2K
+#undef NTDDI_VERSION
+#define NTDDI_VERSION NTDDI_WIN2K
 
 #include <winsock2.h>
 #include <windows.h>
@@ -123,6 +127,7 @@ typedef int            pid_t;
 #ifndef _SSIZE_T_      /* MingW */
 typedef SSIZE_T        ssize_t;
 #endif
+#include <ws2tcpip.h>
 #include "rpc/types.h"
 
 #undef interface
@@ -139,6 +144,9 @@ typedef SSIZE_T        ssize_t;
 #endif
 #include <stdint.h>
 
+#ifndef INET6_ADDRSTRLEN
+#define INET6_ADDRSTRLEN 46
+#endif
 
 #if defined(WIN32) && !defined(inline)
 #define inline __inline
@@ -185,14 +193,16 @@ typedef SSIZE_T        ssize_t;
 #define snprintf                 _snprintf
 #define strncasecmp              strnicmp
 #define strcasecmp               stricmp
+#if _MSC_VER < 1500  /* VC9 defines this */
 #define vsnprintf                _vsnprintf
+#endif
 #define IXDR_GET_LONG(buf)       ((long)ntohl((u_long)*(buf)++))
 #define IXDR_GET_ENUM(buf, t)    ((t)IXDR_GET_LONG(buf))
 #define RPC_MSG_VERSION          ((u_long) 2)
 
 char * strtok_r(char *s1, const char *s2, char **lasts);
 int    inet_aton(const char *cp, struct in_addr *addr);
-
+int    inet_pton(int af, const char *src, void *dst);
 
 enum msg_type {
     CALL=0,

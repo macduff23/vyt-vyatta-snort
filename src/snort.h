@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2005 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -23,7 +24,7 @@
 #define __SNORT_H__
 
 #ifdef HAVE_CONFIG_H
-    #include "config.h"
+#include "config.h"
 #endif
 
 #include <sys/types.h>
@@ -32,12 +33,14 @@
 
 #include "decode.h"
 #include "perf.h"
+#include "sf_types.h"
+#include "sflsq.h"
 
 #ifdef GIDS
 #include "inline.h"
 #endif /* GIDS */
 
-#ifdef INLINE_FAILOPEN
+#if defined(INLINE_FAILOPEN) || defined(TARGET_BASED)
 #include "pthread.h"
 #endif
 
@@ -110,9 +113,13 @@ extern char _PATH_VARRUN[STD_BUF];
 
 #define LOG_UNIFIED         0x00000001
 #define LOG_TCPDUMP         0x00000002
+#define LOG_UNIFIED2         0x0000004
 
 #define SIGNAL_SNORT_ROTATE_STATS  28
 #define SIGNAL_SNORT_CHILD_READY   29
+#ifdef TARGET_BASED
+#define SIGNAL_SNORT_READ_ATTR_TBL 30
+#endif
 
 /*  D A T A  S T R U C T U R E S  *********************************************/
 
@@ -154,8 +161,20 @@ typedef struct _runtime_config
 #define ALERT_STDOUT   5
 #define ALERT_CMG      6
 #define ALERT_SYSLOG   8
+#define ALERT_TEST     9
+#define ALERT_UNIFIED  10
 
 #define MAX_IFS        1
+
+#ifdef MPLS
+#define DEFAULT_MPLS_MULTICAST        0
+#define DEFAULT_MPLS_OVERLAPPING_IP   0
+#define MPLS_PAYLOADTYPE_IPV4         1
+#define MPLS_PAYLOADTYPE_ETHERNET     2
+#define MPLS_PAYLOADTYPE_IPV6         3
+#define DEFAULT_MPLS_PAYLOADTYPE      1
+#define DEFAULT_LABELCHAIN_LENGTH      -1
+#endif
 
 /* This feature allows us to change the state of a rule,
  * independent of it appearing in a rules file.
@@ -196,7 +215,32 @@ typedef struct _RuleState
 #ifdef INLINE_FAILOPEN
 #define DISABLE_INLINE_FAILOPEN   17
 #endif
-#define READMODE_LOOP             18
+#define NO_LOGGING_TIMESTAMPS     18
+#define PCAP_LOOP                 19
+#define PCAP_SINGLE               20
+#define PCAP_FILE_LIST            21
+#define PCAP_LIST                 22
+#define PCAP_DIR                  23
+#define PCAP_FILTER               24
+#define PCAP_NO_FILTER            25
+#define PCAP_RESET                26
+#define PCAP_SHOW                 27
+#define EXIT_CHECK  // allow for rollback for now
+#ifdef EXIT_CHECK
+#define ARG_EXIT_CHECK            28
+#endif
+#ifdef TARGET_BASED
+#define DISABLE_ATTRIBUTE_RELOAD  29
+#endif
+#define DETECTION_SEARCH_METHOD   30
+#define CONF_ERROR_OUT                 31
+#ifdef MPLS
+#define ENABLE_MPLS_MULTICAST     31
+#define ENABLE_OVERLAPPING_IP     32
+#define MAX_MPLS_LABELCHAIN_LEN   33
+#define MPLS_PAYLOAD_TYPE         34
+#endif
+#define REQUIRE_RULE_SID         35
 
 #ifdef DYNAMIC_PLUGIN
 typedef struct _DynamicDetectionSpecifier
@@ -209,6 +253,7 @@ typedef struct _DynamicDetectionSpecifier
 /* struct to contain the program variables and command line args */
 typedef struct _progvars
 {
+    int static_hash;
     int stateful;
     int line_buffer_flag;
     int checksums_mode;
@@ -265,10 +310,15 @@ typedef struct _progvars
     int print_version;
     int pkt_cnt;
     int pkt_snaplen;
+#ifdef SUP_IP6
+    sfip_t homenet;
+    sfip_t obfuscation_net;
+#else
     u_long homenet;
     u_long netmask;
     u_int32_t obfuscation_net;
     u_int32_t obfuscation_mask;
+#endif
     int alert_mode;
     int log_plugin_active;
     int alert_plugin_active;
@@ -332,6 +382,7 @@ typedef struct _progvars
     char *respond2_ethdev;
 #endif
     int usr_signal;
+    int cant_hup_signal;
 #ifdef TIMESTATS
     int alrm_signal;
     u_int32_t timestats_interval;
@@ -343,86 +394,205 @@ typedef struct _progvars
     int profile_rules_sort;
     int profile_preprocs_flag;
     int profile_preprocs_sort;
+    char *profile_rules_filename;
+    int profile_rules_append;
+    char *profile_preprocs_filename;
+    int profile_preprocs_append;
 #endif
     int tagged_packet_limit;
     int treat_drop_as_alert;
     int process_all_events;
     int alert_before_pass;
+    int alert_packet_count;/* diplays packet count with alerts in console mode */
+    char nostamp;
+
     /* XXX Move to IPv6 frag preprocessor once written */
     u_int32_t ipv6_frag_timeout;
     u_int32_t ipv6_max_frag_sessions;
-    char readmode_loop_flag;
-    int readmode_loop_count;
+
+
+#ifdef TARGET_BASED
+    pthread_t attribute_reload_thread_id;
+    pid_t attribute_reload_thread_pid;
+    char attribute_reload_thread_running;
+    char attribute_reload_thread_stop;
+#define ATTRIBUTE_TABLE_RELOAD_FLAG 0x01
+#define ATTRIBUTE_TABLE_AVAILABLE_FLAG 0x02
+#define ATTRIBUTE_TABLE_RELOADING_FLAG 0x04
+#define ATTRIBUTE_TABLE_TAKEN_FLAG 0x08
+#define ATTRIBUTE_TABLE_PARSE_FAILED_FLAG 0x10
+    char reload_attribute_table_flags;
+#define DEFAULT_MAX_ATTRIBUTE_HOSTS 10000
+#define MAX_MAX_ATTRIBUTE_HOSTS 512 * 1024
+#define MIN_MAX_ATTRIBUTE_HOSTS 32
+    u_int32_t max_attribute_hosts;
+    char disable_attribute_reload_thread;
+#endif
+
+#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
+    char generate_preprocessor_decoder_otn;
+#endif
+
+    SF_QUEUE *pcap_queue;
+    SF_QUEUE *pcap_save_queue;
+    int pcap_loop_count;
+    char pcap_reset;
+    char pcap_show;
+
+#ifdef EXIT_CHECK
+    unsigned long exit_check;
+#endif
+    long pcre_match_limit;
+    long pcre_match_limit_recursion;
+
+    unsigned max_inq;
+    UINT64 tot_inq_flush;
+    UINT64 tot_inq_inserts;
+    UINT64 tot_inq_uinserts;
+    int conf_error_out;
+#ifdef MPLS
+    u_int8_t mpls_multicast;
+    u_int8_t overlapping_IP;
+    int mpls_stack_depth;
+    u_int8_t mpls_payload_type;
+#endif
+
+    char require_rule_sid;
 } PV;
 
 /* struct to collect packet statistics */
 typedef struct _PacketCount
 {
-    u_long total;
+    UINT64 total_from_pcap;
+    UINT64 total_processed;
 
-    u_long other;
-    u_long tcp;
-    u_long udp;
-    u_long icmp;
-    u_long arp;
-    u_long eapol;
-    u_long ipv6;
-    u_long ipx;
-    u_long ethloopback;
+    UINT64 s5tcp1;
+    UINT64 s5tcp2;
+    UINT64 ipv6opts;
+    UINT64 eth;
+    UINT64 ethdisc;
+    UINT64 ipv6disc;
+    UINT64 ip6ext;
+    UINT64 other;
+    UINT64 tcp;
+    UINT64 udp;
+    UINT64 icmp;
+    UINT64 arp;
+    UINT64 eapol;
+    UINT64 vlan;
+    UINT64 nested_vlan;
+    UINT64 ipv6;
+    UINT64 ipv6_up;
+    UINT64 ipv6_upfail;
+    UINT64 frag6;
+    UINT64 icmp6;
+    UINT64 tdisc;
+    UINT64 udisc;
+    UINT64 tcp6;
+    UINT64 udp6;
+    UINT64 ipdisc;
+    UINT64 icmpdisc;
+    UINT64 embdip;
+    UINT64 ip;
+    UINT64 ipx;
+    UINT64 ethloopback;
 
-    u_long invalid_checksums;
+    UINT64 invalid_checksums;
+
 #ifdef GRE
-    u_long gre;
+    UINT64 ip4ip4;
+    UINT64 ip4ip6;
+    UINT64 ip6ip4;
+    UINT64 ip6ip6;
+
+    UINT64 gre;
+    UINT64 gre_ip;
+    UINT64 gre_eth;
+    UINT64 gre_arp;
+    UINT64 gre_ipv6;
+    UINT64 gre_ipv6ext;
+    UINT64 gre_ipx;
+    UINT64 gre_loopback;
+    UINT64 gre_vlan;
+    UINT64 gre_ppp;
 #endif
-    u_long discards;
-    u_long alert_pkts;
-    u_long log_pkts;
-    u_long pass_pkts;
 
-    u_long frags;           /* number of frags that have come in */
-    u_long frag_trackers;   /* number of tracking structures generated */
-    u_long rebuilt_frags;   /* number of packets rebuilt */
-    u_long frag_incomp;     /* number of frags cleared due to memory issues */
-    u_long frag_timeout;    /* number of frags cleared due to timeout */
-    u_long rebuild_element; /* frags that were element of rebuilt pkt */
-    u_long frag_mem_faults; /* number of times the memory cap was hit */
+    UINT64 discards;
+    UINT64 alert_pkts;
+    UINT64 log_pkts;
+    UINT64 pass_pkts;
 
-    u_long tcp_stream_pkts; /* number of packets tcp reassembly touches */
-    u_long rebuilt_tcp;     /* number of phoney tcp packets generated */
-    u_long tcp_streams;     /* number of tcp streams created */
-    u_long rebuilt_segs;    /* number of tcp segments used in rebuilt pkts */
-    u_long queued_segs;     /* number of tcp segments stored for rebuilt pkts */
-    u_long str_mem_faults;  /* number of times the stream memory cap was hit */
+    UINT64 frags;           /* number of frags that have come in */
+    UINT64 frag_trackers;   /* number of tracking structures generated */
+    UINT64 rebuilt_frags;   /* number of packets rebuilt */
+    UINT64 frag_incomp;     /* number of frags cleared due to memory issues */
+    UINT64 frag_timeout;    /* number of frags cleared due to timeout */
+    UINT64 rebuild_element; /* frags that were element of rebuilt pkt */
+    UINT64 frag_mem_faults; /* number of times the memory cap was hit */
 
+    UINT64 tcp_stream_pkts; /* number of packets tcp reassembly touches */
+    UINT64 rebuilt_tcp;     /* number of phoney tcp packets generated */
+    UINT64 tcp_streams;     /* number of tcp streams created */
+    UINT64 rebuilt_segs;    /* number of tcp segments used in rebuilt pkts */
+    UINT64 queued_segs;     /* number of tcp segments stored for rebuilt pkts */
+    UINT64 str_mem_faults;  /* number of times the stream memory cap was hit */
+
+#ifdef TARGET_BASED
+    UINT64 attribute_table_reloads; /* number of times attribute table was reloaded. */
+#endif
+
+#ifdef DLT_IEEE802_11
   /* wireless statistics */
-    u_long wifi_mgmt;
-    u_long wifi_data;
-    u_long wifi_control; 
-    u_long assoc_req;
-    u_long assoc_resp;
-    u_long reassoc_req;
-    u_long reassoc_resp;
-    u_long probe_req;
-    u_long probe_resp;
-    u_long beacon;
-    u_long atim;
-    u_long dissassoc;
-    u_long auth;
-    u_long deauth;
-    u_long ps_poll;
-    u_long rts;
-    u_long cts;
-    u_long ack;
-    u_long cf_end;
-    u_long cf_end_cf_ack;
-    u_long data;
-    u_long data_cf_ack;
-    u_long data_cf_poll;
-    u_long data_cf_ack_cf_poll;
-    u_long cf_ack;
-    u_long cf_poll;
-    u_long cf_ack_cf_poll;
+    UINT64 wifi_mgmt;
+    UINT64 wifi_data;
+    UINT64 wifi_control; 
+    UINT64 assoc_req;
+    UINT64 assoc_resp;
+    UINT64 reassoc_req;
+    UINT64 reassoc_resp;
+    UINT64 probe_req;
+    UINT64 probe_resp;
+    UINT64 beacon;
+    UINT64 atim;
+    UINT64 dissassoc;
+    UINT64 auth;
+    UINT64 deauth;
+    UINT64 ps_poll;
+    UINT64 rts;
+    UINT64 cts;
+    UINT64 ack;
+    UINT64 cf_end;
+    UINT64 cf_end_cf_ack;
+    UINT64 data;
+    UINT64 data_cf_ack;
+    UINT64 data_cf_poll;
+    UINT64 data_cf_ack_cf_poll;
+    UINT64 cf_ack;
+    UINT64 cf_poll;
+    UINT64 cf_ack_cf_poll;
+#endif
+
+#ifdef GIDS
+#ifndef IPFW
+    UINT64 iptables;
+#else
+    UINT64 ipfw;
+#endif
+#endif
+
+#ifdef MPLS
+    UINT64 mpls;    
+#endif
 } PacketCount;
+
+typedef struct _PcapReadObject
+{
+    int type;
+    char *arg;
+    char *filter;
+
+} PcapReadObject;
+
 
 /*  G L O B A L S  ************************************************************/
 extern PV pv;                 /* program vars (command line args) */
@@ -455,7 +625,7 @@ extern char *protocol_names[256];
 extern u_int snaplen;
 
 
-typedef void (*grinder_t)(Packet *, struct pcap_pkthdr *, u_int8_t *);  /* ptr to the packet processor */
+typedef void (*grinder_t)(Packet *, const struct pcap_pkthdr *, const u_int8_t *);  /* ptr to the packet processor */
 
 extern grinder_t grinder;
 
@@ -471,10 +641,10 @@ int OpenPcap();
 int SetPktProcessor(void);
 void CleanExit(int);
 void PcapProcessPacket(char *, struct pcap_pkthdr *, u_char *);
-void ProcessPacket(char *, struct pcap_pkthdr *, u_char *, void *);
+void ProcessPacket(char *, const struct pcap_pkthdr *, const u_char *, void *);
 int ShowUsage(char *);
 void SigCantHupHandler(int signal);
-int sig_check(void);
+void print_packet_count();
 
 
 #endif  /* __SNORT_H__ */

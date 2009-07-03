@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2006 Sourcefire, Inc.
+ ** Copyright (C) 2002-2009 Sourcefire, Inc.
  ** Author: Martin Roesch
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -110,6 +110,7 @@
 #include "util.h"
 #include "plugin_enum.h"
 #include "mstring.h"
+#include "sfhashfcn.h"
 
 #define BT_LESS_THAN 1
 #define BT_EQUALS    2
@@ -122,7 +123,14 @@
 #define PARSELEN 10
 #define TEXTLEN  (PARSELEN + 2)
 
-extern u_int8_t *doe_ptr;
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats byteTestPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+extern const u_int8_t *doe_ptr;
 
 typedef struct _ByteTestData
 {
@@ -137,11 +145,88 @@ typedef struct _ByteTestData
     u_int32_t base;
 } ByteTestData;
 
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 extern u_int8_t DecodeBuffer[DECODE_BLEN];
 
+typedef struct _ByteTestOverrideData
+{
+    char *keyword;
+    char *option;
+    RuleOverrideFunc func;
+    struct _ByteTestOverrideData *next;
+} ByteTestOverrideData;
+
+static void ByteTestOverride(char *keyword, char *option, RuleOverrideFunc func);
+ByteTestOverrideData *byteTestOverrideFuncs = NULL;
+
 void ByteTestInit(char *, OptTreeNode *, int);
-void ByteTestParse(char *, ByteTestData *, OptTreeNode *);
-int ByteTest(Packet *, struct _OptTreeNode *, OptFpList *);
+ByteTestOverrideData* ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn);
+int ByteTest(void *option_data, Packet *p);
+
+u_int32_t ByteTestHash(void *d)
+{
+    u_int32_t a,b,c;
+    ByteTestData *data = (ByteTestData *)d;
+
+    a = data->bytes_to_compare;
+    b = data->cmp_value;
+    c = data->operator;
+
+    mix(a,b,c);
+
+    a += data->offset;
+    b += (data->not_flag << 24 |
+          data->relative_flag << 16 |
+          data->data_string_convert_flag << 8 |
+          data->endianess);
+    c += data->base;
+
+    mix(a,b,c);
+
+    a += RULE_OPTION_TYPE_BYTE_TEST;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int ByteTestCompare(void *l, void *r)
+{
+    ByteTestData *left = (ByteTestData *)l;
+    ByteTestData *right = (ByteTestData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+    
+    if (( left->bytes_to_compare == right->bytes_to_compare) &&
+        ( left->cmp_value == right->cmp_value) &&
+        ( left->operator == right->operator) &&
+        ( left->offset == right->offset) &&
+        ( left->not_flag == right->not_flag) &&
+        ( left->relative_flag == right->relative_flag) &&
+        ( left->data_string_convert_flag == right->data_string_convert_flag) &&
+        ( left->endianess == right->endianess) &&
+        ( left->base == right->base) )
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
+
+static void ByteTestOverride(char *keyword, char *option, RuleOverrideFunc func)
+{
+    ByteTestOverrideData *new = SnortAlloc(sizeof(ByteTestOverrideData));
+
+    new->keyword = strdup(keyword);
+    new->option = strdup(option);
+    new->func = func;
+    
+    new->next = byteTestOverrideFuncs;
+    byteTestOverrideFuncs = new;
+}
 
 /****************************************************************************
  * 
@@ -157,8 +242,11 @@ int ByteTest(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupByteTest(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("byte_test", ByteTestInit);
+    RegisterPlugin("byte_test", ByteTestInit, ByteTestOverride, OPT_TYPE_DETECTION);
 
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("byte_test", &byteTestPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: ByteTest Setup\n"););
 }
 
@@ -182,6 +270,8 @@ void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
 {
     ByteTestData *idx;
     OptFpList *fpl;
+    ByteTestOverrideData *override;
+    void *idx_dup;
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
@@ -195,10 +285,42 @@ void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
-    ByteTestParse(data, idx, otn);
+    override = ByteTestParse(data, idx, otn);
+    if (override)
+    {
+        /* There is an override function */
+        free(idx);
+        override->func(override->keyword, override->option, data, otn, protocol);
+        return;
+    }
 
     fpl = AddOptFuncToList(ByteTest, otn);
+    fpl->type = RULE_OPTION_TYPE_BYTE_TEST;
     
+    if (add_detection_option(RULE_OPTION_TYPE_BYTE_TEST, (void *)idx, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+#ifdef DEBUG_RULE_OPTION_TREE
+        LogMessage("Duplicate ByteCheck:\n%d %d %d %d %c %c %c %c %d\n"
+            "%d %d %d %d %c %c %c %c %d\n\n",
+            idx->bytes_to_compare,
+            idx->cmp_value,
+            idx->operator,
+            idx->offset,
+            idx->not_flag, idx->relative_flag,
+            idx->data_string_convert_flag, 
+            idx->endianess, idx->base,
+            ((ByteTestData *)idx_dup)->bytes_to_compare,
+            ((ByteTestData *)idx_dup)->cmp_value,
+            ((ByteTestData *)idx_dup)->operator,
+            ((ByteTestData *)idx_dup)->offset,
+            ((ByteTestData *)idx_dup)->not_flag, ((ByteTestData *)idx_dup)->relative_flag,
+            ((ByteTestData *)idx_dup)->data_string_convert_flag, 
+            ((ByteTestData *)idx_dup)->endianess, ((ByteTestData *)idx_dup)->base);
+#endif
+        free(idx);
+        idx = idx_dup;
+    }
+
     /* attach it to the context node so that we can call each instance
      * individually
      */
@@ -206,10 +328,7 @@ void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
 
     if (idx->relative_flag == 1)
         fpl->isRelative = 1;
-
 }
-
-
 
 /****************************************************************************
  * 
@@ -225,7 +344,7 @@ void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
  * Returns: void function
  *
  ****************************************************************************/
-void ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
+ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
 {
     char **toks;
     char *endp;
@@ -369,8 +488,21 @@ void ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
             }
             else
             {
+                ByteTestOverrideData *override = byteTestOverrideFuncs;
+
+                while (override != NULL)
+                {
+                    if (!strcasecmp(cptr, override->option))
+                    {
+                        mSplitFree(&toks, num_toks);
+                        return override;
+                    }
+
+                    override = override->next;
+                }
+
                 FatalError("%s(%d): unknown modifier \"%s\"\n", 
-                        file_name, file_line, cptr);
+                           file_name, file_line, cptr);
             }
 
             i++;
@@ -385,6 +517,7 @@ void ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
     }
     
     mSplitFree(&toks, num_toks);
+    return NULL;
 }
 
 
@@ -403,14 +536,20 @@ void ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
  *          On success, it calls the next function in the detection list 
  *
  ****************************************************************************/
-int ByteTest(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int ByteTest(void *option_data, Packet *p)
 {
-    ByteTestData *btd;
+    ByteTestData *btd = (ByteTestData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
     u_int32_t value = 0;
     int success = 0;
     int use_alt_buffer = p->packet_flags & PKT_ALT_DECODE;
     int dsize;
-    char *base_ptr, *end_ptr, *start_ptr;
+    const char *base_ptr, *end_ptr, *start_ptr;
+    u_int32_t payload_bytes_grabbed = 0;
+    int32_t tmp = 0;
+    PROFILE_VARS;
+
+    PREPROC_PROFILE_START(byteTestPerfStats);
 
     if(use_alt_buffer)
     {
@@ -434,21 +573,20 @@ int ByteTest(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     if(doe_ptr)
     {
         /* @todo: possibly degrade to use the other buffer, seems non-intuitive*/        
-        if(!inBounds(start_ptr, end_ptr, doe_ptr))
+        if(!inBounds((const u_int8_t *)start_ptr, (const u_int8_t *)end_ptr, doe_ptr))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "[*] byte test bounds check failed..\n"););
-            return 0;
+            PREPROC_PROFILE_END(byteTestPerfStats);
+            return rval;
         }
     }
-
-    btd = (ByteTestData *) fp_list->context;
 
     if(btd->relative_flag && doe_ptr)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                 "Checking relative offset!\n"););
-        base_ptr = doe_ptr + btd->offset;
+        base_ptr = (const char *)doe_ptr + btd->offset;
     }
     else
     {
@@ -465,30 +603,36 @@ int ByteTest(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     if(!btd->data_string_convert_flag)
     {
         if(byte_extract(btd->endianess, btd->bytes_to_compare,
-                        base_ptr, start_ptr, end_ptr, &value))
+                        (const u_int8_t *)base_ptr, (const u_int8_t *)start_ptr, (const u_int8_t *)end_ptr, &value))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "Byte Extraction Failed\n"););
 
-            return 0;
+            PREPROC_PROFILE_END(byteTestPerfStats);
+            return rval;
         }
+
+        payload_bytes_grabbed = btd->bytes_to_compare;
     }
     else
     {
-        if(string_extract(btd->bytes_to_compare, btd->base,
-                          base_ptr, start_ptr, end_ptr, &value))
+        payload_bytes_grabbed = tmp = string_extract(btd->bytes_to_compare, btd->base,
+                                               (const u_int8_t *)base_ptr, (const u_int8_t *)start_ptr,
+                                               (const u_int8_t *)end_ptr, &value);
+        if (tmp < 0)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "String Extraction Failed\n"););
 
-            return 0;
+            PREPROC_PROFILE_END(byteTestPerfStats);
+            return rval;
         }
 
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                "Grabbed %d bytes at offset %d, value = 0x%08X(%u)\n",
-                btd->bytes_to_compare, btd->offset, value, value); );
+                            "Grabbed %d bytes at offset %d, value = 0x%08X(%u)\n",
+                            payload_bytes_grabbed, btd->offset, value, value); );
 
     switch(btd->operator)
     {
@@ -519,14 +663,15 @@ int ByteTest(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
                     "checking for not success...flag\n"););
         if (!success)
         {
-            return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+            rval = DETECTION_OPTION_MATCH;
         }
     }
     else if (success)
     {
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
 
     /* if the test isn't successful, this function *must* return 0 */
-    return 0;
+    PREPROC_PROFILE_END(byteTestPerfStats);
+    return rval;
 }

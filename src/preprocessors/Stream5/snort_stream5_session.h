@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -24,6 +24,7 @@
 
 #include "sfxhash.h"
 #include "stream5_common.h"
+#include "rules.h"
 
 typedef void(*Stream5SessionCleanup)(Stream5LWSession *ssn);
 
@@ -36,6 +37,15 @@ typedef struct _Stream5SessionCache
     Stream5SessionCleanup cleanup_fcn;
 } Stream5SessionCache;
 
+/**list of ignored rules.
+ */
+typedef struct _IgnoredRuleList
+{
+    OptTreeNode *otn;
+    struct _IgnoredRuleList *next;
+} IgnoredRuleList;
+
+
 void PrintSessionKey(SessionKey *);
 Stream5SessionCache *InitLWSessionCache(int max_sessions,
                                         u_int32_t session_timeout,
@@ -45,8 +55,9 @@ Stream5SessionCache *InitLWSessionCache(int max_sessions,
 Stream5LWSession *GetLWSession(Stream5SessionCache *, Packet *, SessionKey *);
 Stream5LWSession *GetLWSessionFromKey(Stream5SessionCache *, SessionKey *);
 Stream5LWSession *NewLWSession(Stream5SessionCache *, Packet *, SessionKey *);
-int DeleteLWSession(Stream5SessionCache *, Stream5LWSession *);
+int DeleteLWSession(Stream5SessionCache *, Stream5LWSession *, char *reason);
 void PrintLWSessionCache(Stream5SessionCache *);
+int DeleteLWSessionCache(Stream5SessionCache *sessionCache);
 int PurgeLWSessionCache(Stream5SessionCache *);
 int PruneLWSessionCache(Stream5SessionCache *,
                       u_int32_t thetime,
@@ -55,6 +66,21 @@ int PruneLWSessionCache(Stream5SessionCache *,
 int GetLWSessionCount(Stream5SessionCache *);
 void GetLWPacketDirection(Packet *p, Stream5LWSession *ssn);
 void FreeLWApplicationData(Stream5LWSession *ssn);
+void setPortFilterList(
+        u_int8_t *portList, 
+        int isUdp,
+        int ignoreAnyAnyRules
+        );
+int Stream5AnyAnyFlow(
+        u_int8_t *portList, 
+        RuleTreeNode *rtn, 
+        int any_any_flow,
+        IgnoredRuleList **ppIgnoredRuleList,
+        int ignoreAnyAnyRules
+        );
+void s5PrintPortFilter(
+        u_int8_t portList[]
+        );
 
 #endif /* SNORT_STREAM5_SESSION_H_ */
 

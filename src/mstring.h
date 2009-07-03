@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -32,12 +33,12 @@
 
 
 /*  P R O T O T Y P E S  *************************************************/
-char **mSplit(char *, char *, int, int *, char);
+char **mSplit(char *, const char *, int, int *, char);
 void mSplitFree(char ***toks, int numtoks);
-int mContainsSubstr(char *, int, char *, int);
-int mSearch(char *, int, char *, int, int *, int *);
-int mSearchCI(char *, int, char *, int, int *, int *);
-int mSearchREG(char *, int, char *, int, int *, int *);
+int mContainsSubstr(const char *, int, const char *, int);
+int mSearch(const char *, int, const char *, int, int *, int *);
+int mSearchCI(const char *, int, const char *, int, int *, int *);
+int mSearchREG(const char *, int, const char *, int, int *, int *);
 int *make_skip(char *, int);
 int *make_shift(char *, int);
 

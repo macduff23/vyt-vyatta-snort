@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,14 +36,57 @@
 #include "util.h"
 #include "plugin_enum.h"
 #include "sp_icmp_type_check.h"
+#include "sfhashfcn.h"
 
-
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats icmpTypePerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
  
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 void IcmpTypeCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpType(char *, OptTreeNode *);
-int IcmpTypeCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+int IcmpTypeCheck(void *option_data, Packet *p);
 
+u_int32_t IcmpTypeCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IcmpTypeCheckData *data = (IcmpTypeCheckData *)d;
 
+    a = data->icmp_type;
+    b = data->icmp_type2;
+    c = data->operator;
+
+    mix(a,b,c);
+
+    a += RULE_OPTION_TYPE_ICMP_TYPE;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IcmpTypeCheckCompare(void *l, void *r)
+{
+    IcmpTypeCheckData *left = (IcmpTypeCheckData *)l;
+    IcmpTypeCheckData *right = (IcmpTypeCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->icmp_type == right->icmp_type) &&
+        (left->icmp_type2 == right->icmp_type2) &&
+        (left->operator == right->operator))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -58,7 +102,10 @@ int IcmpTypeCheck(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIcmpTypeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("itype", IcmpTypeCheckInit);
+    RegisterPlugin("itype", IcmpTypeCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("itype", &icmpTypePerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: IcmpTypeCheck Initialized\n"););
 }
 
@@ -78,6 +125,7 @@ void SetupIcmpTypeCheck(void)
  ****************************************************************************/
 void IcmpTypeCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_ICMP)
     {
         FatalError("%s(%d): ICMP Options on non-ICMP rule\n", file_name, file_line);
@@ -101,7 +149,9 @@ void IcmpTypeCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IcmpTypeCheck, otn);
+    fpl = AddOptFuncToList(IcmpTypeCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_ICMP_TYPE;
+    fpl->context = otn->ds_list[PLUGIN_ICMP_TYPE];
 }
 
 
@@ -122,6 +172,7 @@ void ParseIcmpType(char *data, OptTreeNode *otn)
 {
     char *type;
     IcmpTypeCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
     char *endptr = NULL;
 
     /* set the ds pointer to make it easier to reference the option's
@@ -225,6 +276,12 @@ void ParseIcmpType(char *data, OptTreeNode *otn)
         ds_ptr->operator = ICMP_TYPE_TEST_EQ;
     }
 
+    if (add_detection_option(RULE_OPTION_TYPE_ICMP_TYPE, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_ICMP_TYPE] = ds_ptr_dup;
+    }
+
     return;
 }
 
@@ -241,45 +298,52 @@ void ParseIcmpType(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int IcmpTypeCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IcmpTypeCheck(void *option_data, Packet *p)
 {
     IcmpTypeCheckData *ds_ptr;
-    int success = 0;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
 
-    ds_ptr = otn->ds_list[PLUGIN_ICMP_TYPE];
+    ds_ptr = (IcmpTypeCheckData *)option_data;
 
     /* return 0  if we don't have an icmp header */
     if(!p->icmph)
-        return 0;
+        return rval;
+
+    PREPROC_PROFILE_START(icmpTypePerfStats);
 
     switch(ds_ptr->operator)
     {
         case ICMP_TYPE_TEST_EQ:
             if (p->icmph->type == ds_ptr->icmp_type)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_TYPE_TEST_GT:
             if (p->icmph->type > ds_ptr->icmp_type)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_TYPE_TEST_LT:
             if (p->icmph->type < ds_ptr->icmp_type)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_TYPE_TEST_RG:
             if (p->icmph->type > ds_ptr->icmp_type && 
                     p->icmph->type < ds_ptr->icmp_type2)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
     }
 
-    if (success)
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Got icmp type match!\n"););
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
+    DEBUG_WRAP(
+        if (rval == DETECTION_OPTION_MATCH)
+        {
+            DebugMessage(DEBUG_PLUGIN, "Got icmp type match!\n");
+        }
+        else
+        {
+            DebugMessage(DEBUG_PLUGIN, "Failed icmp type match!\n");
+        }
+        );
 
-    /* return 0 on failed test */
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Failed icmp code match!\n"););
-    return 0;
+    PREPROC_PROFILE_END(icmpTypePerfStats);
+    return rval;
 }

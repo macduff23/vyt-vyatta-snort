@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -67,19 +68,34 @@
 
 #include <sys/types.h>
 
+#include "sfutil/sf_textlog.h"
+#include "log_text.h"
+
+/* full buf was chosen to allow printing max size packets
+ * in hex/ascii mode:
+ * each byte => 2 nibbles + space + ascii + overhead
+ */
+#define FULL_BUF  (4*IP_MAXPACKET)
+#define FAST_BUF  (4*K_BYTES)
+
+/*
+ * not defined for backwards compatibility
+ * (default is produced by OpenAlertFile()
+#define DEFAULT_FILE  "alert.fast"
+ */
+#define DEFAULT_LIMIT (128*M_BYTES)
+
 typedef struct _SpoAlertFastData
 {
-    FILE *file;
+    TextLog* log;
     u_int8_t packet_flag;
 } SpoAlertFastData;
 
-void AlertFastInit(u_char *);
-SpoAlertFastData *ParseAlertFastArgs(char *);
-void AlertFastCleanExitFunc(int, void *);
-void AlertFastRestartFunc(int, void *);
-void AlertFast(Packet *, char *, void *, Event *);
-
-
+static void AlertFastInit(char *);
+static SpoAlertFastData *ParseAlertFastArgs(char *);
+static void AlertFastCleanExitFunc(int, void *);
+static void AlertFastRestartFunc(int, void *);
+static void AlertFast(Packet *, char *, void *, Event *);
 
 /*
  * Function: SetupAlertFast()
@@ -103,7 +119,7 @@ void AlertFastSetup(void)
 
 
 /*
- * Function: AlertFastInit(u_char *)
+ * Function: AlertFastInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -113,7 +129,7 @@ void AlertFastSetup(void)
  * Returns: void function
  *
  */
-void AlertFastInit(u_char *args)
+static void AlertFastInit(char *args)
 {
     SpoAlertFastData *data;
 
@@ -132,19 +148,14 @@ void AlertFastInit(u_char *args)
     AddFuncToRestartList(AlertFastRestartFunc, data);
 }
 
-void AlertFast(Packet *p, char *msg, void *arg, Event *event)
+static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
 {
-    char timestamp[TIMEBUF_SIZE];
     SpoAlertFastData *data = (SpoAlertFastData *)arg;
 
-    bzero((char *) timestamp, TIMEBUF_SIZE);
-    ts_print(p == NULL ? NULL : (struct timeval *) & p->pkth->ts, timestamp);
-
-    /* dump the timestamp */
-    fwrite(timestamp, strlen(timestamp), 1, data->file);
+    LogTimeStamp(data->log, p);
 
     if( p != NULL && p->packet_flags & PKT_INLINE_DROP )
-        fputs(" [Drop]",data->file);
+        TextLog_Puts(data->log, " [Drop]");
 
     if(msg != NULL)
     {
@@ -154,14 +165,14 @@ void AlertFast(Packet *p, char *msg, void *arg, Event *event)
             c = 'R';
         else if ((p != NULL) && (p->packet_flags & PKT_REBUILT_FRAG))
             c = 'F';
-        fprintf(data->file, " [**] %c ", c);
+        TextLog_Print(data->log, " [**] %c ", c);
 #else
-        fwrite(" [**] ", 6, 1, data->file);
+        TextLog_Puts(data->log, " [**] ");
 #endif
 
         if(event != NULL)
         {
-            fprintf(data->file, "[%lu:%lu:%lu] ",
+            TextLog_Print(data->log, "[%lu:%lu:%lu] ",
                     (unsigned long) event->sig_generator,
                     (unsigned long) event->sig_id,
                     (unsigned long) event->sig_rev);
@@ -169,141 +180,207 @@ void AlertFast(Packet *p, char *msg, void *arg, Event *event)
 
         if(pv.alert_interface_flag)
         {
-            fprintf(data->file, " <%s> ", PRINT_INTERFACE(pv.interface));
-            fwrite(msg, strlen(msg), 1, data->file);
+            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pv.interface));
+            TextLog_Puts(data->log, msg);
         }
         else
         {
-            fwrite(msg, strlen(msg), 1, data->file);
+            TextLog_Puts(data->log, msg);
         }
 
-        fwrite(" [**] ", 6, 1, data->file);
+        TextLog_Puts(data->log, " [**] ");
     }
 
     /* print the packet header to the alert file */
-    if(p && p->iph)
+    if(p && IPH_IS_VALID(p))
     {
-        PrintPriorityData(data->file, 0);
+        LogPriorityData(data->log, 0);
 
-        fprintf(data->file, "{%s} ", protocol_names[p->iph->ip_proto]);
+        TextLog_Print(data->log, "{%s} ", protocol_names[GET_IPH_PROTO(p)]);
 
         if(p->frag_flag)
         {
             /* just print the straight IP header */
-            fputs(inet_ntoa(p->iph->ip_src), data->file);
-            fwrite(" -> ", 4, 1, data->file);
-            fputs(inet_ntoa(p->iph->ip_dst), data->file);
+            TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
+            TextLog_Puts(data->log, " -> ");
+            TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
         }
         else
         {
-            switch(p->iph->ip_proto)
+            switch(GET_IPH_PROTO(p))
             {
                 case IPPROTO_UDP:
                 case IPPROTO_TCP:
                     /* print the header complete with port information */
-                    fputs(inet_ntoa(p->iph->ip_src), data->file);
-                    fprintf(data->file, ":%d -> ", p->sp);
-                    fputs(inet_ntoa(p->iph->ip_dst), data->file);
-                    fprintf(data->file, ":%d", p->dp);
+                    TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
+                    TextLog_Print(data->log, ":%d -> ", p->sp);
+                    TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
+                    TextLog_Print(data->log, ":%d", p->dp);
                     break;
                 case IPPROTO_ICMP:
                 default:
                     /* just print the straight IP header */
-                    fputs(inet_ntoa(p->iph->ip_src), data->file);
-                    fwrite(" -> ", 4, 1, data->file);
-                    fputs(inet_ntoa(p->iph->ip_dst), data->file);
+                    TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
+                    TextLog_Puts(data->log, " -> ");
+                    TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }               /* end of if (p) */
+
     if(p && data->packet_flag)
     {
-        fputc('\n', data->file);
+        /* Log whether or not this is reassembled data - only indicate
+         * if we're actually going to show any of the payload */
+        if (pv.data_flag && (p->dsize > 0))
+        {
+            if (p->packet_flags &
+                (PKT_DCE_RPKT | PKT_REBUILT_STREAM | PKT_REBUILT_FRAG |
+                 PKT_SMB_SEG | PKT_DCE_SEG | PKT_DCE_FRAG | PKT_SMB_TRANS))
+            {
+                TextLog_NewLine(data->log);
+            }
 
-        if(p->iph)
-            PrintIPPkt(data->file, p->iph->ip_proto, p);
+            if (p->packet_flags & PKT_SMB_SEG)
+                TextLog_Print(data->log, "%s", "SMB desegmented packet");
+            else if (p->packet_flags & PKT_DCE_SEG)
+                TextLog_Print(data->log, "%s", "DCE/RPC desegmented packet");
+            else if (p->packet_flags & PKT_DCE_FRAG)
+                TextLog_Print(data->log, "%s", "DCE/RPC defragmented packet");
+            else if (p->packet_flags & PKT_SMB_TRANS)
+                TextLog_Print(data->log, "%s", "SMB Transact reassembled packet");
+            else if (p->packet_flags & PKT_DCE_RPKT)
+                TextLog_Print(data->log, "%s", "DCE/RPC reassembled packet");
+            else if (p->packet_flags & PKT_REBUILT_STREAM)
+                TextLog_Print(data->log, "%s", "Stream reassembled packet");
+            else if (p->packet_flags & PKT_REBUILT_FRAG)
+                TextLog_Print(data->log, "%s", "Frag reassembled packet");
+        }
+
+        TextLog_NewLine(data->log);
+
+        if(IPH_IS_VALID(p))
+            LogIPPkt(data->log, GET_IPH_PROTO(p), p);
         else if(p->ah)
-            PrintArpHeader(data->file, p);
+            LogArpHeader(data->log, p);
     }
-
-    fputc('\n', data->file);
-
-    fflush(data->file);
-    return;
+    TextLog_NewLine(data->log);
+    TextLog_Flush(data->log);
 }
 
 /*
  * Function: ParseAlertFastArgs(char *)
  *
- * Purpose: Process the preprocessor arguements from the rules file and 
- *          initialize the preprocessor's data struct.  This function doesn't
- *          have to exist if it makes sense to parse the args in the init 
- *          function.
+ * Purpose: Process positional args, if any.  Syntax is:
+ * output alert_fast: [<logpath> ["packet"] [<limit>]]
+ * limit ::= <number>('G'|'M'|K')
  *
  * Arguments: args => argument list
  *
  * Returns: void function
  *
  */
-SpoAlertFastData *ParseAlertFastArgs(char *args)
+static SpoAlertFastData *ParseAlertFastArgs(char *args)
 {
     char **toks;
     int num_toks;
-    char *filename;
     SpoAlertFastData *data;
-
-    data = (SpoAlertFastData *)SnortAlloc(sizeof(SpoAlertFastData));
-
-    if(args == NULL)
-    {
-        data->file = OpenAlertFile(NULL);
-        return data;
-    }
+    char* filename = NULL;
+    unsigned long limit = DEFAULT_LIMIT;
+    unsigned int bufSize = FAST_BUF;
+    int i;
 
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "ParseAlertFastArgs: %s\n", args););
+    data = (SpoAlertFastData *)SnortAlloc(sizeof(SpoAlertFastData));
 
-    toks = mSplit(args, " ", 2, &num_toks, 0);
-    if(strcasecmp("stdout", toks[0]) == 0)
-        data->file = stdout;
-    else
+    if ( !data )
     {
-        filename = ProcessFileOption(toks[0]);
-        data->file = OpenAlertFile(filename);
-        free(filename);
+        FatalError("alert_fast: unable to allocate memory!\n");
     }
-    if(num_toks > 1)
+    if ( !args ) args = "";
+    toks = mSplit((char *)args, " ", 4, &num_toks, '\\');
+
+    for (i = 0; i < num_toks; i++)
     {
-        if(strcasecmp(toks[1], "packet") == 0)
+        const char* tok = toks[i];
+        char *end;
+
+        switch (i)
         {
-            data->packet_flag = 1;
-        }
-        else
-        {
-            FatalError("Unrecognized alert_fast option: %s\n", toks[1]);
+            case 0:
+                if ( !strcasecmp(tok, "stdout") )
+                    filename = SnortStrdup(tok);
+
+                else
+                    filename = ProcessFileOption(tok);
+                break;
+
+            case 1:
+                if ( !strcasecmp("packet", tok) )
+                {
+                    data->packet_flag = 1;
+                    bufSize = FULL_BUF;
+                    break;
+                }
+                /* in this case, only 2 options allowed */
+                else i++;
+                /* fall thru so "packet" is optional ... */
+
+            case 2:
+                limit = strtol(tok, &end, 10);
+
+                if ( tok == end )
+                    FatalError("alert_fast error in %s(%i): %s\n",
+                        file_name, file_line, tok);
+
+                if ( end && toupper(*end) == 'G' )
+                    limit <<= 30; /* GB */
+
+                else if ( end && toupper(*end) == 'M' )
+                    limit <<= 20; /* MB */
+
+                else if ( end && toupper(*end) == 'K' )
+                    limit <<= 10; /* KB */
+                break;
+
+            case 3:
+                FatalError("alert_fast: error in %s(%i): %s\n",
+                    file_name, file_line, tok);
+                break;
         }
     }
-    /* free toks */
     mSplitFree(&toks, num_toks);
+
+#ifdef DEFAULT_FILE
+    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
+#endif
+
+    DEBUG_WRAP(DebugMessage(
+        DEBUG_INIT, "alert_fast: '%s' %d %ld\n",
+        filename?filename:"alert", data->packet_flag, limit
+    ););
+    data->log = TextLog_Init(filename, bufSize, limit);
+    if ( filename ) free(filename);
 
     return data;
 }
 
-void AlertFastCleanExitFunc(int signal, void *arg)
+static void AlertFastCleanup(int signal, void *arg, const char* msg)
 {
     SpoAlertFastData *data = (SpoAlertFastData *)arg;
-    /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertFastCleanExitFunc\n"););
-    fclose(data->file);
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "%s\n", msg););
+
     /*free memory from SpoAlertFastData */
+    if ( data->log ) TextLog_Term(data->log);
     free(data);
 }
 
-void AlertFastRestartFunc(int signal, void *arg)
+static void AlertFastCleanExitFunc(int signal, void *arg)
 {
-    SpoAlertFastData *data = (SpoAlertFastData *)arg;
-    /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertFastRestartFunc\n"););
-    fclose(data->file);
-    /*free memory from SpoAlertFastData */
-    free(data);
+    AlertFastCleanup(signal, arg, "AlertFastCleanExitFunc");
+}
+
+static void AlertFastRestartFunc(int signal, void *arg)
+{
+    AlertFastCleanup(signal, arg, "AlertFastRestartFunc");
 }
 

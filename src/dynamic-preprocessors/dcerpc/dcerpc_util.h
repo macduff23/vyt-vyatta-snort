@@ -1,7 +1,7 @@
 /*
  * dcerpc_util.h
  *
- * Copyright (C) 2006 Sourcefire,Inc
+ * Copyright (C) 2006-2009 Sourcefire, Inc.
  * Andrew Mullican
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,9 @@
 #ifndef _DCERPC_UTIL_H_
 #define _DCERPC_UTIL_H_
 
+#include "debug.h"
+#include "snort_dcerpc.h"
+
 /* Needs to match what is in generators.h */
 #define  GENERATOR_DCERPC    130
 
@@ -39,12 +42,19 @@ typedef enum _dcerpc_event_e
 
 } dcerpc_event_e;
 
+typedef struct _DCERPC_Buffer
+{
+    u_int8_t *data;
+    u_int16_t len;
+    u_int16_t size;
+
+} DCERPC_Buffer;
+
+
 #define     DCERPC_EVENT_MEMORY_OVERFLOW_STR  "(dcerpc) Maximum memory usage reached"
 
 
-void *DCERPC_FragAlloc(void *p, u_int16_t old_size, u_int16_t *new_size);
-int DCERPC_FragFree(void *p, u_int16_t size);
 void DCERPC_GenerateAlert(dcerpc_event_e event, char *msg);
-void PrintBuffer(char * title, u_int8_t *buf, u_int16_t buf_len);
+void PrintBuffer(const char * title, const u_int8_t *buf, u_int16_t buf_len);
 
 #endif  /*  _DCERPC_UTIL_H_  */

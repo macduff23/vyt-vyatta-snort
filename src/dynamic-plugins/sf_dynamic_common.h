@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  */
 #ifndef _SF_DYNAMIC_COMMON_H_
@@ -27,11 +27,20 @@
 #endif
 
 typedef void (*LogMsgFunc)(const char *, ...);
+typedef void (*DebugMsgFunc)(int, char *, ...);
+#ifdef HAVE_WCHAR_H
+typedef void (*DebugWideMsgFunc)(int, wchar_t *, ...);
+#endif
+
+#define STD_BUF 1024
 
 #define MAX_URIINFOS 5
 
 #define HTTP_BUFFER_URI 0
-#define HTTP_BUFFER_CLIENT_BODY 1
+#define HTTP_BUFFER_HEADER 1
+#define HTTP_BUFFER_CLIENT_BODY 2
+#define HTTP_BUFFER_METHOD 3
+#define HTTP_BUFFER_COOKIE 4
 
 typedef struct _UriInfo
 {

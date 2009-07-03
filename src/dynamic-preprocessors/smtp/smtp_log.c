@@ -1,5 +1,6 @@
-/*
- * smtp_log.c
+/****************************************************************************
+ *
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -16,9 +17,13 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ ****************************************************************************/
+  
+/************************************************************************** 
  *
- * Author: Andy  Mullican
+ * smtp_log.c
+ *
+ * Author: Andy Mullican
  *
  * Description:
  *
@@ -29,57 +34,69 @@
  *    SMTP_GenerateAlert()
  *
  *
- */
+ **************************************************************************/
 
-#include <sys/types.h>
-#include <stdlib.h>
-#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "debug.h"
-#include "preprocids.h"
-
-#include "snort_smtp.h"
+#include "smtp_config.h"
 #include "smtp_log.h"
+#include "snort_smtp.h"
+#include "sf_dynamic_preprocessor.h"
 
-/* Array of static event buffers */
-#define EVENT_STR_LEN      256
+extern SMTPConfig _smtp_config;
+extern DynamicPreprocessorData _dpd;
+extern SMTP *_smtp;
+
 char _smtp_event[SMTP_EVENT_MAX][EVENT_STR_LEN];
 
-extern SMTP_CONFIG  _smtp_config;
 
-
-void SMTP_GenerateAlert(smtp_event_e event, char *format, ...)
+void SMTP_GenerateAlert(int event, char *format, ...)
 {
     va_list ap;
 
-    if ( _smtp_config.no_alerts )
+    /* Only log a specific alert once per session */
+    if (_smtp->alert_mask & (1 << event))
     {
-        DEBUG_WRAP(_dpd.debugMsg(DEBUG_SMTP, "Ignoring alert %d\n", event););
+#ifdef DEBUG
+        DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Already alerted on: %s - "
+                                "ignoring event.\n", _smtp_event[event]););
+#endif
+        return;
+    }
+
+    /* set bit for this alert so we don't alert on again
+     * in this session */
+    _smtp->alert_mask |= (1 << event);
+
+    if (_smtp_config.no_alerts)
+    {
+#ifdef DEBUG
+        va_start(ap, format);
+
+        _smtp_event[event][0] = '\0';
+        vsnprintf(&_smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
+        _smtp_event[event][EVENT_STR_LEN - 1] = '\0';
+
+        DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Ignoring alert: %s\n", _smtp_event[event]););
+
+        va_end(ap);
+#endif
+
         return;
     }
 
     va_start(ap, format);
 
-    vsnprintf(_smtp_event[event], EVENT_STR_LEN, format, ap);
-    _smtp_event[event][EVENT_STR_LEN-1] = '\0';
+    _smtp_event[event][0] = '\0';
+    vsnprintf(&_smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
+    _smtp_event[event][EVENT_STR_LEN - 1] = '\0';
 
-    _dpd.alertAdd(GENERATOR_SMTP, event, 1, 0, 3, _smtp_event[event], 0);
+    _dpd.alertAdd(GENERATOR_SMTP, event, 1, 0, 3, &_smtp_event[event][0], 0);
 
-#ifdef DEBUG
-    {
-        //int len = strlen(_smtp_event[event]);
-        char debugstr[EVENT_STR_LEN];
-        strncpy(debugstr, _smtp_event[event], EVENT_STR_LEN);
-        debugstr[EVENT_STR_LEN - 2] = '\n';
-        debugstr[EVENT_STR_LEN - 1] = '\0';
-        
-        DEBUG_WRAP(_dpd.debugMsg(DEBUG_SMTP, debugstr););
-    }
-#endif
+    DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "SMTP Alert generated: %s\n", _smtp_event[event]););
+
     va_end(ap);
-
 }
 

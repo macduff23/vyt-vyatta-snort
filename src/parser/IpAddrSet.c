@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright(C) 2002 Sourcefire, Inc.
+ * Copyright (C) 2002-2009 Sourcefire, Inc.
  * 
  * Author(s):  Andrew R. Baker <andrewb@snort.org>
  *             Martin Roesch   <roesch@sourcefire.com>
@@ -51,6 +51,15 @@
 #include "debug.h"
 
 #include "IpAddrSet.h"
+#ifdef SUP_IP6
+#include "ipv6_port.h"
+#else
+
+
+
+extern char *file_name;     /* current rules file being processed */
+extern int line_num;        /* current rules file line */
+
 
 IpAddrSet *IpAddrSetCreate()
 {
@@ -64,13 +73,27 @@ IpAddrSet *IpAddrSetCreate()
 
 void IpAddrSetDestroy(IpAddrSet *ipAddrSet)
 {
-    IpAddrSet *next;
+    IpAddrNode *node, *tmp;
 
-    while(ipAddrSet)
+    if(!ipAddrSet) 
+        return;
+
+    node = ipAddrSet->iplist;
+
+    while(node)
     {
-        next = ipAddrSet->next;
-        free(ipAddrSet);
-        ipAddrSet = next;
+        tmp = node;
+        node = node->next;
+        free(tmp);
+    }
+
+    node = ipAddrSet->neg_iplist;
+
+    while(node)
+    {
+        tmp = node;
+        node = node->next;
+        free(tmp);
     }
 }
 
@@ -78,66 +101,125 @@ static char buffer[1024];
 
 void IpAddrSetPrint(char *prefix, IpAddrSet *ipAddrSet)
 {
+    IpAddrNode *iplist, *neglist;
     struct in_addr in;
     int ret;
-    
-    while(ipAddrSet)
+
+    if(!ipAddrSet) return;
+
+    iplist = ipAddrSet->iplist;
+    neglist = ipAddrSet->neg_iplist;
+
+    while(iplist) 
     {
         buffer[0] = '\0';
 
-        if(ipAddrSet->addr_flags & EXCEPT_IP)
-        {
-            ret = SnortSnprintfAppend(&buffer[0], sizeof(buffer), "NOT ");
-            if (ret != SNORT_SNPRINTF_SUCCESS)
-                return;
-        }
-
-        in.s_addr = ipAddrSet->ip_addr;
-        ret = SnortSnprintfAppend(&buffer[0], sizeof(buffer), "%s/", inet_ntoa(in));
+        in.s_addr = iplist->ip_addr;
+        ret = SnortSnprintfAppend(buffer, sizeof(buffer), "%s/", inet_ntoa(in));
         if (ret != SNORT_SNPRINTF_SUCCESS)
             return;
 
-        in.s_addr = ipAddrSet->netmask;
-        ret = SnortSnprintfAppend(&buffer[0], sizeof(buffer), "%s", inet_ntoa(in));
+        in.s_addr = iplist->netmask;
+        ret = SnortSnprintfAppend(buffer, sizeof(buffer), "%s", inet_ntoa(in));
         if (ret != SNORT_SNPRINTF_SUCCESS)
             return;
 
         if (prefix)
             LogMessage("%s%s\n", prefix, buffer);
         else
-            LogMessage("%s%s\n", buffer);
+            LogMessage("%s\n", buffer);
 
-        ipAddrSet = ipAddrSet->next;
+        iplist = iplist->next;
+       
+    }
+
+    while(neglist) 
+    {
+        buffer[0] = '\0';
+
+        in.s_addr = neglist->ip_addr;
+        ret = SnortSnprintfAppend(buffer, sizeof(buffer), "NOT %s/", inet_ntoa(in));
+        if (ret != SNORT_SNPRINTF_SUCCESS)
+            return;
+
+        in.s_addr = neglist->netmask;
+        ret = SnortSnprintfAppend(buffer, sizeof(buffer), "%s", inet_ntoa(in));
+        if (ret != SNORT_SNPRINTF_SUCCESS)
+            return;
+
+        if (prefix)
+            LogMessage("%s%s\n", prefix, buffer);
+        else
+            LogMessage("%s\n", buffer);
+
+        neglist = neglist->next;
     }
 }
 
 IpAddrSet *IpAddrSetCopy(IpAddrSet *ipAddrSet)
 {
-    IpAddrSet *newIpAddrSet = NULL;
-    IpAddrSet *current = NULL;
-    IpAddrSet *prev = NULL;
+    IpAddrSet *newIpAddrSet;
+    IpAddrNode *current;
+    IpAddrNode *iplist, *neglist;
+    IpAddrNode *prev = NULL;
 
-    while(ipAddrSet)
+    if(!ipAddrSet) return NULL;
+
+    newIpAddrSet = (IpAddrSet *)calloc(sizeof(IpAddrSet), 1);
+    if(!newIpAddrSet) 
     {
-        current = (IpAddrSet *)malloc(sizeof(IpAddrSet));
+        goto failed;
+    }
+
+    iplist = ipAddrSet->iplist;
+    neglist = ipAddrSet->neg_iplist;
+
+    while(iplist)
+    {
+        current = (IpAddrNode *)malloc(sizeof(IpAddrNode));
         if (!current)
         {
-            /* ENOMEM */
+            goto failed;
+        }
+
+        if(!newIpAddrSet->iplist)
+            newIpAddrSet->iplist = current;
+        
+        current->ip_addr = iplist->ip_addr;
+        current->netmask = iplist->netmask;
+        current->addr_flags = iplist->addr_flags;
+        current->next = NULL;
+
+        if(prev)
+            prev->next = current;
+
+        prev = current;
+
+        iplist = iplist->next;
+    }
+
+    while(neglist)
+    {
+        current = (IpAddrNode *)malloc(sizeof(IpAddrNode));
+        if (!current)
+        {
             goto failed;
         }
         
-        current->ip_addr = ipAddrSet->ip_addr;
-        current->netmask = ipAddrSet->netmask;
-        current->addr_flags = ipAddrSet->addr_flags;
+        if(!newIpAddrSet->neg_iplist)
+            newIpAddrSet->neg_iplist = current;
+
+        current->ip_addr = neglist->ip_addr;
+        current->netmask = neglist->netmask;
+        current->addr_flags = neglist->addr_flags;
         current->next = NULL;
 
-        if(!prev)
-            newIpAddrSet = current;
-        else
+        if(prev)
             prev->next = current;
 
-        ipAddrSet = ipAddrSet->next;
         prev = current;
+
+        neglist = neglist->next;
     }
 
     return newIpAddrSet;
@@ -163,7 +245,7 @@ failed:
  *
  * Returns: 0 for normal addresses, 1 for an "any" address
  */
-int ParseIP(char *paddr, IpAddrSet *address_data)
+int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
 {
     char **toks;        /* token dbl buffer */
     int num_toks;       /* number of tokens found by mSplit() */
@@ -175,11 +257,17 @@ int ParseIP(char *paddr, IpAddrSet *address_data)
     struct sockaddr_in sin; /* addr struct */
     char broadcast_addr_set = 0;
 
+    IpAddrNode *address_data = (IpAddrNode*)SnortAlloc(sizeof(IpAddrNode));
+
+    if(!paddr || !ias) 
+        return 1;
+
     addr = paddr;
 
     if(*addr == '!')
     {
-        address_data->addr_flags |= EXCEPT_IP;
+        negate = !negate;
+//        address_data->addr_flags |= EXCEPT_IP;
 
         addr++;  /* inc past the '!' */
     }
@@ -187,8 +275,21 @@ int ParseIP(char *paddr, IpAddrSet *address_data)
     /* check for wildcards */
     if(!strcasecmp(addr, "any"))
     {
-        address_data->ip_addr = 0;
-        address_data->netmask = 0;
+        if(negate) 
+        {
+            FatalError("%s(%d) => !any is not allowed\n", file_name, file_line);
+        }
+    
+        /* Make first node 0, which matches anything */
+        if(!ias->iplist) 
+        {
+            ias->iplist = (IpAddrNode*)SnortAlloc(sizeof(IpAddrNode));
+        }
+        ias->iplist->ip_addr = 0;
+        ias->iplist->netmask = 0;
+
+        free(address_data);
+
         return 1;
     }
     /* break out the CIDR notation from the IP address */
@@ -350,124 +451,232 @@ int ParseIP(char *paddr, IpAddrSet *address_data)
             (address_data->netmask));
     }
     mSplitFree(&toks, num_toks);
-    return 0;
-}                                                                                            
 
-
-IpAddrSet *IpAddrSetParse(char *addr)
-{
-    IpAddrSet *ias = NULL;
-    IpAddrSet *tmp_ias = NULL;
-    char **toks;
-    int num_toks;
-    int i;
-    char *tmp;
-    char *enbracket;
-    char *index;
-    int flags = 0;
-
-    index = addr;
-    
-    while(isspace((int)*index)) index++;
-    
-    if(*index == '!')
+    /* Add new IP address to address set */
+    if(!negate) 
     {
-        flags = EXCEPT_IP;
-    }
+        IpAddrNode *idx;
 
-    if(*index == '$')
-    {
-        if((tmp = VarGet(index+1)) == NULL)
+        if(!ias->iplist) 
         {
-            FatalError("%s(%d) => Undefined variable %s\n", file_name, file_line,
-                    index);
+            ias->iplist = address_data;
+        }
+        else 
+        {
+            /* Get to the end of the list */
+            for(idx = ias->iplist; idx->next; idx=idx->next) ;
+
+            idx->next = address_data;
         }
     }
     else
     {
-        tmp = index;
-    }
+        IpAddrNode *idx;
 
-    if(*tmp == '[')
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,"Found IP list!\n"););
-
-        enbracket = strrchr(tmp, (int)']'); /* null out the en-bracket */
-
-        if(enbracket) 
-            *enbracket = '\x0';
-        else
-            FatalError("%s(%d) => Unterminated IP List\n", file_name, file_line);
-
-        toks = mSplit(tmp+1, ",", 128, &num_toks, 0);
-
-        DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,"mSplit got %d tokens...\n", 
-                    num_toks););
-
-        for(i=0; i< num_toks; i++)
+        if(!ias->neg_iplist) 
         {
-            DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,"adding %s to IP "
-                        "address list\n", toks[i]););
-            tmp = toks[i];
+            ias->neg_iplist = address_data;
+        }
+        else 
+        {
+            /* Get to the end of the list */
+            for(idx = ias->neg_iplist; idx->next; idx=idx->next) ;
 
-            while (isspace((int)*tmp)||*tmp=='[') tmp++;
+            idx->next = address_data;
+        }
 
-            enbracket = strrchr(tmp, (int)']'); /* null out the en-bracket */
+        address_data->addr_flags |= EXCEPT_IP;
+    }
+    
+    return 0;
+} 
 
-            if(enbracket) 
-                *enbracket = '\x0';
 
-            if (!strlen(tmp))
-                continue;
-                
-            if(!ias)
+void IpAddrSetBuild(char *addr, IpAddrSet *ret, int neg_list) 
+{
+    char *tok, *end, *tmp;
+    int neg_ip;
+
+    while(*addr) 
+    {
+        /* Skip whitespace and leading commas */
+        for(; *addr && (isspace((int)*addr) || *addr == ','); addr++) ;
+
+        /* Handle multiple negations (such as if someone negates variable that
+         * contains a negated IP */
+        neg_ip = 0;
+        for(; *addr == '!'; addr++) 
+             neg_ip = !neg_ip;
+
+        /* Find end of this token */
+        for(end = addr+1; 
+           *end && !isspace((int)*end) && *end != ']' && *end != ',';
+            end++) ;
+
+        tok = SnortStrndup(addr, end - addr);
+
+        if(!tok)    
+        {
+            FatalError("%s(%d) => Failed to allocate memory for parsing '%s'\n", 
+                           file_name, file_line, addr);
+        }
+
+        if(*addr == '[') 
+        {
+            int brack_count = 0;
+            char *list_tok;
+    
+            /* Find corresponding ending bracket */
+            for(end = addr; *end; end++) 
             {
-                ias = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
-                tmp_ias = ias;
+                if(*end == '[') 
+                    brack_count++;
+                else if(*end == ']')
+                    brack_count--;
+    
+                if(!brack_count)
+                    break;
             }
-            else
+    
+            if(!*end) 
             {
-                tmp_ias->next = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
-                tmp_ias = tmp_ias->next;
+                FatalError("%s(%d) => Unterminated IP List '%s'\n", 
+                           file_name, file_line, addr);
+            }
+        
+            addr++;
+
+            list_tok = SnortStrndup(addr, end - addr);
+
+            if(!list_tok)    
+            {
+                FatalError("%s(%d) => Failed to allocate memory for parsing '%s'\n", 
+                               file_name, file_line, addr);
+            }
+
+            IpAddrSetBuild(list_tok, ret, neg_ip ^ neg_list);
+            free(list_tok);
+        }
+        else if(*addr == '$') 
+        {
+            if((tmp = VarGet(tok + 1)) == NULL)
+            {
+                FatalError("%s(%d) => Undefined variable %s\n", file_name, 
+                        file_line, addr);
             }
             
-            ParseIP(tmp, tmp_ias);
+            IpAddrSetBuild(tmp, ret, neg_list ^ neg_ip); 
         }
+        else if(*addr == ']')
+        {
+            if(!(*(addr+1))) 
+            {
+                /* Succesfully reached the end of this list */
+                free(tok);
+                return;
+            }
 
-        mSplitFree(&toks, num_toks);
+            FatalError("%s(%d) => Mismatched bracket in '%s'\n", 
+                           file_name, file_line, addr);
+        }
+        else 
+        {
+            /* Skip leading commas */
+            for(; *addr && (*addr == ',' || isspace((int)*addr)); addr++) ;
+
+            ParseIP(tok, ret, neg_list ^ neg_ip);
+
+            if(ret->iplist && !ret->iplist->ip_addr && !ret->iplist->netmask) 
+                 ret->iplist->addr_flags |= ANY_SRC_IP;
+                
+            /* Note: the neg_iplist is not checked for '!any' here since
+             * ParseIP should have already FatalError'ed on it. */
+        }
+        
+        free(tok);
+
+        if(*end)
+            addr = end + 1;   
+        else break;
     }
-    else
+
+    return;
+}
+#endif
+
+
+IpAddrSet *IpAddrSetParse(char *addr) 
+{
+    IpAddrSet *ret;
+#ifdef SUP_IP6
+    int ret_code;
+#endif
+
+    DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,"Got address string: %s\n", 
+                addr););
+
+    ret = (IpAddrSet*)SnortAlloc(sizeof(IpAddrSet));
+
+#ifdef SUP_IP6 
+    if((ret_code = sfvt_add_to_var(vartable, ret, addr)) != SFIP_SUCCESS) 
     {
-        DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,
-                    "regular IP address, processing...\n"););
-
-        ias = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
-
-        ParseIP(tmp, ias);
+        if(ret_code == SFIP_LOOKUP_FAILURE)
+            FatalError("%s(%d) => Undefined variable in the string: %s\n",
+                file_name, file_line, addr);
+        else if(ret_code == SFIP_CONFLICT)
+            FatalError("%s(%d) => Negated IP ranges that equal to or are"
+                " more-specific than non-negated ranges are not allowed."
+                " Consider inverting the logic: %s.\n", 
+                file_name, file_line, addr);
+        else
+            FatalError("%s(%d) => Unable to process the IP address: %s\n",
+                file_name, file_line, addr);
     }
+#else
 
-    return ias;
+    IpAddrSetBuild(addr, ret, 0);
+
+#endif
+
+    return ret;
 }
 
-
+#ifndef SUP_IP6
 int IpAddrSetContains(IpAddrSet *ias, struct in_addr test_addr)
 {
-    IpAddrSet *index;
-    u_int32_t raw_addr;
-    int exception_flag = 0;
+    IpAddrNode *index;
+    u_int32_t raw_addr = test_addr.s_addr;
+    int match = 0;
 
-
-    raw_addr = test_addr.s_addr;
-    
-    for(index = ias; index != NULL; index = index->next)
+    if(!ias)
     {
-        if(index->addr_flags & EXCEPT_IP) exception_flag = 1;
+        DEBUG_WRAP(DebugMessage(DEBUG_ALL,"Null IP address set!\n"););
+        return 0;
+    }
+    if(!ias->iplist) 
+        match = 1;
 
-        if(((index->ip_addr == (raw_addr & index->netmask)) ^ exception_flag))
+    for(index = ias->iplist; index != NULL; index = index->next)
+    {
+        if(index->ip_addr == (raw_addr & index->netmask)) 
         {
-            return 1;
+            match = 1;
+            break;
         }
+    }   
+
+    if(!match) 
+        return 0;
+
+    if(!ias->neg_iplist) 
+        return 1;
+
+    for(index = ias->neg_iplist; index != NULL; index = index->next)
+    {
+        if(index->ip_addr == (raw_addr & index->netmask)) 
+            return 0;
     }
 
-    return 0;
+    return 1;
 }
+#endif // SUP_IP6

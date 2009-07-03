@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -95,6 +95,7 @@ void      sflist_init ( SF_LIST * s);
 int       sflist_add_tail ( SF_LIST* s, NODE_DATA ndata );
 int       sflist_add_head ( SF_LIST* s, NODE_DATA ndata );
 int       sflist_add_before ( SF_LIST* s, SF_LNODE * lnode, NODE_DATA ndata );
+int       sflist_add_after ( SF_LIST* s, SF_LNODE * lnode, NODE_DATA ndata );
 NODE_DATA sflist_remove_head ( SF_LIST * s);
 NODE_DATA sflist_remove_tail ( SF_LIST * s); 
 void      sflist_remove_node (SF_LIST * s, SF_LNODE * n, void (*free)(void*) );
