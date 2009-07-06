@@ -1,3 +1,9 @@
+vyatta-snort (2.8.4.1-vyatta-1+jenner2) experimental; urgency=low
+
+  * remove dependency on libmysqlclient-dev and libpq-dev
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Mon, 06 Jul 2009 11:40:38 -0700
+
 vyatta-snort (2.8.4.1-vyatta-1+jenner1) experimental; urgency=low
 
   * UNRELEASED
