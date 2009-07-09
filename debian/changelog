@@ -1,3 +1,12 @@
+vyatta-snort (2.8.4.1-vyatta+2) unstable; urgency=low
+
+  * Merge snort 2.8.4.
+  * change from alert_fast to alert_unified
+  * Revert "comment out includes of 2.7 rules"
+  * comment out snort rules that don't work with snort 2.8
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 09 Jul 2009 12:18:08 -0700
+
 vyatta-snort (2.7.0-13-vyatta-6) unstable; urgency=low
 
   * UNRELEASED
