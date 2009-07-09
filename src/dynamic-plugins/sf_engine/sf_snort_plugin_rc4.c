@@ -1,5 +1,5 @@
 /*
- *  sf_snort_plugin_loop.c
+ *  sf_snort_plugin_rc4.c
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2006 Sourcefire Inc.
+ * Copyright (C) 2006-2009 Sourcefire, Inc.
  *
  * Author: Lurene Grunier
  *         Andy Mullican
@@ -24,7 +24,7 @@
  * Date: 4/2006
  *
  *
- * Loop Option operations for dynamic rule engine
+ * RC4 Option operations for dynamic rule engine
  */
 #include "sf_snort_packet.h"
 #include "sf_snort_plugin_api.h"
@@ -41,9 +41,10 @@ extern DynamicEngineData _ded;
 #define MAX_DATA_LEN    1024
 
 /* Decode RC4 data. Return 1 if data matches decoded data. */
-int MatchDecryptedRC4(u_int8_t *key, u_int16_t keylen, u_int8_t *encrypted_data, 
-                                u_int8_t *match_data, u_int16_t datalen)
-{
+int MatchDecryptedRC4(
+    const u_int8_t *key, u_int16_t keylen, const u_int8_t *encrypted_data, 
+    u_int8_t *match_data, u_int16_t datalen
+) {
     u_int16_t   i;
     u_int8_t    t, tmp;    
     static char decrypted_data[MAX_DATA_LEN];

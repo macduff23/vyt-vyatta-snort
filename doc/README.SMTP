@@ -30,6 +30,10 @@ The configuration options are described below:
 * ports { port [port] ... } *
 This specifies on what ports to check for SMTP data.  Typically, this will
 include 25 and possibly 465, for encrypted SMTP.
+Default ports if none are specified are 25, 587 (Message submission - see 
+RFC 2476) and 691 (X-LINK2STATE).  If alerting on the X-LINK2STATE vulnerability
+is disabled, port 691 will be removed from the default ports.
+DEFAULT { 25 587 691 }
 
 * inspection_type stateful|stateless
 Indicate whether to operate in stateful or stateless mode.
@@ -89,10 +93,11 @@ DEFAULT off
 Normalize this list of commands
 DEFAULT { RCPT VRFY EXPN }
 
-* xlink2state { enable/disable drop }
+* xlink2state { enable/disable [drop] }
+See CVE-2005-0560 for a description of the vulnerability.
 Enable/disable xlink2state alert
 Drop if alerted
-DEFAULT enable
+DEFAULT { enable }
 
 * print_cmds *
 List all commands understood by the preprocessor.  This not normally
@@ -113,7 +118,7 @@ preprocessor SMTP: \
   alt_max_command_line_len 300 { RCPT } \
   invalid_cmds { } \
   valid_cmds { } \
-  xlink2state disable \
+  xlink2state { disable } \
   print_cmds
 
 Default:

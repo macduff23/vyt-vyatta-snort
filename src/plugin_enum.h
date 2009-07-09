@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -27,6 +27,8 @@
   No more grepping to make your own plugin!
 */
 
+#ifndef _PLUGIN_ENUM_H
+#define _PLUGIN_ENUM_H
 
 enum {
     PLUGIN_CLIENTSERVER,
@@ -57,5 +59,9 @@ enum {
     PLUGIN_PCRE,
     PLUGIN_URILEN_CHECK,
     PLUGIN_DYNAMIC,
-    PLUGIN_FLOWBIT
+    PLUGIN_FLOWBIT,
+    PLUGIN_MAX  /* sentinel value */
 };
+
+#endif /* _PLUGIN_ENUM_H */
+

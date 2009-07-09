@@ -1,7 +1,7 @@
 /*
  * ftpp_si.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -148,9 +148,9 @@ typedef struct s_FTP_SESSION
     int data_chan_state;
     int data_chan_index;
     int data_xfer_index;
-    u_int32_t clientIP;
+    snort_ip      clientIP;
     u_int16_t clientPort;
-    u_int32_t serverIP;
+    snort_ip      serverIP;
     u_int16_t serverPort;
 
     /*
@@ -177,8 +177,8 @@ typedef struct s_FTP_SESSION
  */
 typedef struct s_FTPP_SI_INPUT
 {
-    unsigned long sip;
-    unsigned long dip;
+    snort_ip sip;
+    snort_ip dip;
     unsigned short sport;
     unsigned short dport;
     unsigned char pdir;

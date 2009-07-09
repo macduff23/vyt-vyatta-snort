@@ -1,6 +1,7 @@
 /* $Id$ */
 
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -24,6 +25,9 @@
 #if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
 
 void SetupReact(void);
+void ReactFree(void *d);
+u_int32_t ReactHash(void *d);
+int ReactCompare(void *l, void *r);
 
 #endif  /* ENABLE_RESPONSE || ENABLE_REACT */
 #endif  /* __SP_REACT_H__ */

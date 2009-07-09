@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -34,6 +34,7 @@
 #include <stdint.h>
 #endif
 
+#include "sf_dynamic_define.h"
 #include "sf_dynamic_meta.h"
 
 /* specifies that a function does not return 
@@ -49,37 +50,11 @@
 #define NORETURN
 #endif
 
-/* For Visual Studio compile warnings
- * SUPPRESS_WARNING - suppresses the next warning
- * only works with /analyze warnings (6000 and up)
- * DISABLE_WARNING - disables the specified warning
- * used for warnings under 6000
- * ENABLE_WARNING - enable the specified warning
- * used to enable warning that was disabled using DISABLE_WARNING
- */
-#ifdef _MSC_VER
-#if _MSC_VER >= 1400
-//#define SUPPRESS_WARNING(x) __pragma(warning( suppress : x ))
-//#define DISABLE_WARNING(x)  __pragma(warning( disable : x ))
-//#define ENABLE_WARNING(x)   __pragma(warning( default : x ))
-#define SUPPRESS_WARNING(x)
-#define DISABLE_WARNING(x)
-#define ENABLE_WARNING(x)
-#else
-#define SUPPRESS_WARNING(x)
-#define DISABLE_WARNING(x)
-#define ENABLE_WARNING(x)
-#endif
-#else
-#define SUPPRESS_WARNING(x)
-#define DISABLE_WARNING(x)
-#define ENABLE_WARNING(x)
-#endif
-
 /* Function prototype used to evaluate a special OTN */
-/* Parameters are packet pointer & rule info pointer */
-typedef int (*OTNCheckFunction)(void *, void *);
-typedef int (*OTNHasFunction)(void *);
+typedef int (*OTNCheckFunction)(void* pPacket, void* pRule);
+
+/* flowFlag is FLOW_*; check flowFlag iff non-zero */
+typedef int (*OTNHasFunction)(void* pRule, enum DynamicOptionType, int flowFlag);
 
 /* Data struct & function prototype used to get list of
  * Fast Pattern Content information. */
@@ -96,20 +71,28 @@ typedef struct _FPContentInfo
 typedef int (*GetFPContentFunction)(void *, int, FPContentInfo**, int);
 
 /* ruleInfo is passed to OTNCheckFunction when the fast pattern matches. */
-typedef int (*RegisterRule)(u_int32_t, u_int32_t, void *, OTNCheckFunction,
-                            OTNHasFunction, OTNHasFunction,
-                            OTNHasFunction, OTNHasFunction,
-                            OTNHasFunction, int,
-                            GetFPContentFunction);
+typedef int (*RegisterRule)(
+    u_int32_t, u_int32_t, void *,
+    OTNCheckFunction, OTNHasFunction,
+    int, GetFPContentFunction
+);
 typedef u_int32_t (*RegisterBit)(char *, int);
 typedef int (*CheckFlowbit)(void *, int, u_int32_t);
-typedef int (*DetectAsn1)(void *, void *, u_int8_t *);
-typedef void (*LogMsg)(const char *, ...);
-typedef int (*PreprocOptionEval)(void *p, u_int8_t **cursor, void *dataPtr);
+typedef int (*DetectAsn1)(void *, void *, const u_int8_t *);
+typedef int (*PreprocOptionEval)(void *p, const u_int8_t **cursor, void *dataPtr);
 typedef int (*PreprocOptionInit)(char *, char *, void **dataPtr);
 typedef void (*PreprocOptionCleanup)(void *dataPtr);
-typedef int (*RegisterPreprocRuleOpt)(char *, PreprocOptionInit, PreprocOptionEval, PreprocOptionCleanup);
+#define PREPROC_OPT_EQUAL       0
+#define PREPROC_OPT_NOT_EQUAL   1
+typedef u_int32_t (*PreprocOptionHash)(void *);
+typedef int (*PreprocOptionKeyCompare)(void *, void *);
+typedef int (*RegisterPreprocRuleOpt)(char *, PreprocOptionInit, PreprocOptionEval,
+                                      PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
 typedef int (*GetPreprocRuleOptFuncs)(char *, void **, void **);
+
+
+typedef void (*SetRuleData)(void *, void *);
+typedef void *(*GetRuleData)(void *);
 
 /* Info Data passed to dynamic engine plugin must include:
  * version
@@ -124,23 +107,43 @@ typedef int (*GetPreprocRuleOptFuncs)(char *, void **, void **);
  */
 #include "sf_dynamic_common.h"
 
-#define ENGINE_DATA_VERSION 2
+#define ENGINE_DATA_VERSION 5
+
+typedef void *(*PCRECompileFunc)(const char *, int, const char **, int *, const unsigned char *);
+typedef void *(*PCREStudyFunc)(const void *, int, const char **);
+typedef int (*PCREExecFunc)(const void *, const void *, const char *, int, int, int, int *, int);
 
 typedef struct _DynamicEngineData
 {
     int version;
-    char *altBuffer;
+    u_int8_t *altBuffer;
     UriInfo *uriBuffers[MAX_URIINFOS];
     RegisterRule ruleRegister;
     RegisterBit flowbitRegister;
     CheckFlowbit flowbitCheck;
     DetectAsn1 asn1Detect;
-    LogMsg logMsg;
-    LogMsg errMsg;
-    LogMsg fatalMsg;
+    LogMsgFunc logMsg;
+    LogMsgFunc errMsg;
+    LogMsgFunc fatalMsg;
     char *dataDumpDirectory;
 
     GetPreprocRuleOptFuncs getPreprocOptFuncs;
+
+    SetRuleData setRuleData;
+    GetRuleData getRuleData;
+
+    DebugMsgFunc debugMsg;
+#ifdef HAVE_WCHAR_H
+    DebugWideMsgFunc debugWideMsg;
+#endif
+
+    char **debugMsgFile;
+    int *debugMsgLine;
+
+    PCRECompileFunc pcreCompile;
+    PCREStudyFunc pcreStudy;
+    PCREExecFunc pcreExec;
+
 } DynamicEngineData;
 
 /* Function prototypes for Dynamic Engine Plugins */
@@ -148,11 +151,12 @@ void CloseDynamicEngineLibs();
 void LoadAllDynamicEngineLibs(char *path);
 int LoadDynamicEngineLib(char *library_name, int indent);
 typedef int (*InitEngineLibFunc)(DynamicEngineData *);
+typedef int (*CompatibilityFunc)(DynamicPluginMeta *meta, DynamicPluginMeta *lib);
 
 int InitDynamicEngines();
 void RemoveDuplicateEngines();
-
 int DumpDetectionLibRules();
+int ValidateDynamicEngines();
 
 /* This was necessary because of static code analysis not recognizing that
  * fatalMsg did not return - use instead of fatalMsg

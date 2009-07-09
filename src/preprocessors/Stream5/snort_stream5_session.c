@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2005 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** AUTHOR: Steven Sturges <ssturges@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -40,6 +40,8 @@
 #include "log.h"
 #include "util.h"
 #include "snort_stream5_session.h"
+#include "sf_types.h"
+#include "sfhashfcn.h"
 
 #ifndef WIN32
 #include <sys/socket.h>
@@ -48,6 +50,9 @@
 #endif
 #include "bitop_funcs.h"
 extern unsigned int giFlowbitSize;
+#ifdef MPLS
+#include "snort.h"
+#endif
 
 void PrintSessionKey(SessionKey *skey)
 {
@@ -57,6 +62,9 @@ void PrintSessionKey(SessionKey *skey)
     LogMessage("    prt_l    = %d\n", skey->port_l);
     LogMessage("    prt_h    = %d\n", skey->port_h);
     LogMessage("    vlan_tag = %d\n", skey->vlan_tag); 
+#ifdef MPLS
+    LogMessage("  mpls label = 0x%08X\n", skey->mplsLabel);
+#endif
 }
 
 int GetLWSessionCount(Stream5SessionCache *sessionCache)
@@ -71,7 +79,7 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
 {
     u_int16_t sport;
     u_int16_t dport;
-
+    int proto;
     /* Because the key is going to be used for hash lookups,
      * the lower of the values of the IP address field is
      * stored in the key->ip_l and the port for that ip is
@@ -81,7 +89,136 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
     if (!key)
         return 0;
 
-    switch (p->iph->ip_proto)
+#ifdef SUP_IP6 
+    if (IS_IP4(p)) 
+    {
+        u_int32_t *src;
+        u_int32_t *dst;
+
+        proto = p->ip4h->ip_proto;
+
+        switch (proto)
+        {
+            case IPPROTO_TCP:
+            case IPPROTO_UDP:
+                sport = p->sp;
+                dport = p->dp;
+                break;
+            case IPPROTO_ICMP:
+            default:
+                sport = dport = 0;
+                break;
+        }
+
+        src = p->ip4h->ip_src.ip32;
+        dst = p->ip4h->ip_dst.ip32;
+
+        /* These comparisons are done in this fashion for performance reasons */
+        if (*src < *dst)
+        {
+            COPY4(key->ip_l, src);
+            COPY4(key->ip_h, dst);
+            key->port_l = sport;
+            key->port_h = dport;
+        }
+        else if (*src == *dst)
+        {
+            COPY4(key->ip_l, src);
+            COPY4(key->ip_h, dst);
+            if (sport < dport)
+            {
+                key->port_l = sport;
+                key->port_h = dport;
+            }
+            else
+            {
+                key->port_l = dport;
+                key->port_h = sport;
+            }
+        }
+        else
+        {
+            COPY4(key->ip_l, dst);
+            key->port_l = dport;
+            COPY4(key->ip_h, src);
+            key->port_h = sport;
+        }
+#ifdef MPLS
+        if(pv.overlapping_IP && (p->mpls)
+            && isPrivateIP(*src) && isPrivateIP(*dst) )
+        {
+            key->mplsLabel = p->mplsHdr.label;
+        } else {
+        	key->mplsLabel = 0;
+        }
+#endif
+    } 
+    else 
+    {
+        /* IPv6 */
+        sfip_t *src;
+        sfip_t *dst;
+
+        proto = p->ip6h->next;
+
+        switch (proto)
+        {
+            case IPPROTO_TCP:
+            case IPPROTO_UDP:
+                sport = p->sp;
+                dport = p->dp;
+                break;
+            case IPPROTO_ICMP:
+            default:
+                sport = dport = 0;
+                break;
+        }
+
+        src = &p->ip6h->ip_src;
+        dst = &p->ip6h->ip_dst;
+
+        if (sfip_fast_lt6(src, dst))
+        {
+            COPY4(key->ip_l, src->ip32);
+            key->port_l = sport;
+            COPY4(key->ip_h, dst->ip32);
+            key->port_h = dport;
+        }
+        else if (sfip_fast_eq6(src, dst))
+        {
+            COPY4(key->ip_l, src->ip32);
+            COPY4(key->ip_h, dst->ip32);
+            if (sport < dport)
+            {
+                key->port_l = sport;
+                key->port_h = dport;
+            }
+            else
+            {
+                key->port_l = dport;
+                key->port_h = sport;
+            }
+        }
+        else
+        {
+            COPY4(key->ip_l, dst->ip32);
+            key->port_l = dport;
+            COPY4(key->ip_h, src->ip32);
+            key->port_h = sport;
+        }
+#ifdef MPLS
+        if(pv.overlapping_IP && (p->mpls))
+        {
+            key->mplsLabel = p->mplsHdr.label;
+        } else {
+        	key->mplsLabel = 0;
+        }
+#endif
+    }
+#else
+    proto = p->iph->ip_proto;
+
+    switch (proto)
     {
         case IPPROTO_TCP:
         case IPPROTO_UDP:
@@ -93,18 +230,19 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
             sport = dport = 0;
             break;
     }
-    
-    if (p->iph->ip_src.s_addr < p->iph->ip_dst.s_addr)
+
+    /* These comparisons are done in this fashion for performance reasons */
+    if (IP_LESSER(GET_SRC_IP(p), GET_DST_IP(p)))
     {
-        key->ip_l = p->iph->ip_src.s_addr;
+        IP_COPY_VALUE(key->ip_l, GET_SRC_IP(p));
         key->port_l = sport;
-        key->ip_h = p->iph->ip_dst.s_addr;
+        IP_COPY_VALUE(key->ip_h, GET_DST_IP(p));
         key->port_h = dport;
     }
-    else if (p->iph->ip_src.s_addr == p->iph->ip_dst.s_addr)
+    else if (IP_EQUALITY(GET_SRC_IP(p), GET_DST_IP(p)))
     {
-        key->ip_l = p->iph->ip_src.s_addr;
-        key->ip_h = p->iph->ip_dst.s_addr;
+        IP_COPY_VALUE(key->ip_l, GET_SRC_IP(p));
+        IP_COPY_VALUE(key->ip_h, GET_DST_IP(p));
         if (sport < dport)
         {
             key->port_l = sport;
@@ -118,13 +256,23 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
     }
     else
     {
-        key->ip_l = p->iph->ip_dst.s_addr;
+        IP_COPY_VALUE(key->ip_l, GET_DST_IP(p));
         key->port_l = dport;
-        key->ip_h = p->iph->ip_src.s_addr;
+        IP_COPY_VALUE(key->ip_h, GET_SRC_IP(p));
         key->port_h = sport;
     }
+#ifdef MPLS
+    if(pv.overlapping_IP && (p->mpls)
+                && isPrivateIP(key->ip_l) && isPrivateIP(key->ip_h))
+    {
+        key->mplsLabel = p->mplsHdr.label;
+    } else {
+    	key->mplsLabel = 0;
+    }
+#endif
+#endif
 
-    key->protocol = p->iph->ip_proto;
+    key->protocol = proto;
 
     if (p->vh)
         key->vlan_tag = (u_int16_t)VTH_VLAN(p->vh);
@@ -132,12 +280,15 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
         key->vlan_tag = 0;
 
     key->pad = 0;
-
+#ifdef MPLS
+    key->mplsPad = 0;
+#endif
     return 1;
 }
 
 void GetLWPacketDirection(Packet *p, Stream5LWSession *ssn)
 {
+#ifndef SUP_IP6
     if (p->iph->ip_src.s_addr == ssn->client_ip)
     {
         if (p->iph->ip_proto == IPPROTO_TCP)
@@ -201,6 +352,130 @@ void GetLWPacketDirection(Packet *p, Stream5LWSession *ssn)
         /* Uh, no match of the packet to the session. */
         /* Probably should log an error */
     }
+#else
+    if(IS_IP4(p))
+    {
+        if (sfip_fast_eq4(&p->ip4h->ip_src, &ssn->client_ip))
+        {
+            if (p->ip4h->ip_proto == IPPROTO_TCP)
+            {
+                if (p->tcph->th_sport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+            }
+            else if (p->ip4h->ip_proto == IPPROTO_UDP)
+            {
+                if (p->udph->uh_sport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+            }
+            else if (p->ip4h->ip_proto == IPPROTO_ICMP)
+            {
+                p->packet_flags |= PKT_FROM_CLIENT;
+            }
+        }
+        else if (sfip_fast_eq4(&p->ip4h->ip_dst, &ssn->client_ip))
+        {
+            if  (p->ip4h->ip_proto == IPPROTO_TCP)
+            {
+                if (p->tcph->th_dport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+            }
+            else if (p->ip4h->ip_proto == IPPROTO_UDP)
+            {
+                if (p->udph->uh_dport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+            }
+            else if (p->ip4h->ip_proto == IPPROTO_ICMP)
+            {
+                p->packet_flags |= PKT_FROM_CLIENT;
+            }
+        }
+    }
+    else /* IS_IP6(p) */
+    {
+        if (sfip_fast_eq6(&p->ip6h->ip_src, &ssn->client_ip))
+        {
+            if (p->ip6h->next == IPPROTO_TCP)
+            {
+                if (p->tcph->th_sport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+            }
+            else if (p->ip6h->next == IPPROTO_UDP)
+            {
+                if (p->udph->uh_sport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+            }
+            else if (p->ip6h->next == IPPROTO_ICMP)
+            {
+                p->packet_flags |= PKT_FROM_CLIENT;
+            }
+        }
+        else if (sfip_fast_eq6(&p->ip6h->ip_dst, &ssn->client_ip))
+        {
+            if  (p->ip6h->next == IPPROTO_TCP)
+            {
+                if (p->tcph->th_dport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+            }
+            else if (p->ip6h->next == IPPROTO_UDP)
+            {
+                if (p->udph->uh_dport == ssn->client_port)
+                {
+                    p->packet_flags |= PKT_FROM_SERVER;
+                }
+                else
+                {
+                    p->packet_flags |= PKT_FROM_CLIENT;
+                }
+            }
+            else if (p->ip6h->next == IPPROTO_ICMP)
+            {
+                p->packet_flags |= PKT_FROM_CLIENT;
+            }
+        }
+    }
+#endif /* SUP_IP6 */
 }
 
 Stream5LWSession *GetLWSession(Stream5SessionCache *sessionCache, Packet *p, SessionKey *key)
@@ -208,8 +483,13 @@ Stream5LWSession *GetLWSession(Stream5SessionCache *sessionCache, Packet *p, Ses
     Stream5LWSession *returned = NULL;
     SFXHASH_NODE *hnode;
 
-    if (!GetLWSessionKey(p, key))
+    if (!sessionCache)
         return NULL;
+
+    if (!GetLWSessionKey(p, key)) 
+    {
+        return NULL;
+    }
 
     hnode = sfxhash_find_node(sessionCache->hashTable, key);
 
@@ -231,6 +511,9 @@ Stream5LWSession *GetLWSessionFromKey(Stream5SessionCache *sessionCache, Session
 {
     Stream5LWSession *returned = NULL;
     SFXHASH_NODE *hnode;
+
+    if (!sessionCache)
+        return NULL;
 
     hnode = sfxhash_find_node(sessionCache->hashTable, key);
 
@@ -270,8 +553,37 @@ int RemoveLWSession(Stream5SessionCache *sessionCache, Stream5LWSession *ssn)
 }
 
 int DeleteLWSession(Stream5SessionCache *sessionCache,
-                   Stream5LWSession *ssn)
+                   Stream5LWSession *ssn, char *delete_reason)
 {
+    int ret;
+
+    /* Save the current mem in use before pruning */
+    u_int32_t old_mem_in_use = s5_global_config.mem_in_use;
+
+    /* And save some info on that session */
+#ifdef SUP_IP6
+    sfip_t client_ip;
+    sfip_t server_ip;
+#else
+    struct in_addr client_ip;
+    struct in_addr server_ip;
+#endif
+    u_int16_t client_port = ntohs(ssn->client_port);
+    u_int16_t server_port = ntohs(ssn->server_port);
+    u_int16_t lw_session_state = ssn->session_state;
+    u_int32_t lw_session_flags = ssn->session_flags;
+#ifdef TARGET_BASED
+    int16_t app_proto_id = ssn->application_protocol;
+#endif
+
+#ifdef SUP_IP6
+    sfip_set_ip(&client_ip, &ssn->client_ip);
+    sfip_set_ip(&server_ip, &ssn->server_ip);
+#else
+    client_ip.s_addr = ssn->client_ip;
+    server_ip.s_addr = ssn->server_ip;
+#endif
+
     /* 
      * Call callback to cleanup the protocol (TCP/UDP/ICMP)
      * specific session details
@@ -281,7 +593,40 @@ int DeleteLWSession(Stream5SessionCache *sessionCache,
 
     FreeLWApplicationData(ssn);
 
-    return RemoveLWSession(sessionCache, ssn);
+    ret = RemoveLWSession(sessionCache, ssn);
+    /* If we're pruning and we clobbered some large amount, log a
+     * message about that session. */
+    if (s5_global_config.prune_log_max &&
+        ((old_mem_in_use - s5_global_config.mem_in_use ) >
+            s5_global_config.prune_log_max))
+    {
+        char *client_ip_str, *server_ip_str;
+#ifdef SUP_IP6
+        client_ip_str = SnortStrdup(inet_ntoa(&client_ip));
+        server_ip_str = SnortStrdup(inet_ntoa(&server_ip));
+#else
+        client_ip_str = SnortStrdup(inet_ntoa(client_ip));
+        server_ip_str = SnortStrdup(inet_ntoa(server_ip));
+#endif
+        LogMessage("S5: Pruned session from cache that was "
+                   "using %d bytes (%s). %s %d --> %s %d "
+#ifdef TARGET_BASED
+                   "(%d) "
+#endif
+                   ": LWstate 0x%x LWFlags 0x%x\n",
+                   old_mem_in_use - s5_global_config.mem_in_use,
+                   delete_reason,
+                   client_ip_str, client_port,
+                   server_ip_str, server_port,
+#ifdef TARGET_BASED
+                   app_proto_id,
+#endif
+                   lw_session_state, lw_session_flags);
+        free(client_ip_str);
+        free(server_ip_str);
+    }
+
+    return ret;
 }
 
 int PurgeLWSessionCache(Stream5SessionCache *sessionCache)
@@ -305,11 +650,24 @@ int PurgeLWSessionCache(Stream5SessionCache *sessionCache)
         else
         {
             idx->session_flags |= SSNFLAG_PRUNED;
-            DeleteLWSession(sessionCache, idx);
+            DeleteLWSession(sessionCache, idx, "purge whole cache");
         }
         hnode = sfxhash_mru_node(sessionCache->hashTable);
         retCount++;
     }
+
+    return retCount;
+}
+
+int DeleteLWSessionCache(Stream5SessionCache *sessionCache)
+{
+    int retCount = 0;
+
+    if (!sessionCache)
+        return 0;
+
+    retCount = PurgeLWSessionCache(sessionCache);
+
     sfxhash_delete(sessionCache->hashTable);
     free(sessionCache);
 
@@ -362,7 +720,8 @@ int PruneLWSessionCache(Stream5SessionCache *sessionCache,
                 {
                     DEBUG_WRAP(DebugMessage(DEBUG_STREAM, "pruning stale session\n"););
                     savidx->session_flags |= SSNFLAG_TIMEDOUT;
-                    DeleteLWSession(sessionCache, savidx);
+                    DeleteLWSession(sessionCache, savidx, "stale/timeout");
+
                     idx = (Stream5LWSession *) sfxhash_lru(sessionCache->hashTable);
                     pruned++;
                     got_one = 1;
@@ -370,7 +729,7 @@ int PruneLWSessionCache(Stream5SessionCache *sessionCache,
                 else
                 {
                     savidx->session_flags |= SSNFLAG_TIMEDOUT;
-                    DeleteLWSession(sessionCache, savidx);
+                    DeleteLWSession(sessionCache, savidx, "stale/timeout/last ssn");
                     pruned++;
                     return pruned;
                 }
@@ -426,7 +785,7 @@ int PruneLWSessionCache(Stream5SessionCache *sessionCache,
                 if(idx != save_me)
                 {
                     idx->session_flags |= SSNFLAG_PRUNED;
-                    DeleteLWSession(sessionCache, idx);
+                    DeleteLWSession(sessionCache, idx, memCheck ? "memcap/check" : "memcap/stale");
                     pruned++;
                     idx = (Stream5LWSession *) sfxhash_lru(sessionCache->hashTable);
                 }
@@ -455,7 +814,7 @@ int PruneLWSessionCache(Stream5SessionCache *sessionCache,
     }
     if (memCheck && pruned)
     {
-        LogMessage("S5: Pruned %d sessions from cache. %d ssns for memcap: %d/%d\n",
+        LogMessage("S5: Pruned %d sessions from cache for memcap. %d ssns remain.  memcap: %d/%d\n",
             pruned, sfxhash_count(sessionCache->hashTable),
             s5_global_config.mem_in_use, 
             s5_global_config.memcap);
@@ -503,7 +862,7 @@ Stream5LWSession *NewLWSession(Stream5SessionCache *sessionCache, Packet *p, Ses
 
         /* Save the session key for future use */
         memcpy(&(retSsn->key), key, sizeof(SessionKey));
-
+        
         retSsn->protocol = key->protocol;
         retSsn->last_data_seen = p->pkth->ts.tv_sec;
         retSsn->flowdata = mempool_alloc(&s5FlowMempool);
@@ -512,6 +871,101 @@ Stream5LWSession *NewLWSession(Stream5SessionCache *sessionCache, Packet *p, Ses
                 flowdata->flowb);
     }
     return retSsn;
+}
+
+u_int32_t HashFunc(SFHASHFCN *p, unsigned char *d, int n) 
+{
+    u_int32_t a,b,c;
+#ifdef MPLS
+    u_int32_t tmp = 0;
+#endif
+    
+#ifdef SUP_IP6
+    a = *(u_int32_t*)d;         /* IPv6 lo[0] */
+    b = *(u_int32_t*)(d+4);     /* IPv6 lo[1] */
+    c = *(u_int32_t*)(d+8);     /* IPv6 lo[2] */
+
+    mix(a,b,c);
+
+    a += *(u_int32_t*)(d+12);   /* IPv6 lo[3] */
+    b += *(u_int32_t*)(d+16);   /* IPv6 hi[0] */
+    c += *(u_int32_t*)(d+20);   /* IPv6 hi[1] */
+
+    mix(a,b,c);
+
+    a += *(u_int32_t*)(d+24);   /* IPv6 hi[2] */
+    b += *(u_int32_t*)(d+28);   /* IPv6 hi[3] */
+    c += *(u_int32_t*)(d+32);   /* port lo & port hi */
+
+    mix(a,b,c);
+
+    a += *(u_int32_t*)(d+36);   /* vlan, protocol, & pad */
+#ifdef MPLS
+    tmp = *(u_int32_t *)(d+40);
+    if( tmp )
+    {
+        b += tmp;   /* mpls label */
+    }
+    mix(a,b,c);
+#endif
+#else
+    a = *(u_int32_t*)d;         /* IPv4 lo */
+    b = *(u_int32_t*)(d+4);     /* IPv4 hi */
+    c = *(u_int32_t*)(d+8);     /* port lo & port hi */
+
+    mix(a,b,c);
+
+    a += *(u_int32_t*)(d+12);   /* vlan, protocol, & pad */
+#ifdef MPLS
+    tmp = *(u_int32_t *)(d+16);
+    if( tmp )
+    {
+        b += tmp;   /* mpls label */
+    }
+    mix(a,b,c);
+#endif
+#endif
+
+    final(a,b,c);
+
+    return c;
+}
+    
+int HashKeyCmp(const void *s1, const void *s2, size_t n) 
+{
+    UINT64 *a,*b;
+
+    a = (UINT64*)s1;
+    b = (UINT64*)s2;
+    if(*a - *b) return 1;       /* Compares IPv4 lo/hi */
+                                /* SUP_IP6 Compares IPv6 low[0,1] */
+
+    a++;
+    b++;
+    if(*a - *b) return 1;       /* Compares port lo/hi, vlan, protocol, pad */
+                                /* SUP_IP6 Compares IPv6 low[2,3] */
+
+#ifdef SUP_IP6
+    a++;
+    b++;
+    if(*a - *b) return 1;       /* SUP_IP6 Compares IPv6 hi[0,1] */
+
+    a++;
+    b++;
+    if(*a - *b) return 1;       /* SUP_IP6 Compares IPv6 hi[2,3] */
+
+    a++;
+    b++;
+    if(*a - *b) return 1;       /* SUP_IP6 Compares port lo/hi, vlan, protocol, pad */
+#endif
+
+#ifdef MPLS
+    a++;
+    b++;
+    if(*a - *b) return 1;       /* mpls label and pad */                               
+#endif
+    
+    return 0;
 }
 
 Stream5SessionCache *InitLWSessionCache(int max_sessions,
@@ -524,7 +978,10 @@ Stream5SessionCache *InitLWSessionCache(int max_sessions,
     /* Rule of thumb, size should be 1.4 times max to avoid
      * collisions.
      */
-    int hashTableSize = sfxhash_calcrows((int) (max_sessions * 1.4));
+
+    int hashTableSize = max_sessions;
+//    int hashTableSize = sfxhash_calcrows((int) (max_sessions * 1.4));
+
     /* Memory required for 1 node: LW Session + Session Key +
      * Node + NodePtr.
      */
@@ -564,6 +1021,9 @@ Stream5SessionCache *InitLWSessionCache(int max_sessions,
             0, 0, NULL, NULL, 1);
 
         sfxhash_set_max_nodes(sessionCache->hashTable, max_sessions);
+//#ifdef SUP_IP6
+        sfxhash_set_keyops(sessionCache->hashTable, HashFunc, HashKeyCmp);
+//#endif
     }
 
     return sessionCache;

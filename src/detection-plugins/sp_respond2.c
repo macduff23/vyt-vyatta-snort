@@ -116,6 +116,16 @@
 #define DEFAULT_ROWS 1024
 #define DEFAULT_MEMCAP (1024 * 1024)
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats respond2PerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 typedef struct _RespondData
 {
     u_int response_flag;
@@ -137,7 +147,7 @@ typedef struct _RESPOND2_CONFIG
     int rows;                           /* response cache size (in rows) */
     int memcap;                         /* response cache memcap */
     u_int8_t respond_attempts;          /* respond attempts per trigger */
-    ip_t *rawdev;                       /* dnet(3) raw IP handle */
+    snort_ip *rawdev;                       /* dnet(3) raw IP handle */
     eth_t *ethdev;                      /* dnet(3) ethernet device handle */   
     rand_t *randh;                      /* dnet(3) rand handle */
 } RESPOND2_CONFIG;
@@ -190,6 +200,36 @@ static INLINE int respkey_make(RESPKEY *hashkey, Packet *p);
 
 
 /* ######## API section ######## */
+u_int32_t Respond2Hash(void *d)
+{
+    u_int32_t a,b,c,tmp;
+    int i,j,k,l;
+    RespondData *data = (RespondData *)d;
+
+    a = data->response_flag;
+    b = RULE_OPTION_TYPE_RESPOND2;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int Respond2Compare(void *l, void *r)
+{
+    RespondData *left = (RespondData *)l;
+    RespondData *right = (RespondData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->response_flag == right->response_flag)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /**
  * Initialize respond2 plugin
@@ -198,7 +238,10 @@ static INLINE int respkey_make(RESPKEY *hashkey, Packet *p);
  */
 void SetupRespond2(void)
 {
-    RegisterPlugin("resp", Respond2Init);
+    RegisterPlugin("resp", Respond2Init, NULL, OPT_TYPE_ACTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("resp2", &respond2PerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     GenRandIPID(&config);  /* generate random IP ID cache */
 
     return;
@@ -218,6 +261,7 @@ static void Respond2Init(char *data, OptTreeNode *otn, int protocol)
 {
     static int setup = 0;
     RespondData *rd = NULL;
+    void *idx_dup;
 
     if (!(protocol & (IPPROTO_ICMP | IPPROTO_TCP | IPPROTO_UDP)))
         FatalError("%s: %s(%d): Can't respond to IP protocol rules.\n", 
@@ -270,10 +314,14 @@ static void Respond2Init(char *data, OptTreeNode *otn, int protocol)
         );
     }
 
-
-
     rd->response_flag = ParseResponse2(data);
     
+    if (add_detection_option(RULE_OPTION_TYPE_RESPOND2, (void *)rd, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(rd);
+        rd = idx_dup;
+     }
+
     AddRspFuncToList(Respond2, otn, (void *)rd);
     /* Restart and CleanExit function are identical */
     AddFuncToCleanExitList(Respond2Restart, &config);
@@ -445,7 +493,10 @@ static int ParseResponse2(char *type)
  */
 static int Respond2(Packet *p, RspFpList *fp_list)
 {
-    RespondData *rd = (RespondData *)fp_list->params;
+    RespondData *rd;
+    PROFILE_VARS;
+    
+    rd = (RespondData *)fp_list->params;
 
     if (p->iph == NULL)
         return 0;
@@ -453,6 +504,8 @@ static int Respond2(Packet *p, RspFpList *fp_list)
     /* check the dampen cache before responding */
     if ((dampen_response(p)) == 1)
         return 0;
+
+    PREPROC_PROFILE_START(respond2PerfStats);
 
     if (rd->response_flag)
     {
@@ -478,6 +531,7 @@ static int Respond2(Packet *p, RspFpList *fp_list)
         if (rd->response_flag & RESP_BAD_PORT && IsUNRCandidate(p))
             SendUnreach(ICMP_UNREACH_PORT, p, &config);
     }
+    PREPROC_PROFILE_END(respond2PerfStats);
     return 1;   /* injection functions do not return an error */
 }
 
@@ -504,6 +558,8 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
 #if defined(DEBUG)
     char *source, *dest;
 #endif
+
+    if(IS_IP6(p)) return;
 
     if (mode == RESP_RST_SND)
         reversed = 1;
@@ -548,8 +604,8 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     /* Reverse the source and destination IP addr for attack-response rules */
     if (reversed)
     {
-        iph->ip_src.s_addr = p->iph->ip_dst.s_addr;
-        iph->ip_dst.s_addr = p->iph->ip_src.s_addr;
+        iph->ip_src.s_addr = GET_SRC_IP(p);
+        iph->ip_dst.s_addr = GET_DST_IP(p);
 
         tcp->th_sport = p->tcph->th_dport;
         tcp->th_dport = p->tcph->th_sport;
@@ -558,8 +614,8 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     }
     else
     {
-        iph->ip_src.s_addr = p->iph->ip_src.s_addr;
-        iph->ip_dst.s_addr = p->iph->ip_dst.s_addr;
+        iph->ip_src.s_addr = GET_SRC_IP(p);
+        iph->ip_dst.s_addr = GET_DST_IP(p);
 
         tcp->th_sport = p->tcph->th_sport;
         tcp->th_dport = p->tcph->th_dport;
@@ -652,8 +708,13 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     
 #if defined(DEBUG)
         DEBUG_WRAP(
+#ifndef SUP_IP6
                 source = strdup(inet_ntoa(*(struct in_addr *)&iph->ip_src.s_addr));
                 dest = strdup(inet_ntoa(*(struct in_addr *)&iph->ip_dst.s_addr));
+#else
+                source = "";
+                dest = "";
+#endif
                 DebugMessage(DEBUG_PLUGIN, "%s: firing TCP response packet.\n",
                         MODNAME);
                 DebugMessage(DEBUG_PLUGIN, "%s:%u -> %s:%d\n(seq: %#lX "
@@ -703,8 +764,10 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
     char *source, *dest, *icmp_rtype;
 #endif
 
+    if(IS_IP6(p)) return;
+
     /* only send ICMP port unreachable responses for TCP and UDP */
-    if (p->iph->ip_proto == IPPROTO_ICMP && code == ICMP_UNREACH_PORT)
+    if (GET_IPH_PROTO(p) == IPPROTO_ICMP && code == ICMP_UNREACH_PORT)
     {
         ErrorMessage("%s: ignoring icmp_port set on ICMP packet.\n", MODNAME);
         return;
@@ -713,8 +776,8 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
     iph = (IPHdr *)(icmp_pkt + link_offset);
     icmph = (ICMPHdr *)(icmp_pkt + IP_HDR_LEN + link_offset);
 
-    iph->ip_src.s_addr = p->iph->ip_dst.s_addr;
-    iph->ip_dst.s_addr = p->iph->ip_src.s_addr;
+    iph->ip_src.s_addr = GET_DST_IP(p);
+    iph->ip_dst.s_addr = GET_SRC_IP(p);
     iph->ip_ttl = CalcOriginalTTL(p);
 
     icmph->code = code;
@@ -746,11 +809,11 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
         }
     }
 
-    if ((payload_len = ntohs(p->iph->ip_len) - (IP_HLEN(p->iph) << 2)) > 8)
+    if ((payload_len = ntohs(GET_IPH_LEN(p)) - (GET_IPH_HLEN(p) << 2)) > 8)
         payload_len = 8;
 
     memcpy((char *)icmph + ICMP_LEN_MIN, p->iph, (IP_HLEN(p->iph) << 2)
-            + payload_len);
+              + payload_len);
 
     sz = IP_HDR_LEN + ICMP_LEN_MIN + (IP_HLEN(p->iph) << 2) + payload_len;
 
@@ -760,8 +823,13 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
 
 #if defined(DEBUG)
     DEBUG_WRAP(
+#ifdef SUP_IP6
+            source = strdup(sfip_ntoa(iph->ip_src.s_addr));
+            dest = strdup(sfip_ntoa(iph->ip_dst.s_addr));
+#else
             source = strdup(inet_ntoa(*(struct in_addr *)&iph->ip_src.s_addr));
             dest = strdup(inet_ntoa(*(struct in_addr *)&iph->ip_dst.s_addr));
+#endif
             switch (code)
             {
                 case RESP_BAD_NET:

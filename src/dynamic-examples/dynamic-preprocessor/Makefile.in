@@ -42,7 +42,15 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
-LTLIBRARIES = $(noinst_LTLIBRARIES)
+am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
+am__vpath_adj = case $$p in \
+    $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
+    *) f=$$p;; \
+  esac;
+am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
+am__installdirs = "$(DESTDIR)$(noinst_libdir)"
+noinst_libLTLIBRARIES_INSTALL = $(INSTALL)
+LTLIBRARIES = $(noinst_lib_LTLIBRARIES)
 lib_sfdynamic_preprocessor_example_la_LIBADD =
 nodist_lib_sfdynamic_preprocessor_example_la_OBJECTS =  \
 	sf_dynamic_preproc_lib.lo spp_example.lo
@@ -106,6 +114,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -136,6 +145,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -170,7 +180,7 @@ htmldir = @htmldir@
 includedir = @includedir@
 infodir = @infodir@
 install_sh = @install_sh@
-libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
+libdir = @libdir@
 libexecdir = @libexecdir@
 localedir = @localedir@
 localstatedir = @localstatedir@
@@ -189,8 +199,9 @@ target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
-noinst_LTLIBRARIES = lib_sfdynamic_preprocessor_example.la
-lib_sfdynamic_preprocessor_example_la_LDFLAGS = -module
+noinst_libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
+noinst_lib_LTLIBRARIES = lib_sfdynamic_preprocessor_example.la
+lib_sfdynamic_preprocessor_example_la_LDFLAGS = -export-dynamic
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c 
 
@@ -237,17 +248,35 @@ $(top_srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+install-noinst_libLTLIBRARIES: $(noinst_lib_LTLIBRARIES)
+	@$(NORMAL_INSTALL)
+	test -z "$(noinst_libdir)" || $(MKDIR_P) "$(DESTDIR)$(noinst_libdir)"
+	@list='$(noinst_lib_LTLIBRARIES)'; for p in $$list; do \
+	  if test -f $$p; then \
+	    f=$(am__strip_dir) \
+	    echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(noinst_libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) '$$p' '$(DESTDIR)$(noinst_libdir)/$$f'"; \
+	    $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(noinst_libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) "$$p" "$(DESTDIR)$(noinst_libdir)/$$f"; \
+	  else :; fi; \
+	done
 
-clean-noinstLTLIBRARIES:
-	-test -z "$(noinst_LTLIBRARIES)" || rm -f $(noinst_LTLIBRARIES)
-	@list='$(noinst_LTLIBRARIES)'; for p in $$list; do \
+uninstall-noinst_libLTLIBRARIES:
+	@$(NORMAL_UNINSTALL)
+	@list='$(noinst_lib_LTLIBRARIES)'; for p in $$list; do \
+	  p=$(am__strip_dir) \
+	  echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f '$(DESTDIR)$(noinst_libdir)/$$p'"; \
+	  $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f "$(DESTDIR)$(noinst_libdir)/$$p"; \
+	done
+
+clean-noinst_libLTLIBRARIES:
+	-test -z "$(noinst_lib_LTLIBRARIES)" || rm -f $(noinst_lib_LTLIBRARIES)
+	@list='$(noinst_lib_LTLIBRARIES)'; for p in $$list; do \
 	  dir="`echo $$p | sed -e 's|/[^/]*$$||'`"; \
 	  test "$$dir" != "$$p" || dir=.; \
 	  echo "rm -f \"$${dir}/so_locations\""; \
 	  rm -f "$${dir}/so_locations"; \
 	done
 lib_sfdynamic_preprocessor_example.la: $(lib_sfdynamic_preprocessor_example_la_OBJECTS) $(lib_sfdynamic_preprocessor_example_la_DEPENDENCIES) 
-	$(lib_sfdynamic_preprocessor_example_la_LINK)  $(lib_sfdynamic_preprocessor_example_la_OBJECTS) $(lib_sfdynamic_preprocessor_example_la_LIBADD) $(LIBS)
+	$(lib_sfdynamic_preprocessor_example_la_LINK) -rpath $(noinst_libdir) $(lib_sfdynamic_preprocessor_example_la_OBJECTS) $(lib_sfdynamic_preprocessor_example_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -348,6 +377,9 @@ check: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) check-am
 all-am: Makefile $(LTLIBRARIES)
 installdirs:
+	for dir in "$(DESTDIR)$(noinst_libdir)"; do \
+	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
+	done
 install: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) install-am
 install-exec: install-exec-am
@@ -377,7 +409,7 @@ maintainer-clean-generic:
 clean: clean-am
 
 clean-am: clean-generic clean-libtool clean-local \
-	clean-noinstLTLIBRARIES mostlyclean-am
+	clean-noinst_libLTLIBRARIES mostlyclean-am
 
 distclean: distclean-am
 	-rm -f Makefile
@@ -394,7 +426,7 @@ info: info-am
 
 info-am:
 
-install-data-am:
+install-data-am: install-noinst_libLTLIBRARIES
 
 install-dvi: install-dvi-am
 
@@ -429,23 +461,24 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am:
+uninstall-am: uninstall-noinst_libLTLIBRARIES
 
 .MAKE: install-am install-strip
 
 .PHONY: CTAGS GTAGS all all-am check check-am clean clean-generic \
-	clean-libtool clean-local clean-noinstLTLIBRARIES ctags \
+	clean-libtool clean-local clean-noinst_libLTLIBRARIES ctags \
 	distclean distclean-compile distclean-generic \
 	distclean-libtool distclean-tags distdir dvi dvi-am html \
 	html-am info info-am install install-am install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
 	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-pdf install-pdf-am \
-	install-ps install-ps-am install-strip installcheck \
-	installcheck-am installdirs maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	tags uninstall uninstall-am
+	install-info-am install-man install-noinst_libLTLIBRARIES \
+	install-pdf install-pdf-am install-ps install-ps-am \
+	install-strip installcheck installcheck-am installdirs \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
+	pdf pdf-am ps ps-am tags uninstall uninstall-am \
+	uninstall-noinst_libLTLIBRARIES
 
 
 sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c

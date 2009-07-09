@@ -542,7 +542,8 @@ void ClamAVInit(char *args)
    clam_limits.archivememlim = 0;
 
    /* register the VirusChecker */
-   AddFuncToPreprocList(VirusChecker, PRIORITY_SCANNER, PP_CLAMAV);
+   AddFuncToPreprocList(VirusChecker, PRIORITY_SCANNER, PP_CLAMAV, 
+			PROTO_BIT__ALL);
 }
 
 

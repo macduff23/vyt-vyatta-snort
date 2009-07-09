@@ -68,8 +68,11 @@ while (<>) {
       }
       if ( $line =~ m/^\[Classification\:([^\]]*)\]\s
 	   \[Priority\:\s(\d+)\]/ox) {
-        $alert->{CLASS} = $1; $alert->{CONTENT} = $2; $alert->{PRIORITY} = $3;
+        $alert->{CLASS} = $1; $alert->{PRIORITY} = $2;
 	$line=<>;
+      }
+      if ( $line =~ m/^\[Priority\:\s(\d+)\]/ox) {
+          $alert->{PRIORITY} = $1;
       }
       if ( $line =~ m/^(\d+)\/(\d+)(?:\/\d+)?\-(\d+)\:(\d+)\:(\d+)\.(\d+)\s
 	   ([\d\.]+)[\:]*([\d]*)\s[\-\>]+\s([\d\.]+)[\:]*([\d]*)/ox) {

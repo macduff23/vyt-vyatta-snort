@@ -1,6 +1,7 @@
 /* $Id$ */
 
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -74,6 +75,15 @@
 #include "plugin_enum.h"
 #include "snort.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats sessionPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 #define SESSION_PRINTABLE  1
 #define SESSION_ALL        2
@@ -86,9 +96,39 @@ typedef struct _SessionData
 
 void SessionInit(char *, OptTreeNode *, int);
 void ParseSession(char *, OptTreeNode *);
-int LogSessionData(Packet *, struct _OptTreeNode *, OptFpList *);
-void DumpSessionData(FILE *, Packet *, struct _OptTreeNode *);
+int LogSessionData(void *option_data, Packet *p);
+void DumpSessionData(FILE *, Packet *, SessionData *);
 FILE *OpenSessionFile(Packet *);
+
+u_int32_t SessionHash(void *d)
+{
+    u_int32_t a,b,c;
+    SessionData *data = (SessionData *)d;
+
+    a = data->session_flag;
+    b = RULE_OPTION_TYPE_SESSION;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int SessionCompare(void *l, void *r)
+{
+    SessionData *left = (SessionData *)l;
+    SessionData *right = (SessionData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+    
+    if (left->session_flag == right->session_flag)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 
 /****************************************************************************
@@ -105,7 +145,10 @@ FILE *OpenSessionFile(Packet *);
 void SetupSession(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("session", SessionInit);
+    RegisterPlugin("session", SessionInit, NULL, OPT_TYPE_LOGGING);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("session", &sessionPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: Session Setup\n"););
 }
 
@@ -125,6 +168,7 @@ void SetupSession(void)
  *************************************************************************/
 void SessionInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
 
     /*
      * Theoretically we should only all this plugin to be used when there's a 
@@ -159,7 +203,9 @@ void SessionInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(LogSessionData, otn);
+    fpl = AddOptFuncToList(LogSessionData, otn);
+    fpl->context = otn->ds_list[PLUGIN_SESSION];
+    fpl->type = RULE_OPTION_TYPE_SESSION;
 }
 
 
@@ -179,6 +225,7 @@ void SessionInit(char *data, OptTreeNode *otn, int protocol)
 void ParseSession(char *data, OptTreeNode *otn)
 {
     SessionData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -208,6 +255,11 @@ void ParseSession(char *data, OptTreeNode *otn)
 
     FatalError("%s(%d): invalid session modifier: %s\n", file_name, file_line, data);
 
+    if (add_detection_option(RULE_OPTION_TYPE_SESSION, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_SESSION] = ds_ptr_dup;
+    }
 }
 
 
@@ -225,9 +277,13 @@ void ParseSession(char *data, OptTreeNode *otn)
  *          it just logs it....)
  *
  ****************************************************************************/
-int LogSessionData(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int LogSessionData(void *option_data, Packet *p)
 {
+    SessionData *session_data = (SessionData *)option_data;
     FILE *session;         /* session file ptr */
+    PROFILE_VARS;
+
+    PREPROC_PROFILE_START(sessionPerfStats);
 
     /* if there's data in this packet */
     if(p != NULL) 
@@ -238,24 +294,24 @@ int LogSessionData(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
 
              if(session == NULL)
              {
-                 return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+                 PREPROC_PROFILE_END(sessionPerfStats);
+                 return DETECTION_OPTION_MATCH;
              }
 
-             DumpSessionData(session, p, otn);
+             DumpSessionData(session, p, session_data);
 
              fclose(session);
         }
     }
 
-    return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+    PREPROC_PROFILE_END(sessionPerfStats);
+    return DETECTION_OPTION_MATCH;
 }
 
-
-
-void DumpSessionData(FILE *fp, Packet *p, struct _OptTreeNode *otn)
+void DumpSessionData(FILE *fp, Packet *p, SessionData *sessionData)
 {
-    u_char *idx;
-    u_char *end;
+    const u_char *idx;
+    const u_char *end;
     char conv[] = "0123456789ABCDEF"; /* xlation lookup table */
 
     if(p->dsize == 0 || p->data == NULL || p->frag_flag)
@@ -264,7 +320,7 @@ void DumpSessionData(FILE *fp, Packet *p, struct _OptTreeNode *otn)
     idx = p->data;
     end = idx + p->dsize;
 
-    if(((SessionData *) otn->ds_list[PLUGIN_SESSION])->session_flag == SESSION_PRINTABLE)
+    if(sessionData->session_flag == SESSION_PRINTABLE)
     {
         while(idx != end)
         {
@@ -275,7 +331,7 @@ void DumpSessionData(FILE *fp, Packet *p, struct _OptTreeNode *otn)
             idx++;
         }
     }
-    else if(((SessionData *) otn->ds_list[PLUGIN_SESSION])->session_flag == SESSION_BINARY)
+    else if(sessionData->session_flag == SESSION_BINARY)
     {
         fwrite(p->data, p->dsize, sizeof(char), fp);
     }
@@ -309,6 +365,10 @@ FILE *OpenSessionFile(Packet *p)
     char filename[STD_BUF];
     char log_path[STD_BUF];
     char session_file[STD_BUF]; /* name of session file */
+#ifdef SUP_IP6
+    sfip_t *dst, *src;
+#endif        
+
     FILE *ret;
 
     if(p->frag_flag)  
@@ -320,39 +380,50 @@ FILE *OpenSessionFile(Packet *p)
     bzero((char *)log_path, STD_BUF);
 
     /* figure out which way this packet is headed in relation to the homenet */
+#ifdef SUP_IP6
+    dst = GET_DST_IP(p);
+    src = GET_SRC_IP(p);
+    if(sfip_contains(&pv.homenet, dst) == SFIP_CONTAINS) {
+        if(sfip_contains(&pv.homenet, src) == SFIP_NOT_CONTAINS)
+#else
     if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
     {
         if((p->iph->ip_src.s_addr & pv.netmask) != pv.homenet)
+#endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_src));
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_src));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_dst));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }
     else
     {
+#ifdef SUP_IP6
+        if(sfip_contains(&pv.homenet, src) == SFIP_CONTAINS)
+#else
         if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
+#endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_dst));
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_src));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(p->iph->ip_dst));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }

@@ -5,6 +5,7 @@ EXTRA_DIST= \
 ./WIN32-Code/getopt.c \
 ./WIN32-Code/getopt_long.c \
 ./WIN32-Code/inet_aton.c \
+./WIN32-Code/inet_pton.c \
 ./WIN32-Code/misc.c \
 ./WIN32-Code/name.aps \
 ./WIN32-Code/name.h \
@@ -17,6 +18,7 @@ EXTRA_DIST= \
 ./WIN32-Includes/getopt.h \
 ./WIN32-Includes/getopt1.h \
 ./WIN32-Includes/gnuc.h \
+./WIN32-Includes/inttypes.h \
 ./WIN32-Includes/libnet/Devioctl.h \
 ./WIN32-Includes/libnet/IPExport.h \
 ./WIN32-Includes/libnet/IPHlpApi.h \
@@ -128,6 +130,7 @@ EXTRA_DIST= \
 ./WIN32-Prj/snort.dsp \
 ./WIN32-Prj/build_all.dsp \
 ./WIN32-Prj/sf_engine.dsp \
+./WIN32-Prj/sf_engine_initialize.dsp \
 ./WIN32-Prj/snort.dsw
 
 noinst_LIBRARIES =

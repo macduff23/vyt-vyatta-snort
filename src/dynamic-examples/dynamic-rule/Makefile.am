@@ -3,11 +3,11 @@ AUTOMAKE_OPTIONS=foreign no-dependencies
 
 INCLUDES = -I../include
 
-libdir = ${exec_prefix}/lib/snort_dynamicrules
+noinst_libdir = ${exec_prefix}/lib/snort_dynamicrules
 
-noinst_LTLIBRARIES = lib_sfdynamic_example_rule.la
+noinst_lib_LTLIBRARIES = lib_sfdynamic_example_rule.la
 
-lib_sfdynamic_example_rule_la_LDFLAGS = -module
+lib_sfdynamic_example_rule_la_LDFLAGS = -export-dynamic
 
 BUILT_SOURCES = \
 sfsnort_dynamic_detection_lib.c \

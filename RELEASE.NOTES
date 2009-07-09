@@ -1,23 +1,36 @@
-2007-07-09 - Snort 2.7.0
-
-[*] New Additions
-    * Stream5 is now the default stream processor and replaces both flow
-      and Stream4.  Refer to the Snort manual and README.stream5 for
-      details on how to configure it for OS target-specific TCP
-      processing.
+2009-04-23 - Snort 2.8.4.1
 
 [*] Improvements
-    * Fixed header files to avoid conflicts with system files on BSD for
-      IPv6 data structures.
+    * Added the new DCE/RPC preprocessor to the Snort RPM files
 
-    * Reduced memory footprint for smtp preprocessor.
+    * Fixed an issue with the database output plugin. Snort was
+      not inserting records into the sensor table.
 
-    * Ensured Snort frees memory from preprocessors before exit.  Only
-      outstanding memory in use is related to pattern matcher and
-      rules.
+    * Fixed issues with parsing of IP variables with IPv6 support.
 
-[*] Security Improvements
-    * Further updates that use safer functions that perform bounds checking
-      when doing string or memory copies and snprintf buffer writes.
-      Ensure null termination on string buffers and perform initialization
-      on memory allocations.
+    * Fixed handling of a simultaneous ACK and RST, when require_3whs
+      was enabled and the session had timed out.
+
+2009-04-07 - Snort 2.8.4
+
+[*] New Additions
+    * Revised DCE/RPC preprocessor to provide new rule options,
+      additional SMB command support, and updated defragmentation
+      models
+
+    * Support for IPv6 with Frag3 and all application preprocessors
+      (SMTP, FTP/Telnet, DCE/RPC, SSL, DNS, Portscan)
+
+    * Improved target-based support within application preprocessors
+
+    * Addition to automatically pre-filter traffic that is not
+      explicitly configured for inspection to improve performance.
+
+    * HttpInspect update to limit number of HTTP Header fields and
+      alert if limit is reached.
+
+    * Support for multiple IP Addresses and/or CIDRs in HTTP Inspect
+      and FTP/Telnet Server/Client specific configurations
+
+[*] Improvements
+    * Update to allow rules with only negated content

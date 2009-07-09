@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -69,6 +69,7 @@
 #include "util.h"
 #include "event_queue.h"
 #include "stream_api.h"
+#include "sfsnprintfappend.h"
 
 #include "hi_return_codes.h"
 #include "hi_ui_config.h"
@@ -76,6 +77,7 @@
 #include "hi_si.h"
 #include "hi_mi.h"
 #include "hi_norm.h"
+#include "snort_httpinspect.h"
 
 #include "profiler.h"
 #ifdef PERF_PROFILING
@@ -139,9 +141,12 @@ HIStats hi_stats;
 */
 #define PORTS             "ports"
 #define FLOW_DEPTH        "flow_depth"
+#define SERVER_FLOW_DEPTH "server_flow_depth"
+#define CLIENT_FLOW_DEPTH "client_flow_depth"
 #define POST_DEPTH        "post_depth"
 #define IIS_UNICODE_MAP   "iis_unicode_map"
 #define CHUNK_LENGTH      "chunk_length"
+#define MAX_HDR_LENGTH    "max_header_length"
 #define PIPELINE          "no_pipeline_req"
 #define ASCII             "ascii"
 #define DOUBLE_DECODE     "double_decode"
@@ -165,6 +170,9 @@ HIStats hi_stats;
 #define WEBROOT           "webroot"
 #define TAB_URI_DELIMITER "tab_uri_delimiter"
 #define WHITESPACE        "whitespace_chars"
+#define NORMALIZE_HEADERS "normalize_headers"
+#define NORMALIZE_COOKIES "normalize_cookies"
+#define MAX_HEADERS       "max_headers"
 
 /*
 **  Alert subkeywords
@@ -180,6 +188,12 @@ HIStats hi_stats;
 #define IIS4_0        "iis4_0"
 #define IIS5_0        "iis5_0" /* 5.0 only. For 5.1 and beyond, use IIS */
 #define ALL           "all"
+
+/*
+**  IP Address list delimiters
+*/
+#define START_IPADDR_LIST "{"
+#define END_IPADDR_LIST   "}"
 
 /*
 **  Port list delimiters
@@ -893,6 +907,7 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
 **  and is a valid number.
 **
 **  @param ServerConf  pointer to the server configuration
+**  @param ServerOrClient which flowdepth is being set
 **  @param ErrorString error string buffer
 **  @param ErrStrLen   the length of the error string buffer
 **
@@ -903,7 +918,7 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
 **  @retval -1 generic fatal error
 **  @retval  1 generic non-fatal error
 */
-static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf,
+static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf, int ServerOrClient,
                             char *ErrorString, int ErrStrLen)
 {
     char *pcToken;
@@ -938,7 +953,10 @@ static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf,
         return -1;
     }
 
-    ServerConf->flow_depth = iFlowDepth;
+    if (ServerOrClient == HI_SI_CLIENT_MODE)
+        ServerConf->client_flow_depth = iFlowDepth;
+    else
+        ServerConf->server_flow_depth = iFlowDepth;
 
     return 0;
 }
@@ -1056,6 +1074,136 @@ static int ProcessChunkLength(HTTPINSPECT_CONF *ServerConf,
     }
 
     ServerConf->chunk_length = iChunkLength;
+
+    return 0;
+}
+
+/*
+**  NAME
+**    ProcessMaxHeaders::
+*/
+/**
+**  Process and verify the maximum allowed number of headers for the 
+**  server configuration.
+**  
+**  @param ServerConf  pointer to the server configuration
+**  @param ErrorString error string buffer
+**  @param ErrStrLen   the length of the error string buffer
+**
+**  @return an error code integer 
+**          (0 = success, >0 = non-fatal error, <0 = fatal error)
+**
+**  @retval  0 successs
+**  @retval -1 generic fatal error
+**  @retval  1 generic non-fatal error
+*/
+static int ProcessMaxHeaders(HTTPINSPECT_CONF *ServerConf,
+                              char *ErrorString, int ErrStrLen)
+{
+    char *pcToken;
+    int  length;
+    char *pcEnd;
+
+    pcToken = strtok(NULL, CONF_SEPARATORS);
+    if(pcToken == NULL)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "No argument to '%s' token.", MAX_HEADERS);
+
+        return -1;
+    }
+
+    length = strtol(pcToken, &pcEnd, 10);
+    if(*pcEnd || pcEnd == pcToken)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'.", MAX_HEADERS);
+
+        return -1;
+    }
+
+    if(length < 0)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'. Valid range is 0 to 1024.", MAX_HEADERS);
+
+        return -1;
+    }
+
+    if(length > 1024)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'.  Valid range is 0 to 1024.", MAX_HEADERS);
+
+        return -1;
+    }
+
+    ServerConf->max_headers = length;
+
+    return 0;
+}
+
+/*
+**  NAME
+**    ProcessMaxHdrLen::
+*/
+/**
+**  Process and verify the maximum allowed header length for the 
+**  server configuration.
+**  
+**  @param ServerConf  pointer to the server configuration
+**  @param ErrorString error string buffer
+**  @param ErrStrLen   the length of the error string buffer
+**
+**  @return an error code integer 
+**          (0 = success, >0 = non-fatal error, <0 = fatal error)
+**
+**  @retval  0 successs
+**  @retval -1 generic fatal error
+**  @retval  1 generic non-fatal error
+*/
+static int ProcessMaxHdrLen(HTTPINSPECT_CONF *ServerConf,
+                              char *ErrorString, int ErrStrLen)
+{
+    char *pcToken;
+    int  length;
+    char *pcEnd;
+
+    pcToken = strtok(NULL, CONF_SEPARATORS);
+    if(pcToken == NULL)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "No argument to '%s' token.", MAX_HDR_LENGTH);
+
+        return -1;
+    }
+
+    length = strtol(pcToken, &pcEnd, 10);
+    if(*pcEnd || pcEnd == pcToken)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'.", MAX_HDR_LENGTH);
+
+        return -1;
+    }
+
+    if(length < 0)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'. Valid range is 0 to 65535.", MAX_HDR_LENGTH);
+
+        return -1;
+    }
+
+    if(length > 65535)
+    {
+        SnortSnprintf(ErrorString, ErrStrLen,
+                      "Invalid argument to '%s'.  Valid range is 0 to 65535.", MAX_HDR_LENGTH);
+
+        return -1;
+    }
+
+    ServerConf->max_hdr_len = length;
 
     return 0;
 }
@@ -1387,9 +1535,17 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             {
                 ServerConf->allow_proxy = 1;
             }
-            else if(!strcmp(FLOW_DEPTH, pcToken))
+            else if(!strcmp(FLOW_DEPTH, pcToken) || !strcmp(SERVER_FLOW_DEPTH, pcToken))
             {
-                iRet = ProcessFlowDepth(ServerConf, ErrorString, ErrStrLen);
+                iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen);
+                if (iRet)
+                {
+                    return iRet;
+                }
+            }
+            else if(!strcmp(CLIENT_FLOW_DEPTH, pcToken))
+            {
+                iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen);
                 if (iRet)
                 {
                     return iRet;
@@ -1420,14 +1576,40 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             {
                 ServerConf->uri_only = 1;
             }
+            else if (!strcmp(NORMALIZE_HEADERS, pcToken))
+            {
+                ServerConf->normalize_headers = 1;
+            }
+            else if (!strcmp(NORMALIZE_COOKIES, pcToken))
+            {
+                ServerConf->normalize_cookies = 1;
+            }
+            else if(!strcmp(MAX_HDR_LENGTH, pcToken))
+            {
+                iRet = ProcessMaxHdrLen(ServerConf, ErrorString, ErrStrLen);
+                if (iRet)
+                {
+                    return iRet;
+                }
+            }
+            else if(!strcmp(MAX_HEADERS, pcToken))
+            {
+                iRet = ProcessMaxHeaders(ServerConf, ErrorString, ErrStrLen);
+                if (iRet)
+                {
+                    return iRet;
+                }
+            }
             else
             {
                 SnortSnprintf(ErrorString, ErrStrLen,
                               "Invalid token while configuring the profile token.  "
                               "The only allowed tokens when configuring profiles "
-                              "are: '%s', '%s', '%s', '%s', '%s', '%s', and '%s'.",
+                              "are: '%s', '%s', '%s', '%s', '%s', '%s', '%s', "
+                              "and '%s'.",
                               PORTS,IIS_UNICODE_MAP, ALLOW_PROXY, FLOW_DEPTH,
-                              GLOBAL_ALERT, OVERSIZE_DIR, INSPECT_URI_ONLY);
+                              GLOBAL_ALERT, OVERSIZE_DIR, MAX_HDR_LENGTH, 
+                              INSPECT_URI_ONLY);
 
                 return -1;
             }
@@ -1459,9 +1641,17 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                 return iRet;
             }
         }
-        else if(!strcmp(FLOW_DEPTH, pcToken))
+        else if(!strcmp(FLOW_DEPTH, pcToken) || !strcmp(SERVER_FLOW_DEPTH, pcToken))
         {
-            iRet = ProcessFlowDepth(ServerConf, ErrorString, ErrStrLen);
+            iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen);
+            if (iRet)
+            {
+                return iRet;
+            }
+        }
+        else if(!strcmp(CLIENT_FLOW_DEPTH, pcToken))
+        {
+            iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen);
             if (iRet)
             {
                 return iRet;
@@ -1513,7 +1703,15 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         else if(!strcmp(TAB_URI_DELIMITER, pcToken))
         {
             ServerConf->tab_uri_delimiter = 1;
-        }        
+        }
+        else if (!strcmp(NORMALIZE_HEADERS, pcToken))
+        {
+            ServerConf->normalize_headers = 1;
+        }
+        else if (!strcmp(NORMALIZE_COOKIES, pcToken))
+        {
+            ServerConf->normalize_cookies = 1;
+        }
         else if(!strcmp(OVERSIZE_DIR, pcToken))
         {
             iRet = ProcessOversizeDir(ServerConf, ErrorString, ErrStrLen);
@@ -1711,6 +1909,22 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                 return iRet;
             }
         }
+        else if(!strcmp(MAX_HDR_LENGTH, pcToken))
+        {
+            iRet = ProcessMaxHdrLen(ServerConf, ErrorString, ErrStrLen);
+            if (iRet)
+            {
+                return iRet;
+            }
+        }
+        else if(!strcmp(MAX_HEADERS, pcToken))
+        {
+            iRet = ProcessMaxHeaders(ServerConf, ErrorString, ErrStrLen);
+            if (iRet)
+            {
+                return iRet;
+            }
+        }
         else
         {
             SnortSnprintf(ErrorString, ErrStrLen,
@@ -1781,8 +1995,11 @@ static int PrintServerConf(HTTPINSPECT_CONF *ServerConf)
 
     LogMessage("%s\n", buf);
 
-    LogMessage("      Flow Depth: %d\n", ServerConf->flow_depth);
+    LogMessage("      Server Flow Depth: %d\n", ServerConf->server_flow_depth);
+    LogMessage("      Client Flow Depth: %d\n", ServerConf->client_flow_depth);
     LogMessage("      Max Chunk Length: %d\n", ServerConf->chunk_length);
+    LogMessage("      Max Header Field Length: %d\n", ServerConf->max_hdr_len);
+    LogMessage("      Max Number Header Fields: %d\n", ServerConf->max_headers);
     LogMessage("      Inspect Pipeline Requests: %s\n",
                ServerConf->no_pipeline ? "NO" : "YES");
     LogMessage("      URI Discovery Strict Mode: %s\n",
@@ -1795,6 +2012,10 @@ static int PrintServerConf(HTTPINSPECT_CONF *ServerConf)
                ServerConf->long_dir);
     LogMessage("      Only inspect URI: %s\n",
                ServerConf->uri_only ? "YES" : "NO");
+    LogMessage("      Normalize HTTP Headers: %s\n",
+               ServerConf->normalize_headers ? "YES" : "NO");
+    LogMessage("      Normalize HTTP Cookies: %s\n",
+               ServerConf->normalize_cookies ? "YES" : "NO");
 
     PrintConfOpt(&ServerConf->ascii, "Ascii");
     PrintConfOpt(&ServerConf->double_decoding, "Double Decoding");
@@ -1875,14 +2096,23 @@ static int PrintServerConf(HTTPINSPECT_CONF *ServerConf)
 
 static int s_iDefaultServer = 0;
 
+int HttpInspect_isinitialized()
+{
+    return s_iDefaultServer;
+}
+
 static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                              char *ErrorString, int ErrStrLen)
 {
     char *pcToken;
-    unsigned long Ip;
-    struct in_addr ip_addr;
-    HTTPINSPECT_CONF *ServerConf;
+    char *pIpAddressList = NULL;
+    char *pIpAddressList2 = NULL;
+    char *brkt = NULL;
+    char firstIpAddress = 1;
+    sfip_t Ip;
+    HTTPINSPECT_CONF *ServerConf = NULL;
     int iRet;
+    int retVal = -1;
 
     pcToken = strtok(NULL, CONF_SEPARATORS);
     if(!pcToken)
@@ -1890,7 +2120,8 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         SnortSnprintf(ErrorString, ErrStrLen,
                       "No arguments to '%s' token.", SERVER);
 
-        return -1;
+        retVal = -1;
+        goto _return;
     }
 
     /*
@@ -1904,7 +2135,7 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                           "Cannot configure '%s' settings more than once.",
                           GLOBAL_SERVER);
 
-            return -1;
+            goto _return;
         }
 
         s_iDefaultServer = 1;
@@ -1914,7 +2145,8 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         iRet = ProcessServerConf(GlobalConf, ServerConf, ErrorString, ErrStrLen);
         if (iRet)
         {
-            return iRet;
+            retVal =  iRet;
+            goto _return;
         }
 
         /*
@@ -1927,61 +2159,131 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         /*
         **  Convert string to IP address
         */
-        Ip = inet_addr(pcToken);
-        if(Ip == INADDR_NONE)
+        /// get the first delimiter
+        if(strcmp(START_IPADDR_LIST, pcToken) == 0)
+        {
+            //list begin token matched
+            if ((pIpAddressList = strtok(NULL, END_IPADDR_LIST)) == NULL)
+            {
+                SnortSnprintf(ErrorString, ErrStrLen,
+                        "Invalid IP Address list in '%s' token.", SERVER);
+
+                goto _return;
+            }
+        }
+        else
+        {
+            //list begin didn't match so this must be an IP address
+            pIpAddressList = pcToken;
+        }
+    
+
+        pIpAddressList2 = strdup(pIpAddressList);
+        if (!pIpAddressList2)
         {
             SnortSnprintf(ErrorString, ErrStrLen,
-                          "Invalid IP to '%s' token.", SERVER);
+                    "Could not allocate memory for server configuration.");
 
-            return -1;
+            goto _return;
         }
 
-        /*
-        **  allocate the memory for the server configuration
-        */
-        ServerConf = (HTTPINSPECT_CONF *)calloc(1, sizeof(HTTPINSPECT_CONF));
-        if(!ServerConf)
-        {
-            SnortSnprintf(ErrorString, ErrStrLen,
-                          "Could not allocate memory for server configuration.");
 
-            return -1;
-        }
 
-        iRet = ProcessServerConf(GlobalConf, ServerConf, ErrorString, ErrStrLen);
-        if (iRet)
-        {
-            return iRet;
-        }
+        for (pcToken = strtok_r(pIpAddressList, CONF_SEPARATORS, &brkt); 
+             pcToken; 
+             pcToken = strtok_r(NULL, CONF_SEPARATORS, &brkt)) 
+        { 
 
-        iRet = hi_ui_config_add_server(GlobalConf, Ip, ServerConf);
-        if (iRet)
-        {
+            if (sfip_pton(pcToken, &Ip) != SFIP_SUCCESS)
+            {
+                SnortSnprintf(ErrorString, ErrStrLen,
+                        "Invalid IP to '%s' token.", SERVER);
+
+                goto _return;
+            }
+
+#ifndef SUP_IP6
+            if (Ip.family == AF_INET6)
+            {
+                SnortSnprintf(ErrorString, ErrStrLen,
+                        "Invalid IP to '%s' token.", SERVER);
+
+                goto _return;
+            }
+#endif
+            if (Ip.family == AF_INET)
+            {
+                Ip.ip.u6_addr32[0] = ntohl(Ip.ip.u6_addr32[0]);
+            }
+
             /*
-            **  Check for already added servers
-            */
-            if(iRet == HI_NONFATAL_ERR)
+             **  allocate the memory for the server configuration
+             */
+            if (firstIpAddress) 
             {
-                SnortSnprintf(ErrorString, ErrStrLen,
-                              "Duplicate server configuration.");
+                ServerConf = (HTTPINSPECT_CONF *)calloc(1, sizeof(HTTPINSPECT_CONF));
+                if(!ServerConf)
+                {
+                    SnortSnprintf(ErrorString, ErrStrLen,
+                            "Could not allocate memory for server configuration.");
 
-                return -1;
+                    goto _return;
+                }
+
+                iRet = ProcessServerConf(GlobalConf, ServerConf, ErrorString, ErrStrLen);
+                if (iRet)
+                {
+                    retVal = iRet;
+                    goto _return;
+                }
             }
-            else
+
+            iRet = hi_ui_config_add_server(GlobalConf, &Ip, ServerConf);
+            if (iRet)
             {
-                SnortSnprintf(ErrorString, ErrStrLen,
-                              "Error when adding server configuration.");
+                /*
+                 **  Check for already added servers
+                 */
+                if(iRet == HI_NONFATAL_ERR)
+                {
+                    SnortSnprintf(ErrorString, ErrStrLen,
+                            "Duplicate server configuration.");
 
-                return -1;
+                    goto _return;
+                }
+                else
+                {
+                    SnortSnprintf(ErrorString, ErrStrLen,
+                            "Error when adding server configuration.");
+
+                    goto _return;
+                }
             }
+
+            if (firstIpAddress) 
+            {
+                //process the first IP address as usual
+                firstIpAddress = 0;
+            }
+            
+            //create a reference
+            ServerConf->referenceCount++;
+
         }
-
-        ip_addr.s_addr = Ip;
-
+    
+        if (firstIpAddress)
+        {
+            //no IP address was found
+            SnortSnprintf(ErrorString, ErrStrLen,
+                    "Invalid IP Address list in '%s' token.", SERVER);
+    
+            goto _return;
+        }
+        
         /*
         **  Print out the configuration header
         */
-        LogMessage("    SERVER: %s\n", inet_ntoa(ip_addr));
+        LogMessage("    SERVER: %s\n", pIpAddressList2);
     }
 
     /*
@@ -1989,7 +2291,14 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     */
     PrintServerConf(ServerConf);
 
-    return 0;
+    retVal = 0;
+
+_return:
+    if (pIpAddressList2)
+    {
+        free(pIpAddressList2);
+    }
+    return retVal;
 }
 
 static int PrintGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
@@ -2174,8 +2483,12 @@ void HttpInspectCheckConfig(void)
     {
         if ((!stream_api) || (stream_api->version < STREAM_API_VERSION4))
             FatalError("HttpInspectConfigCheck() Streaming & reassembly "
-                       "must be enabled\n");
+                    "must be enabled\n");
+
+        HttpInspectAddPortsOfInterest();
+        HttpInspectAddServicesOfInterest();
     }
+
 }
 
 /*
@@ -2320,7 +2633,7 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
     */
     if(p->ssnptr)
     {
-        httpflags = (u_int32_t)stream_api->get_application_data(p->ssnptr,
+        httpflags = (u_int32_t)(uintptr_t)stream_api->get_application_data(p->ssnptr,
                                                      PP_HTTPINSPECT);
     }
 
@@ -2339,7 +2652,7 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
     {
         httpflags |= uiMask;
         stream_api->set_application_data(p->ssnptr, PP_HTTPINSPECT,
-                        (void *)httpflags, NULL);
+                        (void *)(uintptr_t)httpflags, NULL);
     }
 
     /*
@@ -2353,8 +2666,8 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
 
 static inline int SetSiInput(HI_SI_INPUT *SiInput, Packet *p)
 {
-    SiInput->sip   = p->iph->ip_src.s_addr;
-    SiInput->dip   = p->iph->ip_dst.s_addr;
+    IP_COPY_VALUE(SiInput->sip, GET_SRC_IP(p));
+    IP_COPY_VALUE(SiInput->dip, GET_DST_IP(p));
     SiInput->sport = p->sp;
     SiInput->dport = p->dp;
 
@@ -2408,6 +2721,11 @@ static inline int SetSiInput(HI_SI_INPUT *SiInput, Packet *p)
 **  @retval <0 fatal error
 **  @retval >0 non-fatal error
 */
+#define HTTP_BUF_URI_FLAG           0x01
+#define HTTP_BUF_HEADER_FLAG        0x02
+#define HTTP_BUF_CLIENT_BODY_FLAG   0x04
+#define HTTP_BUF_METHOD_FLAG        0x08
+#define HTTP_BUF_COOKIE_FLAG        0x10
 int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
 {
     extern HttpUri UriBufs[URI_COUNT];
@@ -2418,14 +2736,10 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
     int iInspectMode = 0;
     int iRet;
     int iCallDetect = 1;
+    char buff_flags = 0;
 
     PROFILE_VARS;
     
-    if(!p->iph || !p->tcph)
-    {
-        return 1;
-    }
-
     hi_stats.total++;
 
     /*
@@ -2466,7 +2780,7 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
     /*
     **  Session Inspection Module::
     */
-    iRet = hi_si_session_inspection(GlobalConf, &Session, &SiInput, &iInspectMode);
+    iRet = hi_si_session_inspection(GlobalConf, &Session, &SiInput, &iInspectMode, p);
     if (iRet)
     {
         return iRet;
@@ -2497,14 +2811,14 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
         if(iInspectMode == HI_SI_SERVER_MODE)
         {
             /* Don't do server inspection */
-            if (Session->server_conf->flow_depth == -1)
+            if (Session->server_conf->server_flow_depth == -1)
             {
                 DisableDetect(p);
 
                 SetPreprocBit(p, PP_SFPORTSCAN);
                 SetPreprocBit(p, PP_PERFMONITOR);
-                SetPreprocBit(p, PP_STREAM4);
                 SetPreprocBit(p, PP_STREAM5);
+                SetPreprocBit(p, PP_DCE2);
 
                 return 0;
             }
@@ -2543,6 +2857,7 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                 UriBufs[HTTP_BUFFER_URI].length = Session->client.request.uri_norm_size;
                 p->uri_count++;
                 p->packet_flags |= PKT_HTTP_DECODE;
+                buff_flags |= HTTP_BUF_URI_FLAG;
             }
             else if(Session->client.request.uri)
             {
@@ -2550,18 +2865,71 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                 UriBufs[HTTP_BUFFER_URI].length = Session->client.request.uri_size;
                 p->uri_count++;
                 p->packet_flags |= PKT_HTTP_DECODE;
+                buff_flags |= HTTP_BUF_URI_FLAG;
+            }
+            else
+            {
+                UriBufs[HTTP_BUFFER_URI].uri    = NULL;
+                UriBufs[HTTP_BUFFER_URI].length = 0;
             }
 
-            if(Session->client.request.method & (HI_POST_METHOD | HI_GET_METHOD)) 
-            { 
-                /* This handles the case that there was no URI */
-                if(!p->uri_count) 
+            /* p->uri_count should be set by now, either by the client body post method,
+             * or its else case above. */
+
+            if (Session->client.request.header_norm || Session->client.request.header_raw)
+            {
+                if (!(buff_flags & HTTP_BUF_URI_FLAG))
                 {
+                    /* This handles the case that there was no URI */
                     UriBufs[HTTP_BUFFER_URI].uri = NULL;
                     UriBufs[HTTP_BUFFER_URI].length = 0;
                     p->uri_count = 1;
                 }
 
+                /* If we get here, uri_count should be 1 */
+                if(Session->client.request.header_norm)
+                {
+                    UriBufs[HTTP_BUFFER_HEADER].uri    = Session->client.request.header_norm;
+                    UriBufs[HTTP_BUFFER_HEADER].length = Session->client.request.header_norm_size;
+                    p->packet_flags |= PKT_HTTP_DECODE;
+                    buff_flags |= HTTP_BUF_HEADER_FLAG;
+                }
+                else
+                {
+                    UriBufs[HTTP_BUFFER_HEADER].uri    = Session->client.request.header_raw;
+                    UriBufs[HTTP_BUFFER_HEADER].length = Session->client.request.header_raw_size;
+                    p->packet_flags |= PKT_HTTP_DECODE;
+                    buff_flags |= HTTP_BUF_HEADER_FLAG;
+                }
+#ifdef DEBUG
+                hi_stats.header_len += UriBufs[HTTP_BUFFER_HEADER].length;
+#endif
+                p->uri_count++;
+            }
+            else
+            {
+                UriBufs[HTTP_BUFFER_HEADER].uri    = NULL;
+                UriBufs[HTTP_BUFFER_HEADER].length = 0;
+            }
+
+            if(Session->client.request.method & (HI_POST_METHOD | HI_GET_METHOD)) 
+            { 
+                if (!(buff_flags & HTTP_BUF_URI_FLAG))
+                {
+                    /* This handles the case that there was no URI */
+                    UriBufs[HTTP_BUFFER_URI].uri = NULL;
+                    UriBufs[HTTP_BUFFER_URI].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_HEADER_FLAG))
+                {
+                    /* This handles the case that there was no HEADERS */
+                    UriBufs[HTTP_BUFFER_HEADER].uri = NULL;
+                    UriBufs[HTTP_BUFFER_HEADER].length = 0;
+                    p->uri_count = 2;
+                }
+
+                /* If we get here, uri_count should be 2 */
                 if(Session->client.request.post_norm)
                 {
                     UriBufs[HTTP_BUFFER_CLIENT_BODY].uri = 
@@ -2569,6 +2937,7 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                     UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 
                             Session->client.request.post_norm_size;
                     p->packet_flags |= PKT_HTTP_DECODE;
+                    buff_flags |= HTTP_BUF_CLIENT_BODY_FLAG;
                     p->uri_count++;
                 } 
                 else if(Session->client.request.post_raw)
@@ -2578,21 +2947,126 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                     UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 
                                 Session->client.request.post_raw_size;
                     p->packet_flags |= PKT_HTTP_DECODE;
+                    buff_flags |= HTTP_BUF_CLIENT_BODY_FLAG;
                     p->uri_count++;
-                }
-                else
-                {
-                    UriBufs[HTTP_BUFFER_CLIENT_BODY].uri = NULL;
-                    UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 0;
                 }
             }
             else
-            {   
-                /* If we add another buffer, p->uri_count 
-                 * needs to be incremented */
-                // p->uri_count++;
+            {
                 UriBufs[HTTP_BUFFER_CLIENT_BODY].uri = NULL;
                 UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 0;
+            }
+
+            if (Session->client.request.method_raw)
+            {
+                if (!(buff_flags & HTTP_BUF_URI_FLAG))
+                {
+                    /* This handles the case that there was no URI */
+                    UriBufs[HTTP_BUFFER_URI].uri = NULL;
+                    UriBufs[HTTP_BUFFER_URI].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_HEADER_FLAG))
+                {
+                    /* This handles the case that there was no HEADERS */
+                    UriBufs[HTTP_BUFFER_HEADER].uri = NULL;
+                    UriBufs[HTTP_BUFFER_HEADER].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_CLIENT_BODY_FLAG))
+                {
+                    /* This handles the case that there was no CLIENT BODY */
+                    UriBufs[HTTP_BUFFER_CLIENT_BODY].uri = NULL;
+                    UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 0;
+                    p->uri_count = 3;
+                }
+
+                UriBufs[HTTP_BUFFER_METHOD].uri = Session->client.request.method_raw;
+                UriBufs[HTTP_BUFFER_METHOD].length = Session->client.request.method_size;
+                p->packet_flags |= PKT_HTTP_DECODE;
+                buff_flags |= HTTP_BUF_METHOD_FLAG;
+                p->uri_count++;
+            }
+            else
+            {
+                UriBufs[HTTP_BUFFER_METHOD].uri = NULL;
+                UriBufs[HTTP_BUFFER_METHOD].length = 0;
+            }
+
+
+            if (Session->client.request.cookie_norm || Session->client.request.cookie.cookie)
+            {
+                if (!(buff_flags & HTTP_BUF_URI_FLAG))
+                {
+                    /* This handles the case that there was no URI */
+                    UriBufs[HTTP_BUFFER_URI].uri = NULL;
+                    UriBufs[HTTP_BUFFER_URI].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_HEADER_FLAG))
+                {
+                    /* This handles the case that there was no HEADERS */
+                    UriBufs[HTTP_BUFFER_HEADER].uri = NULL;
+                    UriBufs[HTTP_BUFFER_HEADER].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_CLIENT_BODY_FLAG))
+                {
+                    /* This handles the case that there was no CLIENT BODY */
+                    UriBufs[HTTP_BUFFER_CLIENT_BODY].uri = NULL;
+                    UriBufs[HTTP_BUFFER_CLIENT_BODY].length = 0;
+                }
+
+                if (!(buff_flags & HTTP_BUF_METHOD_FLAG))
+                {
+                    /* This handles the case that there was no CLIENT BODY */
+                    UriBufs[HTTP_BUFFER_METHOD].uri = NULL;
+                    UriBufs[HTTP_BUFFER_METHOD].length = 0;
+                    p->uri_count = 4;
+                }
+
+                /* If we get here, uri_count should be 4 */
+                if(Session->client.request.cookie_norm)
+                {
+                    UriBufs[HTTP_BUFFER_COOKIE].uri    = Session->client.request.cookie_norm;
+                    UriBufs[HTTP_BUFFER_COOKIE].length = Session->client.request.cookie_norm_size;
+                    p->packet_flags |= PKT_HTTP_DECODE;
+                }
+                else
+                {
+                    UriBufs[HTTP_BUFFER_COOKIE].uri    = Session->client.request.cookie.cookie;
+                    UriBufs[HTTP_BUFFER_COOKIE].length = Session->client.request.cookie.cookie_end - Session->client.request.cookie.cookie;
+                    p->packet_flags |= PKT_HTTP_DECODE;
+                }
+#ifdef DEBUG
+                hi_stats.cookie_len += UriBufs[HTTP_BUFFER_COOKIE].length;
+#endif
+                p->uri_count++;
+            }
+            else
+            {
+                UriBufs[HTTP_BUFFER_COOKIE].uri    = NULL;
+                UriBufs[HTTP_BUFFER_COOKIE].length = 0;
+                /* If there is (yet another) HTTP buffer added, need to increment
+                p->uri_count++; */
+            }
+
+            switch (Session->server_conf->client_flow_depth)
+            {
+                case -1:
+                    /* Inspect none of the client if there is normalized/extracted URI/Method/Header/Body data */
+                    p->alt_dsize = 0;
+                    break;
+                case 0:
+                    /* Inspect all of the client, even if there is normalized/extracted URI/Method/Header/Body data */
+                    /* XXX: HUGE performance hit here */
+                    p->alt_dsize = p->dsize;
+                    break;
+                default:
+                    /* Limit inspection of the client, even if there is normalized/extracted URI/Method/Header/Body data */
+                    /* XXX: Potential performance hit here */
+                    p->alt_dsize = Session->server_conf->client_flow_depth;
+                    break;
             }
         }
         else if(iInspectMode == HI_SI_SERVER_MODE)
@@ -2616,7 +3090,6 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                 
                 SetPreprocBit(p, PP_SFPORTSCAN);
                 SetPreprocBit(p, PP_PERFMONITOR);
-                SetPreprocBit(p, PP_STREAM4);
                 SetPreprocBit(p, PP_STREAM5);
 
                 return 0;
@@ -2651,6 +3124,7 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
         **  main detection engine for each protocol field.
         */
         PREPROC_PROFILE_START(hiDetectPerfStats);
+        p->http_pipeline_count++; /* Increment the count */
         Detect(p);
         otn_tmp = NULL;
 #ifdef PERF_PROFILING
@@ -2678,7 +3152,6 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
 
         SetPreprocBit(p, PP_SFPORTSCAN);
         SetPreprocBit(p, PP_PERFMONITOR);
-        SetPreprocBit(p, PP_STREAM4);
         SetPreprocBit(p, PP_STREAM5);
 
     } while(Session->client.request.pipeline_req);
@@ -2687,6 +3160,10 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
     {
         /* Detect called at least once from above pkt processing loop. */
         DisableAllDetect(p);
+
+        /* dcerpc2 preprocessor may need to look at this for
+         * RPC over HTTP setup */
+        SetPreprocBit(p, PP_DCE2);
     }
 
     return 0;

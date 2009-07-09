@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -40,20 +40,43 @@
 
 #include "sflsq.h"
 
+#ifdef SUP_IP6
+#include "ipv6_port.h"
+#endif
+
 #ifdef WIN32
 #define snprintf _snprintf
 #endif
 
+typedef struct {
+   unsigned port_lo;
+   unsigned port_hi;
+}PORTRANGE;
 
+typedef struct {
+   SF_LIST port_list;
+}PORTSET;
+
+#ifdef SUP_IP6
+typedef struct {
+    sfip_t ip;
+    PORTSET portset;
+    char notflag;
+} IP_PORT;
+
+typedef struct {
+    SF_LIST ip_list;
+} IPSET;
+#else
 enum {
   NOFAMILY,
   IPV4_FAMILY,
-  IPV6_FAMILY,
+  IPV6_FAMILY
 };
 
 enum {
   IPV4_LEN=4,
-  IPV6_LEN=16,
+  IPV6_LEN=16
 };
 
 typedef struct {
@@ -77,15 +100,6 @@ typedef struct {
   unsigned char ip[IPV6_LEN];
 
 }IPADDRESS6 ;
-
-typedef struct {
-   unsigned port_lo;
-   unsigned port_hi;
-}PORTRANGE;
-
-typedef struct {
-   SF_LIST port_list;
-}PORTSET;
 
 typedef struct {
    unsigned mask;
@@ -135,7 +149,7 @@ int         ip_equal ( IPADDRESS * ia, void * ip, int family );
 int         ip_eq    ( IPADDRESS * ia, IPADDRESS * ib );
 int         ip_sprint( char * s, int slen, IPADDRESS * p );
 int         ip_fprint( FILE * fp, IPADDRESS * p );
-
+#endif /* SUP_IP6 */
 
 
 /*
@@ -158,17 +172,24 @@ int         ip_fprint( FILE * fp, IPADDRESS * p );
    For a single IPAddress the implied Mask is 32 bits,or
    255.255.255.255, or 0xffffffff, or -1.
 */
+#ifdef SUP_IP6
+IPSET * ipset_new     ( );
+int     ipset_add     ( IPSET * ipset, sfip_t *ip, void * port, int notflag);
+int     ipset_contains( IPSET * ipset, sfip_t *ip, void * port);
+#else
 IPSET * ipset_new     ( int family );
-IPSET * ipset_copy    ( IPSET * ipset );
-int     ipset_family  ( IPSET * ipset );
-void    ipset_free    ( IPSET * ipset );
 int     ipset_add     ( IPSET * ipset, void * ip, void * mask, void * port, int notflag, int family );
 int     ipset_contains( IPSET * ipset, void * ip, void * port, int family );
+#endif
+IPSET * ipset_copy    ( IPSET * ipset );
+void    ipset_free    ( IPSET * ipset );
 int     ipset_print   ( IPSET * ipset );
-
+#ifndef SUP_IP6
+int     ipset_family  ( IPSET * ipset );
+#endif
 
 /* helper functions -- all the sets work in host order   
 */
-int      ip4_setparse(IPSET * ipset, char *ipstr);
+int      ipset_parse(IPSET * ipset, char *ipstr);
 
 #endif

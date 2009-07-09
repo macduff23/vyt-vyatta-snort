@@ -4,7 +4,7 @@
 
 # TARGTYPE "Win32 (x86) Generic Project" 0x010a
 
-CFG=sf_dynamic_initialize - Win32 Debug
+CFG=sf_dynamic_initialize - Win32 IPv6 Debug
 !MESSAGE This is not a valid makefile. To build this project using NMAKE,
 !MESSAGE use the Export Makefile command and run
 !MESSAGE 
@@ -13,12 +13,14 @@ CFG=sf_dynamic_initialize - Win32 Debug
 !MESSAGE You can specify a configuration when running NMAKE
 !MESSAGE by defining the macro CFG on the command line. For example:
 !MESSAGE 
-!MESSAGE NMAKE /f "sf_dynamic_initialize.mak" CFG="sf_dynamic_initialize - Win32 Debug"
+!MESSAGE NMAKE /f "sf_dynamic_initialize.mak" CFG="sf_dynamic_initialize - Win32 IPv6 Debug"
 !MESSAGE 
 !MESSAGE Possible choices for configuration are:
 !MESSAGE 
 !MESSAGE "sf_dynamic_initialize - Win32 Release" (based on "Win32 (x86) Generic Project")
 !MESSAGE "sf_dynamic_initialize - Win32 Debug" (based on "Win32 (x86) Generic Project")
+!MESSAGE "sf_dynamic_initialize - Win32 IPv6 Debug" (based on "Win32 (x86) Generic Project")
+!MESSAGE "sf_dynamic_initialize - Win32 IPv6 Release" (based on "Win32 (x86) Generic Project")
 !MESSAGE 
 
 # Begin Project
@@ -53,12 +55,40 @@ MTL=midl.exe
 # PROP Intermediate_Dir "Debug"
 # PROP Target_Dir ""
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# PROP BASE Use_MFC 0
+# PROP BASE Use_Debug_Libraries 1
+# PROP BASE Output_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
+# PROP BASE Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
+# PROP BASE Target_Dir ""
+# PROP Use_MFC 0
+# PROP Use_Debug_Libraries 1
+# PROP Output_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
+# PROP Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
+# PROP Target_Dir ""
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# PROP BASE Use_MFC 0
+# PROP BASE Use_Debug_Libraries 0
+# PROP BASE Output_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
+# PROP BASE Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
+# PROP BASE Target_Dir ""
+# PROP Use_MFC 0
+# PROP Use_Debug_Libraries 0
+# PROP Output_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
+# PROP Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
+# PROP Target_Dir ""
+
 !ENDIF 
 
 # Begin Target
 
 # Name "sf_dynamic_initialize - Win32 Release"
 # Name "sf_dynamic_initialize - Win32 Debug"
+# Name "sf_dynamic_initialize - Win32 IPv6 Debug"
+# Name "sf_dynamic_initialize - Win32 IPv6 Release"
 # Begin Source File
 
 SOURCE=..\..\sfutil\bitop.h
@@ -87,6 +117,140 @@ InputName=bitop
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\bitop.h
+InputName=bitop
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\bitop.h
+InputName=bitop
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\bounds.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\bounds.h
+InputName=bounds
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\bounds.h
+InputName=bounds
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\bounds.h
+InputName=bounds
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\bounds.h
+InputName=bounds
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\cpuclock.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\cpuclock.h
+InputName=cpuclock
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\cpuclock.h
+InputName=cpuclock
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\cpuclock.h
+InputName=cpuclock
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\cpuclock.h
+InputName=cpuclock
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -100,10 +264,17 @@ SOURCE=..\..\debug.h
 InputPath=..\..\debug.h
 InputName=debug
 
-"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	mkdir ..\include 
-	copy $(InputPath) ..\include 
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_dpd.debugMsgFile = /" -e "s/DebugMessageLine = /*_dpd.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _dpd.debugMsg/" -e "s/; DebugWideMessageFunc$/; _dpd.debugWideMsg/" ../include/$(InputName).h.new > ../include/$(InputName).h \
 	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
@@ -112,10 +283,248 @@ InputName=debug
 InputPath=..\..\debug.h
 InputName=debug
 
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_dpd.debugMsgFile = /" -e "s/DebugMessageLine = /*_dpd.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _dpd.debugMsg/" -e "s/; DebugWideMessageFunc$/; _dpd.debugWideMsg/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
 "..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\debug.h
+InputName=debug
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_dpd.debugMsgFile = /" -e "s/DebugMessageLine = /*_dpd.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _dpd.debugMsg/" -e "s/; DebugWideMessageFunc$/; _dpd.debugWideMsg/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\debug.h
+InputName=debug
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_dpd.debugMsgFile = /" -e "s/DebugMessageLine = /*_dpd.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _dpd.debugMsg/" -e "s/; DebugWideMessageFunc$/; _dpd.debugWideMsg/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\win32\WIN32-Code\inet_aton.c"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_aton.c"
+InputName=inet_aton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
 	mkdir ..\include 
 	copy $(InputPath) ..\include 
 	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_aton.c"
+InputName=inet_aton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_aton.c"
+InputName=inet_aton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_aton.c"
+InputName=inet_aton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\win32\WIN32-Code\inet_pton.c"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_pton.c"
+InputName=inet_pton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_pton.c"
+InputName=inet_pton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_pton.c"
+InputName=inet_pton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\inet_pton.c"
+InputName=inet_pton
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\ipv6_port.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\ipv6_port.h
+InputName=ipv6_port
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\ipv6_port.h
+InputName=ipv6_port
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\ipv6_port.h
+InputName=ipv6_port
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\ipv6_port.h
+InputName=ipv6_port
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
 # End Custom Build
 
 !ENDIF 
@@ -138,6 +547,30 @@ InputName=preprocids
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\preprocids.h
+InputName=preprocids
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\preprocids.h
+InputName=preprocids
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
 
 # Begin Custom Build
 InputPath=..\..\preprocids.h
@@ -180,6 +613,30 @@ InputName=profiler
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\profiler.h
+InputName=profiler
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\profiler.h
+InputName=profiler
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -211,6 +668,85 @@ InputName=sf_dynamic_common
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_common.h"
+InputName=sf_dynamic_common
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_common.h"
+InputName=sf_dynamic_common
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\dynamic-plugins\sf_dynamic_define.h"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_define.h"
+InputName=sf_dynamic_define
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_define.h"
+InputName=sf_dynamic_define
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_define.h"
+InputName=sf_dynamic_define
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_define.h"
+InputName=sf_dynamic_define
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -231,6 +767,30 @@ InputName=sf_dynamic_engine
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_engine.h"
+InputName=sf_dynamic_engine
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_engine.h"
+InputName=sf_dynamic_engine
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
 
 # Begin Custom Build
 InputPath="..\..\dynamic-plugins\sf_dynamic_engine.h"
@@ -273,6 +833,30 @@ InputName=sf_dynamic_meta
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_meta.h"
+InputName=sf_dynamic_meta
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_meta.h"
+InputName=sf_dynamic_meta
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -293,6 +877,30 @@ InputName=sf_dynamic_preproc_lib
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_preproc_example\sf_dynamic_preproc_lib.c"
+InputName=sf_dynamic_preproc_lib
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_preproc_example\sf_dynamic_preproc_lib.c"
+InputName=sf_dynamic_preproc_lib
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
 
 # Begin Custom Build
 InputPath="..\..\dynamic-plugins\sf_preproc_example\sf_dynamic_preproc_lib.c"
@@ -335,6 +943,30 @@ InputName=sf_dynamic_preproc_lib
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_preproc_example\sf_dynamic_preproc_lib.h"
+InputName=sf_dynamic_preproc_lib
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_preproc_example\sf_dynamic_preproc_lib.h"
+InputName=sf_dynamic_preproc_lib
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -366,6 +998,140 @@ InputName=sf_dynamic_preprocessor
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_preprocessor.h"
+InputName=sf_dynamic_preprocessor
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_dynamic_preprocessor.h"
+InputName=sf_dynamic_preprocessor
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sf_ip.c
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.c
+InputName=sf_ip
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.c
+InputName=sf_ip
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.c
+InputName=sf_ip
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.c
+InputName=sf_ip
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sf_ip.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.h
+InputName=sf_ip
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.h
+InputName=sf_ip
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.h
+InputName=sf_ip
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sf_ip.h
+InputName=sf_ip
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -386,6 +1152,30 @@ InputName=sf_snort_packet
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\sf_snort_packet.h"
+InputName=sf_snort_packet
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\sf_snort_packet.h"
+InputName=sf_snort_packet
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
 
 # Begin Custom Build
 InputPath="..\..\dynamic-plugins\sf_engine\sf_snort_packet.h"
@@ -428,6 +1218,85 @@ InputName=sf_snort_plugin_api
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\sf_snort_plugin_api.h"
+InputName=sf_snort_plugin_api
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\sf_snort_plugin_api.h"
+InputName=sf_snort_plugin_api
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sf_types.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -459,6 +1328,305 @@ InputName=sfhashfcn
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfhashfcn.h
+InputName=sfhashfcn
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfhashfcn.h
+InputName=sfhashfcn
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sfrt.c
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.c
+InputName=sfrt
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.c
+InputName=sfrt
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.c
+InputName=sfrt
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.c
+InputName=sfrt
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sfrt.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.h
+InputName=sfrt
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.h
+InputName=sfrt
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.h
+InputName=sfrt
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt.h
+InputName=sfrt
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sfrt_dir.c
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.c
+InputName=sfrt_dir
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.c
+InputName=sfrt_dir
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.c
+InputName=sfrt_dir
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.c
+InputName=sfrt_dir
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sfrt_dir.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.h
+InputName=sfrt_dir
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.h
+InputName=sfrt_dir
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.h
+InputName=sfrt_dir
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_dir.h
+InputName=sfrt_dir
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sfutil\sfrt_trie.h
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_trie.h
+InputName=sfrt_trie
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_trie.h
+InputName=sfrt_trie
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_trie.h
+InputName=sfrt_trie
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfrt_trie.h
+InputName=sfrt_trie
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -479,6 +1647,30 @@ InputName=sfsnort_dynamic_detection_lib
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\examples\sfsnort_dynamic_detection_lib.c"
+InputName=sfsnort_dynamic_detection_lib
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\examples\sfsnort_dynamic_detection_lib.c"
+InputName=sfsnort_dynamic_detection_lib
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
 
 # Begin Custom Build
 InputPath="..\..\dynamic-plugins\sf_engine\examples\sfsnort_dynamic_detection_lib.c"
@@ -521,6 +1713,30 @@ InputName=sfsnort_dynamic_detection_lib
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\examples\sfsnort_dynamic_detection_lib.h"
+InputName=sfsnort_dynamic_detection_lib
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\dynamic-plugins\sf_engine\examples\sfsnort_dynamic_detection_lib.h"
+InputName=sfsnort_dynamic_detection_lib
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -552,6 +1768,30 @@ InputName=sfxhash
 	
 # End Custom Build
 
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfxhash.h
+InputName=sfxhash
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sfutil\sfxhash.h
+InputName=sfxhash
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
 !ENDIF 
 
 # End Source File
@@ -568,7 +1808,7 @@ InputName=str_search
 BuildCmds= \
 	mkdir ..\include \
 	copy $(InputPath) ..\include\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" ..\include\$(InputName).h.new > ..\include\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
 	
 
 "..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -587,7 +1827,45 @@ InputName=str_search
 BuildCmds= \
 	mkdir ..\include \
 	copy $(InputPath) ..\include\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" ..\include\$(InputName).h.new > ..\include\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\preprocessors\str_search.h
+InputName=str_search
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\preprocessors\str_search.h
+InputName=str_search
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
 	
 
 "..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -613,7 +1891,7 @@ InputName=stream_api
 BuildCmds= \
 	mkdir ..\include \
 	copy $(InputPath) ..\include\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" ..\include\$(InputName).h.new > ..\include\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
 	
 
 "..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -632,7 +1910,7 @@ InputName=stream_api
 BuildCmds= \
 	mkdir ..\include \
 	copy $(InputPath) ..\include\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" ..\include\$(InputName).h.new > ..\include\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
 	
 
 "..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -640,6 +1918,99 @@ BuildCmds= \
 
 "..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
    $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\preprocessors\stream_api.h
+InputName=stream_api
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\preprocessors\stream_api.h
+InputName=stream_api
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "s/Packet /SFSnortPacket /" -e "s/decode.h/sf_snort_packet.h/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\win32\WIN32-Code\strtok_r.c"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\strtok_r.c"
+InputName=strtok_r
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\strtok_r.c"
+InputName=strtok_r
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\strtok_r.c"
+InputName=strtok_r
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\win32\WIN32-Code\strtok_r.c"
+InputName=strtok_r
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	mkdir ..\include 
+	copy $(InputPath) ..\include 
+	
 # End Custom Build
 
 !ENDIF 

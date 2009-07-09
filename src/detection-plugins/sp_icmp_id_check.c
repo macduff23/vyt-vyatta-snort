@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -56,18 +57,55 @@
 #include "util.h"
 #include "plugin_enum.h"
 
-typedef struct _IcmpIdData
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats icmpIdPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+typedef struct _IcmpIdCheckData
 {
         u_short icmpid;
 
-} IcmpIdData;
+} IcmpIdCheckData;
 
 void ParseIcmpId(char *, OptTreeNode *);
-int IcmpIdCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+int IcmpIdCheck(void *option_data, Packet *);
 void IcmpIdCheckInit(char *, OptTreeNode *, int);
 
+u_int32_t IcmpIdCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IcmpIdCheckData *data = (IcmpIdCheckData *)d;
 
+    a = data->icmpid;
+    b = RULE_OPTION_TYPE_ICMP_ID;
+    c = 0;
 
+    final(a,b,c);
+
+    return c;
+}
+
+int IcmpIdCheckCompare(void *l, void *r)
+{
+    IcmpIdCheckData *left = (IcmpIdCheckData *)l;
+    IcmpIdCheckData *right = (IcmpIdCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->icmpid == right->icmpid)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -85,8 +123,11 @@ void IcmpIdCheckInit(char *, OptTreeNode *, int);
 void SetupIcmpIdCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icmp_id", IcmpIdCheckInit);
+    RegisterPlugin("icmp_id", IcmpIdCheckInit, NULL, OPT_TYPE_DETECTION);
 
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("icmp_id", &icmpIdPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: IcmpIdCheck Setup\n"););
 }
 
@@ -106,6 +147,7 @@ void SetupIcmpIdCheck(void)
  ****************************************************************************/
 void IcmpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_ICMP)
     {
         FatalError("%s(%d): ICMP Options on non-ICMP rule\n", file_name, file_line);
@@ -120,8 +162,8 @@ void IcmpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
-    otn->ds_list[PLUGIN_ICMP_ID_CHECK] = (IcmpIdData *)
-        SnortAlloc(sizeof(IcmpIdData));
+    otn->ds_list[PLUGIN_ICMP_ID_CHECK] = (IcmpIdCheckData *)
+        SnortAlloc(sizeof(IcmpIdCheckData));
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
@@ -130,7 +172,9 @@ void IcmpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IcmpIdCheck, otn);
+    fpl = AddOptFuncToList(IcmpIdCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_ICMP_ID;
+    fpl->context = otn->ds_list[PLUGIN_ICMP_ID_CHECK];
 }
 
 
@@ -149,7 +193,8 @@ void IcmpIdCheckInit(char *data, OptTreeNode *otn, int protocol)
  ****************************************************************************/
 void ParseIcmpId(char *data, OptTreeNode *otn)
 {
-    IcmpIdData *ds_ptr;  /* data struct pointer */
+    IcmpIdCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -161,6 +206,11 @@ void ParseIcmpId(char *data, OptTreeNode *otn)
     ds_ptr->icmpid = atoi(data);
     ds_ptr->icmpid = htons(ds_ptr->icmpid);
 
+    if (add_detection_option(RULE_OPTION_TYPE_ICMP_ID, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_ICMP_ID_CHECK] = ds_ptr_dup;
+    }
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Set ICMP ID test value to %d\n", ds_ptr->icmpid););
 }
 
@@ -178,20 +228,29 @@ void ParseIcmpId(char *data, OptTreeNode *otn)
  *          On success, it calls the next function in the detection list 
  *
  ****************************************************************************/
-int IcmpIdCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IcmpIdCheck(void *option_data, Packet *p)
 {
+    IcmpIdCheckData *icmpId = (IcmpIdCheckData *)option_data;
+    PROFILE_VARS;
+
     if(!p->icmph)
-        return 0; /* if error occured while icmp header
-                   * was processed, return 0 automagically.
-               */
-    if(p->icmph->type == ICMP_ECHO || p->icmph->type == ICMP_ECHOREPLY)
+        return DETECTION_OPTION_NO_MATCH; /* if error occured while icmp header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(icmpIdPerfStats);
+
+    if( (p->icmph->type == ICMP_ECHO || p->icmph->type == ICMP_ECHOREPLY) 
+#ifdef SUP_IP6
+        || (p->icmph->type == ICMP6_ECHO || p->icmph->type == ICMP6_REPLY) 
+#endif
+      ) 
     {
         /* test the rule ID value against the ICMP extension ID field */
-        if(((IcmpIdData *) otn->ds_list[PLUGIN_ICMP_ID_CHECK])->icmpid == 
-           p->icmph->s_icmp_id)
+        if(icmpId->icmpid == p->icmph->s_icmp_id)
         {
-            /* call the next function in the function list recursively */
-            return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "ICMP ID check success\n"););
+            PREPROC_PROFILE_END(icmpIdPerfStats);
+            return DETECTION_OPTION_MATCH;
         }
         else
         {
@@ -199,7 +258,6 @@ int IcmpIdCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
             DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "ICMP ID check failed\n"););
         }
     }
-
-    /* if the test isn't successful, this function *must* return 0 */
-    return 0;
+    PREPROC_PROFILE_END(icmpIdPerfStats);
+    return DETECTION_OPTION_NO_MATCH;
 }

@@ -42,6 +42,10 @@
 /* Define to 1 if you have the `net' library (-lnet). */
 #undef HAVE_LIBNET
 
+/* Define to 1 if you have the `netfilter_queue_libipq' library
+   (-lnetfilter_queue_libipq). */
+#undef HAVE_LIBNETFILTER_QUEUE_LIBIPQ
+
 /* Define to 1 if you have the <libnet.h> header file. */
 #undef HAVE_LIBNET_H
 
@@ -68,6 +72,9 @@
 
 /* Define to 1 if you have the `z' library (-lz). */
 #undef HAVE_LIBZ
+
+/* Define whether linuxthreads is being used */
+#undef HAVE_LINUXTHREADS
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
@@ -141,14 +148,29 @@
 /* Define if HPUX */
 #undef HPUX
 
+/* For INADDR_NONE definition */
+#undef INADDR_NONE
+
 /* Define if IRIX */
 #undef IRIX
+
+/* For libpcap versions that accumulate stats */
+#undef LIBPCAP_ACCUMULATES
 
 /* Define if LINUX */
 #undef LINUX
 
+/* For Linux libpcap versions 0.9.0 to 0.9.4 */
+#undef LINUX_LIBPCAP_DOUBLES_STATS
+
 /* Define if MACOS */
 #undef MACOS
+
+/* For MySQL versions 5.0.13 and greater */
+#undef MYSQL_HAS_OPT_RECONNECT
+
+/* For MySQL versions 5.0.13 to 5.0.18 */
+#undef MYSQL_HAS_OPT_RECONNECT_BUG
 
 /* Define if OPENBSD */
 #undef OPENBSD
@@ -180,11 +202,17 @@
 /* Define if SOLARIS */
 #undef SOLARIS
 
+/* For sparc v9 with %time register */
+#undef SPARCV9
+
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
 /* Define if SUNOS */
 #undef SUNOS
+
+/* If unsigned long is 64 bits */
+#undef ULONGIS64BIT
 
 /* Version number of package */
 #undef VERSION

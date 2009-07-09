@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -29,6 +29,7 @@
 #include "sf_snort_packet.h"
 #include "sf_snort_plugin_api.h"
 #include "sf_dynamic_engine.h"
+#include "ipv6_port.h"
 
 extern DynamicEngineData _ded; /* sf_detection_engine.c */
 
@@ -201,23 +202,23 @@ ENGINE_LINKAGE int checkHdrOpt(void *p, HdrOptCheck *optData)
         return RULE_NOMATCH;
 
     if ((optData->hdrField & ICMP_HDR_OPTCHECK_MASK) &&
-        (!pkt->ip4_header || !pkt->icmp_header))
+        (!IPH_IS_VALID(pkt) || !pkt->icmp_header))
         return RULE_NOMATCH;
 
     switch (optData->hdrField)
     {
     /* IP Header Checks */
     case IP_HDR_ID:
-        value = ntohs(pkt->ip4_header->identifier);
+        value = ntohs(GET_IPH_ID(pkt));
         break;
     case IP_HDR_PROTO:
         value = pkt->ip4_header->proto;
         break;
     case IP_HDR_FRAGBITS:
-        return checkBits(optData->value, optData->op, ((ntohs(pkt->ip4_header->offset) & 0xe000) & ~optData->mask_value));
+        return checkBits(optData->value, optData->op, ((ntohs(GET_IPH_OFF(pkt)) & 0xe000) & ~optData->mask_value));
         break;
     case IP_HDR_FRAGOFFSET:
-        value = ntohs(pkt->ip4_header->offset) & 0x1FFF;
+        value = ntohs(GET_IPH_OFF((pkt))) & 0x1FFF;
         break;
     case IP_HDR_TOS:
         value = pkt->ip4_header->type_service;

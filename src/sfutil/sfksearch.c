@@ -11,7 +11,7 @@
 *   
 *
 **  Copyright (C) 2001 Marc Norton
-** Copyright (C) 2003 Sourcefire, Inc
+** Copyright (C) 2003-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -36,14 +36,21 @@
 #include <sys/types.h>
 #include <ctype.h>
 
+#define SFKSEARCH_TRACK_Q
+#ifdef SFKSEARCH_TRACK_Q
+#include "snort.h"
+#include "util.h"
+extern PV pv;
+#endif
+
 #include "sfksearch.h"
 #include "bounds.h"
 
 static void KTrieFree(KTRIENODE *n);
 
-static u_int32_t mtot = 0;
+static unsigned int mtot = 0;
 
-u_int32_t KTrieMemUsed(void) { return mtot; }
+unsigned int KTrieMemUsed(void) { return mtot; }
     
 /*
 *  Allocate Memory
@@ -118,7 +125,9 @@ static inline void ConvertCaseEx( unsigned char * d, unsigned char *s, int m )
 /*
 *
 */
-KTRIE_STRUCT * KTrieNew(void)
+KTRIE_STRUCT * KTrieNew(int method, void (*userfree)(void *p),
+                        void (*optiontreefree)(void **p),
+                        void (*neg_list_free)(void **p))
 {
    KTRIE_STRUCT * ts = (KTRIE_STRUCT*) KTRIE_MALLOC( sizeof(KTRIE_STRUCT) );
 
@@ -131,8 +140,18 @@ KTRIE_STRUCT * KTrieNew(void)
    ts->memory = sizeof(KTRIE_STRUCT);
    ts->nchars = 0;
    ts->npats  = 0;
+   ts->end_states = 0;
+   ts->method = method; /* - old method, 1 = queue */
+   ts->userfree = userfree;
+   ts->optiontreefree = optiontreefree;
+   ts->neg_list_free = neg_list_free;
 
    return ts;
+}
+
+int KTriePatternCount(KTRIE_STRUCT *k)
+{
+    return k->npats;
 }
 
 /*
@@ -153,6 +172,21 @@ void KTrieDelete(KTRIE_STRUCT *k)
     while (p != NULL)
     {
         pnext = p->next;
+
+        if (k->userfree && p->id)
+            k->userfree(p->id);
+
+        if (k->optiontreefree)
+        {
+            if (p && p->rule_option_tree)
+                k->optiontreefree(&p->rule_option_tree);
+        }
+
+        if (k->neg_list_free)
+        {
+            if (p && p->neg_list)
+                k->neg_list_free(&p->neg_list);
+        }
 
         KTRIE_FREE(p->P);
         KTRIE_FREE(p->Pcase);
@@ -235,7 +269,7 @@ static KTRIEPATTERN * KTrieNewPattern(unsigned char * P, int n)
 *  Add Pattern info to the list of patterns
 */
 int KTrieAddPattern( KTRIE_STRUCT * ts, unsigned char * P, int n, 
-                      int nocase, void * id )
+                      int nocase, int negative, void * id )
 {
    KTRIEPATTERN  *pnew;
 
@@ -257,6 +291,7 @@ int KTrieAddPattern( KTRIE_STRUCT * ts, unsigned char * P, int n,
    }
 
    pnew->nocase = nocase;
+   pnew->negative = negative;
    pnew->id     = id;
    pnew->mnext  = NULL;
 
@@ -397,6 +432,7 @@ static int KTrieInsert( KTRIE_STRUCT *ts, KTRIEPATTERN * px  )
    else
    {
       root->pkeyword = px;
+      ts->end_states++;
    }
 
    return 0;
@@ -444,19 +480,91 @@ static void Build_Bad_Character_Shifts( KTRIE_STRUCT * kt )
           cindex = plist->P[ k ];
 
           if( shift < kt->bcShift[ cindex ] )
-	  {
+          {
               kt->bcShift[ cindex ] = (unsigned short)shift;
-	  }
+          }
        }
     }
 }
 
+static int KTrieBuildMatchStateNode(KTRIENODE *root, 
+                                    int (*build_tree)(void * id, void **existing_tree),
+                                    int (*neg_list_func)(void *id, void **list))
+{
+    int cnt = 0;
+    KTRIEPATTERN *p;
+
+    if (!root)
+        return 0;
+
+    /* each and every prefix match at this root*/
+    if (root->pkeyword)
+    {
+        for (p = root->pkeyword; p; p = p->mnext)
+        {
+            if (p->id)
+            {
+                if (p->negative)
+                {
+                    neg_list_func(p->id, &root->pkeyword->neg_list);
+                }
+                else
+                {
+                    build_tree(p->id, &root->pkeyword->rule_option_tree);
+                }
+            }
+
+            cnt++;
+        }
+
+        /* Last call to finalize the tree for this root */
+        build_tree(NULL, &root->pkeyword->rule_option_tree);
+    }
+
+    /* for child of this root */
+    if (root->child)
+    {
+        cnt += KTrieBuildMatchStateNode(root->child, build_tree, neg_list_func);
+    }
+
+    /* 1st sibling of this root -- other siblings will be processed from
+     * within the processing for root->sibling. */
+    if (root->sibling)
+    {
+        cnt += KTrieBuildMatchStateNode(root->sibling, build_tree, neg_list_func);
+    }
+
+    return cnt;
+}
+
+static int KTrieBuildMatchStateTrees( KTRIE_STRUCT * ts, 
+                                      int (*build_tree)(void * id, void **existing_tree),
+                                      int (*neg_list_func)(void *id, void **list))
+{
+    int i, cnt = 0;
+    KTRIENODE     * root;
+
+    /* Find the states that have a MatchList */ 
+    for (i = 0; i < KTRIE_ROOT_NODES; i++)
+    {
+        root = ts->root[i];
+        /* each and every prefix match at this root*/
+        if (root)
+        {
+            cnt += KTrieBuildMatchStateNode(root, build_tree, neg_list_func);
+        }
+    }
+
+    return cnt;
+} 
 
 /*
 *  Build the Keyword TRIE
 *  
 */
-int KTrieCompile(KTRIE_STRUCT * ts)
+int KTrieCompile(KTRIE_STRUCT * ts,
+                 int (*build_tree)(void * id, void **existing_tree),
+                 int (*neg_list_func)(void *id, void **list))
 {
   KTRIEPATTERN * p;
   /*
@@ -481,8 +589,160 @@ int KTrieCompile(KTRIE_STRUCT * ts)
   tmem += ts->memory;
   printf(" Compile stats: %d patterns, %d chars, %d duplicate patterns, %d bytes, %d total-bytes\n",ts->npats,ts->nchars,ts->duplicates,ts->memory,tmem);
   */
+  if (build_tree && neg_list_func)
+  {
+      KTrieBuildMatchStateTrees(ts, build_tree, neg_list_func);
+  }
 
   return 0;
+}
+
+void sfksearch_print_qinfo()
+{
+#ifdef SFKSEARCH_TRACK_Q
+    if( pv.max_inq )
+    {
+        LogMessage("lowmem: queue size     = %u, max  = %u\n", pv.max_inq,SFK_MAX_INQ );
+        LogMessage("lowmem: queue flushes  = %u \n", (unsigned)pv.tot_inq_flush );
+        LogMessage("lowmem: queue inserts  = %u \n", (unsigned)pv.tot_inq_inserts );
+        LogMessage("lowmem: queue uinserts = %u \n", (unsigned)pv.tot_inq_uinserts );
+    }
+#endif
+}
+static
+inline 
+void 
+_init_queue( SFK_PMQ * b)
+{
+    b->inq=0;
+    b->inq_flush=0;
+}
+
+/* uniquely insert into q */
+static  
+inline
+int
+_add_queue(SFK_PMQ * b, void * p  )
+{
+    int i;
+
+#ifdef SFKSEARCH_TRACK_Q
+    pv.tot_inq_inserts++;
+#endif
+
+    for(i=(int)(b->inq)-1;i>=0;i--)
+        if( p == b->q[i] )
+            return 0;
+    
+#ifdef SFKSEARCH_TRACK_Q
+    pv.tot_inq_uinserts++;
+#endif
+
+    if( b->inq < SFK_MAX_INQ )
+    {
+        b->q[ b->inq++ ] = p;
+    }
+
+    if( b->inq == SFK_MAX_INQ )
+    {
+#ifdef SFKSEARCH_TRACK_Q
+        b->inq_flush++;
+#endif
+        return 1;
+    }
+    return 0;
+}
+
+static
+inline
+unsigned
+_process_queue( SFK_PMQ * q, 
+           int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+           void *data ) 
+{
+    KTRIEPATTERN  * pk;
+    unsigned int    i;
+
+#ifdef SFKSEARCH_TRACK_Q
+    if( q->inq > pv.max_inq ) 
+        pv.max_inq = q->inq;
+    pv.tot_inq_flush += q->inq_flush;
+#endif
+
+    for( i=0; i<q->inq; i++ )
+    {
+        pk = q->q[i];
+        if (pk)
+        {
+            if (match (pk->id, pk->rule_option_tree, 0, data, pk->neg_list) > 0)
+            {
+                q->inq=0; 
+                return 1;
+            }
+        }
+    }
+    q->inq=0; 
+    return 0;
+}
+
+static 
+inline 
+int KTriePrefixMatchQ( KTRIE_STRUCT  * kt, 
+        unsigned char * T, 
+        int n,
+        int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+        void * data )
+{
+    KTRIENODE     * root;
+    //KTRIEPATTERN  * pk;
+    //int index ;
+
+    root   = kt->root[ xlatcase[*T] ];
+
+    if( !root ) 
+        return 0;
+        
+    while( n )
+    {
+        if( root->edge == xlatcase[*T] )
+        {
+            T++;
+            n--;
+
+            if( root->pkeyword ) 
+            {
+                if( _add_queue( &kt->q, root->pkeyword ) )
+                {
+                    if( _process_queue( &kt->q,match,data) )
+                    {
+                        return 1;
+                    }
+                }
+            }
+
+            if( n && root->child )
+            {
+                root = root->child;   
+            }
+            else /* cannot continue -- match is over */
+            {
+                break; 
+            }
+        }
+        else
+        {
+            if( root->sibling )
+            {
+                root = root->sibling;
+            }
+            else /* cannot continue */
+            {
+                break; 
+            }
+        }
+    }
+
+    return 0;
 }
 
 /*
@@ -500,14 +760,14 @@ int KTrieCompile(KTRIE_STRUCT * ts)
 *   n - text length 
 * 
 *   returns:
-*	# pattern matches
+*   # pattern matches
 */
 static inline int KTriePrefixMatch( KTRIE_STRUCT  * kt, 
-                                    unsigned char * T, 
-                                    unsigned char * Tc, 
-                                    unsigned char * bT, 
-                                    int n,
-       int(*match)( void * id,  int index, void * data ),
+       unsigned char * T, 
+       unsigned char * Tc, 
+       unsigned char * bT, 
+       int n,
+       int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
        void * data )
 {
    KTRIENODE     * root   = kt->root[ *T ];
@@ -520,62 +780,108 @@ static inline int KTriePrefixMatch( KTRIE_STRUCT  * kt,
         
    while( n )
    {
-     if( root->edge == *T )
-     {
-         T++;
-         n--;
+        if( root->edge == *T )
+        {
+            T++;
+            n--;
 
-         for( pk = root->pkeyword; pk; pk= pk->mnext ) /* log each and every prefix match */
-         {
-            index = (int)(T - bT - pk->n );
-
-            if( pk->nocase )
+            pk = root->pkeyword;
+            if (pk)
             {
+                index = (int)(T - bT - pk->n );
                 nfound++;
-                if( match( pk->id, index, data ) )
-                  return nfound;
-            }
-            else
-            {   /* Retest with a Case Sensitive Test */
-		if( !memcmp(pk->Pcase,Tc,pk->n) )
-		{
-                  nfound++;
-                  if( match( pk->id, index, data ) )
+                if (match (pk->id, pk->rule_option_tree, index, data, pk->neg_list) > 0)
+                {
                     return nfound;
-		}
+                }
             }
-         }
 
-         if( n && root->child )
-         {
-            root = root->child;   
-         }
-         else /* cannot continue -- match is over */
-         {
-            break; 
-         }
-     }
-     else
-     {
-         if( root->sibling )
-         {
-            root = root->sibling;
-         }
-         else /* cannot continue */
-         {
-            break; 
-         }
-     }
+            if( n && root->child )
+            {
+                root = root->child;   
+            }
+            else /* cannot continue -- match is over */
+            {
+                break; 
+            }
+        }
+        else
+        {
+            if( root->sibling )
+            {
+                root = root->sibling;
+            }
+            else /* cannot continue */
+            {
+                break; 
+            }
+        }
    }
 
    return nfound;
 }
 
+static
+inline 
+int KTrieSearchQ( KTRIE_STRUCT * ks, unsigned char * T, int n, 
+                  int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+                  void * data )
+{
+    _init_queue(&ks->q);
+    while( n > 0 )
+    {
+        if( KTriePrefixMatchQ( ks, T++, n--, match, data ) )
+            return 0;
+    }
+    _process_queue(&ks->q,match,data);
+
+    return 0;
+}
+
+static 
+inline
+int KTrieSearchQBC( KTRIE_STRUCT * ks, unsigned char * T, int n,
+                    int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+                    void * data )
+{
+    int             tshift;
+    unsigned char  *Tend;
+    short          *bcShift = (short*)ks->bcShift;
+    int             bcSize  = ks->bcSize;
+
+    _init_queue(&ks->q);
+   
+    Tend = T + n - bcSize;
+
+    bcSize--;
+
+    for( ;T <= Tend; n--, T++ )
+    {
+        while( (tshift = bcShift[ T[bcSize] ]) > 0 ) 
+        {
+            T  += tshift;
+            if( T > Tend ) 
+                return 0;
+        }
+
+        if( KTriePrefixMatchQ( ks, T, n, match, data ) )
+            return 0;
+    }
+
+    _process_queue(&ks->q,match,data);
+
+    return 0;
+}
+
+
 /*
 *
 */
-static inline int KTrieSearchNoBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n, 
-              int(*match)( void *  id,  int index, void * data ), void * data )
+static
+inline
+int KTrieSearchNoBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
+                     int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+                     void * data )
 {
    int            nfound = 0;
    unsigned char *T, *bT;
@@ -596,8 +902,11 @@ static inline int KTrieSearchNoBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
 /*
 *
 */
-static inline int KTrieSearchBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
-              int(*match)( void * id,  int index, void * data ), void * data )
+static
+inline
+int KTrieSearchBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
+                   int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+                   void * data )
 {
    int             tshift;
    unsigned char  *Tend;
@@ -634,12 +943,23 @@ static inline int KTrieSearchBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
 *
 */
 int KTrieSearch( KTRIE_STRUCT * ks, unsigned char * T, int n, 
-    int(*match)( void * id,  int index, void * data ), void * data )
-{  
-    if( ks->bcSize < 3)
-        return KTrieSearchNoBC( ks, T, n, match, data );
+           int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
+           void * data )
+{
+    if( ks->method == KTRIEMETHOD_QUEUE )
+    {
+      //if( ks->bcSize < 3)
+       return KTrieSearchQ( ks, T, n, match, data );
+      //else
+      // return KTrieSearchQBC( ks, T, n, match, data );
+    }
     else
-        return KTrieSearchBC( ks, T, n, match, data );
+    {
+        if( ks->bcSize < 3)
+            return KTrieSearchNoBC( ks, T, n, match, data );
+        else
+            return KTrieSearchBC( ks, T, n, match, data );
+    }
 }
 
 /*

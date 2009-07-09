@@ -22,6 +22,7 @@
 #ifndef __STDINT_H__
 #define __STDINT_H__
 
+
 /*
  * Microsoft Visual C++ 6.0 doesn't support conversion from
  * "unsigned __uint64" to "signed __uint64", as is necessary
@@ -30,7 +31,7 @@
  */
 
 #if defined(__GNUC__) && !defined(__int64)
-#define __in64 long long
+#define __int64 long long
 #endif
 
 typedef __int8             int8_t;
@@ -41,7 +42,48 @@ typedef __int64            int64_t;
 typedef unsigned __int8    uint8_t;
 typedef unsigned __int16   uint16_t;
 typedef unsigned __int32   uint32_t;
+
+
+/* win32 is ILP32 so a long will hold a ptr */
+#ifdef _MSC_VER
+/* Visual C++ 6.0 - only 32 bit
+ * Later Visual Studio versions define these */
+#if _MSC_VER <= 1200
+typedef long int           intptr_t;
+typedef unsigned long int  uintptr_t;
+#endif  /* #if _MSC_VER <= 1200 */
+#else
+typedef long int           intptr_t;
+typedef unsigned long int  uintptr_t;
+#endif  /* #ifdef _MSC_VER */
+
+#ifdef _MSC_VER
+#if _MSC_VER <= 1200  /* Visual C++ 6.0 */
 typedef   signed __int64   uint64_t;
+#else
+typedef unsigned __int64   uint64_t;
+#endif  /* _MSC_VER <= 1200 */
+#endif  /* _MSC_VER */
+
+#ifndef UINT64
+#ifdef _MSC_VER
+/* Visual C++ 6.0 and before can't convert an unsigned __int64
+ * to a double, but can convert a signed __int64 to a double.
+ * Alot of the code converts the UINT64 to a double for percent
+ * calculations so we have to make this check */
+#if _MSC_VER <= 1200  /* Visual C++ 6.0 */
+#define UINT64 signed __int64
+#else
+#define UINT64 unsigned __int64
+#endif  /* _MSC_VER <= 1200 */
+#else
+#define UINT64 signed __int64
+#endif  /* _MSC_VER */
+#endif  /* UINT64 */
+
+#ifndef INT64
+#define INT64 signed __int64
+#endif  /* INT64 */
 
 #ifndef HAVE_U_INT8_T
 typedef uint8_t            u_int8_t;
@@ -55,9 +97,31 @@ typedef uint16_t           u_int16_t;
 typedef uint32_t           u_int32_t;
 #define HAVE_U_INT32_T
 #endif
-#define UINT64             uint64_t
-typedef uint64_t           uint64;
 
-#define UINT32_MAX         (4294967295U)
+typedef uint64_t              uint64;
+
+#ifndef USHRT_MAX
+#define USHRT_MAX  0xffff
 #endif
+
+#ifndef UINT32_MAX
+#define UINT32_MAX (4294967295U)
+#endif
+
+#ifndef UINT64_MAX
+# ifdef _MSC_VER
+#  if _MSC_VER <= 1200  /* Visual C++ 6.0 */
+    /* doesn't have an unsigned 64 bit data type and we use a signed 64 bit
+     * type for our unsigned 64 bit data type */
+#   define UINT64_MAX (9223372036854775807UL)
+#  else
+#   define UINT64_MAX (18446744073709551615UL)
+#  endif
+# else
+   /* No MSC_VER, assume it doesn't support unsigned 64 bit types */
+#  define UINT64_MAX (9223372036854775807UL)
+# endif
+#endif
+
+#endif  /* __STDINT_H__ */
 

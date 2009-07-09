@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -42,8 +43,7 @@ typedef struct _Alertpkt
     u_int32_t transhdr;     /* transport header offset (tcp/udp/icmp ..) */
     u_int32_t data;
     u_int32_t val;  /* which fields are valid. (NULL could be
-        * valids also)
-*                                  */
+                    * valids also) */
     /* Packet struct --> was null */
 #define NOPACKET_STRUCT 0x1
     /* no transport headers in packet */

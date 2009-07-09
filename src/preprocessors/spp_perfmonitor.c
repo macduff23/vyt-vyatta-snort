@@ -2,7 +2,7 @@
 **
 **  spp_perfmonitor.c
 **
-**  Copyright (C) 2002 Sourcefire, Inc.
+**  Copyright (C) 2002-2009 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -42,11 +42,13 @@
 /*
 *  Protype these forward references, and don't clutter up the name space
 */
-static void PerfMonitorInit(u_char *args);
+static void PerfMonitorInit(char *args);
 static void ParsePerfMonitorArgs(char *args);
 static void ProcessPerfMonitor(Packet *p, void *);
 void PerfMonitorCleanExit(int, void *);
 void PerfMonitorRestart(int, void *);
+static void PerfMonitorReset(int, void *);
+static void PerfMonitorResetStats(int, void *);
 
 #ifdef PERF_PROFILING
 PreprocStats perfmonStats;
@@ -74,7 +76,7 @@ void SetupPerfMonitor()
 }
 
 /*
- * Function: PerfMonitorInit(u_char *)
+ * Function: PerfMonitorInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -84,15 +86,15 @@ void SetupPerfMonitor()
  * Returns: void function
  *
  */
-static void PerfMonitorInit(u_char *args)
+static void PerfMonitorInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Preprocessor: PerfMonitor Initialized\n"););
 
     /* parse the argument list from the rules file */
-    ParsePerfMonitorArgs((char*)args);
+    ParsePerfMonitorArgs(args);
 
     /* Set the preprocessor function into the function list */
-    AddFuncToPreprocList(ProcessPerfMonitor, PRIORITY_SCANNER, PP_PERFMONITOR);
+    AddFuncToPreprocList(ProcessPerfMonitor, PRIORITY_SCANNER, PP_PERFMONITOR, PROTO_BIT__ALL);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("perfmon", &perfmonStats, 0, &totalPerfStats);
@@ -356,6 +358,8 @@ static void ParsePerfMonitorArgs( char *args)
 
     AddFuncToPreprocCleanExitList(PerfMonitorCleanExit, NULL, PRIORITY_LAST, PP_PERFMONITOR);
     AddFuncToPreprocRestartList(PerfMonitorRestart, NULL, PRIORITY_LAST, PP_PERFMONITOR);
+    AddFuncToPreprocResetList(PerfMonitorReset, NULL, PRIORITY_LAST, PP_PERFMONITOR);
+    AddFuncToPreprocResetStatsList(PerfMonitorResetStats, NULL, PRIORITY_LAST, PP_PERFMONITOR);
 
     if (sfPerf.iPerfFlags & SFPERF_SUMMARY)
     {
@@ -386,12 +390,28 @@ static void ProcessPerfMonitor(Packet *p, void *context)
 
     if( first )
     {
+#ifndef PCAP_CLOSE
         extern pcap_t * pd;
-        struct pcap_stat pcapStats;
-        pcap_stats(pd, &pcapStats);
+
+        if ((pd != NULL)
+#ifdef WIN32
+            && (!pv.readmode_flag)
+#endif
+           )
+        {
+            if (UpdatePcapPktStats() != -1)
+#else
+            if (UpdatePcapPktStats(0) != -1)
+#endif
+            {
+                sfPerf.sfBase.pkt_stats.pkts_recv = GetPcapPktStatsRecv();
+                sfPerf.sfBase.pkt_stats.pkts_drop = GetPcapPktStatsDrop();
+            }
+#ifndef PCAP_CLOSE
+        }
+#endif
+
         first = 0;
-        sfPerf.sfBase.pkt_stats.pkts_recv = pcapStats.ps_recv;
-        sfPerf.sfBase.pkt_stats.pkts_drop = pcapStats.ps_drop;
     }
 
     if(p == NULL) 
@@ -487,5 +507,15 @@ void PerfMonitorRestart(int signal, void *foo)
     sfSetPerformanceStatisticsEx(&sfPerf, SFPERF_FILECLOSE, NULL);
 
     return;
+}
+
+static void PerfMonitorReset(int signal, void *foo)
+{
+    return;
+}
+
+static void PerfMonitorResetStats(int signal, void *foo)
+{
+    ResetPerfStats(&sfPerf);
 }
 

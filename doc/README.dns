@@ -46,6 +46,16 @@ record types.
 preprocessor dns: ports { 53 } \
                   enable_rdata_overflow
 
+== Alerts ==
+The DNS preprocessor uses generator ID 131 and can produce the following
+alerts:
+
+SID  Description
+---  -----------
+1    Obsolete DNS RData Type
+2    Experimental DNS RData Type
+3    Client RData TXT Overflow
+
 == Conclusion ==
 
 The DNS preprocessor does nothing if none of the 3 vulnerabilities

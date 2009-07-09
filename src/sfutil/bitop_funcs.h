@@ -3,7 +3,7 @@
 ** 
 ** bitopt_funcs.h
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 ** Marc Norton <mnorton@sourcefire.com>
 **
@@ -99,7 +99,7 @@ static INLINE int boInitBITOP(BITOP *BitOp, int iSize)
     /*
     **  Sanity check for size
     */
-    if(iSize < 1)
+    if((iSize < 1) || (BitOp == NULL))
     {
         return 1;
     }
@@ -149,6 +149,9 @@ static INLINE int boInitBITOP(BITOP *BitOp, int iSize)
 */
 static INLINE int boResetBITOP(BITOP *BitOp)
 {
+    if (BitOp == NULL)
+        return 1;
+
     memset(BitOp->pucBitBuffer, 0x00, BitOp->uiBitBufferSize);
     return 0;
 }
@@ -170,6 +173,9 @@ static INLINE int boResetBITOP(BITOP *BitOp)
 */
 static INLINE int boSetAllBits(BITOP *BitOp)
 {
+    if (BitOp == NULL)
+        return 1;
+
     memset(BitOp->pucBitBuffer, 0xff, BitOp->uiBitBufferSize);
     return 0;
 }
@@ -197,12 +203,10 @@ static INLINE int boSetBit(BITOP *BitOp, unsigned int uiPos)
     /*
     **  Sanity Check while setting bits
     */
-    if(BitOp->uiMaxBits <= uiPos)
-    {
+    if((BitOp == NULL) || (BitOp->uiMaxBits <= uiPos))
         return 1;
-    }
 
-    mask = (unsigned char)(0x80 >> (uiPos & 7));
+    mask = (unsigned char)( 0x80 >> (uiPos & 7));
 
     BitOp->pucBitBuffer[uiPos >> 3] |= mask;
 
@@ -231,10 +235,8 @@ static INLINE int boIsBitSet(BITOP *BitOp, unsigned int uiPos)
     /*
     **  Sanity Check while setting bits
     */
-    if(BitOp->uiMaxBits <= uiPos)
-    {
+    if((BitOp == NULL) || (BitOp->uiMaxBits <= uiPos))
         return 0;
-    }
 
     mask = (unsigned char)(0x80 >> (uiPos & 7));
 
@@ -264,10 +266,8 @@ static INLINE void boClearBit(BITOP *BitOp, unsigned int uiPos)
     /*
     **  Sanity Check while clearing bits
     */
-    if(BitOp->uiMaxBits <= uiPos)
-    {
-        return ;
-    }
+    if((BitOp == NULL) || (BitOp->uiMaxBits <= uiPos))
+        return;
 
     mask = (unsigned char)(0x80 >> (uiPos & 7));
 
@@ -295,10 +295,8 @@ static INLINE void boClearByte(BITOP *BitOp, unsigned int uiPos)
     /*
     **  Sanity Check while clearing bytes
     */
-    if(BitOp->uiMaxBits <= uiPos)
-    {
-        return ;
-    }
+    if((BitOp == NULL) || (BitOp->uiMaxBits <= uiPos))
+        return;
 
     BitOp->pucBitBuffer[uiPos >> 3] = 0;
 }
@@ -324,11 +322,11 @@ static INLINE void boClearByte(BITOP *BitOp, unsigned int uiPos)
  **/
 static INLINE void boFreeBITOP(BITOP *BitOp)
 {
-    if(BitOp->pucBitBuffer != NULL)
-    {
-        free(BitOp->pucBitBuffer);
-        BitOp->pucBitBuffer = NULL;
-    }
+    if((BitOp == NULL) || (BitOp->pucBitBuffer == NULL))
+        return;
+
+    free(BitOp->pucBitBuffer);
+    BitOp->pucBitBuffer = NULL;
 }
 
 #endif /* _BITOPT_FUNCS_H_ */

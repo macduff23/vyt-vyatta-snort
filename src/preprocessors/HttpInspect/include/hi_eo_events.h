@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -27,31 +27,30 @@
 /*
 **  Client Events
 */
-#define HI_EO_CLIENT_ASCII          0   /* done */
-#define HI_EO_CLIENT_DOUBLE_DECODE  1   /* done */
-#define HI_EO_CLIENT_U_ENCODE       2   /* done */
-#define HI_EO_CLIENT_BARE_BYTE      3   /* done */
-#define HI_EO_CLIENT_BASE36         4   /* done */
-#define HI_EO_CLIENT_UTF_8          5   /* done */
-#define HI_EO_CLIENT_IIS_UNICODE    6   /* done */
-#define HI_EO_CLIENT_MULTI_SLASH    7   /* done */
-#define HI_EO_CLIENT_IIS_BACKSLASH  8   /* done */
-#define HI_EO_CLIENT_SELF_DIR_TRAV  9   /* done */
-#define HI_EO_CLIENT_DIR_TRAV       10  /* done */
-#define HI_EO_CLIENT_APACHE_WS      11  /* done */
-#define HI_EO_CLIENT_IIS_DELIMITER  12  /* done */
-#define HI_EO_CLIENT_NON_RFC_CHAR   13  /* done */
-#define HI_EO_CLIENT_OVERSIZE_DIR   14  /* done */
-#define HI_EO_CLIENT_LARGE_CHUNK    15  /* done */
-#define HI_EO_CLIENT_PROXY_USE      16  /* done */
-#define HI_EO_CLIENT_WEBROOT_DIR    17  /* done */
-
-/*
-**  IMPORTANT:
-**  Every time you add a client event, this number must be
-**  incremented.
-*/
-#define HI_EO_CLIENT_EVENT_NUM      18
+typedef enum _HI_EVENTS 
+{
+    HI_EO_CLIENT_ASCII =       0,
+    HI_EO_CLIENT_DOUBLE_DECODE  , 
+    HI_EO_CLIENT_U_ENCODE       , 
+    HI_EO_CLIENT_BARE_BYTE      , 
+    HI_EO_CLIENT_BASE36         , 
+    HI_EO_CLIENT_UTF_8          , 
+    HI_EO_CLIENT_IIS_UNICODE    , 
+    HI_EO_CLIENT_MULTI_SLASH    , 
+    HI_EO_CLIENT_IIS_BACKSLASH  , 
+    HI_EO_CLIENT_SELF_DIR_TRAV  , 
+    HI_EO_CLIENT_DIR_TRAV       ,
+    HI_EO_CLIENT_APACHE_WS      , 
+    HI_EO_CLIENT_IIS_DELIMITER  , 
+    HI_EO_CLIENT_NON_RFC_CHAR   , 
+    HI_EO_CLIENT_OVERSIZE_DIR   , 
+    HI_EO_CLIENT_LARGE_CHUNK    , 
+    HI_EO_CLIENT_PROXY_USE      , 
+    HI_EO_CLIENT_WEBROOT_DIR    , 
+    HI_EO_CLIENT_LONG_HDR       ,
+    HI_EO_CLIENT_MAX_HEADERS    ,
+    HI_EO_CLIENT_EVENT_NUM
+} HI_EVENTS;
 
 /*
 **  These defines are the alert names for each event
@@ -92,6 +91,10 @@
     "(http_inspect) UNAUTHORIZED PROXY USE DETECTED"
 #define HI_EO_CLIENT_WEBROOT_DIR_STR                    \
     "(http_inspect) WEBROOT DIRECTORY TRAVERSAL"
+#define HI_EO_CLIENT_LONG_HDR_STR                       \
+    "(http_inspect) LONG HEADER"
+#define HI_EO_CLIENT_MAX_HEADERS_STR                       \
+    "(http_inspect) MAX HEADER FIELDS"
 
 /*
 **  Anomalous Server Events

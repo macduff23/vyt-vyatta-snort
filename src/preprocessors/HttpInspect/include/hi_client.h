@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -19,7 +19,6 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  ****************************************************************************/
- 
 
 #ifndef __HI_CLIENT_H__
 #define __HI_CLIENT_H__
@@ -35,6 +34,13 @@
 #include "hi_eo.h"
 #include "hi_eo_events.h"
 
+typedef struct s_COOKIE_PTR
+{
+    const u_char *cookie;
+    const u_char *cookie_end;
+    struct s_COOKIE_PTR *next;
+} COOKIE_PTR;
+
 typedef struct s_HI_CLIENT_REQ
 {
     /*
@@ -42,14 +48,24 @@ typedef struct s_HI_CLIENT_REQ
     int  method_size;
     */
 
-    u_char *uri;
-    u_char *uri_norm;
-    u_char *post_raw;
-    u_char *post_norm;
+    const u_char *uri;
+    const u_char *uri_norm;
+    const u_char *post_raw;
+    const u_char *post_norm;
+    const u_char *header_raw;
+    const u_char *header_norm;
+    COOKIE_PTR cookie;
+    const u_char *cookie_norm;
+    const u_char *method_raw;
+
     u_int uri_size;
     u_int uri_norm_size;
     u_int post_raw_size;
     u_int post_norm_size;
+    u_int header_raw_size;
+    u_int header_norm_size;
+    u_int cookie_norm_size;
+    u_int method_size;
 
     /*
     u_char *param;
@@ -68,7 +84,7 @@ typedef struct s_HI_CLIENT_REQ
     u_int  payload_size;
     */
 
-    u_char *pipeline_req;
+    const u_char *pipeline_req;
     u_char method;
 
 }  HI_CLIENT_REQ;
@@ -81,7 +97,7 @@ typedef struct s_HI_CLIENT
 
 }  HI_CLIENT;
 
-int hi_client_inspection(void *Session, unsigned char *data, int dsize);
+int hi_client_inspection(void *Session, const unsigned char *data, int dsize);
 int hi_client_init(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
 
 #endif 

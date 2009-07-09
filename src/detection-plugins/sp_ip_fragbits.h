@@ -1,6 +1,7 @@
 /* $Id$ */
 
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -25,5 +26,9 @@
 
 void SetupFragBits(void);
 void SetupFragOffset(void);
+u_int32_t IpFragBitsCheckHash(void *d);
+int IpFragBitsCheckCompare(void *l, void *r);
+u_int32_t IpFragOffsetCheckHash(void *d);
+int IpFragOffsetCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_FRAGBITS_H__ */

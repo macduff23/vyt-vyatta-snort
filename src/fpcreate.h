@@ -1,9 +1,9 @@
 /*
 **  $Id$
 **
-**  fpclass.h
+**  fpcreate.h
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 ** Marc Norton <mnorton@sourcefire.com>
 **
@@ -41,6 +41,15 @@
 #include "pcrm.h"
 
 /*
+ *  Max Number of Protocols Supported by Rules in fpcreate.c
+ *  for tcp,udp,icmp,ip ... this is an array dimesnion used to
+ *  map protocol-ordinals to port_groups ...
+ */
+/* This is now defined in sftarget_protocol_refererence.h"
+ * #define MAX_PROTOCOL_ORDINAL 8192 */
+#include "sftarget_protocol_reference.h"
+
+/*
  *  This controls how many fast pattern match contents may be 
  *  used/retrieved per rule in fpcreate.c.
  */
@@ -67,6 +76,14 @@ typedef struct _pmx_ {
 
 } PMX;
 
+/* Used for negative content list */
+typedef struct _NCListNode
+{
+    PMX *pmx;
+    struct _NCListNode *next;
+
+} NCListNode;
+
 /*
 **  This structure holds configuration options for the 
 **  detection engine.
@@ -75,11 +92,21 @@ typedef struct _FPDETECT {
     
     int inspect_stream_insert;
     int search_method;
+    int search_opt;
     int search_method_verbose;
     int debug;
     int max_queue_events;
-
+//PORTLISTS
+    u_int32_t bleedover_port_limit;
+    char portlists_flags;
 } FPDETECT;
+
+#define PL_BLEEDOVER_WARNINGS_ENABLED        0x01
+#define PL_DEBUG_PRINT_NC_DETECT_RULES       0x02
+#define PL_DEBUG_PRINT_RULEGROWP_BUILD       0x04
+#define PL_DEBUG_PRINT_RULEGROUPS_UNCOMPILED 0x08
+#define PL_DEBUG_PRINT_RULEGROUPS_COMPILED   0x10
+#define PL_SINGLE_RULE_GROUP                 0x20
 
 /*
 **  This function initializes the detection engine configuration
@@ -103,14 +130,48 @@ int prmFindRuleGroupUdp(int dport, int sport, PORT_GROUP ** src, PORT_GROUP **ds
 int prmFindRuleGroupIp(int ip_proto, PORT_GROUP **ip_group, PORT_GROUP ** gen);
 int prmFindRuleGroupIcmp(int type, PORT_GROUP **type_group, PORT_GROUP ** gen);
 
-int fpSetDetectSearchMethod( char * method );
-int fpSetDebugMode();
-int fpSetStreamInsert();
-int fpSetMaxQueueEvents(int iNum);
+int  fpSetDetectSearchMethod( char * method );
+int  fpSetDetectSearchOpt( int flag );
+int  fpSetDebugMode();
+int  fpSetStreamInsert();
+int  fpSetMaxQueueEvents(int iNum);
+
+void fpDetectSetSingleRuleGroup();
+void fpDetectSetBleedOverPortLimit(int n);
+void fpDetectSetBleedOverWarnings();
+void fpDetectSetDebugPrintNcRules();
+void fpDetectSetDebugPrintRuleGroupBuildDetails();
+void fpDetectSetDebugPrintRuleGroupsCompiled();
+void fpDetectSetDebugPrintRuleGroupsUnCompiled();
+
+int  fpDetectGetSingleRuleGroup(void);
+int  fpDetectGetBleedOverPortLimit(void);
+int  fpDetectGetBleedOverWarnings(void);
+int  fpDetectGetDebugPrintNcRules(void);
+int  fpDetectGetDebugPrintRuleGroupBuildDetails(void);
+int  fpDetectGetDebugPrintRuleGroupsCompiled(void);
+int  fpDetectGetDebugPrintRuleGroupsUnCompiled(void);
+
+#ifdef SHUTDOWN_MEMORY_CLEANUP
+void fpDeleteFastPacketDetection();
+#endif
+void free_detection_option_tree(detection_option_tree_node_t *node);
+
+#ifdef PORTLISTS
+int OtnHasContent( OptTreeNode * p );
+int OtnHasUriContent( OptTreeNode * p );
+int OtnFlowDir( OptTreeNode * p );
+#endif
+PORT_GROUP * fpGetServicePortGroupByOrdinal( int proto, int dir, int16_t proto_ordinal );
 
 /*
 **  Shows the event stats for the created FastPacketDetection
 */
 int fpShowEventStats();
+typedef int (*OtnWalkFcn)(int proto,RuleTreeNode *r,OptTreeNode *o);
+int fpWalkOtns(int enabled, OtnWalkFcn  fcn) ;
+
+void fpFreeIpProtoGlobals(void);
+void fpInitIpProtoGlobals(void);
 
 #endif

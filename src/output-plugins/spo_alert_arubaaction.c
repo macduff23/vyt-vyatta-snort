@@ -58,6 +58,8 @@
 
 #include "snort.h"
 
+#include "ipv6_port.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,7 +83,11 @@ typedef struct _SpoAlertArubaActionData
 	uint8_t		secret_type;
 	uint8_t		action_type;
 	char		*role_name;
-	struct in_addr	aswitch;
+#ifdef SUP_IP6
+	sfip_t         aswitch;
+#else
+	struct in_addr aswitch;
+#endif
 	int		fd;
 } SpoAlertArubaActionData;
 
@@ -148,7 +154,7 @@ const ArubaResponseCode response_lookup[] = {
 };
 
 
-void AlertArubaActionInit(u_char *);
+void AlertArubaActionInit(char *);
 SpoAlertArubaActionData *ParseAlertArubaActionArgs(char *);
 void AlertArubaActionCleanExitFunc(int, void *);
 void AlertArubaActionRestartFunc(int, void *);
@@ -181,7 +187,7 @@ void AlertArubaActionSetup(void)
 
 
 /*
- * Function: AlertArubaActionInit(u_char *)
+ * Function: AlertArubaActionInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -191,7 +197,7 @@ void AlertArubaActionSetup(void)
  * Returns: void function
  *
  */
-void AlertArubaActionInit(u_char *args)
+void AlertArubaActionInit(char *args)
 {
 	SpoAlertArubaActionData *data;
 
@@ -227,7 +233,11 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
 	data->fd = ArubaSwitchConnect(data);
 	if (data->fd < 0) {
 		ErrorMessage("Unable to connect to Aruba switch at %s\n",
+#ifdef SUP_IP6
+				inet_ntoa(&data->aswitch));
+#else
 				inet_ntoa(data->aswitch));
+#endif
 		return;
 	}
 
@@ -262,7 +272,13 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
 	}
 
 	snprintf(cmdbufp, xmllenrem, "<ipaddr>%s</ipaddr>",
-			inet_ntoa(p->iph->ip_src));
+#ifdef SUP_IP6
+			inet_ntoa(GET_SRC_ADDR(p))
+#else
+			inet_ntoa(p->iph->ip_src)
+#endif
+        );
+
 	xmllenrem -= strlen(cmdbufp);
 	cmdbufp += strlen(cmdbufp);
 
@@ -342,14 +358,20 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
 			"User-Agent: snort\r\n"
 			"Host: %s\r\n"
 			"Pragma: no-cache\r\n"
-			"Content-Length: %zu\r\n"
+			"Content-Length: %lu\r\n"
 			"Content-Type: application/xml\r\n"
 			"\r\n"
 			"%s",
-			inet_ntoa(data->aswitch), strlen(cmdbuf), cmdbuf);
+#ifdef SUP_IP6
+			inet_ntoa(&data->aswitch),
+#else
+			inet_ntoa(data->aswitch),
+#endif
+			(unsigned long)strlen(cmdbuf), cmdbuf
+        );
 	
 	/* Send the action command to the switch */
-	if (ArubaSwitchSend(data, post, postlen) != postlen) {
+	if (ArubaSwitchSend(data, (u_int8_t *)post, postlen) != postlen) {
 		ErrorMessage("aruba_action: Error sending data to Aruba "
 				"switch.\n");
 		close(data->fd);
@@ -357,7 +379,7 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
 	}
 
 	/* Read the response from the switch */
-	if (ArubaSwitchRecv(data, response, MAX_RESPONSE_LEN) < 0) {
+	if (ArubaSwitchRecv(data, (u_int8_t *)response, MAX_RESPONSE_LEN) < 0) {
 		ErrorMessage("aruba_action: Error reading response from Aruba"
 				" switch\n");
 		close(data->fd);
@@ -425,11 +447,8 @@ int ArubaSwitchRecv(SpoAlertArubaActionData *data, uint8_t *recv, int maxlen)
 
 int ArubaSwitchConnect(SpoAlertArubaActionData *data)
 {
-	struct sockaddr_in sa;
-
-	sa.sin_addr.s_addr = data->aswitch.s_addr;
-	sa.sin_family = AF_INET;
-	sa.sin_port = htons(80);
+	struct sockaddr_in sa4;
+	struct sockaddr_in6 sa6;
 
 	data->fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (data->fd < 0) {
@@ -437,13 +456,70 @@ int ArubaSwitchConnect(SpoAlertArubaActionData *data)
 		return -1;
 	}
 
-	if (connect(data->fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
-		perror("connect");
-		ErrorMessage("aruba_action: Unable to connect to switch\n");
-		close(data->fd);
-		return -1;
-	}
+#ifdef SUP_IP6
+    if(data->aswitch.family == AF_INET) {
+	    sa4.sin_addr.s_addr = data->aswitch.ip32[0];
+#else
+	    sa4.sin_addr.s_addr = (unsigned int)(data->aswitch.s_addr);
+#endif
+    	sa4.sin_family = AF_INET;
+    	sa4.sin_port = htons(80);
 
+    	if (connect(data->fd, (struct sockaddr *)&sa4, sizeof(sa4)) < 0) {
+    		perror("connect");
+    		ErrorMessage("aruba_action: Unable to connect to switch\n");
+    		close(data->fd);
+    		return -1;
+    	}
+#ifdef SUP_IP6
+    } 
+    else {
+	    memcpy(&sa6.sin6_addr, data->aswitch.ip8, 16);
+    	sa6.sin6_family = AF_INET6;
+    	sa6.sin6_port = htons(80);
+
+       	if (connect(data->fd, (struct sockaddr *)&sa6, sizeof(sa6)) < 0) {
+    		perror("connect");
+    		ErrorMessage("aruba_action: Unable to connect to switch\n");
+    		close(data->fd);
+    		return -1;
+    	}
+    }  
+#endif
+
+
+
+#ifdef SUP_IP6
+    if(data->aswitch.family == AF_INET) {
+	    sa4.sin_addr.s_addr = data->aswitch.ip32[0];
+    	sa4.sin_family = AF_INET;
+    	sa4.sin_port = htons(80);
+
+    	if (connect(data->fd, (struct sockaddr *)&sa4, sizeof(sa4)) < 0) {
+    		perror("connect");
+    		ErrorMessage("aruba_action: Unable to connect to switch\n");
+    		close(data->fd);
+    		return -1;
+    	}
+    } 
+    else {
+	    memcpy(&sa6.sin6_addr, data->aswitch.ip8, 16);
+#else
+	    memcpy(&sa6.sin6_addr, &data->aswitch, 16);
+#endif
+    	sa6.sin6_family = AF_INET6;
+    	sa6.sin6_port = htons(80);
+
+       	if (connect(data->fd, (struct sockaddr *)&sa6, sizeof(sa6)) < 0) {
+    		perror("connect");
+    		ErrorMessage("aruba_action: Unable to connect to switch\n");
+    		close(data->fd);
+    		return -1;
+    	}
+#ifdef SUP_IP6
+    }  
+#endif
+     
 	return data->fd;
 }
 
@@ -488,7 +564,12 @@ SpoAlertArubaActionData *ParseAlertArubaActionArgs(char *args)
 		return NULL;
 	}
 
-	if (inet_aton(toks[0], &data->aswitch) == 0) {
+#ifdef SUP_IP6 // XXX could probably be changed to a macro
+	if (sfip_pton(toks[0], &data->aswitch) == 0) 
+#else
+	if (inet_aton(toks[0], &data->aswitch) == 0) 
+#endif
+    {
 		ErrorMessage("aruba_action: invalid Aruba switch address "
 				"specified (%s)\n", toks[0]);
 		FatalError("Invalid Aruba switch address.\n");

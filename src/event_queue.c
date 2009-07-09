@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2004-2006 Sourcefire, Inc.
+ ** Copyright (C) 2004-2009 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -24,8 +24,6 @@
 **  @author     Marc Norton <mnorton@sourcefire.com>
 **
 **  @brief      Snort wrapper to sfeventq library.
-**
-**  Copyright (C) 2004, Daniel Roelker and Sourcefire, Inc.
 **
 **  These functions wrap the sfeventq API and provide the priority
 **  functions for ordering incoming events.
@@ -117,13 +115,32 @@ int SnortEventqAdd(unsigned int gid,
         /* every event should have a rule/otn  */
         potn = otn_lookup( gid, sid );
         /* 
-        * if no rule otn exists for this event, than it was 
-        * not enabled via rules 
-        */
+         * if no rule otn exists for this event, than it was 
+         * not enabled via rules 
+         */
+
+        if( !potn )
+        {
+            if (pv.generate_preprocessor_decoder_otn)
+            {
+                /* Generate an OTN if configured to do so.... */
+                potn = GenerateSnortEventOtn(
+                                en->gid,
+                                en->sid,
+                                en->rev,
+                                en->classification,
+                                en->priority,
+                                en->msg);
+
+                if (potn != NULL)  
+                    otn_lookup_add(potn);
+            }
+        }
+
         if( !potn ) 
         {
-         /* no otn found/created - do not add it to the queue */
-         return 0;
+            /* no otn found/created - do not add it to the queue */
+            return 0;
         }
     }
 #endif
@@ -233,7 +250,7 @@ int SnortEventqInit(void)
 
     return 0;
 }
-            
+
 static int LogSnortEvents(void *event, void *user)
 {
     Packet    *p;
@@ -266,9 +283,22 @@ static int LogSnortEvents(void *event, void *user)
         /* Look up possible decoder and preprocessor event otn */
         potn = otn_lookup( en->gid, en->sid );
 
-#ifndef PREPROCESSOR_AND_DECODER_RULE_EVENTS
-        if( !potn )
+        if (!potn)
         {
+#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
+            if (pv.generate_preprocessor_decoder_otn)
+            {
+                /* Generate an OTN if configured to do so.... */
+                potn = GenerateSnortEventOtn(
+                                en->gid,
+                                en->sid,
+                                en->rev,
+                                en->classification,
+                                en->priority,
+                                en->msg);
+            }
+#else
+            /* Always generate an OTN.... */
             potn = GenerateSnortEventOtn(
                             en->gid,
                             en->sid,
@@ -276,18 +306,21 @@ static int LogSnortEvents(void *event, void *user)
                             en->classification,
                             en->priority,
                             en->msg);
-          if( potn )  
-          {
-            otn_lookup_add(potn);
-          }
-        }
 #endif        
+            if (potn)
+            {
+                otn_lookup_add(potn);
+            }
+        }
+
         if( potn )
         {
+            char *tmp = potn->sigInfo.message;
             snort_user->rule_alert = potn->sigInfo.rule_flushing;
             potn->sigInfo.message = en->msg;
 
             fpLogEvent( potn->rtn, potn, p );
+            potn->sigInfo.message = tmp;
         }
     }
 

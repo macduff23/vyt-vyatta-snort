@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -34,22 +34,6 @@
 #ifndef ACSMX2S_H
 #define ACSMX2S_H
 
-#ifdef WIN32
-
-#ifdef inline
-#undef inline
-#endif
-
-#define inline __inline
-
-#else
-#ifdef inline
-#undef inline
-#endif
-
-#define inline 
-#endif
-
 /*
 *   DEFINES and Typedef's
 */
@@ -76,6 +60,13 @@ typedef    unsigned short acstate_t;
 
 #endif
 
+typedef struct _acsm_userdata2
+{
+    u_int32_t ref_count;
+    void *id;
+
+} ACSM_USERDATA2;
+
 /*
 *
 */
@@ -90,8 +81,11 @@ struct _acsm_pattern2
     int      nocase;
     int      offset;
     int      depth;
-    void *   id;
+    int      negative;
+    ACSM_USERDATA2 *udata;
     int      iid;
+    void   * rule_option_tree;
+    void   * neg_list;
 
 } ACSM_PATTERN2;
 
@@ -118,6 +112,7 @@ enum {
   ACF_SPARSE,
   ACF_BANDED,
   ACF_SPARSEBANDS,
+  ACF_FULLQ
 };
 
 /*
@@ -130,8 +125,16 @@ enum {
 enum {
   FSA_TRIE,
   FSA_NFA,
-  FSA_DFA,
+  FSA_DFA
 };
+
+#define AC_MAX_INQ 32
+typedef struct 
+{
+    unsigned inq;
+    unsigned inq_flush;
+    void * q[AC_MAX_INQ];
+} PMQ;
 
 /*
 *   Aho-Corasick State Machine Struct - one per group of pattterns
@@ -142,36 +145,46 @@ typedef struct {
     int acsmNumStates;  
 
     ACSM_PATTERN2    * acsmPatterns;
-        acstate_t        * acsmFailState;
-        ACSM_PATTERN2   ** acsmMatchList;
+    acstate_t        * acsmFailState;
+    ACSM_PATTERN2   ** acsmMatchList;
 
-        /* list of transitions in each state, this is used to build the nfa & dfa */
-        /* after construction we convert to sparse or full format matrix and free */
-        /* the transition lists */
-        trans_node_t ** acsmTransTable;
+    /* list of transitions in each state, this is used to build the nfa & dfa */
+    /* after construction we convert to sparse or full format matrix and free */
+    /* the transition lists */
+    trans_node_t ** acsmTransTable;
 
-        acstate_t ** acsmNextState;
-        int          acsmFormat;
-        int          acsmSparseMaxRowNodes;
-        int          acsmSparseMaxZcnt;
-        
-        int          acsmNumTrans;
-        int          acsmAlphabetSize;
-        int          acsmFSA;
+    acstate_t ** acsmNextState;
+    int          acsmFormat;
+    int          acsmSparseMaxRowNodes;
+    int          acsmSparseMaxZcnt;
+    
+    int          acsmNumTrans;
+    int          acsmAlphabetSize;
+    int          acsmFSA;
+    int          numPatterns;
+    void         (*userfree)(void *p);
+    void         (*optiontreefree)(void **p);
+    void         (*neg_list_free)(void **p);
+    PMQ q;
 
 }ACSM_STRUCT2;
 
 /*
 *   Prototypes
 */
-ACSM_STRUCT2 * acsmNew2 (void);
+ACSM_STRUCT2 * acsmNew2 (void (*userfree)(void *p),
+                         void (*optiontreefree)(void **p),
+                         void (*neg_list_free)(void **p));
 int acsmAddPattern2( ACSM_STRUCT2 * p, unsigned char * pat, int n,
-                    int nocase, int offset, int depth, void *  id, int iid );
-int acsmCompile2 ( ACSM_STRUCT2 * acsm );
+                    int nocase, int offset, int depth, int negative, void * id, int iid );
+int acsmCompile2 ( ACSM_STRUCT2 * acsm,
+                   int (*build_tree)(void * id, void **existing_tree),
+                   int (*neg_list_func)(void *id, void **list));
 int acsmSearch2 ( ACSM_STRUCT2 * acsm,unsigned char * T, int n, 
-          int (*Match)( void * id, int index, void * data ),
+                  int (*Match)(void * id, void *tree, int index, void *data, void *neg_list),
                   void * data, int* current_state );
 void acsmFree2 ( ACSM_STRUCT2 * acsm );
+int acsmPatternCount2 ( ACSM_STRUCT2 * acsm );
 
 
 int  acsmSelectFormat2( ACSM_STRUCT2 * acsm, int format );
@@ -186,5 +199,6 @@ void acsmPrintInfo2( ACSM_STRUCT2 * p);
 
 int acsmPrintDetailInfo2(ACSM_STRUCT2*);
 int acsmPrintSummaryInfo2(void);
+void acsmx2_print_qinfo(void);
 
 #endif

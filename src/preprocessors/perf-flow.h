@@ -2,7 +2,7 @@
 /*
 ** perf-flow.h
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 ** Dan Roelker <droelker@sourcefire.com>
 **
@@ -27,6 +27,8 @@
 
 #ifndef _PERF_FLOW_H
 #define _PERF_FLOW_H
+
+#include "sf_types.h"
 
 #define SF_MAX_PKT_LEN 4500
 #define SF_MAX_PORT (64*1024)
@@ -97,7 +99,7 @@ typedef struct _sfflow_stats {
 **  Functions for the performance functions to call
 */
 int InitFlowStats   (SFFLOW *sfFlow);
-int UpdateFlowStats (SFFLOW *sfFlow, unsigned char *pucBuffer, int len,
+int UpdateFlowStats (SFFLOW *sfFlow, const unsigned char *pucBuffer, int len,
         int iRebuiltPkt);
 int ProcessFlowStats(SFFLOW *sfFlow);
 

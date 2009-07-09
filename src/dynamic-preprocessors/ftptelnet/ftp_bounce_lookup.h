@@ -1,11 +1,12 @@
 /*
  * ftp_bounce_lookup.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -37,14 +38,10 @@
 
 int ftp_bounce_lookup_init(BOUNCE_LOOKUP **BounceLookup);
 int ftp_bounce_lookup_cleanup(BOUNCE_LOOKUP **BounceLookup);
-int ftp_bounce_lookup_add(BOUNCE_LOOKUP *BounceLookup, char ip[], int len,
-                            FTP_BOUNCE_TO *BounceTo);
+int ftp_bounce_lookup_add(BOUNCE_LOOKUP *BounceLookup, snort_ip_p ip, FTP_BOUNCE_TO *BounceTo);
 
-FTP_BOUNCE_TO *ftp_bounce_lookup_find(BOUNCE_LOOKUP *BounceLookup, 
-                                            char ip[], int len, int *iError);
-FTP_BOUNCE_TO *ftp_bounce_lookup_first(BOUNCE_LOOKUP *BounceLookup,
-                                            int *iError);
-FTP_BOUNCE_TO *ftp_bounce_lookup_next(BOUNCE_LOOKUP *BounceLookup,
-                                           int *iError);
+FTP_BOUNCE_TO *ftp_bounce_lookup_find(BOUNCE_LOOKUP *BounceLookup, snort_ip_p ip, int *iError);
+FTP_BOUNCE_TO *ftp_bounce_lookup_first(BOUNCE_LOOKUP *BounceLookup, int *iError);
+FTP_BOUNCE_TO *ftp_bounce_lookup_next(BOUNCE_LOOKUP *BounceLookup, int *iError);
 
 #endif

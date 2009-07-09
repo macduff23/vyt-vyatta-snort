@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2005 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -61,9 +62,10 @@
 #include "mstring.h"
 #include "event.h"
 #include "generators.h"
-#include "snort_packet_header.h"
+#include "bounds.h"
 
 #include "snort.h"
+#include "pcap_pkthdr32.h"
 
 /* For the traversal of reassembled packets */
 #include "stream_api.h"
@@ -80,7 +82,6 @@
 
 /* From fpdetect.c, for logging reassembled packets */
 extern u_int16_t   event_id;
-
 
 /* file header for snort unified format log files
  *
@@ -106,7 +107,6 @@ typedef struct _UnifiedAlertFileHeader
     u_int32_t timezone;
 } UnifiedAlertFileHeader;
 
-
 /* unified log packet header format 
  *
  * One of these per packet in the log file, the packets are appended in the 
@@ -116,7 +116,7 @@ typedef struct _UnifiedLog
 {
     Event event;
     u_int32_t flags;       /* bitmap for interesting flags */
-    SnortPktHeader pkth;   /* SnortPktHeader schtuff */
+    struct pcap_pkthdr32 pkth;
 } UnifiedLog;
 
 
@@ -127,7 +127,7 @@ typedef struct _UnifiedLog
 typedef struct _UnifiedAlert
 {
     Event event;
-    struct pcap_timeval ts;    /* event timestamp */
+    struct timeval32 ts;       /* event timestamp */
     u_int32_t sip;             /* src ip */
     u_int32_t dip;             /* dest ip */
     u_int16_t sp;              /* src port */
@@ -136,6 +136,17 @@ typedef struct _UnifiedAlert
     u_int32_t flags;           /* any other flags (fragmented, etc) */
 } UnifiedAlert;
 
+typedef struct _UnifiedIPv6Alert
+{
+    Event event;
+    struct timeval32 ts;       /* event timestamp */
+    snort_ip      sip;             /* src ip */
+    snort_ip      dip;             /* dest ip */
+    u_int16_t sp;              /* src port */
+    u_int16_t dp;              /* dest port */
+    u_int32_t protocol;        /* protocol id */
+    u_int32_t flags;           /* any other flags (fragmented, etc) */
+} UnifiedIPv6Alert;
 
 
 /* ----------------External variables -------------------- */
@@ -155,6 +166,7 @@ typedef struct _UnifiedConfig
     FILE *stream;
     unsigned int limit;
     unsigned int current;
+    int nostamp;
 } UnifiedConfig;
 
 typedef struct _FileHeader
@@ -173,6 +185,7 @@ typedef struct _DataHeader
 
 #define UNIFIED_TYPE_ALERT          0x1
 #define UNIFIED_TYPE_PACKET_ALERT   0x2
+#define UNIFIED_TYPE_IPV6_ALERT      0x3
 
 /* -------------------- Global Variables ----------------------*/
 #ifdef GIDS
@@ -186,12 +199,14 @@ static void UnifiedRestart(int, void *);
 static void UnifiedLogInitFinalize(int, void *);
 
 /* Unified Output functions */
-static void UnifiedInit(u_char *);
+static void UnifiedInit(char *);
 static void UnifiedInitFile(UnifiedConfig *);
 static void UnifiedRotateFile(UnifiedConfig *);
 static void UnifiedLogAlert(Packet *, char *, void *, Event *);
 static void UnifiedLogPacketAlert(Packet *, char *, void *, Event *);
 static void RealUnifiedLogAlert(Packet *, char *, void *, Event *, 
+        DataHeader *);
+static void RealUnifiedLogAlert6(Packet *, char *, void *, Event *, 
         DataHeader *);
 static void RealUnifiedLogPacketAlert(Packet *, char *, void *, Event *, 
         DataHeader *);
@@ -199,20 +214,25 @@ void RealUnifiedLogStreamAlert(Packet *,char *,void *,Event *,DataHeader *);
 static void UnifiedRotateFile(UnifiedConfig *data);
 
 /* Unified Alert functions (deprecated) */
-static void UnifiedAlertInit(u_char *);
+static void UnifiedAlertInit(char *);
 static void UnifiedInitAlertFile(UnifiedConfig *);
 static void UnifiedAlertRotateFile(UnifiedConfig *data);
 static void OldUnifiedLogAlert(Packet *, char *, void *, Event *);
 
 
 /* Unified Packet Log functions (deprecated) */
-static void UnifiedLogInit(u_char *);
+static void UnifiedLogInit(char *);
 static void UnifiedInitLogFile(UnifiedConfig *);
 static void OldUnifiedLogPacketAlert(Packet *, char *, void *, Event *);
 static void UnifiedLogRotateFile(UnifiedConfig *data);
 
 
 static UnifiedConfig *unifiedConfig;
+
+/* Used for buffering header and payload of unified records so only one
+ * write is necessary. */
+static char write_pkt_buffer[sizeof(DataHeader) + 
+                             sizeof(UnifiedLog) + IP_MAXPACKET];
 
 /*
  * Function: SetupUnified()
@@ -238,7 +258,7 @@ void UnifiedSetup()
 }
 
 /*
- * Function: UnifiedInit(u_char *)
+ * Function: UnifiedInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -248,7 +268,7 @@ void UnifiedSetup()
  * Returns: void function
  *
  */
-void UnifiedInit(u_char *args)
+void UnifiedInit(char *args)
 {
     if(unifiedConfig)
     {
@@ -295,12 +315,23 @@ static void UnifiedInitFile(UnifiedConfig *data)
     if(data == NULL)
         FatalError("SpoUnified: Unable to get context data\n");
 
-    if(*(data->filename) == '/')
-        value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
-                              (unsigned long)curr_time);
-    else
-        value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir,  
-                              data->filename, (unsigned long)curr_time);
+    if(data->nostamp) 
+    {
+        if(*(data->filename) == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s", data->filename);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s", pv.log_dir,  
+                              data->filename);
+    }
+    else 
+    {
+        if(*(data->filename) == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
+                              (u_int32_t)curr_time);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir,  
+                              data->filename, (u_int32_t)curr_time);
+    }
 
     if(value != SNORT_SNPRINTF_SUCCESS)
         FatalError("SpoUnified: filepath too long\n");
@@ -331,9 +362,6 @@ void UnifiedRotateFile(UnifiedConfig *data)
     UnifiedInitFile(data);
 }
 
-/* buffer */
-static char write_pkt_buffer[sizeof(DataHeader)+IP_MAXPACKET];
-/* buffer */
 int UnifiedLogData(u_int32_t type, u_int32_t length, void *data)
 {
     DataHeader dHdr;
@@ -355,28 +383,23 @@ int UnifiedLogData(u_int32_t type, u_int32_t length, void *data)
         LogMessage("Empty Alert ....LogUnified bailing \n");
         return -1;
     }
-    memset(write_pkt_buffer,'\0',sizeof(DataHeader)+IP_MAXPACKET);
 
     dHdr.type = type;
     dHdr.length = length;
    
-    memcpy(write_pkt_buffer,&dHdr,sizeof(DataHeader));
-    memcpy(write_pkt_buffer+sizeof(DataHeader),(char *)data,length);
+    SafeMemcpy(write_pkt_buffer, &dHdr, sizeof(DataHeader), 
+                write_pkt_buffer, write_pkt_buffer + sizeof(DataHeader) + 
+                sizeof(UnifiedLog) + IP_MAXPACKET );
+    SafeMemcpy(write_pkt_buffer + sizeof(DataHeader), (char *)data, length,
+                write_pkt_buffer, write_pkt_buffer + 
+                sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET );
 
-/*
-    if(fwrite((char *)&dHdr, sizeof(DataHeader), 1, unifiedConfig->stream) 
-            != 1)
+    if(fwrite(write_pkt_buffer, length + sizeof(DataHeader),
+              1, unifiedConfig->stream) != 1)
     {
         FatalError("SpoUnified: write failed: %s\n", strerror(errno));
     }
 
-    if(fwrite((char *)data, length, 1, unifiedConfig->stream) != 1)
-    {
-*/
-    if(fwrite(write_pkt_buffer,length+sizeof(DataHeader),1,unifiedConfig->stream) != 1)
-    {
-        FatalError("SpoUnified: write failed: %s\n", strerror(errno));
-    }
     fflush(unifiedConfig->stream);
 
     return 0;
@@ -385,22 +408,34 @@ int UnifiedLogData(u_int32_t type, u_int32_t length, void *data)
 void UnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event)
 {
     DataHeader dHdr;
-    dHdr.type = UNIFIED_TYPE_ALERT;
-    dHdr.length = sizeof(UnifiedAlert);
-    
+   
     /* check for a pseudo-packet, we don't want to log those */
-    RealUnifiedLogAlert(p, msg, arg, event, &dHdr);
+    if(IS_IP4(p))
+    {
+        dHdr.type = UNIFIED_TYPE_ALERT;
+        dHdr.length = sizeof(UnifiedAlert);
+ 
+        RealUnifiedLogAlert(p, msg, arg, event, &dHdr);
+    }
+    else
+    {
+        dHdr.type = UNIFIED_TYPE_IPV6_ALERT;
+        dHdr.length = sizeof(UnifiedIPv6Alert);
+ 
+        RealUnifiedLogAlert6(p, msg, arg, event, &dHdr);
+    }
 }
   
-int UnifiedFirstPacketCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
-        void *userdata)
+int UnifiedFirstPacketCallback(struct pcap_pkthdr *pkth,
+                               u_int8_t *packet_data, void *userdata)
 {
     UnifiedAlert *alertdata = (UnifiedAlert*)userdata;
+
     /* loop thru all the packets in the stream */
     if(pkth != NULL )
     {
-        alertdata->ts.tv_sec  = pkth->ts.tv_sec;
-        alertdata->ts.tv_usec = pkth->ts.tv_usec;
+        alertdata->ts.tv_sec  = (u_int32_t)pkth->ts.tv_sec;
+        alertdata->ts.tv_usec = (u_int32_t)pkth->ts.tv_usec;
     } 
 
     /* return non-zero so we only do this once */
@@ -412,7 +447,7 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
 {
     UnifiedConfig *data = (UnifiedConfig *)arg;
     UnifiedAlert alertdata;
-    
+
     bzero(&alertdata, sizeof(alertdata));
 
     if(event != NULL)
@@ -431,8 +466,8 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
 
     if(p)
     {
-        alertdata.ts.tv_sec = p->pkth->ts.tv_sec;
-        alertdata.ts.tv_usec = p->pkth->ts.tv_usec;
+        alertdata.ts.tv_sec = (u_int32_t)p->pkth->ts.tv_sec;
+        alertdata.ts.tv_usec = (u_int32_t)p->pkth->ts.tv_usec;
        
         if((p->packet_flags & PKT_REBUILT_STREAM) && stream_api)
         {
@@ -442,12 +477,12 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
 
        }
 
-        if(p->iph != NULL)
+        if(IPH_IS_VALID(p))
         {
             /* everything needs to be written in host order */
             alertdata.sip = ntohl(p->iph->ip_src.s_addr);
             alertdata.dip = ntohl(p->iph->ip_dst.s_addr);
-            if(p->iph->ip_proto == IPPROTO_ICMP)
+            if(GET_IPH_PROTO(p) == IPPROTO_ICMP)
             {
                 if(p->icmph != NULL)
                 {
@@ -460,7 +495,7 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
                 alertdata.sp = p->sp;
                 alertdata.dp = p->dp;
             }
-            alertdata.protocol = p->iph->ip_proto;
+            alertdata.protocol = GET_IPH_PROTO(p);
             alertdata.flags = p->packet_flags;
         }
     }
@@ -485,6 +520,91 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
     }
     
     if(fwrite((char *)&alertdata, sizeof(UnifiedAlert), 1, data->stream) != 1)
+            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
+
+
+    fflush(data->stream);
+    data->current += sizeof(UnifiedAlert);
+}
+
+void RealUnifiedLogAlert6(Packet *p, char *msg, void *arg, Event *event, 
+        DataHeader *dHdr)
+{
+    UnifiedConfig *data = (UnifiedConfig *)arg;
+    UnifiedIPv6Alert alertdata;
+
+    bzero(&alertdata, sizeof(alertdata));
+
+    if(event != NULL)
+    {
+        alertdata.event.sig_generator = event->sig_generator;
+        alertdata.event.sig_id = event->sig_id;
+        alertdata.event.sig_rev = event->sig_rev;
+        alertdata.event.classification = event->classification;
+        alertdata.event.priority = event->priority;
+        alertdata.event.event_id = event->event_id;
+        alertdata.event.event_reference = event->event_reference;
+        alertdata.event.ref_time.tv_sec = event->ref_time.tv_sec;
+        alertdata.event.ref_time.tv_usec = event->ref_time.tv_usec;
+
+    }
+
+    if(p)
+    {
+        alertdata.ts.tv_sec = (u_int32_t)p->pkth->ts.tv_sec;
+        alertdata.ts.tv_usec = (u_int32_t)p->pkth->ts.tv_usec;
+       
+        if((p->packet_flags & PKT_REBUILT_STREAM) && stream_api)
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_LOG, "man:Logging rebuilt stream data.\n");); 
+
+            stream_api->traverse_reassembled(p, UnifiedFirstPacketCallback, &alertdata);
+
+       }
+
+        if(IPH_IS_VALID(p))
+        {
+            /* everything needs to be written in host order */
+            IP_COPY_VALUE(alertdata.sip, GET_SRC_IP(p));
+            IP_COPY_VALUE(alertdata.dip, GET_DST_IP(p));
+            if(GET_IPH_PROTO(p) == IPPROTO_ICMP)
+            {
+                if(p->icmph != NULL)
+                {
+                    alertdata.sp = p->icmph->type;
+                    alertdata.dp = p->icmph->code;
+                }
+            }
+            else
+            {
+                alertdata.sp = p->sp;
+                alertdata.dp = p->dp;
+            }
+            alertdata.protocol = GET_IPH_PROTO(p);
+            alertdata.flags = p->packet_flags;
+        }
+    }
+    
+    /* backward compatibility stuff */
+    if(dHdr == NULL)
+    {
+        if((data->current + sizeof(UnifiedIPv6Alert)) > data->limit)
+            UnifiedAlertRotateFile(data);
+    }
+    else
+    {
+        if((data->current + sizeof(UnifiedIPv6Alert)) > data->limit)
+            UnifiedRotateFile(data);
+    }
+
+    if(dHdr)
+    {
+        if(fwrite((char *)dHdr, sizeof(DataHeader), 1, data->stream) != 1)
+            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
+        data->current += sizeof(DataHeader);
+    }
+    
+    if(fwrite((char *)&alertdata, sizeof(UnifiedIPv6Alert), 1, data->stream) != 1)
             FatalError("SpoUnified: write failed: %s\n", strerror(errno));
 
 
@@ -519,6 +639,7 @@ void RealUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event,
 {
     UnifiedLog logheader;
     UnifiedConfig *data = (UnifiedConfig *)arg;
+    int offset = 0;
 
     if(event != NULL)
     {
@@ -552,8 +673,8 @@ void RealUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event,
          * this will have to be fixed when we transition to the pa_engine
          * code (p->pkth is libpcap specific)
          */ 
-        logheader.pkth.ts.tv_sec = p->pkth->ts.tv_sec;
-        logheader.pkth.ts.tv_usec = p->pkth->ts.tv_usec;
+        logheader.pkth.ts.tv_sec = (u_int32_t)p->pkth->ts.tv_sec;
+        logheader.pkth.ts.tv_usec = (u_int32_t)p->pkth->ts.tv_usec;
         logheader.pkth.caplen = p->pkth->caplen;
         logheader.pkth.pktlen = p->pkth->len;
 
@@ -582,21 +703,39 @@ void RealUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event,
     }
     if(dHdr)
     {
-        if(fwrite((char *)dHdr, sizeof(DataHeader), 1, data->stream) != 1)
-            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
+        SafeMemcpy(write_pkt_buffer, dHdr, sizeof(DataHeader),
+                write_pkt_buffer, write_pkt_buffer + 
+                sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET);
+
         data->current += sizeof(DataHeader);
+        offset = sizeof(DataHeader);
+
     }
         
-    
-    if(fwrite((char*)&logheader, sizeof(UnifiedLog), 1, data->stream) != 1)
-        FatalError("SpoUnified: write failed: %s\n", strerror(errno));
+    SafeMemcpy(write_pkt_buffer + offset, &logheader, sizeof(UnifiedLog),
+                write_pkt_buffer, write_pkt_buffer + 
+                sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET);
+
     data->current += sizeof(UnifiedLog);
+    offset += sizeof(UnifiedLog);
     
     if(p)
     {
-        if(fwrite((char*)p->pkt, p->pkth->caplen, 1, data->stream) != 1)
+        SafeMemcpy(write_pkt_buffer + offset, p->pkt, p->pkth->caplen,
+                write_pkt_buffer, write_pkt_buffer + 
+                sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET);
+
+        if(fwrite(write_pkt_buffer, offset + p->pkth->caplen, 
+                  1, data->stream) != 1)
             FatalError("SpoUnified: write failed: %s\n", strerror(errno));
+
         data->current += p->pkth->caplen;
+    }
+    else 
+    {
+        if(fwrite(write_pkt_buffer, sizeof(DataHeader) + 
+               sizeof(UnifiedLog), 1, data->stream) != 1)
+            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
     }
 
     fflush(data->stream);
@@ -615,17 +754,22 @@ typedef struct _UnifiedLogStreamCallbackData
  * Callback for the Stream reassembler to log packets
  *
  */
-int UnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
-        void *userdata)
+int UnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
+                             u_int8_t *packet_data, void *userdata)
 {
     UnifiedLogStreamCallbackData *unifiedData;
+    int offset = 0;
+
     if (!userdata)
         return -1;
 
     unifiedData = (UnifiedLogStreamCallbackData *)userdata;
 
     /* copy it's pktheader data into the logheader */
-    memcpy(&(unifiedData->logheader->pkth), pkth, sizeof(SnortPktHeader));
+    unifiedData->logheader->pkth.ts.tv_sec = (u_int32_t)pkth->ts.tv_sec;
+    unifiedData->logheader->pkth.ts.tv_usec = (u_int32_t)pkth->ts.tv_usec;
+    unifiedData->logheader->pkth.caplen = (u_int32_t)pkth->caplen;
+    unifiedData->logheader->pkth.pktlen = (u_int32_t)pkth->len;
 
     /* backward compatibility stuff */
     if(unifiedData->dHdr == NULL)
@@ -647,28 +791,42 @@ int UnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
 
     if(unifiedData->dHdr)
     {
-        if(fwrite((char*)unifiedData->dHdr,sizeof(DataHeader),1,unifiedData->data->stream) 
-                != 1)
-            FatalError("SpoUnified: write failed: %s\n", 
-                    strerror(errno));
+        SafeMemcpy(write_pkt_buffer, unifiedData->dHdr, sizeof(DataHeader),
+                   write_pkt_buffer, write_pkt_buffer +
+                   sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET);
+
+        offset = sizeof(DataHeader);
+
         unifiedData->data->current += sizeof(DataHeader);
     }
 
-    if(fwrite((char*)unifiedData->logheader,sizeof(UnifiedLog),1,unifiedData->data->stream)
-           != 1)
-        FatalError("SpoUnified: write failed: %s\n", 
-                strerror(errno));
+    SafeMemcpy(write_pkt_buffer + offset, unifiedData->logheader, 
+                sizeof(UnifiedLog), write_pkt_buffer, 
+                write_pkt_buffer + sizeof(DataHeader) + 
+                sizeof(UnifiedLog) + IP_MAXPACKET);
+
+    offset += sizeof(UnifiedLog);
 
     unifiedData->data->current += sizeof(UnifiedLog);
 
     if(packet_data)
     {
-        if(fwrite((char*)packet_data,unifiedData->logheader->pkth.caplen,1
-                    ,unifiedData->data->stream) != 1)
-            FatalError("SpoUnified: write failed: %s\n", 
-                    strerror(errno));
+        SafeMemcpy(write_pkt_buffer, packet_data, 
+               offset + unifiedData->logheader->pkth.caplen,
+               write_pkt_buffer, write_pkt_buffer + 
+               sizeof(DataHeader) + sizeof(UnifiedLog) + IP_MAXPACKET);
+
+        if(fwrite(write_pkt_buffer, offset + unifiedData->logheader->pkth.caplen,
+                  1, unifiedData->data->stream) != 1)
+            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
 
         unifiedData->data->current += unifiedData->logheader->pkth.caplen;
+    }
+    else 
+    {
+        if(fwrite(write_pkt_buffer, offset,
+                  1, unifiedData->data->stream) != 1)
+            FatalError("SpoUnified: write failed: %s\n", strerror(errno));
     }
 
     /* after the first logged packet modify the event headers */
@@ -768,6 +926,10 @@ UnifiedConfig *UnifiedParseArgs(char *args, char *default_filename)
         FatalError("Unable to allocate Unified Data struct!\n");
     }
 
+    /* This is so the if 'nostamps' option is used on the command line,
+     * it will be honored by unified, and only one variable is used. */
+    tmp->nostamp = pv.nostamp;
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Args: %s\n", args););
 
     if(args != NULL)
@@ -794,7 +956,7 @@ UnifiedConfig *UnifiedParseArgs(char *args, char *default_filename)
                     LogMessage("Argument Error in %s(%i): %s\n",
                             file_name, file_line, index);
             }
-            if(strcasecmp("limit", stoks[0]) == 0)
+            else if(strcasecmp("limit", stoks[0]) == 0)
             {
                 if(num_stoks > 1 && limit == 0)
                 {
@@ -806,6 +968,16 @@ UnifiedConfig *UnifiedParseArgs(char *args, char *default_filename)
                             file_name, file_line, index);
                 }
             }
+            else if(strcasecmp("nostamp", stoks[0]) == 0)
+            {   
+                tmp->nostamp = 1;
+            }
+            else
+            {
+                LogMessage("Argument Error in %s(%i): %s\n",
+                        file_name, file_line, index);
+            }
+            
             mSplitFree(&stoks, num_stoks);
         }
         mSplitFree(&toks, num_toks);
@@ -883,7 +1055,7 @@ static void UnifiedRestart(int signal, void *arg)
 
 
 /* Unified Alert functions (deprecated) */
-void UnifiedAlertInit(u_char *args)
+void UnifiedAlertInit(char *args)
 {
     UnifiedConfig *data;
 
@@ -922,12 +1094,24 @@ void UnifiedInitAlertFile(UnifiedConfig *data)
     bzero(logdir, STD_BUF);
     curr_time = time(NULL);
 
-    if(data->filename[0] == '/')
-        value = SnortSnprintf(logdir, STD_BUF, "%s.%lu",  data->filename, 
-                              (unsigned long)curr_time);
+    if(data->nostamp) 
+    {
+        if(data->filename[0] == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s", data->filename, 
+                              (u_int32_t)curr_time);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s", pv.log_dir, 
+                              data->filename, (u_int32_t)curr_time);
+    }
     else
-        value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir, 
-                              data->filename, (unsigned long)curr_time);
+    {
+        if(data->filename[0] == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
+                                  (u_int32_t)curr_time);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir, 
+                                  data->filename, (u_int32_t)curr_time);
+    }
 
     if(value != SNORT_SNPRINTF_SUCCESS)
     {
@@ -973,7 +1157,7 @@ void UnifiedAlertRotateFile(UnifiedConfig *data)
 
 /* Unified Packet Log functions (deprecated) */
 
-void UnifiedLogInit(u_char *args)
+void UnifiedLogInit(char *args)
 {
     UnifiedConfig *UnifiedInfo;
 
@@ -1048,12 +1232,24 @@ void UnifiedInitLogFile(UnifiedConfig *data)
         FatalError("Can't get unified plugin context, that's bad\n");
     }
 
-    if(*(data->filename) == '/')
-        value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
-                              (unsigned long)curr_time);
+    if(data->nostamp)
+    {
+        if(*(data->filename) == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s", data->filename, 
+                              (u_int32_t)curr_time);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s", pv.log_dir,  
+                              data->filename, (u_int32_t)curr_time);
+    }
     else
-        value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir,  
-                              data->filename, (unsigned long)curr_time);
+    {
+        if(*(data->filename) == '/')
+            value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
+                              (u_int32_t)curr_time);
+        else
+            value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir,  
+                              data->filename, (u_int32_t)curr_time);
+    }
 
     if(value != SNORT_SNPRINTF_SUCCESS)
     {
@@ -1098,17 +1294,18 @@ typedef struct _OldUnifiedLogStreamCallbackData
     Event *event;
     int first_time;
     int packet_flags;
-    void *eh;
+    const void *eh;
 } OldUnifiedLogStreamCallbackData;
 
 /**
  * Callback for the Stream reassembler to log packets
  *
  */
-int OldUnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
-        void *userdata)
+int OldUnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
+                                u_int8_t *packet_data, void *userdata)
 {
     OldUnifiedLogStreamCallbackData *unifiedData;
+
     if (!userdata)
         return -1;
 
@@ -1117,7 +1314,10 @@ int OldUnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
     unifiedData->logheader->flags = unifiedData->packet_flags;
 
     /* copy it's pktheader data into the logheader */
-    memcpy(&unifiedData->logheader->pkth, pkth, sizeof(SnortPktHeader));
+    unifiedData->logheader->pkth.ts.tv_sec = (u_int32_t)pkth->ts.tv_sec;
+    unifiedData->logheader->pkth.ts.tv_usec = (u_int32_t)pkth->ts.tv_usec;
+    unifiedData->logheader->pkth.caplen = (u_int32_t)pkth->caplen;
+    unifiedData->logheader->pkth.pktlen = (u_int32_t)pkth->len;
 
 #ifdef GIDS
     /*
@@ -1145,8 +1345,7 @@ int OldUnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
 
     }
 
-    if(fwrite((char*)unifiedData->logheader,sizeof(UnifiedLog),1,unifiedData->data->stream)
-           != 1)
+    if(fwrite((char*)unifiedData->logheader,sizeof(UnifiedLog),1,unifiedData->data->stream) != 1)
         FatalError("SpoUnified: write failed: %s\n", 
                 strerror(errno));
 
@@ -1158,7 +1357,9 @@ int OldUnifiedLogStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
         if(!unifiedData->eh)
         {
 #ifndef IPFW
-            memcpy((u_char *)g_ethernet.ether_src,g_m->hw_addr,6);
+            SafeMemcpy((u_char *)g_ethernet.ether_src,g_m->hw_addr,6,
+                       (u_char *)g_ethernet.ether_src, 
+                       (u_char *)g_ethernet.ether_src + sizeof(EtherHdr));
             memset((u_char *)g_ethernet.ether_dst,0x00,6);
 #else
             memset(g_ethernet.ether_dst,0x00,6);
@@ -1265,8 +1466,8 @@ void OldUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
         {
             logheader.flags = p->packet_flags;
 
-            logheader.pkth.ts.tv_sec = p->pkth->ts.tv_sec;
-            logheader.pkth.ts.tv_usec = p->pkth->ts.tv_usec;
+            logheader.pkth.ts.tv_sec = (u_int32_t)p->pkth->ts.tv_sec;
+            logheader.pkth.ts.tv_usec = (u_int32_t)p->pkth->ts.tv_usec;
             logheader.pkth.caplen = p->pkth->caplen;
             logheader.pkth.pktlen = p->pkth->len;
 
@@ -1306,7 +1507,9 @@ void OldUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
             if(!p->eh)
             {
 #ifndef IPFW
-                memcpy((u_char *)g_ethernet.ether_src,g_m->hw_addr,6);
+                SafeMemcpy((u_char *)g_ethernet.ether_src,g_m->hw_addr,6,
+                        (u_char *)g_ethernet.ether_src, 
+                        (u_char *)g_ethernet.ether_src + sizeof(EtherHdr));
                 memset((u_char *)g_ethernet.ether_dst,0x00,6);
 #else
                 memset(g_ethernet.ether_dst,0x00,6);

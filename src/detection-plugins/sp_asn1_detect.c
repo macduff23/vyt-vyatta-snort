@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2006 Sourcefire, Inc.
+ ** Copyright (C) 2002-2009 Sourcefire, Inc.
  ** Author: Daniel Roelker
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -84,7 +84,7 @@
 
 #define DELIMITERS " ,\t\n"
 
-extern u_int8_t *doe_ptr;
+extern const u_int8_t *doe_ptr;
 
 
 /*
@@ -93,7 +93,7 @@ extern u_int8_t *doe_ptr;
  *
  * 1 means it's in bounds, 0 means it's not
  */
-static int inBounds(u_int8_t *start, u_int8_t *end, u_int8_t *p)
+static int inBounds(const u_int8_t *start, const u_int8_t *end, const u_int8_t *p)
 {
     if(p >= start && p < end)
     {
@@ -347,14 +347,14 @@ static int Asn1DetectFuncs(ASN1_TYPE *asn1, ASN1_CTXT *ctxt, int dec_ret_val)
 **  @retval 0 failed
 **  @retval 1 detected
 */
-int Asn1DoDetect(u_int8_t *data, u_int16_t dsize, ASN1_CTXT *ctxt, u_int8_t *rel_ptr)
+int Asn1DoDetect(const u_int8_t *data, u_int16_t dsize, ASN1_CTXT *ctxt, const u_int8_t *rel_ptr)
 {
     ASN1_TYPE *asn1;
     int iRet;
     unsigned int size;
-    char *start;
-    char *end;
-    char *offset = NULL;
+    const u_int8_t *start;
+    const u_int8_t *end;
+    const u_int8_t *offset = NULL;
 
     /*
     **  Failed if there is no data to decode.

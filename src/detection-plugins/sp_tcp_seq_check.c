@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,7 +36,15 @@
 #include "debug.h"
 #include "plugin_enum.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats tcpSeqPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
 
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 typedef struct _TcpSeqCheckData
 {
@@ -45,9 +54,37 @@ typedef struct _TcpSeqCheckData
 
 void TcpSeqCheckInit(char *, OptTreeNode *, int);
 void ParseTcpSeq(char *, OptTreeNode *);
-int CheckTcpSeqEq(Packet *, struct _OptTreeNode *, OptFpList *);
+int CheckTcpSeqEq(void *option_data, Packet *p);
 
+u_int32_t TcpSeqCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    TcpSeqCheckData *data = (TcpSeqCheckData *)d;
 
+    a = data->tcp_seq;
+    b = RULE_OPTION_TYPE_TCP_SEQ;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int TcpSeqCheckCompare(void *l, void *r)
+{
+    TcpSeqCheckData *left = (TcpSeqCheckData *)l;
+    TcpSeqCheckData *right = (TcpSeqCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->tcp_seq == right->tcp_seq)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -63,7 +100,10 @@ int CheckTcpSeqEq(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupTcpSeqCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("seq", TcpSeqCheckInit);
+    RegisterPlugin("seq", TcpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("seq", &tcpSeqPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: TcpSeqCheck Initialized\n"););
 }
@@ -84,6 +124,7 @@ void SetupTcpSeqCheck(void)
  ****************************************************************************/
 void TcpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_TCP)
     {
         FatalError("Line %s (%d): TCP Options on non-TCP rule\n", file_name, file_line);
@@ -107,7 +148,9 @@ void TcpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(CheckTcpSeqEq, otn);
+    fpl = AddOptFuncToList(CheckTcpSeqEq, otn);
+    fpl->type = RULE_OPTION_TYPE_TCP_SEQ;
+    fpl->context = otn->ds_list[PLUGIN_TCP_SEQ_CHECK];
 }
 
 
@@ -127,6 +170,7 @@ void TcpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 void ParseTcpSeq(char *data, OptTreeNode *otn)
 {
     char **ep = NULL;
+    void *ds_ptr_dup;
     TcpSeqCheckData *ds_ptr;  /* data struct pointer */
 
     /* set the ds pointer to make it easier to reference the option's
@@ -136,6 +180,12 @@ void ParseTcpSeq(char *data, OptTreeNode *otn)
     ds_ptr->tcp_seq = strtoul(data, ep, 0);
     ds_ptr->tcp_seq = htonl(ds_ptr->tcp_seq);
  
+    if (add_detection_option(RULE_OPTION_TYPE_TCP_SEQ, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        otn->ds_list[PLUGIN_TCP_SEQ_CHECK] = ds_ptr_dup;
+        free(ds_ptr);
+    }
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Seq set to %lX\n", ds_ptr->tcp_seq););
 
 }
@@ -154,17 +204,21 @@ void ParseTcpSeq(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int CheckTcpSeqEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int CheckTcpSeqEq(void *option_data, Packet *p)
 {
+    TcpSeqCheckData *tcpSeqCheckData = (TcpSeqCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
+
     if(!p->tcph)
-        return 0; /* if error appeared when tcp header was processed,
+        return rval; /* if error appeared when tcp header was processed,
                * test fails automagically */
 
-    if(((TcpSeqCheckData *)otn->ds_list[PLUGIN_TCP_SEQ_CHECK])->tcp_seq == 
-       p->tcph->th_seq)
+    PREPROC_PROFILE_START(tcpSeqPerfStats);
+
+    if(tcpSeqCheckData->tcp_seq == p->tcph->th_seq)
     {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
 #ifdef DEBUG
     else
@@ -175,5 +229,6 @@ int CheckTcpSeqEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
 #endif
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(tcpSeqPerfStats);
+    return rval;
 }

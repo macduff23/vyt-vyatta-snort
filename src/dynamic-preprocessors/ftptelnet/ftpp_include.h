@@ -1,7 +1,7 @@
 /*
  * ftpp_include.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -32,6 +32,7 @@
 #ifndef __FTP_INCLUDE_H__
 #define __FTP_INCLUDE_H__
 
+#include "sf_ip.h"
 #include "debug.h"
 #include "sf_snort_packet.h"
 #include "sf_dynamic_preprocessor.h"

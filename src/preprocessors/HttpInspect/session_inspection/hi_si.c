@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -52,6 +52,7 @@
 #include "hi_ui_server_lookup.h"
 #include "hi_si.h"
 #include "hi_ad.h"
+#include "stream_api.h"
 
 /*
 **  NAME
@@ -107,13 +108,37 @@ static int IsServer(HTTPINSPECT_CONF *ServerConf, unsigned short port)
 static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf, 
                           HTTPINSPECT_CONF **ServerConf, 
                           HTTPINSPECT_CONF **ClientConf, 
-                          HI_SI_INPUT *SiInput, int *piInspectMode)
+                          HI_SI_INPUT *SiInput, int *piInspectMode, Packet *p)
 {
     HTTPINSPECT_CONF *ServerConfSip;
     HTTPINSPECT_CONF *ServerConfDip;
     int iServerSip;
     int iServerDip;
     int iErr = 0;
+#ifdef TARGET_BASED
+    int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
+    int http_id_found = 0;
+#endif
+    snort_ip sip;
+    snort_ip dip;
+
+    //structure copy
+    sip = SiInput->sip;
+    dip = SiInput->dip;
+
+#ifdef SUP_IP6
+    if (sip.family == AF_INET)
+    {
+        sip.ip.u6_addr32[0] = ntohl(sip.ip.u6_addr32[0]);
+    }
+    if (dip.family == AF_INET)
+    {
+        dip.ip.u6_addr32[0] = ntohl(dip.ip.u6_addr32[0]);
+    }
+#else
+    sip = ntohl(sip);
+    dip = ntohl(dip);
+#endif
 
     /*
     **  We find the server configurations for both the source and dest. IPs.
@@ -122,14 +147,26 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     **  assume the global server configuration.
     */
     ServerConfDip = hi_ui_server_lookup_find(GlobalConf->server_lookup, 
-            SiInput->dip, &iErr);
+#ifdef SUP_IP6
+            &dip,
+#else
+            dip,
+#endif
+            &iErr);
+
     if(!ServerConfDip)
     {
         ServerConfDip = &GlobalConf->global_server;
     }
 
     ServerConfSip = hi_ui_server_lookup_find(GlobalConf->server_lookup,
-            SiInput->sip, &iErr);
+#ifdef SUP_IP6
+            &sip,
+#else
+            sip,
+#endif
+           &iErr);
+
     if(!ServerConfSip)
     {
         ServerConfSip = &GlobalConf->global_server;
@@ -148,6 +185,22 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     */
     iServerSip = IsServer(ServerConfSip, SiInput->sport);
     iServerDip = IsServer(ServerConfDip, SiInput->dport);
+#ifdef TARGET_BASED
+    if (stream_api)
+    {
+        app_id = stream_api->get_application_protocol_id(p->ssnptr);
+        if (app_id == GlobalConf->app_protocol_id)
+        {
+            http_id_found = 1;
+        }
+        if (app_id && !http_id_found)
+        {
+            /* This packet was identified as something else. Forget it. */
+            iServerSip = 0;
+            iServerDip = 0;
+        }
+    }
+#endif
 
     /*
     **  We default to the no HTTP traffic case
@@ -188,7 +241,11 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             break;
 
         case HI_SI_CLIENT_MODE:
+#ifdef TARGET_BASED
+            if(iServerDip || http_id_found)
+#else
             if(iServerDip)
+#endif
             {
                 *piInspectMode = HI_SI_CLIENT_MODE;
                 *ServerConf = ServerConfDip;
@@ -197,7 +254,11 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             break;
 
         case HI_SI_SERVER_MODE:
+#ifdef TARGET_BASED
+            if(iServerSip || http_id_found)
+#else
             if(iServerSip)
+#endif
             {
                 *piInspectMode = HI_SI_SERVER_MODE;
                 *ServerConf = ServerConfSip;
@@ -216,7 +277,8 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
 }
     
 static int StatefulSessionInspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectType)
+        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectType,
+        Packet *p)
 {
     /*
     **  We do stuff here for stateful session inspection in the next phase.
@@ -251,6 +313,20 @@ static INLINE int ResetSession(HI_SESSION *Session)
     Session->client.request.uri_size            = 0;
     Session->client.request.uri_norm_size       = 0;
 
+    Session->client.request.header_norm         = NULL;
+    Session->client.request.header_norm_size    = 0;
+    Session->client.request.header_raw          = NULL;
+    Session->client.request.header_raw_size     = 0;
+    Session->client.request.cookie.cookie       = NULL;
+    Session->client.request.cookie.cookie_end   = NULL;
+    Session->client.request.cookie_norm         = NULL;
+    Session->client.request.cookie_norm_size    = 0;
+
+    Session->client.request.post_raw            = NULL;
+    Session->client.request.post_raw_size       = 0;
+    Session->client.request.post_norm           = NULL;
+    Session->client.request.post_norm_size      = 0;
+
     Session->client.request.pipeline_req        = NULL;
 
     return HI_SUCCESS;
@@ -283,16 +359,17 @@ static INLINE int ResetSession(HI_SESSION *Session)
 **  @retval HI_SUCCESS function successful
 */
 static int StatelessSessionInspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectMode)
+        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectMode,
+        Packet *p)
 {
     static HI_SESSION StaticSession;
-    HTTPINSPECT_CONF *ServerConf;
-    HTTPINSPECT_CONF *ClientConf;
+    HTTPINSPECT_CONF *ServerConf = NULL;
+    HTTPINSPECT_CONF *ClientConf = NULL;
     int iRet;
 
     ResetSession(&StaticSession);
 
-    iRet = InitServerConf(GlobalConf, &ServerConf, &ClientConf, SiInput, piInspectMode);
+    iRet = InitServerConf(GlobalConf, &ServerConf, &ClientConf, SiInput, piInspectMode, p);
     if (iRet)
     {
         return iRet;
@@ -341,7 +418,8 @@ static int StatelessSessionInspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
 **  @retval HI_INVALID_ARG    argument was invalid (NULL pointers, etc)
 */
 int hi_si_session_inspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectMode)
+        HI_SESSION **Session, HI_SI_INPUT *SiInput, int *piInspectMode,
+        Packet *p)
 {
     int iRet;
 
@@ -358,7 +436,7 @@ int hi_si_session_inspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     */
     if(GlobalConf->inspection_type == HI_UI_CONFIG_STATEFUL)
     {
-        iRet = StatefulSessionInspection(GlobalConf, Session, SiInput, piInspectMode);
+        iRet = StatefulSessionInspection(GlobalConf, Session, SiInput, piInspectMode, p);
         if (iRet)
         {
             return iRet;
@@ -369,7 +447,7 @@ int hi_si_session_inspection(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         /*
         **  Assume stateless processing otherwise
         */
-        iRet = StatelessSessionInspection(GlobalConf, Session, SiInput, piInspectMode);
+        iRet = StatelessSessionInspection(GlobalConf, Session, SiInput, piInspectMode, p);
         if (iRet)
         {
             return iRet;

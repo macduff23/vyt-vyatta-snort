@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -41,6 +42,16 @@
 #define M_ANY     2
 #define M_NOT     3
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats tcpFlagsPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 typedef struct _TCPFlagCheckData
 {
     u_char mode;
@@ -51,13 +62,47 @@ typedef struct _TCPFlagCheckData
 
 void TCPFlagCheckInit(char *, OptTreeNode *, int);
 void ParseTCPFlags(char *, OptTreeNode *);
-int CheckTcpFlags(Packet *, struct _OptTreeNode *, OptFpList *);
+int CheckTcpFlags(void *option_data, Packet *p);
 
+u_int32_t TcpFlagCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    TCPFlagCheckData *data = (TCPFlagCheckData *)d;
+
+    a = data->mode;
+    b = data->tcp_flags || (data->tcp_mask << 8);
+    c = RULE_OPTION_TYPE_TCP_FLAG;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int TcpFlagCheckCompare(void *l, void *r)
+{
+    TCPFlagCheckData *left = (TCPFlagCheckData *)l;
+    TCPFlagCheckData *right = (TCPFlagCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->mode == right->mode) &&
+        (left->tcp_flags == right->tcp_flags) &&
+        (left->tcp_mask == right->tcp_mask))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 
 void SetupTCPFlagCheck(void)
 {
-    RegisterPlugin("flags", TCPFlagCheckInit);
+    RegisterPlugin("flags", TCPFlagCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("flags", &tcpFlagsPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: TCPFlagCheck Initialized!\n"););
 }
 
@@ -65,6 +110,8 @@ void SetupTCPFlagCheck(void)
 
 void TCPFlagCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
+
     if(protocol != IPPROTO_TCP)
     {
         FatalError("Line %s (%d): TCP Options on non-TCP rule\n", file_name, file_line);
@@ -87,7 +134,9 @@ void TCPFlagCheckInit(char *data, OptTreeNode *otn, int protocol)
 			    CheckTcpFlags););
 
     /* link the plugin function in to the current OTN */
-    AddOptFuncToList(CheckTcpFlags, otn);
+    fpl = AddOptFuncToList(CheckTcpFlags, otn);
+    fpl->type = RULE_OPTION_TYPE_TCP_FLAG;
+    fpl->context = otn->ds_list[PLUGIN_TCP_FLAG_CHECK];
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "OTN function CheckTcpFlags added to rule!\n"););
 }
@@ -111,6 +160,7 @@ void ParseTCPFlags(char *rule, OptTreeNode *otn)
     char *fend;
     int comma_set = 0;
     TCPFlagCheckData *idx;
+    void *ds_ptr_dup;
 
     idx = otn->ds_list[PLUGIN_TCP_FLAG_CHECK];
 
@@ -259,22 +309,29 @@ void ParseTCPFlags(char *rule, OptTreeNode *otn)
 
         fptr++;
     }
+
+    if (add_detection_option(RULE_OPTION_TYPE_TCP_FLAG, (void *)idx, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        otn->ds_list[PLUGIN_TCP_FLAG_CHECK] = ds_ptr_dup;
+        free(idx);
+    }
 }
 
-
-int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
+int CheckTcpFlags(void *option_data, Packet *p)
 {
-    TCPFlagCheckData *flagptr;
+    TCPFlagCheckData *flagptr = (TCPFlagCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
     u_char tcp_flags;
+    PROFILE_VARS;
 
+    PREPROC_PROFILE_START(tcpFlagsPerfStats);
     
-    flagptr = otn_idx->ds_list[PLUGIN_TCP_FLAG_CHECK];
-
     if(!p->tcph)
     {
         /* if error appeared when tcp header was processed,
          * test fails automagically */
-        return 0; 
+        PREPROC_PROFILE_END(tcpFlagsPerfStats);
+        return rval; 
     }
 
     /* the flags we really want to check are all the ones
@@ -290,7 +347,7 @@ int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
             if(flagptr->tcp_flags == tcp_flags) /* only these set */
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Got TCP [default] flag match!\n"););
-                return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
+                rval = DETECTION_OPTION_MATCH;
             }
             else
             {
@@ -303,7 +360,7 @@ int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
             if((flagptr->tcp_flags & tcp_flags) == flagptr->tcp_flags)
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Got TCP [ALL] flag match!\n"););
-                return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
+                rval = DETECTION_OPTION_MATCH;
             }
             else
             {
@@ -315,7 +372,7 @@ int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
             if((flagptr->tcp_flags & tcp_flags) == 0)  /* none set */
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Got TCP [NOT] flag match!\n"););
-                return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
+                rval = DETECTION_OPTION_MATCH;
             }
             else
             {
@@ -327,7 +384,7 @@ int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
             if((flagptr->tcp_flags & tcp_flags) != 0)  /* something set */
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Got TCP [ANY] flag match!\n"););
-                return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
+                rval = DETECTION_OPTION_MATCH;
             }
             else
             {
@@ -341,6 +398,6 @@ int CheckTcpFlags(Packet *p, struct _OptTreeNode *otn_idx, OptFpList *fp_list)
             break;
     }
 
-    return 0;
+    PREPROC_PROFILE_END(tcpFlagsPerfStats);
+    return rval;
 }
-

@@ -96,5 +96,5 @@ host   all        all        127.0.0.1        255.255.255.255   ident sameuser
 ------------------------------------------------------------------------------
 
 
- -- Javier Fernandez-Sanguino Pen~a <jfs@computer.org>
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
     Thu, 25 Aug 2005 16:44:46 +0200

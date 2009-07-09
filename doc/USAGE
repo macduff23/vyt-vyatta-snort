@@ -133,7 +133,7 @@ so the so it's not necessary to specify the -e switch either.
 
 ./snort -d -h 192.168.1.0/24 -l ./log -c snort.conf
 
-This will configure Snort to run in it's most basic NIDS form, logging packets
+This will configure Snort to run in its most basic NIDS form, logging packets
 that the rules tell it to in plain ASCII to a hierarchical directory structure
 (just like packet logger mode). 
 
@@ -145,8 +145,8 @@ use "full" alerts.  The full alert mechanism prints out the alert message in
 addition to the full packet headers.  There are several other alert output 
 modes available at the command line, as well as two logging facilities.  
 Packets can be logged to their default decoded ASCII format or to a binary log
-file via the -b command line switch.  If you wish to disable packet logging all
-together, use the -N command line switch.
+file via the -b command line switch.  If you wish to disable packet logging
+altogether, use the -N command line switch.
 
 Alert modes are somewhat more complex.  There are seven alert modes available 
 at the command line: full, fast, socket, syslog, console, cmg, and none.  Six
@@ -206,7 +206,7 @@ in its normal decoded format.  Cool, eh?
 
 4.3 OTHER STUFF
 
-Some people don't like the default way in which Snort applies it's rules to
+Some people don't like the default way in which Snort applies its rules to
 packets, with the Alert rules applied first, then the Pass rules, and finally
 the Log rules.  This sequence is somewhat counterintuitive, but it's a more
 foolproof method than allowing the user to write a hundred alert rules and then
@@ -225,10 +225,10 @@ snort binary, when you start it, i.g.:
 
 /usr/local/bin/snort -d -h 192.168.1.0/24 -l /var/log/snortlogs -c /usr/local/etc/snort-lib -s -D
 
-Relative pathes are not supported due to security concerns.
+Relative paths are not supported due to security concerns.
 
 If you're going to be posting packet logs to public mailing lists you might 
-want to try out the -O switch.  This switch "obfuscates" your the IP addresses
+want to try out the -O switch.  This switch "obfuscates" the IP addresses
 in the packet printouts.  This is handy if you don't want the people on the 
 mailing list to know the IP addresses involved.  You can also combine the -O 
 switch with the -h switch to only obfuscate the IP addresses of hosts on the 

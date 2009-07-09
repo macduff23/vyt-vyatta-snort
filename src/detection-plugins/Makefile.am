@@ -19,6 +19,8 @@ sp_byte_jump.c sp_byte_jump.h sp_pcre.c sp_pcre.h sp_isdataat.c sp_isdataat.h  \
 sp_flowbits.c sp_flowbits.h sp_asn1.c sp_asn1.h sp_asn1_detect.c sp_asn1_detect.h \
 sp_respond2.c sp_respond2.h \
 sp_ftpbounce.c sp_ftpbounce.h \
-sp_urilen_check.c sp_urilen_check.h 
+sp_urilen_check.c sp_urilen_check.h \
+sp_cvs.c sp_cvs.h \
+detection_options.c detection_options.h
 
 INCLUDES = @INCLUDES@

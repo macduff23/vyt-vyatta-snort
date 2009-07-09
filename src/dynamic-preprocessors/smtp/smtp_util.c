@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Andy  Mullican
  *
@@ -40,238 +40,136 @@
 #include <string.h>
 
 #include "debug.h"
+#include "bounds.h"
 
 #include "snort_smtp.h"
 #include "smtp_util.h"
+#include "sf_dynamic_preprocessor.h"
+#include "sf_snort_packet.h"
 
+extern DynamicPreprocessorData _dpd;
+extern SMTP *_smtp;
+extern char _smtp_normalizing;
 
-/*
- * Search for a character within a buffer, safely
- *
- * @param   buf         buffer to search
- * @param   c           character to search for
- * @param   len         length of buffer to search
- *
- * @return  p           pointer to first character found
- * @retval  NULL        if character not found
- */
-char * safe_strchr(char *buf, char c, u_int len)
+void SMTP_GetEOL(const u_int8_t *ptr, const u_int8_t *end,
+                 const u_int8_t **eol, const u_int8_t **eolm)
 {
-    char *p = buf;
+    const u_int8_t *tmp_eol;
+    const u_int8_t *tmp_eolm;
 
-    while (len > 0)
-    {
-        if ( *p == c )
-        {
-            return p;
-        }
-        p++;
-        len--;
-    }
-
-    return NULL;
-}
-
-
-/*
- * Copy up to a space char, or to buffer size
- *
- * @param   to      buffer to copy to
- * @param   from    buffer to copy from
- * @param   to_len  size of to buffer
- *
- * @return none
- */
-void copy_to_space(char *to, char *from, int to_len)
-{
-    if (to == NULL || from == NULL || to_len < 1)
+    /* XXX maybe should fatal error here since none of these 
+     * pointers should be NULL */
+    if (ptr == NULL || end == NULL || eol == NULL || eolm == NULL)
         return;
 
-    while ((to_len > 1) && !isspace((int)(*from)))
+    tmp_eol = (u_int8_t *)memchr(ptr, '\n', end - ptr);
+    if (tmp_eol == NULL)
     {
-        *to = *from;
-        to++;
-        from++;
-        to_len--;
+        tmp_eol = end;
+        tmp_eolm = end;
     }
-
-    *to = '\0';
-}
-
-/****************************************************************
- *
- *  Function: make_skip(char *, int)
- *
- *  Purpose: Create a Boyer-Moore skip table for a given pattern
- *
- *  Parameters:
- *      ptrn => pattern
- *      plen => length of the data in the pattern buffer
- *
- *  Returns:
- *      int * - the skip table
- *
- ****************************************************************/
-int *make_skip(char *ptrn, int plen)
-{
-    int *skip = (int *) malloc(256 * sizeof(int));
-    int  i;
-
-    if (skip == NULL)
+    else
     {
-        DynamicPreprocessorFatalMessage("%s(%d) => Failed to allocate skip for Boyer-Moore\n");
-        //return NULL;
-    }
-
-    for ( i = 0; i < 256; i++ )
-        skip[i] = plen + 1;
-
-    while(plen != 0)
-        skip[(unsigned char) *ptrn++] = plen--;
-
-    return skip;
-}
-
-
-
-/****************************************************************
- *
- *  Function: make_shift(char *, int)
- *
- *  Purpose: Create a Boyer-Moore shift table for a given pattern
- *
- *  Parameters:
- *      ptrn => pattern
- *      plen => length of the data in the pattern buffer
- *
- *  Returns:
- *      int * - the shift table
- *
- ****************************************************************/
-int *make_shift(char *ptrn, int plen)
-{
-    int *shift = (int *) malloc(plen * sizeof(int));
-    int *sptr = shift + plen - 1;
-    char *pptr = ptrn + plen - 1;
-    char c;
-
-    if (shift == NULL)
-    {
-        DynamicPreprocessorFatalMessage("%s(%d) => Failed to allocate shift for Boyer-Moore\n");
-        //return NULL;
-    }
-
-    c = ptrn[plen - 1];
-
-    *sptr = 1;
-
-    while(sptr-- != shift)
-    {
-        char *p1 = ptrn + plen - 2, *p2, *p3;
-
-        do
+        /* end of line marker (eolm) should point to marker and 
+         * end of line (eol) should point to end of marker */
+        if ((tmp_eol > ptr) && (*(tmp_eol - 1) == '\r'))
         {
-            while(p1 >= ptrn && *p1-- != c);
-
-            p2 = ptrn + plen - 2;
-            p3 = p1;
-
-            while(p3 >= ptrn && *p3-- == *p2-- && p2 >= pptr);
+            tmp_eolm = tmp_eol - 1;
         }
-        while(p3 >= ptrn && p2 >= pptr);
-
-        *sptr = shift + plen - sptr + p2 - p3;
-
-        pptr--;
-    }
-
-    return shift;
-}
-
-void cleanup_boyer_moore(t_bm *bm)
-{
-    if (!bm)
-        return;
-
-    free(bm->shift);
-    free(bm->skip);
-}
-
-int make_boyer_moore(t_bm *bm, char *ptrn, int plen)
-{
-    bm->ptrn = ptrn;
-    bm->plen = plen;
-
-    bm->skip = make_skip(ptrn, plen);
-    if ( !bm->skip )
-        return 0;
-    bm->shift = make_shift(ptrn, plen);
-    if ( !bm->shift )
-        return 0;
-
-    return 1;
-}
-
-
-/****************************************************************
- *
- *  Function: bm_search(char *, int, char *, int)
- *
- *  Purpose: Determines if a string contains a (non-regex)
- *           substring.
- *
- *  Parameters:
- *      buf => data buffer we want to find the data in
- *      blen => data buffer length
- *      ptrn => pattern to find
- *      plen => length of the data in the pattern buffer
- *      skip => the B-M skip array
- *      shift => the B-M shift array
- *
- *  Returns:
- *      Integer value, 1 on success (str constains substr), 0 on
- *      failure (substr not in str)
- *
- ****************************************************************/
-char * bm_search(char *buf, int blen, t_bm *bm)
-{
-    int b_idx = bm->plen;
-
-    DEBUG_WRAP(_dpd.debugMsg(DEBUG_PATTERN_MATCH,"buf: %p  blen: %d  ptrn: %p  "
-                "plen: %d\n", buf, blen, bm->ptrn, bm->plen););
-
-    if(bm->plen == 0)
-        return buf;
-
-    while(b_idx <= blen)
-    {
-        int p_idx = bm->plen, skip_stride, shift_stride;
-
-        while(buf[--b_idx] == bm->ptrn[--p_idx])
+        else
         {
-            if(b_idx < 0)
-                return NULL;
-
-            if(p_idx == 0)
-            {
-                DEBUG_WRAP(_dpd.debugMsg(DEBUG_PATTERN_MATCH, 
-                            "Pattern matched."););
-
-                return &buf[b_idx];
-
-            }
+            tmp_eolm = tmp_eol;
         }
 
-        skip_stride = bm->skip[(unsigned char) buf[b_idx]];
-        shift_stride = bm->shift[p_idx];
-
-        b_idx += (skip_stride > shift_stride) ? skip_stride : shift_stride;
+        /* move past newline */
+        tmp_eol++;
     }
 
-    DEBUG_WRAP(_dpd.debugMsg(DEBUG_PATTERN_MATCH,
-                "Pattern did not match."););
-
-    return NULL;
+    *eol = tmp_eol;
+    *eolm = tmp_eolm;
 }
 
+int SMTP_CopyToAltBuffer(SFSnortPacket *p, const u_int8_t *start, int length)
+{
+    u_int8_t *alt_buf;
+    int alt_size;
+    u_int16_t *alt_len;
+    int ret;
+
+    /* if we make a call to this it means we want to use the alt buffer
+     * regardless of whether we copy any data into it or not - barring a failure */
+    p->flags |= FLAG_ALT_DECODE;
+    _smtp_normalizing = 1;
+
+    /* if start and end the same, nothing to copy */
+    if (length == 0)
+        return 0;
+
+    alt_buf = &_dpd.altBuffer[0];
+    alt_size = _dpd.altBufferLen;
+    alt_len = &p->normalized_payload_size;
+
+    ret = SafeMemcpy(alt_buf + *alt_len, start, length, alt_buf, alt_buf + alt_size);
+
+    if (ret != SAFEMEM_SUCCESS)
+    {
+        p->flags &= ~FLAG_ALT_DECODE;
+        _smtp_normalizing = 0;
+        *alt_len = 0;
+
+        return -1;
+    }
+
+    *alt_len += length;
+
+    return 0;
+}
+
+#ifdef DEBUG
+char smtp_print_buffer[65537];
+
+const char * SMTP_PrintBuffer(SFSnortPacket *p)
+{
+    const u_int8_t *ptr = NULL;
+    int len = 0;
+    int iorig, inew;
+
+    if (_smtp_normalizing)
+    {
+        ptr = &_dpd.altBuffer[0];
+        len = p->normalized_payload_size;
+    }
+    else
+    {
+        ptr = p->payload;
+        len = p->payload_size;
+    }
+
+    for (iorig = 0, inew = 0; iorig < len; iorig++, inew++)
+    {
+        if ((isascii((int)ptr[iorig]) && isprint((int)ptr[iorig])) || (ptr[iorig] == '\n'))
+        {
+            smtp_print_buffer[inew] = ptr[iorig];
+        }
+        else if (ptr[iorig] == '\r' &&
+                 ((iorig + 1) < len) && (ptr[iorig + 1] == '\n'))
+        {
+            iorig++;
+            smtp_print_buffer[inew] = '\n';
+        }
+        else if (isspace((int)ptr[iorig]))
+        {
+            smtp_print_buffer[inew] = ' ';
+        }
+        else
+        {
+            smtp_print_buffer[inew] = '.';
+        }
+    }
+
+    smtp_print_buffer[inew] = '\0';
+
+    return &smtp_print_buffer[0];
+}
+#endif
 

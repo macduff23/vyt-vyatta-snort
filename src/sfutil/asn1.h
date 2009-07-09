@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -106,7 +106,7 @@ typedef struct s_ASN1_TYPE
     ASN1_IDENT ident;
     ASN1_LEN   len;
     
-    unsigned char     *data;
+    const unsigned char     *data;
     unsigned int      data_len;
 
     unsigned char     eoc;
@@ -118,9 +118,9 @@ typedef struct s_ASN1_TYPE
 
 typedef struct s_ASN1_DATA
 {
-    unsigned char *data;
-    unsigned char *start;
-    unsigned char *end;
+    const unsigned char *data;
+    const unsigned char *start;
+    const unsigned char *end;
     unsigned int   len;
 
 } ASN1_DATA;
@@ -144,7 +144,7 @@ typedef struct s_ASN1_DATA
 
 int asn1_init_mem(int iNodes);
 void asn1_free_mem();
-int asn1_decode(unsigned char *data, unsigned int len, ASN1_TYPE **asn1_type);
+int asn1_decode(const unsigned char *data, unsigned int len, ASN1_TYPE **asn1_type);
 int asn1_print_types(ASN1_TYPE *asn1_type, void *user);
 int asn1_traverse(ASN1_TYPE *asn1, void * user, 
                   int (*DetectFunc)(ASN1_TYPE *, void *));

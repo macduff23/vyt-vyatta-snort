@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** Author: Steven Sturges <ssturges@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -24,40 +24,9 @@
 #define __PROFILER_H__
 
 #ifdef PERF_PROFILING
-#ifndef UINT64
-#define UINT64 unsigned long long
-#endif
 
-/* Assembly to find clock ticks.  Intel only */
-#ifdef WIN32
-#define get_clockticks(val) \
-    QueryPerformanceCounter((PLARGE_INTEGER)&val)
-#else
-#if (defined(__i386) || defined(__ia64) || defined(__amd64) )
-#define get_clockticks(val) \
-{ \
-    u_int32_t a, d; \
-    __asm__ __volatile__ ("rdtsc" : "=a" (a), "=d" (d));  \
-    val = ((UINT64)a) | (((UINT64)d) << 32);  \
-}
-#else
-#if (defined(__GNUC__) && (defined(__powerpc__) || (defined(__ppc__))))
-#define get_clockticks(val) \
-{ \
-    u_int32_t tbu0, tbu1, tbl; \
-    do \
-    { \
-        __asm__ __volatile__ ("mftbu %0" : "=r"(tbu0)); \
-        __asm__ __volatile__ ("mftb %0" : "=r"(tbl)); \
-        __asm__ __volatile__ ("mftbu %0" : "=r"(tbu1)); \
-    } while (tbu0 != tbu1); \
-    val = ((UINT64)tbl) | (((UINT64)tbu0) << 32);  \
-}
-#else
-#define get_clockticks(val)
-#endif /* POWERPC || PPC */
-#endif /* I386 || IA64 || AMD64 */
-#endif /* WIN32 */
+#include "sf_types.h"
+#include "cpuclock.h"
 
 /* Sort preferences for rule profiling */
 #define PROFILE_SORT_CHECKS 1
@@ -69,7 +38,7 @@
 #define PROFILE_SORT_TOTAL_TICKS 7
 
 /* MACROS that handle profiling of rules and preprocessors */
-#define PROFILE_VARS UINT64 ticks_start = 0, ticks_end = 0, ticks_delta
+#define PROFILE_VARS UINT64 ticks_start = 0, ticks_end = 0, ticks_delta = 0
 
 #define PROFILE_START \
     get_clockticks(ticks_start);
@@ -82,31 +51,39 @@
 #define PROFILING_RULES pv.profile_rules_flag
 #endif
 
-#define OTN_PROFILE_START(otn) \
+#define NODE_PROFILE_VARS UINT64 ticks_start = 0, ticks_end = 0, ticks_delta = 0, node_deltas = 0
+
+#define NODE_PROFILE_START(node) \
     if (PROFILING_RULES) { \
-        otn->checks++; \
+        node->checks++; \
         PROFILE_START; \
     }
 
-#define OTN_PROFILE_END_MATCH(otn) \
+#define NODE_PROFILE_END_MATCH(node) \
     if (PROFILING_RULES) { \
         PROFILE_END; \
-        otn->ticks += ticks_delta; \
-        otn->ticks_match += ticks_delta; \
-        otn->matches++; \
+        node->ticks += ticks_delta + node_deltas; \
+        node->ticks_match += ticks_delta + node_deltas; \
     }
 
-#define OTN_PROFILE_NOALERT(otn) \
-    if (PROFILING_RULES) { \
-        otn->noalerts=1; \
-    }
-
-#define OTN_PROFILE_END_NOMATCH(otn) \
+#define NODE_PROFILE_END_NOMATCH(node) \
     if (PROFILING_RULES) { \
         PROFILE_END; \
-        otn->ticks += ticks_delta; \
-        otn->ticks_no_match += ticks_delta; \
+        node->ticks += ticks_delta + node_deltas; \
+        node->ticks_no_match += ticks_delta + node_deltas; \
     }
+
+#define NODE_PROFILE_TMPSTART(node) \
+    if (PROFILING_RULES) { \
+        PROFILE_START; \
+    }
+
+#define NODE_PROFILE_TMPEND(node) \
+    if (PROFILING_RULES) { \
+        PROFILE_END; \
+        node_deltas += ticks_delta; \
+    }
+
 #define OTN_PROFILE_ALERT(otn) otn->alerts++;
 
 #ifndef PROFILING_PREPROCS
@@ -152,7 +129,7 @@
     } 
 
 /************** Profiling API ******************/
-void ShowRuleProfiles();
+void ShowRuleProfiles(void);
 
 /* Preprocessor stats info */
 typedef struct _PreprocStats
@@ -172,14 +149,18 @@ typedef struct _PreprocStatsNode
 } PreprocStatsNode;
 
 void RegisterPreprocessorProfile(char *keyword, PreprocStats *stats, int layer, PreprocStats *parent);
-void ShowPreprocProfiles();
+void ShowPreprocProfiles(void);
+void ResetRuleProfiling(void);
+void ResetPreprocProfiling(void);
 extern PreprocStats totalPerfStats;
 #else
 #define PROFILE_VARS
-#define OTN_PROFILE_START(otn)
-#define OTN_PROFILE_END_MATCH(otn)
-#define OTN_PROFILE_END_NOMATCH(otn)
-#define OTN_PROFILE_NOALERT(otn)
+#define NODE_PROFILE_VARS
+#define NODE_PROFILE_START(node)
+#define NODE_PROFILE_END_MATCH(node)
+#define NODE_PROFILE_END_NOMATCH(node)
+#define NODE_PROFILE_TMPSTART(node)
+#define NODE_PROFILE_TMPEND(node)
 #define OTN_PROFILE_ALERT(otn)
 #define PREPROC_PROFILE_START(ppstat)
 #define PREPROC_PROFILE_REENTER_START(ppstat)

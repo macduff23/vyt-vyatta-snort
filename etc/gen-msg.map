@@ -48,10 +48,10 @@
 111 || 13 || spp_stream4: SYN FIN Stealth Scan
 111 || 14 || spp_stream4: TCP forward overlap detected
 111 || 15 || spp_stream4: TTL Evasion attempt
-111 || 16 || spp_stream4: Evasive retransmitited data attempt
-111 || 17 || spp_stream4: Evasive retransmitited data with the data split attempt
+111 || 16 || spp_stream4: Evasive retransmitted data attempt
+111 || 17 || spp_stream4: Evasive retransmitted data with the data split attempt
 111 || 18 || spp_stream4: Multiple acked
-111 || 19 || spp_stream4: Shifting to Emegency Session Mode
+111 || 19 || spp_stream4: Shifting to Emergency Session Mode
 111 || 20 || spp_stream4: Shifting to Suspend Mode
 111 || 21 || spp_stream4: TCP Timestamp option has value of zero
 111 || 22 || spp_stream4: Too many overlapping TCP packets
@@ -86,7 +86,7 @@
 116 || 3 || snort_decoder: WARNING: IP dgm len < IP Hdr len!
 116 || 4 || snort_decoder: Bad IPv4 Options
 116 || 5 || snort_decoder: Truncated IPv4 Options
-116 || 6 || snort_decoder: WARNING: hlen > IP_HEADER_LEN!
+116 || 6 || snort_decoder: WARNING: IP dgm len > captured len!
 116 || 45 || snort_decoder: TCP packet len is smaller than 20 bytes!
 116 || 46 || snort_decoder: TCP Data Offset is less than 5!
 116 || 47 || snort_decoder: TCP Data Offset is longer than payload!
@@ -121,17 +121,24 @@
 116 || 150 || snort_decoder: Bad Traffic Loopback IP!
 116 || 151 || snort_decoder: Bad Traffic Same Src/Dst IP!
 116 || 160 || snort_decoder: WARNING: GRE header length > payload length
-116 || 161 || snort_decoder: WARNING: Multiple GRE encapsulations in packet
-116 || 250 || snort_decoder: WARNING: ICMP Original IP Header Truncated!"
-116 || 251 || snort_decoder: WARNING: ICMP Original IP Header Not IPv4!"
-116 || 252 || snort_decoder: WARNING: ICMP Original Datagram Length < Original IP Header Length!"
-116 || 253 || snort_decoder: WARNING: ICMP Original IP Payload < 64 bits!"
-116 || 254 || snort_decoder: WARNING: ICMP Origianl IP Payload > 576 bytes!"
-116 || 255 || snort_decoder: WARNING: ICMP Original IP Fragmented and Offset Not 0!"
-116 || 270 || snort_decoder: IPV6 packet exceeded TTL limit
-116 || 271 || snort_decoder: IPv6 header claims to not be IPv6
-116 || 272 || snort_decoder: IPV6 truncated extension header
-116 || 273 || snort_decoder: IPV6 truncated header
+116 || 161 || snort_decoder: WARNING: Multiple encapsulations in packet
+116 || 162 || snort_decoder: WARNING: Invalid GRE version
+116 || 163 || snort_decoder: WARNING: Invalid GRE v.0 header
+116 || 164 || snort_decoder: WARNING: Invalid GRE v.1 PPTP header
+116 || 165 || snort_decoder: WARNING: GRE Trans header length > payload length
+116 || 250 || snort_decoder: WARNING: ICMP Original IP Header Truncated!
+116 || 251 || snort_decoder: WARNING: ICMP Original IP Header Not IPv4!
+116 || 252 || snort_decoder: WARNING: ICMP Original Datagram Length < Original IP Header Length!
+116 || 253 || snort_decoder: WARNING: ICMP Original IP Payload < 64 bits!
+116 || 254 || snort_decoder: WARNING: ICMP Original IP Payload > 576 bytes!
+116 || 255 || snort_decoder: WARNING: ICMP Original IP Fragmented and Offset Not 0!
+116 || 270 || snort_decoder: WARNING: IPV6 packet exceeded TTL limit
+116 || 271 || snort_decoder: WARNING: IPv6 header claims to not be IPv6
+116 || 272 || snort_decoder: WARNING: IPV6 truncated extension header
+116 || 273 || snort_decoder: WARNING: IPV6 truncated header
+116 || 274 || snort_decoder: WARNING: IPV6 dgm len < IPV6 Hdr len!
+116 || 275 || snort_decoder: WARNING: IPV6 dgm len > captured len!
+116 || 291 || snort_decoder: IPV6 tunneled over IPv4, IPv6 header truncated, possible Linux Kernel attack
 117 || 1 || spp_portscan2: Portscan detected!
 118 || 1 || spp_conversation: Bad IP protocol!
 119 || 1 || http_inspect: ASCII ENCODING
@@ -152,6 +159,7 @@
 119 || 16 || http_inspect: OVERSIZE CHUNK ENCODING
 119 || 17 || http_inspect: UNAUTHORIZED PROXY USE DETECTED
 119 || 18 || http_inspect: WEBROOT DIRECTORY TRAVERSAL
+119 || 19 || http_inspect: LONG HEADER
 120 || 1 || http_inspect: ANOMALOUS HTTP SERVER ON UNDEFINED HTTP PORT
 121 || 1 || flow-portscan: Fixed Scale Scanner Limit Exceeded
 121 || 2 || flow-portscan: Sliding Scale Scanner Limit Exceeded
@@ -194,12 +202,14 @@
 123 || 8 || frag3: Fragmentation overlap
 123 || 9 || frag3: IPv6 BSD mbufs remote kernel buffer overflow
 123 || 10 || frag3: Bogus fragmentation packet. Possible BSD attack
+123 || 11 || frag3: TTL value less than configured minimum, not using for reassembly
 124 || 1 || smtp: Attempted command buffer overflow
 124 || 2 || smtp: Attempted data header buffer overflow
 124 || 3 || smtp: Attempted response buffer overflow
 124 || 4 || smtp: Attempted specific command buffer overflow
 124 || 5 || smtp: Unknown command
 124 || 6 || smtp: Illegal command
+124 || 7 || smtp: Attempted header name buffer overflow
 125 || 1 || ftp_pp: Telnet command on FTP command channel
 125 || 2 || ftp_pp: Invalid FTP command
 125 || 3 || ftp_pp: FTP parameter length overflow
@@ -227,7 +237,56 @@
 129 || 6 || stream5: Window size (after scaling) larger than policy allows
 129 || 7 || stream5: Limit on number of overlapping TCP packets reached
 129 || 8 || stream5: Data sent on stream after TCP Reset
+129 || 9 || stream5: TCP Client possibly hijacked, different Ethernet Address
+129 || 10 || stream5: TCP Server possibly hijacked, different Ethernet Address
+129 || 11 || stream5: TCP Data with no TCP Flags set 
+129 || 12 || stream5: TCP Small Segment Threshold Exceeded
 130 || 1 || dcerpc: Maximum memory usage reached
 131 || 1 || dns: Obsolete DNS RData Type
 131 || 2 || dns: Experimental DNS RData Type
 131 || 3 || dns: Client RData TXT Overflow
+133 || 1 || dcerpc2: Memory cap exceeded
+133 || 2 || dcerpc2: SMB - Bad NetBIOS Session Service session type
+133 || 3 || dcerpc2: SMB - Bad SMB message type
+133 || 4 || dcerpc2: SMB - Bad SMB Id (not \xffSMB)
+133 || 5 || dcerpc2: SMB - Bad word count for command
+133 || 6 || dcerpc2: SMB - Bad byte count for command
+133 || 7 || dcerpc2: SMB - Bad format type for command
+133 || 8 || dcerpc2: SMB - Bad AndX or data offset in command
+133 || 9 || dcerpc2: SMB - Zero total data count in command
+133 || 10 || dcerpc2: SMB - NetBIOS data length less than SMB header length
+133 || 11 || dcerpc2: SMB - Remaining NetBIOS data length less than command length
+133 || 12 || dcerpc2: SMB - Remaining NetBIOS data length less than command byte count
+133 || 13 || dcerpc2: SMB - Remaining NetBIOS data length less than command data size
+133 || 14 || dcerpc2: SMB - Remaining total data count less than this command data size
+133 || 15 || dcerpc2: SMB - Total data sent greater than command total data expected
+133 || 16 || dcerpc2: SMB - Byte count less than command data size
+133 || 17 || dcerpc2: SMB - Invalid command data size for byte count
+133 || 18 || dcerpc2: SMB - Excessive Tree Connect requests with pending Tree Connect responses
+133 || 19 || dcerpc2: SMB - Excessive Read requests with pending Read responses
+133 || 20 || dcerpc2: SMB - Excessive command chaining
+133 || 21 || dcerpc2: SMB - Multiple chained login requests
+133 || 22 || dcerpc2: SMB - Multiple chained tree connect requests
+133 || 23 || dcerpc2: SMB - Chained login followed by logoff
+133 || 24 || dcerpc2: SMB - Chained tree connect followed by tree disconnect
+133 || 25 || dcerpc2: SMB - Chained open pipe followed by close pipe
+133 || 26 || dcerpc2: SMB - Invalid share access
+133 || 27 || dcerpc2: Connection-oriented DCE/RPC - Invalid major version
+133 || 28 || dcerpc2: Connection-oriented DCE/RPC - Invalid minor version
+133 || 29 || dcerpc2: Connection-oriented DCE/RPC - Invalid pdu type
+133 || 30 || dcerpc2: Connection-oriented DCE/RPC - Fragment length less than header size
+133 || 31 || dcerpc2: Connection-oriented DCE/RPC - Remaining fragment length less than size needed
+133 || 32 || dcerpc2: Connection-oriented DCE/RPC - No context items specified
+133 || 33 || dcerpc2: Connection-oriented DCE/RPC - No transfer syntaxes specified
+133 || 34 || dcerpc2: Connection-oriented DCE/RPC - Fragment length on non-last fragment less than maximum negotiated fragment transmit size for client
+133 || 35 || dcerpc2: Connection-oriented DCE/RPC - Fragment length greater than maximum negotiated fragment transmit size
+133 || 36 || dcerpc2: Connection-oriented DCE/RPC - Alter Context byte order different from Bind
+133 || 37 || dcerpc2: Connection-oriented DCE/RPC - Call id of non first/last fragment different from call id established for fragmented request
+133 || 38 || dcerpc2: Connection-oriented DCE/RPC - Opnum of non first/last fragment different from opnum established for fragmented request
+133 || 39 || dcerpc2: Connection-oriented DCE/RPC - Context id of non first/last fragment different from context id established for fragmented request
+133 || 40 || dcerpc2: Connectionless DCE/RPC - Invalid major version
+133 || 41 || dcerpc2: Connectionless DCE/RPC - Invalid pdu type
+133 || 42 || dcerpc2: Connectionless DCE/RPC - Data length less than header size
+133 || 43 || dcerpc2: Connectionless DCE/RPC - Bad sequence number
+134 || 1 || ppm: rule tree disabled
+134 || 2 || ppm: rule tree enabled

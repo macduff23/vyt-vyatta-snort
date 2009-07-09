@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -28,6 +29,7 @@
 #ifndef __SPO_LOG_TCPDUMP_H__
 #define __SPO_LOG_TCPDUMP_H__
 
-void LogTcpdumpSetup();
+void LogTcpdumpSetup(void);
+void LogTcpdumpReset(void);
 
 #endif  /* __SPO_SYSLOG_H__ */

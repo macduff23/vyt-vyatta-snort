@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright(C) 2002 Sourcefire, Inc.
+ * Copyright (C) 2002-2009 Sourcefire, Inc.
  *
  * Author(s):  Andrew R. Baker <andrewb@sourcefire.com>
  *
@@ -26,13 +26,23 @@
 
 #include <sys/types.h>
 
-typedef struct _IpAddrSet
+#ifdef SUP_IP6
+#include "sf_ipvar.h"
+sfip_var_t *IpAddrSetParse(char *);
+#else
+typedef struct _IpAddrNode
 {
     u_int32_t ip_addr;   /* IP addr */
     u_int32_t netmask;   /* netmask */
     u_int8_t  addr_flags; /* flag for normal/exception processing */
 
-    struct _IpAddrSet *next;
+    struct _IpAddrNode *next;
+} IpAddrNode;
+
+typedef struct _IpAddrSet
+{
+    IpAddrNode *iplist;
+    IpAddrNode *neg_iplist;
 } IpAddrSet;
 
 /* flags */
@@ -47,6 +57,6 @@ int IpAddrSetContains(IpAddrSet *, struct in_addr);
 
 
 /* XXX legacy support function */
-int ParseIP(char *paddr, IpAddrSet *);
-
+int ParseIP(char *paddr, IpAddrSet *, int); 
+#endif // SUP_IP6
 #endif /* __IP_ADDR_SET_H__ */

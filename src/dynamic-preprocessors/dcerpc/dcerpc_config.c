@@ -1,7 +1,7 @@
 /*
  * dcerpc_config.c
  *
- * Copyright (C) 2004-2006 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -73,6 +73,7 @@
 #define OPT_MAX_FRAG_SIZE       "max_frag_size"
 #define OPT_MEMCAP              "memcap"
 #define OPT_ALERT_MEMCAP        "alert_memcap"
+#define OPT_REASSEMBLE_INCREMENT  "reassemble_increment"
 
 #define PORT_STR_LEN	        512
 
@@ -93,6 +94,8 @@ enum e_transport_type
 u_int8_t _autodetect = 0;
 u_int8_t _disable_smb_fragmentation = 0;
 u_int8_t _disable_dcerpc_fragmentation = 0;
+
+int _reassemble_increment = 0;
 
 /*
  * Function: InitializeDefaultSMBConfig()
@@ -257,7 +260,7 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
     /* Initialize the defaults */
     InitializeDefaultSMBConfig();
 
-    _dpd.logMsg("\nDCE/RPC Decoder config:\n");
+    _dpd.logMsg("DCE/RPC Decoder config:\n");
 
     while(pcToken != NULL)
     {
@@ -300,6 +303,25 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
 
             if (iRet)
                 return iRet;
+        }
+        else if ( !strcmp(pcToken, OPT_REASSEMBLE_INCREMENT) )
+        {
+            pcToken = strtok(NULL, CONF_SEPARATORS);
+            if (pcToken == NULL || !isdigit((int)pcToken[0]))
+            {
+                snprintf(ErrorString, ErrStrLen,
+                         "Increment must be an integer\n");
+                return -1;
+            }
+
+            _reassemble_increment = atoi(pcToken);
+
+            if (_reassemble_increment < 0 || _reassemble_increment > 65535)
+            {
+                snprintf(ErrorString, ErrStrLen,
+                         "Increment must be an integer\n");
+                return -1;
+            }
         }
         else if ( !strcmp(pcToken, OPT_DISABLE_SMB_FRAG) )
         {
@@ -426,8 +448,10 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
     _dpd.logMsg("    Max Frag Size: %u bytes\n", _max_frag_size);
     _dpd.logMsg("    Memcap: %lu KB\n", _memcap/1024);
     _dpd.logMsg("    Alert if memcap exceeded %s\n", _alert_memcap ? "ENABLED" : "DISABLED");
-
-    _dpd.logMsg("\n");
+    if (_reassemble_increment == 0)
+    _dpd.logMsg("    Reassembly increment: DISABLED\n");
+    else
+    _dpd.logMsg("    Reassembly increment: %u\n", _reassemble_increment);
 
     return 0;
 }

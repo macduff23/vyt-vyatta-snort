@@ -1,4 +1,4 @@
-/* Copyright (C) 2005 Sourcefire
+/* Copyright (C) 2005-2009 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -20,9 +20,13 @@
 #define SF_PREPROC_INFO_H
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   0
+#define MINOR_VERSION   1
 #define BUILD_VERSION   2
+#ifdef SUP_IP6
+#define PREPROC_NAME    "SF_DNS (IPV6)"
+#else
 #define PREPROC_NAME    "SF_DNS"
+#endif
 
 #define DYNAMIC_PREPROC_SETUP SetupDNS
 extern void SetupDNS();

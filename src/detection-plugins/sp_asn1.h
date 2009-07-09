@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -23,5 +23,6 @@
 #define __SP_ASN1_H__
 
 void SetupAsn1();
-
+u_int32_t Asn1Hash(void *d);
+int Asn1Compare(void *l, void *r);
 #endif

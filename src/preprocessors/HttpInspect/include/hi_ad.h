@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -34,6 +34,6 @@ typedef struct s_HI_ANOM_SERVER
 
 } HI_ANOM_SERVER;
 
-int hi_server_anomaly_detection(void *S, u_char *data, int dsize);
+int hi_server_anomaly_detection(void *S, const u_char *data, int dsize);
 
 #endif

@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -55,17 +56,55 @@
 #include "util.h"
 #include "plugin_enum.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats icmpSeqPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
 
-typedef struct _IcmpSeqData
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+typedef struct _IcmpSeqCheckData
 {
     unsigned short icmpseq;
 
-} IcmpSeqData; 
+} IcmpSeqCheckData; 
 
 void IcmpSeqCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpSeq(char *, OptTreeNode *);
-int IcmpSeqCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+int IcmpSeqCheck(void *option_data, Packet *p);
 
+u_int32_t IcmpSeqCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IcmpSeqCheckData *data = (IcmpSeqCheckData *)d;
+
+    a = data->icmpseq;
+    b = RULE_OPTION_TYPE_ICMP_SEQ;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IcmpSeqCheckCompare(void *l, void *r)
+{
+    IcmpSeqCheckData *left = (IcmpSeqCheckData *)l;
+    IcmpSeqCheckData *right = (IcmpSeqCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->icmpseq == right->icmpseq)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 
 
@@ -85,8 +124,11 @@ int IcmpSeqCheck(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIcmpSeqCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icmp_seq", IcmpSeqCheckInit);
+    RegisterPlugin("icmp_seq", IcmpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
 
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("icmp_seq", &icmpSeqPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: IcmpSeqCheck Setup\n"););
 }
 
@@ -106,6 +148,7 @@ void SetupIcmpSeqCheck(void)
  ****************************************************************************/
 void IcmpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_ICMP)
     {
         FatalError("%s(%d): ICMP Options on non-ICMP rule\n", file_name, file_line);
@@ -120,8 +163,8 @@ void IcmpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* allocate the data structure and attach it to the
        rule's data struct list */
-    otn->ds_list[PLUGIN_ICMP_SEQ_CHECK] = (IcmpSeqData *)
-        SnortAlloc(sizeof(IcmpSeqData));
+    otn->ds_list[PLUGIN_ICMP_SEQ_CHECK] = (IcmpSeqCheckData *)
+        SnortAlloc(sizeof(IcmpSeqCheckData));
 
     /* this is where the keyword arguments are processed and placed into the 
        rule option's data structure */
@@ -129,7 +172,9 @@ void IcmpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(IcmpSeqCheck, otn);
+    fpl = AddOptFuncToList(IcmpSeqCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_ICMP_SEQ;
+    fpl->context = otn->ds_list[PLUGIN_ICMP_SEQ_CHECK];
 }
 
 
@@ -148,7 +193,8 @@ void IcmpSeqCheckInit(char *data, OptTreeNode *otn, int protocol)
  ****************************************************************************/
 void ParseIcmpSeq(char *data, OptTreeNode *otn)
 {
-    IcmpSeqData *ds_ptr;  /* data struct pointer */
+    IcmpSeqCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -160,6 +206,12 @@ void ParseIcmpSeq(char *data, OptTreeNode *otn)
     ds_ptr->icmpseq = atoi(data);
     ds_ptr->icmpseq = htons(ds_ptr->icmpseq);
     
+    if (add_detection_option(RULE_OPTION_TYPE_ICMP_SEQ, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_ICMP_SEQ_CHECK] = ds_ptr_dup;
+    }
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Set ICMP Seq test value to %d\n", ds_ptr->icmpseq););
 }
 
@@ -177,28 +229,36 @@ void ParseIcmpSeq(char *data, OptTreeNode *otn)
  *          On success, it calls the next function in the detection list 
  *
  ****************************************************************************/
-int IcmpSeqCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IcmpSeqCheck(void *option_data, Packet *p)
 {
+    IcmpSeqCheckData *icmpSeq = (IcmpSeqCheckData *)option_data;
+    PROFILE_VARS;
+
     if(!p->icmph)
-        return 0; /* if error occured while icmp header
-                   * was processed, return 0 automagically.
-               */
-    if(p->icmph->type == ICMP_ECHO || p->icmph->type == ICMP_ECHOREPLY)
+        return DETECTION_OPTION_NO_MATCH; /* if error occured while icmp header
+                   * was processed, return 0 automagically.  */
+
+    PREPROC_PROFILE_START(icmpSeqPerfStats);
+
+    if( (p->icmph->type == ICMP_ECHO || p->icmph->type == ICMP_ECHOREPLY) 
+#ifdef SUP_IP6
+        || (p->icmph->type == ICMP6_ECHO || p->icmph->type == ICMP6_REPLY) 
+#endif
+      ) 
     {
         /* test the rule ID value against the ICMP extension ID field */
-        if(((IcmpSeqData *) otn->ds_list[PLUGIN_ICMP_SEQ_CHECK])->icmpseq == 
-           p->icmph->s_icmp_seq)
+        if(icmpSeq->icmpseq == p->icmph->s_icmp_seq)
         {
-            /* call the next function in the function list recursively */
-            return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "ICMP ID check success\n"););
+            PREPROC_PROFILE_END(icmpSeqPerfStats);
+            return DETECTION_OPTION_MATCH;
         }
         else
         {
             /* you can put debug comments here or not */
-            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"ICMP Seq check failed\n"););
+            DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "ICMP ID check failed\n"););
         }
     }
-
-    /* if the test isn't successful, this function *must* return 0 */
-    return 0;
+    PREPROC_PROFILE_END(icmpSeqPerfStats);
+    return DETECTION_OPTION_NO_MATCH;
 }

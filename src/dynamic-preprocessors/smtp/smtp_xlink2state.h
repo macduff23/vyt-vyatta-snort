@@ -1,6 +1,6 @@
-
-/*
- * smtp_xlink2state.h
+/****************************************************************************
+ *
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -17,15 +17,21 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ ****************************************************************************/
+
+/*************************************************************************
+ * smtp_xlink2state.h
  *
- * Author: Andy  Mullican
+ * Author: Andy Mullican
  *
- */
+ *************************************************************************/
 
 #ifndef __SMTP_XLINK2STATE_H__
 #define __SMTP_XLINK2STATE_H__
 
-int ParseXLink2State(SFSnortPacket *p, u_int8_t *x);
+#include "sf_snort_packet.h"
+
+int ParseXLink2State(SFSnortPacket *, const u_int8_t *);
 
 #endif  /* __SMTP_XLINK2STATE_H__ */
+

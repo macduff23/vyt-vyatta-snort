@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -25,6 +25,8 @@
 #ifndef _SF_THRESHOLDING_
 #define _SF_THRESHOLDING_
 
+#include "ipv6_port.h"
+
 #include "sflsq.h"
 
 #include "sfghash.h"
@@ -39,6 +41,8 @@
 #define THD_GEN_ID_1_ROWS 4096
 #define THD_GEN_ID_ROWS   512
 
+#define THD_NO_THRESHOLD -1
+
 #define THD_TOO_MANY_THDOBJ -15 
 
 /*!
@@ -49,7 +53,7 @@ enum
   THD_TYPE_LIMIT,
   THD_TYPE_THRESHOLD,
   THD_TYPE_BOTH,
-  THD_TYPE_SUPPRESS,
+  THD_TYPE_SUPPRESS
 };
 
 /*
@@ -64,7 +68,7 @@ enum
 enum
 {
   THD_TRK_SRC,
-  THD_TRK_DST,
+  THD_TRK_DST
 };
 
 
@@ -76,7 +80,7 @@ enum
 */
 typedef struct {
  
- unsigned ip;
+ snort_ip     ip;
  unsigned count;
  time_t   tstart;
 
@@ -98,7 +102,7 @@ typedef struct {
 typedef struct{
 
   int      thd_id;
-  unsigned ip;
+  snort_ip ip;
 
 } THD_IP_NODE_KEY ;
 
@@ -106,7 +110,7 @@ typedef struct{
 
   unsigned gen_id;
   unsigned sig_id;
-  unsigned ip;
+  snort_ip ip;
 
 } THD_IP_GNODE_KEY ;
 
@@ -130,8 +134,10 @@ typedef struct {
  unsigned count;
  unsigned seconds;
 
- unsigned ip_address;
+ snort_ip ip_address;
+#ifndef SUP_IP6
  unsigned ip_mask;
+#endif
 
  unsigned not_flag; /* 0=not netgated, 1=negated */
 
@@ -173,8 +179,10 @@ typedef struct {
   int  priority;
   int  count;
   int  seconds;
-  int  ip_address;
+  snort_ip ip_address;
+#ifndef SUP_IP6
   int  ip_mask;
+#endif
   unsigned not_flag;
 }THDX_STRUCT;
 
@@ -208,6 +216,7 @@ typedef struct {
  * Prototypes 
  */
 THD_STRUCT * sfthd_new( unsigned nbytes );
+void sfthd_free( THD_STRUCT * thd );
 
 int sfthd_create_threshold( THD_STRUCT * thd,
                        unsigned     gen_id,
@@ -217,16 +226,18 @@ int sfthd_create_threshold( THD_STRUCT * thd,
                        int          priority,
                        int          count,
                        int          seconds,
-                       unsigned     ip_address, 
+                       snort_ip_p         ip_address, 
+#ifndef SUP_IP6
                        unsigned     ip_mask, 
+#endif
                        unsigned     not_flag ); 
 
 int sfthd_test_threshold( THD_STRUCT * thd,
                         unsigned     gen_id,  
                         unsigned     sig_id,
-                        unsigned     sip,   
-                        unsigned     dip,
-			long         curtime ) ;
+                        snort_ip_p         sip,   
+                        snort_ip_p         dip,
+			            long         curtime ) ;
 
 int sfthd_show_objects( THD_STRUCT * thd );
 

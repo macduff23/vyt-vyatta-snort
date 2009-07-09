@@ -1,7 +1,7 @@
 /* $Id */
 
 /*
-** Copyright (C) 2006 Sourcefire Inc.
+** Copyright (C) 2006-2009 Sourcefire, Inc.
 **
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -57,6 +57,12 @@
 PreprocStats dnsPerfStats;
 #endif
 
+#include "sf_types.h"
+
+#ifdef TARGET_BASED
+int16_t dns_app_id = SFTARGET_UNKNOWN_PROTOCOL;
+#endif
+
 /*
  * Generator id. Define here the same as the official registry
  * in generators.h
@@ -67,13 +73,19 @@ PreprocStats dnsPerfStats;
  * Function prototype(s)
  */
 DNSSessionData* GetDNSSessionData( SFSnortPacket* );
-static void DNSInit( u_char* );
+static void DNSInit( char* );
 static void PrintDNSConfig();
 static void FreeDNSSessionData( void* );
 static void  ParseDNSArgs( u_char* );
 static void ProcessDNS( void*, void* );
 static void DNSConfigCheck( void );
 static inline int CheckDNSPort( u_int16_t );
+static void DNSReset(int, void *);
+static void DNSResetStats(int, void *);
+static void _addPortsToStream5Filter();
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter();
+#endif
 
 /* Ultimately calls SnortEventqAdd */
 /* Arguments are: gid, sid, rev, classification, priority, message, rule_info */
@@ -127,16 +139,38 @@ void SetupDNS()
  *
  * RETURNS:     Nothing. 
  */
-static void DNSInit( u_char* argp )
+static void DNSInit( char* argp )
 {
-    _dpd.addPreproc( ProcessDNS, PRIORITY_APPLICATION, PP_DNS );
+#if 0
+#ifdef SUP_IP6
+    DynamicPreprocessorFatalMessage("DNS is not currently supported when IPv6 support is enabled.\n");
+#endif
+#endif
+
+    _dpd.addPreproc( ProcessDNS, PRIORITY_APPLICATION, PP_DNS,
+                     PROTO_BIT__TCP | PROTO_BIT__UDP );
     _dpd.addPreprocConfCheck( DNSConfigCheck );
-    
-    ParseDNSArgs( argp );
+    _dpd.addPreprocReset(DNSReset, NULL, PRIORITY_LAST, PP_DNS);
+	_dpd.addPreprocResetStats(DNSResetStats, NULL, PRIORITY_LAST, PP_DNS);
+
+    ParseDNSArgs( (u_char *)argp );
     
 #ifdef PERF_PROFILING
     _dpd.addPreprocProfileFunc("dns", (void *)&dnsPerfStats, 0, _dpd.totalPerfStats);
 #endif
+#ifdef TARGET_BASED
+    if (_dpd.streamAPI)
+    {
+        dns_app_id = _dpd.findProtocolReference("dns");
+        if (dns_app_id == SFTARGET_UNKNOWN_PROTOCOL)
+        {
+            dns_app_id = _dpd.addProtocolReference("dns");
+        }
+    }
+
+    _addServicesToStream5Filter();
+#endif
+    _addPortsToStream5Filter();
 }
 
 /* Verify configuration and that Stream API is available.
@@ -427,7 +461,7 @@ static inline int CheckDNSPort( u_int16_t port )
     return 0;
 }
 
-static u_int16_t ParseDNSHeader(unsigned char *data,
+static u_int16_t ParseDNSHeader(const unsigned char *data,
                                 u_int16_t bytes_unused,
                                 DNSSessionData *dnsSessionData)
 {
@@ -588,7 +622,7 @@ static u_int16_t ParseDNSHeader(unsigned char *data,
 }
 
 
-u_int16_t ParseDNSName(unsigned char *data,
+u_int16_t ParseDNSName(const unsigned char *data,
                        u_int16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
@@ -679,7 +713,7 @@ u_int16_t ParseDNSName(unsigned char *data,
     return bytes_unused;
 }
 
-static u_int16_t ParseDNSQuestion(unsigned char *data,
+static u_int16_t ParseDNSQuestion(const unsigned char *data,
                                   u_int16_t data_size,
                                   u_int16_t bytes_unused,
                                   DNSSessionData *dnsSessionData)
@@ -767,7 +801,7 @@ static u_int16_t ParseDNSQuestion(unsigned char *data,
     return bytes_unused;
 }
 
-u_int16_t ParseDNSAnswer(unsigned char *data,
+u_int16_t ParseDNSAnswer(const unsigned char *data,
                          u_int16_t data_size,
                          u_int16_t bytes_unused,
                          DNSSessionData *dnsSessionData)
@@ -909,7 +943,7 @@ u_int16_t ParseDNSAnswer(unsigned char *data,
  * Vulnerability Research by Lurene Grenier, Judy Novak,
  * and Brian Caswell.
  */
-u_int16_t CheckRRTypeTXTVuln(unsigned char *data,
+u_int16_t CheckRRTypeTXTVuln(const unsigned char *data,
                        u_int16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
@@ -1001,7 +1035,7 @@ u_int16_t CheckRRTypeTXTVuln(unsigned char *data,
     return bytes_unused;
 }
 
-u_int16_t SkipDNSRData(unsigned char *data,
+u_int16_t SkipDNSRData(const unsigned char *data,
                        u_int16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
@@ -1025,7 +1059,7 @@ u_int16_t SkipDNSRData(unsigned char *data,
 }
 
 u_int16_t ParseDNSRData(SFSnortPacket *p,
-                        unsigned char *data,
+                        const unsigned char *data,
                         u_int16_t bytes_unused,
                         DNSSessionData *dnsSessionData)
 {
@@ -1087,7 +1121,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
 {
     u_int16_t bytes_unused = p->payload_size;
     int i;
-    unsigned char *data = p->payload;
+    const unsigned char *data = p->payload;
 
     while (bytes_unused)
     {
@@ -1123,7 +1157,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
         if ((dnsSessionData->curr_rec_state == DNS_RESP_STATE_Q_NAME) &&
             (dnsSessionData->curr_rec == 0))
         {
-            _dpd.debugMsg(DEBUG_DNS,
+            DebugMessage(DEBUG_DNS,
                             "DNS Header: length %d, id 0x%x, flags 0x%x, "
                             "questions %d, answers %d, authorities %d, additionals %d\n",
                             dnsSessionData->length, dnsSessionData->hdr.id,
@@ -1151,7 +1185,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
                 if (dnsSessionData->curr_rec_state == DNS_RESP_STATE_Q_COMPLETE)
                 {
                     DEBUG_WRAP(
-                        _dpd.debugMsg(DEBUG_DNS,
+                        DebugMessage(DEBUG_DNS,
                             "DNS Question %d: type %d, class %d\n",
                             i, dnsSessionData->curr_q.type,
                             dnsSessionData->curr_q.dns_class);
@@ -1193,7 +1227,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
                 {
                 case DNS_RESP_STATE_RR_RDATA_START:
                     DEBUG_WRAP(
-                        _dpd.debugMsg(DEBUG_DNS, 
+                        DebugMessage(DEBUG_DNS, 
                                     "DNS ANSWER RR %d: type %d, class %d, "
                                     "ttl %d rdlength %d\n", i,
                                     dnsSessionData->curr_rr.type,
@@ -1249,7 +1283,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
                 {
                 case DNS_RESP_STATE_RR_RDATA_START:
                     DEBUG_WRAP(
-                        _dpd.debugMsg(DEBUG_DNS, 
+                        DebugMessage(DEBUG_DNS, 
                                     "DNS AUTH RR %d: type %d, class %d, "
                                     "ttl %d rdlength %d\n", i,
                                     dnsSessionData->curr_rr.type,
@@ -1305,7 +1339,7 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
                 {
                 case DNS_RESP_STATE_RR_RDATA_START:
                     DEBUG_WRAP(
-                        _dpd.debugMsg(DEBUG_DNS, 
+                        DebugMessage(DEBUG_DNS, 
                                     "DNS ADDITONAL RR %d: type %d, class %d, "
                                     "ttl %d rdlength %d\n", i,
                                     dnsSessionData->curr_rr.type,
@@ -1369,30 +1403,37 @@ static void ProcessDNS( void* packetPtr, void* context )
     u_int8_t known_port = 0;
     u_int8_t direction = 0; 
     SFSnortPacket* p;
+#ifdef TARGET_BASED
+    int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
+#endif
     PROFILE_VARS;
     
     p = (SFSnortPacket*) packetPtr;
 
-    /* Do we have a IP packet? */
-    if (( !p ) ||
-        ( !p->ip4_header ) )
-    {
+    /* check if we have data to work with */
+    if ((p->payload_size == 0) || (!IsTCP(p) && !IsUDP(p)) || (p->payload == NULL))
         return;
-    }
-
-    /* DNS only goes over TCP or UDP */
-    if (!p->tcp_header && !p->udp_header)
-    {
-        return;
-    }
 
     /* Check the ports to make sure this is a DNS port.
-#if 0
      * Otherwise no need to examine the traffic.
-#endif
      */
+#ifdef TARGET_BASED
+    app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+    if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
+    {
+        return;
+    }
+    if (app_id && app_id != dns_app_id)
+    {
+        return;
+    }
+    if (!app_id) {
+#endif
     src = CheckDNSPort( p->src_port );
     dst = CheckDNSPort( p->dst_port );
+#ifdef TARGET_BASED
+    }
+#endif
 
     /* See if a known server port is involved. */
     known_port = ( src || dst ? 1 : 0 );
@@ -1404,7 +1445,11 @@ static void ProcessDNS( void* packetPtr, void* context )
         return;
     }
 #endif
+#ifdef TARGET_BASED
+    if (!app_id && !known_port)
+#else
     if (!known_port)
+#endif
     {
         /* Not one of the ports we care about. */
         return;
@@ -1451,18 +1496,21 @@ static void ProcessDNS( void* packetPtr, void* context )
     }
     else if (p->udp_header)
     {
+#ifdef TARGET_BASED
+        if (app_id == dns_app_id)
+        {
+            direction = ( (p->flags & FLAG_FROM_SERVER ) ?
+                        DNS_DIR_FROM_SERVER : DNS_DIR_FROM_CLIENT );
+        }
+        else {
+#endif
         if (src)
             direction = DNS_DIR_FROM_SERVER;
         else if (dst)
             direction = DNS_DIR_FROM_CLIENT;
-    }
-        
-
-    /* check if we have data to work with */
-    if (( !p->payload ) ||
-        ( !p->payload_size ))
-    {
-        return;
+#ifdef TARGET_BASED
+        }
+#endif
     }
 
     PREPROC_PROFILE_START(dnsPerfStats);
@@ -1494,3 +1542,33 @@ static void ProcessDNS( void* packetPtr, void* context )
     PREPROC_PROFILE_END(dnsPerfStats);
 }
 
+static void DNSReset(int signal, void *data)
+{
+    return;
+}
+
+static void DNSResetStats(int signal, void *data)
+{
+    return;
+}
+
+static void _addPortsToStream5Filter()
+{
+    unsigned int portNum;
+
+    for (portNum = 0; portNum < MAXPORTS; portNum++)
+    {
+        if(dns_config.ports[(portNum/8)] & (1<<(portNum%8)))
+        {
+            //Add port the port
+            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
+            _dpd.streamAPI->set_port_filter_status(IPPROTO_UDP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
+        }
+    }
+}
+#ifdef TARGET_BASED
+static void _addServicesToStream5Filter()
+{
+    _dpd.streamAPI->set_service_filter_status(dns_app_id, PORT_MONITOR_SESSION);
+}
+#endif

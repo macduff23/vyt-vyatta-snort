@@ -39,13 +39,34 @@ Package=<4>
     Project_Dep_Name sf_smtp
     End Project Dependency
     Begin Project Dependency
-    Project_Dep_Name sf_dcerpc
-    End Project Dependency
-    Begin Project Dependency
     Project_Dep_Name sf_ssh
     End Project Dependency
     Begin Project Dependency
+    Project_Dep_Name sf_dcerpc
+    End Project Dependency
+    Begin Project Dependency
     Project_Dep_Name sf_dns
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name sf_ssl
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name sf_dce2
+    End Project Dependency
+}}}
+
+###############################################################################
+
+Project: "sf_dce2"="..\..\dynamic-preprocessors\dcerpc2\sf_dce2.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+    Begin Project Dependency
+    Project_Dep_Name sf_dynamic_initialize
     End Project Dependency
 }}}
 
@@ -101,6 +122,21 @@ Package=<5>
 
 Package=<4>
 {{{
+    Begin Project Dependency
+    Project_Dep_Name sf_engine_initialize
+    End Project Dependency
+}}}
+
+###############################################################################
+
+Project: "sf_engine_initialize"=".\sf_engine_initialize.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
 }}}
 
 ###############################################################################
@@ -131,11 +167,47 @@ Package=<4>
     Begin Project Dependency
     Project_Dep_Name sf_dynamic_initialize
     End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name sfdynamic_preproc_libs
+    End Project Dependency
 }}}
 
 ###############################################################################
 
 Project: "sf_ssh"="..\..\dynamic-preprocessors\ssh\sf_ssh.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+    Begin Project Dependency
+    Project_Dep_Name sf_dynamic_initialize
+    End Project Dependency
+}}}
+
+###############################################################################
+
+Project: "sf_ssl"="..\..\dynamic-preprocessors\ssl\sf_ssl.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+    Begin Project Dependency
+    Project_Dep_Name sf_dynamic_initialize
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name sfdynamic_preproc_libs
+    End Project Dependency
+}}}
+
+###############################################################################
+
+Project: "sfdynamic_preproc_libs"="..\..\dynamic-preprocessors\libs\sfdynamic_preproc_libs.dsp" - Package Owner=<4>
 
 Package=<5>
 {{{

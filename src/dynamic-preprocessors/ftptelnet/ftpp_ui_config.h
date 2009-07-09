@@ -1,11 +1,12 @@
 /*
  * ftpp_ui_config.h
  *
- * Copyright (C) 2004 Sourcefire,Inc
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
- *
+ * Kevin Liu <kliu@sourcefire.com>
+ * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
  * published by the Free Software Foundation.  You may not use, modify or
@@ -40,7 +41,9 @@
 //#include "decode.h"
 
 #include "ftpp_include.h"
-#include "ftpp_util_kmap.h"
+#include "hi_util_kmap.h"
+#include "ipv6_port.h"
+#include "sfrt.h"
 
 /*
  * Defines
@@ -52,13 +55,18 @@
 #define FTPP_UI_CONFIG_FTP_DEF_RESP_MSG_MAX -1
 #define FTPP_UI_CONFIG_FTP_DEF_CMD_PARAM_MAX 100
 
+/**Maximum number of entries in server_lookup table.
+ */
+#define FTPP_UI_CONFIG_MAX_SERVERS  20
+#define FTPP_UI_CONFIG_MAX_CLIENTS  20
+
 /*
  * Defines a search type for the client configurations in the
  * global configuration.  We want this generic so we can change
  * it easily if we change the search type.
  */
-typedef KMAP CLIENT_LOOKUP;
-typedef KMAP SERVER_LOOKUP;
+typedef table_t CLIENT_LOOKUP;
+typedef table_t SERVER_LOOKUP;
 typedef KMAP BOUNCE_LOOKUP;
 
 /*
@@ -89,7 +97,10 @@ typedef enum s_FTP_PARAM_TYPE
     e_number,
     e_char,
     e_date,
-    e_host_port
+    e_literal,
+    e_host_port,
+    e_long_host_port,
+    e_extd_host_port
 }  FTP_PARAM_TYPE;
 
 /*
@@ -142,15 +153,15 @@ typedef struct s_FTP_PARAM_FMT
     FTP_PARAM_TYPE type;
     int optional;
 
-    /* Format is only used for type e_char & e_date to specify
-     * allowable characters or date specifier.  Other types
-     * (e_unrestricted, e_strformat, e_int, e_number, e_hostport)
-     * provide no variances for the format.
+    /* Format is only used for types listed below to specify
+     * allowable values.  Other types provide no variances
+     * for the format.
      */
     union u_FORMAT
     {
         u_int32_t chars_allowed;     /* For type == e_char */
         FTP_DATE_FMT *date_fmt;      /* For type == e_date */
+        char* literal;               /* For type == e_literal */
     } format;
 
     struct s_FTP_PARAM_FMT *prev_param_fmt;
@@ -159,7 +170,7 @@ typedef struct s_FTP_PARAM_FMT
     struct s_FTP_PARAM_FMT **choices;
     int numChoices;
     int prev_optional; /* Only set if optional is set */
-    char *next_param; /* Pointer to buffer for the next parameter.
+    const char *next_param; /* Pointer to buffer for the next parameter.
                          To be used to backtrack for optional
                          parameters that don't match. */
 
@@ -213,11 +224,18 @@ typedef struct s_FTP_SERVER_PROTO_CONF
     FTPTELNET_CONF_OPT telnet_cmds;
     int data_chan;
 
+    /**Counts references to this allocated data structure. Each additional
+     * reference should increment referenceCount. Each attempted free should 
+     * decrement it. When reference count reaches 0, then this 
+     * data structure should be freed. 
+     */ 
+    int referenceCount;
+
 }  FTP_SERVER_PROTO_CONF;
 
 typedef struct s_FTP_BOUNCE_TO
 {
-    unsigned long ip;
+    snort_ip ip;
     int relevant_bits;
     unsigned short portlo;
     unsigned short porthi;
@@ -241,6 +259,13 @@ typedef struct s_FTP_CLIENT_PROTO_CONF
     /* allow_bounce to IP/mask port|port-range */
     /* TODO: change this to use a quick find of IP/mask */
     BOUNCE_LOOKUP    *bounce_lookup;
+
+    /**Counts references to this allocated data structure. Each additional
+     * reference should increment referenceCount. Each attempted free should 
+     * decrement it. When reference count reaches 0, then this 
+     * data structure should be freed. 
+     */ 
+    int referenceCount;
 
 }  FTP_CLIENT_PROTO_CONF;
 
@@ -279,6 +304,10 @@ typedef struct s_FTPTELNET_GLOBAL_CONF
     TELNET_PROTO_CONF   global_telnet;
     SERVER_LOOKUP    *server_lookup;
     CLIENT_LOOKUP    *client_lookup;
+#ifdef TARGET_BASED
+    int16_t ftp_app_id;
+    int16_t telnet_app_id;
+#endif
 
 }  FTPTELNET_GLOBAL_CONF;    
 
@@ -298,10 +327,8 @@ int ftpp_ui_config_reset_ftp_cmd(FTP_CMD_CONF *FTPCmd);
 int ftpp_ui_config_reset_telnet_proto(TELNET_PROTO_CONF *ClientConf);
 
 int ftpp_ui_config_add_ftp_client(FTPTELNET_GLOBAL_CONF *GlobalConf,
-                            unsigned long ClientIP, 
-                            FTP_CLIENT_PROTO_CONF *ClientConf);
+                            sfip_t* ClientIP, FTP_CLIENT_PROTO_CONF *ClientConf);
 int ftpp_ui_config_add_ftp_server(FTPTELNET_GLOBAL_CONF *GlobalConf,
-                            unsigned long ClientIP, 
-                            FTP_SERVER_PROTO_CONF *ClientConf);
+                            sfip_t *ClientIP, FTP_SERVER_PROTO_CONF *ClientConf);
 
 #endif

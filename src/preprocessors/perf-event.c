@@ -3,7 +3,7 @@
 **
 **  perf-event.c
 **
-**  Copyright (C) 2002 Sourcefire,Inc
+**  Copyright (C) 2002-2009 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -108,9 +108,9 @@ int DisplayEventPerfStats(SFEVENT_STATS *sfEventStats)
     LogMessage("\n\nSnort Setwise Event Stats\n");
     LogMessage(    "-------------------------\n");
 
-    LogMessage( "Total Events:           %llu\n", sfEventStats->TotalEvents);
-    LogMessage( "Qualified Events:       %llu\n", sfEventStats->QEvents);
-    LogMessage( "Non-Qualified Events:   %llu\n", sfEventStats->NQEvents);
+    LogMessage( "Total Events:           " STDu64 "\n", sfEventStats->TotalEvents);
+    LogMessage( "Qualified Events:       " STDu64 "\n", sfEventStats->QEvents);
+    LogMessage( "Non-Qualified Events:   " STDu64 "\n", sfEventStats->NQEvents);
 
     LogMessage("%%Qualified Events:      %.4f%%\n", sfEventStats->QPercent);
     LogMessage("%%Non-Qualified Events:  %.4f%%\n", sfEventStats->NQPercent);

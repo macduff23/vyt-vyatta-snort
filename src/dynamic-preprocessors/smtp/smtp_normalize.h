@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Andy  Mullican
  *
@@ -26,7 +26,9 @@
 #ifndef __SMTP_NORMALIZE_H__
 #define __SMTP_NORMALIZE_H__
 
-int SMTP_NeedNormalize(char *data, char *buf_end);
-int SMTP_Normalize(SFSnortPacket *p, int offset, int cmd_len);
+#include "sf_snort_packet.h"
 
-#endif  /* __SMTP_NORMALIZE_H__ */
+int SMTP_NormalizeCmd(SFSnortPacket *, const u_int8_t *, const u_int8_t *, const u_int8_t *);
+
+#endif
+

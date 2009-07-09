@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -43,6 +43,9 @@
 #include "hi_util_kmap.h"
 #include "hi_ui_config.h"
 #include "hi_return_codes.h"
+#include "sfrt.h"
+
+static void serverConfFree(void *pData);
 
 /*
 **  NAME
@@ -64,7 +67,11 @@
 */
 int hi_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup)
 {
-    *ServerLookup = KMapNew(free); 
+#ifdef SUP_IP6
+    *ServerLookup =  sfrt_new(DIR_16_4x4_16x5_4x4, IPv6, HI_UI_CONFIG_MAX_SERVERS, 20);
+#else
+    *ServerLookup =  sfrt_new(DIR_16x2, IPv4, HI_UI_CONFIG_MAX_SERVERS, 20);
+#endif
     if(*ServerLookup == NULL)
     {
         return HI_MEM_ALLOC_FAIL;
@@ -97,7 +104,7 @@ int hi_ui_server_lookup_init(SERVER_LOOKUP **ServerLookup)
 **  @retval HI_NONFATAL_ERR   key is already in table, don't overwrite
 **                            configuration.
 */
-int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
+int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, sfip_t *Ip,
                             HTTPINSPECT_CONF *ServerConf)
 {
     int iRet;
@@ -107,20 +114,14 @@ int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
         return HI_INVALID_ARG;
     }
 
-    iRet = KMapAdd(ServerLookup, (void *)&Ip, 4, (void *)ServerConf);
+#ifdef SUP_IP6
+    iRet = sfrt_insert((void *)Ip, (unsigned char)Ip->bits, (void *)ServerConf, RT_FAVOR_SPECIFIC, ServerLookup);
+#else
+    iRet = sfrt_insert((void *)&(Ip->ip.u6_addr32[0]), (unsigned char)Ip->bits, (void *)ServerConf, RT_FAVOR_SPECIFIC, ServerLookup);
+#endif
     if (iRet)
     {
-        /*
-        **  This means the key has already been added.
-        */
-        if(iRet == 1)
-        {
-            return HI_NONFATAL_ERR;
-        }
-        else
-        {
-            return HI_MEM_ALLOC_FAIL;
-        }
+        return HI_MEM_ALLOC_FAIL;
     }
 
     return HI_SUCCESS;
@@ -147,7 +148,7 @@ int hi_ui_server_lookup_add(SERVER_LOOKUP *ServerLookup, unsigned long Ip,
 **  @retval HI_NOT_FOUND IP not found
 */
 HTTPINSPECT_CONF  *hi_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup, 
-                                            unsigned long Ip, int *iError)
+                                            snort_ip_p Ip, int *iError)
 {
     HTTPINSPECT_CONF *ServerConf;
 
@@ -164,7 +165,11 @@ HTTPINSPECT_CONF  *hi_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup,
 
     *iError = HI_SUCCESS;
 
-    ServerConf = (HTTPINSPECT_CONF *)KMapFind(ServerLookup,(void *)&Ip,4);
+#ifdef SUP_IP6
+    ServerConf = (HTTPINSPECT_CONF *)sfrt_lookup((void *)Ip, ServerLookup);
+#else
+    ServerConf = (HTTPINSPECT_CONF *)sfrt_lookup((void *)&Ip, ServerLookup);
+#endif
     if (!ServerConf)
     {
         *iError = HI_NOT_FOUND;
@@ -172,6 +177,18 @@ HTTPINSPECT_CONF  *hi_ui_server_lookup_find(SERVER_LOOKUP *ServerLookup,
 
     return ServerConf;
 }
+
+void hi_ui_server_iterate(
+        SERVER_LOOKUP *ServerLookup, 
+        void (*userfunc)(void *)
+        )
+{
+     sfrt_iterate(ServerLookup, userfunc);
+}
+#if 0
+/** Obsoleted. After changing underlying KMAP to SFRT. SFRT provides an iterator with 
+ * a callback function but does not support getFirst, getNext operations.
+ */
 
 /*
 **  NAME
@@ -260,7 +277,35 @@ HTTPINSPECT_CONF *hi_ui_server_lookup_next(SERVER_LOOKUP *ServerLookup,
 
     return ServerConf;
 }
-    
+#endif    
 
-            
+void  hi_ui_server_lookup_destroy(SERVER_LOOKUP *ServerLookup)
+{
+    sfrt_cleanup(ServerLookup, serverConfFree);
+    sfrt_free(ServerLookup);
+}
+
+/**Free pData buffer, which may be referenced multiple times. ReferenceCount 
+ * is the number of times the buffer is referenced.  For freeing the buffer, 
+ * we just decrement referenceCount till it reaches 0, at which time the 
+ * buffer is also freed.
+ */
+static void serverConfFree(void *pData)
+{
+    HTTPINSPECT_CONF *ServerConf = (HTTPINSPECT_CONF *)pData;
+
+    if (ServerConf)
+    {
+        ServerConf->referenceCount--;
+        if (ServerConf->referenceCount == 0)
+        {
+            if (ServerConf->iis_unicode_map_filename)
+            {
+                free(ServerConf->iis_unicode_map_filename);
+            }
+
+            free(ServerConf);
+        }
+    }
+}
 

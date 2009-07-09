@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005 Sourcefire Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * Author: Andy  Mullican
  *
@@ -33,100 +33,145 @@
  */
 
 #include <string.h>
-#include "preprocids.h"
+
 #include "snort_smtp.h"
+#include "smtp_util.h"
 #include "bounds.h"
+#include "sf_dynamic_preprocessor.h"
+#include "sf_snort_packet.h"
+
+extern SMTP *_smtp;
+extern DynamicPreprocessorData _dpd;
+extern char _smtp_normalizing;
+
 
 /*
- *  Externs
- */
-//extern u_int8_t DecodeBuffer[DECODE_BLEN]; /* decode.c */
-
-
-/*
- * Check to see if current line needs normalization
+ * SMTP_NormalizeCmd
+ * 
+ * If command doesn't need normalizing it will do nothing, except in
+ * the case where we are already normalizing in which case the line
+ * will get copied to the alt buffer.
+ * If the command needs normalizing the normalized data will be copied 
+ * to the alt buffer.  If we are not already normalizing, all of the 
+ * data up to this point will be copied into the alt buffer first.
  *
- * @param   data    string to check
+ * XXX This may copy unwanted data if we are ignoring the data in the
+ *     message and there was data that came before the command in the
+ *     packet, for example if there are multiple transactions on the
+ *     session or if we're normalizing QUIT.
+ *
+ * @param   p      pointer to packet structure
+ * @param   ptr    pointer to beginning of command line
+ * @param   eolm   start of end of line marker
+ * @param   eol    end of end of line marker
  *
  * @return  response
- * @retval  1           line needs normalization
- * @retval  0           line does not need normalization
+ * @retval   0          function succeded without error
+ * @retval  -1          there were errors
  */
-int SMTP_NeedNormalize(char *data, char *buf_end)
+int SMTP_NormalizeCmd(SFSnortPacket *p, const u_int8_t *ptr, const u_int8_t *eolm, const u_int8_t *eol)
 {
-    int num_spaces = 0;
+    const u_int8_t *tmp;
+    const u_int8_t *cmd_start;
+    const u_int8_t *cmd_end;
+    const u_int8_t *args_start;
+    const u_int8_t *args_end;
+    const u_int8_t *space = (u_int8_t *)" ";
+    int need_normalize = 0;
+    int ret;
 
-    /* If more than one space char, return true
-     * Servers (meaning Postfix and Sendmail) will normalize any
-     * space char except '\n' */
-    while (data < buf_end && isspace((int)*data) && *data != '\n')
+
+    tmp = ptr;
+
+    /* move past initial whitespace */
+    while ((tmp < eolm) && isspace((int)*tmp))
+        tmp++;
+
+    /* we got whitespace before command */
+    if (tmp > ptr)
+        need_normalize = 1;
+
+    /* move past the command */
+    cmd_start = cmd_end = tmp;
+    while ((cmd_end < eolm) && !isspace((int)*cmd_end))
+        cmd_end++;
+
+    args_start = cmd_end;
+    while ((args_start < eolm) && isspace((int)*args_start))
+        args_start++;
+
+    if (args_start == eolm)
     {
-        num_spaces++;
-        if ( num_spaces > 1 )
-            return 1;
-        data++;
+        /* nothing but space after command - normalize if we got any
+         * spaces since there is not an argument */
+        if (args_start > cmd_end)
+            need_normalize = 1;
+
+        args_end = args_start;
+    }
+    else
+    {
+        /* more than one space between command and argument or
+         * whitespace between command and argument is not a regular space character */
+        if ((args_start > (cmd_end + 1)) || (*cmd_end != ' '))
+            need_normalize = 1;
+
+        /* see if there is any dangling space at end of argument */
+        args_end = eolm;
+        while (isspace((int)*(args_end - 1)))
+            args_end--;
+
+        if (args_end != eolm)
+            need_normalize = 1;
+    }
+
+
+    if (need_normalize)
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Command needs normalizing\n"););
+
+        /* if we're not yet normalizing copy everything in the payload up to this
+         * line into the alt buffer */
+        if (!_smtp_normalizing)
+        {
+            ret = SMTP_CopyToAltBuffer(p, p->payload, ptr - p->payload);
+            if (ret == -1)
+                return -1;
+        }
+
+        /* copy the command into the alt buffer */
+        ret = SMTP_CopyToAltBuffer(p, cmd_start, cmd_end - cmd_start);
+        if (ret == -1)
+            return -1;
+
+        /* if we actually have an argument, copy it into the alt buffer */
+        if (args_start != args_end)
+        {
+            /* copy a 'pure' space */
+            ret = SMTP_CopyToAltBuffer(p, space, 1);
+            if (ret == -1)
+                return -1;
+
+            ret = SMTP_CopyToAltBuffer(p, args_start, args_end - args_start);
+            if (ret == -1)
+                return -1;
+        }
+
+        /* copy the end of line marker into the alt buffer */
+        ret = SMTP_CopyToAltBuffer(p, eolm, eol - eolm);
+        if (ret == -1)
+            return -1;
+
+    }
+    else if (_smtp_normalizing)
+    {
+        /* if we're already normalizing and didn't need to normalize this line, just
+         * copy it into the alt buffer */
+        ret = SMTP_CopyToAltBuffer(p, ptr, eol - ptr);
+        if (ret == -1)
+            return -1;
     }
 
     return 0;
 }
 
-/*
- * Normalize current line in buffer.  Walk buffer, consolidating whitespace into
- *   alternate buffer, then return number of bytes walked in packet data buffer.
- *
- * @param   p           standard Packet structure
- * @param   offset      offset into p->data to data of interest
- * @param   cmd_len     length of command on this line
- *
- * @return  length
- * @retval  integer     length of line
- */
-int SMTP_Normalize(SFSnortPacket *p, int offset, int cmd_len)
-{
-    int   i = 0;
-    int   datalen;
-    char *data;
-    int   past_spaces = 0;
-    int   first_space = 1;
-    char *startBuffer = &_dpd.altBuffer[0];
-    char *endBuffer = startBuffer + _dpd.altBufferLen;
-    int ret;
-
-    data = p->payload + offset;
-    datalen = p->payload_size - offset;
-
-    //memcpy(_dpd.altBuffer + p->normalized_payload_size, data, cmd_len);
-    ret = SafeMemcpy(startBuffer + p->normalized_payload_size, data, cmd_len,
-                     startBuffer, endBuffer);
-
-    //if (ret == SAFEMEM_ERROR)
-    //{
-    //    DEBUG_WRAP(_dpd.debugMsg(DEBUG_SMTP, "SMTP_Normalize() => SafeMemcpy failed\n"););
-    //    return -1;
-    //}
-
-    data += cmd_len;
-    i += cmd_len;
-    p->normalized_payload_size += cmd_len;
-
-    for ( ; i < datalen && *data != '\n' && p->normalized_payload_size < _dpd.altBufferLen; i++, data++ )
-    {
-        if ( !past_spaces && i > cmd_len && !isspace((int)*data) )
-        {
-            past_spaces = 1;
-        }
-        
-        if ( first_space || past_spaces )
-        {
-            if (isspace((int)*data))
-                *(_dpd.altBuffer + p->normalized_payload_size) = ' ';
-            else
-                *(_dpd.altBuffer + p->normalized_payload_size) = *data;
-
-            p->normalized_payload_size++;
-            first_space = 0;
-        }
-    }    
-
-    return i;
-}

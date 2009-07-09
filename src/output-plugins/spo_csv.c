@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2001 Brian Caswell <bmc@mitre.org>
 **
@@ -22,15 +23,15 @@
 
 /* spo_csv
  * 
- * Purpose:  output plugin for full alerting
+ * Purpose:  output plugin for csv alerting
  *
  * Arguments:  alert file (eventually)
  *   
  * Effect:
  *
- * Alerts are written to a file in the snort full alert format
+ * Alerts are written to a file in the snort csv alert format
  *
- * Comments:   Allows use of full alerts with other output plugin types
+ * Comments:   Allows use of csv alerts with other output plugin types
  *
  */
 
@@ -63,7 +64,14 @@
 
 #include "snort.h"
 
+#include "sfutil/sf_textlog.h"
+#include "log_text.h"
+
 #define DEFAULT_CSV "timestamp,sig_generator,sig_id,sig_rev,msg,proto,src,srcport,dst,dstport,ethsrc,ethdst,ethlen,tcpflags,tcpseq,tcpack,tcpln,tcpwindow,ttl,tos,id,dgmlen,iplen,icmptype,icmpcode,icmpid,icmpseq"
+
+#define DEFAULT_FILE  "alert.csv"
+#define DEFAULT_LIMIT (128*M_BYTES)
+#define LOG_BUFFER    (4*K_BYTES)
 
 typedef struct _AlertCSVConfig
 {
@@ -73,7 +81,7 @@ typedef struct _AlertCSVConfig
 
 typedef struct _AlertCSVData
 {
-    FILE *file;
+    TextLog* log;
     char * csvargs;
     char ** args;
     int numargs;
@@ -82,14 +90,14 @@ typedef struct _AlertCSVData
 
 
 /* list of function prototypes for this preprocessor */
-void AlertCSVInit(u_char *);
-AlertCSVData *AlertCSVParseArgs(char *);
-void AlertCSV(Packet *, char *, void *, Event *);
-void AlertCSVCleanExit(int, void *);
-void AlertCSVRestart(int, void *);
-void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args, 
-        int numargs, Event *event);
-static char *CSVEscape(char *input);
+static void AlertCSVInit(char *);
+static AlertCSVData *AlertCSVParseArgs(char *);
+static void AlertCSV(Packet *, char *, void *, Event *);
+static void AlertCSVCleanExit(int, void *);
+static void AlertCSVRestart(int, void *);
+static void RealAlertCSV(
+    Packet*, char* msg, char **args, int numargs, Event*, TextLog*
+);
 
 /*
  * Function: SetupCSV()
@@ -114,7 +122,7 @@ void AlertCSVSetup(void)
 
 
 /*
- * Function: CSVInit(u_char *)
+ * Function: CSVInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -124,7 +132,7 @@ void AlertCSVSetup(void)
  * Returns: void function
  *
  */
-void AlertCSVInit(u_char *args)
+static void AlertCSVInit(char *args)
 {
     AlertCSVData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: CSV Initialized\n"););
@@ -145,132 +153,158 @@ void AlertCSVInit(u_char *args)
 /*
  * Function: ParseCSVArgs(char *)
  *
- * Purpose: Process the preprocessor arguements from the rules file and 
- *          initialize the preprocessor's data struct.  This function doesn't
- *          have to exist if it makes sense to parse the args in the init 
- *          function.
+ * Purpose: Process positional args, if any.  Syntax is:
+ * output alert_csv: [<logpath> ["default"|<list> [<limit>]]]
+ * list ::= <field>(,<field>)*
+ * field ::= "dst"|"src"|"ttl" ...
+ * limit ::= <number>('G'|'M'|K')
  *
  * Arguments: args => argument list
  *
  * Returns: void function
- *
  */
-AlertCSVData *AlertCSVParseArgs(char *args)
+static AlertCSVData *AlertCSVParseArgs(char *args)
 {
     char **toks;
-    int num_toks; 
-    char *filename;
+    int num_toks;
     AlertCSVData *data;
-    /*    SpoCSVConfig *config; */
+    char* filename = NULL;
+    unsigned long limit = DEFAULT_LIMIT;
+    int i;
 
-    data = (AlertCSVData *)SnortAlloc(sizeof(AlertCSVData));
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "ParseCSVArgs: %s\n", args););
+    data = (AlertCSVData *)SnortAlloc(sizeof(AlertCSVData));
 
-    toks = mSplit(args, " ", 2, &num_toks, 0);
-
-    if(num_toks <= 1)
+    if ( !data )
     {
-        FatalError("You must supply at least TWO arguments for "
-                   "the CSV plugin...\n"
-                   "\t ... arguements of \"/path/to/output/file default\" "
-                   "as a minimum.\n");
+        FatalError("alert_csv: unable to allocate memory!\n");
     }
- 
-    filename = ProcessFileOption(toks[0]);
-    data->file = OpenAlertFile(filename);
-    free(filename);
-    DEBUG_WRAP(DebugMessage(DEBUG_INIT,"AlertCSV Got filename\n"););
+    if ( !args ) args = "";
+    toks = mSplit((char *)args, " ", 4, &num_toks, '\\');
 
-    if(!strncasecmp("default", toks[1], 7))
+    for (i = 0; i < num_toks; i++)
     {
-	    data->csvargs = strdup(DEFAULT_CSV);
+        const char* tok = toks[i];
+        char *end;
+
+        switch (i)
+        {
+            case 0:
+                if ( !strcasecmp(tok, "stdout") )
+                    filename = SnortStrdup(tok);
+
+                else
+                    filename = ProcessFileOption(tok);
+                break;
+
+            case 1:
+                if ( !strcasecmp("default", tok) )
+                {
+	            data->csvargs = strdup(DEFAULT_CSV);
+                }
+                else
+                {
+	            data->csvargs = strdup(toks[1]); 
+                } 
+                break;
+
+            case 2:
+                limit = strtol(tok, &end, 10);
+
+                if ( tok == end )
+                    FatalError("alert_csv error in %s(%i): %s\n",
+                        file_name, file_line, tok);
+
+                if ( end && toupper(*end) == 'G' )
+                    limit <<= 30; /* GB */
+
+                else if ( end && toupper(*end) == 'M' )
+                    limit <<= 20; /* MB */
+
+                else if ( end && toupper(*end) == 'K' )
+                    limit <<= 10; /* KB */
+                break;
+
+            case 3:
+                FatalError("alert_csv: error in %s(%i): %s\n",
+                    file_name, file_line, tok);
+                break;
+        }
     }
-    else
-    {
-	    data->csvargs = strdup(toks[1]); 
-    } 
+    if ( !data->csvargs ) data->csvargs = strdup(DEFAULT_CSV);
+    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
 
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertCSV Got Config ARGS\n"););
-    
     mSplitFree(&toks, num_toks);
     toks = mSplit(data->csvargs, ",", 128, &num_toks, 0);
 
     data->args = toks;
     data->numargs = num_toks;
 
+    DEBUG_WRAP(DebugMessage(
+        DEBUG_INIT, "alert_csv: '%s' '%s' %ld\n", filename, data->csvargs, limit
+    ););
+    data->log = TextLog_Init(filename, LOG_BUFFER, limit);
+    if ( filename ) free(filename);
+
     return data;
 }
 
-void AlertCSVCleanExit(int signal, void *arg)
+static void AlertCSVCleanup(int signal, void *arg, const char* msg)
 {
     AlertCSVData *data = (AlertCSVData *)arg;
     /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"CSVCleanExitFunc\n"););
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"%s\n", msg););
     
     if(data) 
     {
         mSplitFree(&data->args, data->numargs);
-        fclose(data->file);
-        free(data->csvargs);
-        /* free memory from SpoCSVData */
-        free(data);
-    }
-    
-}
-
-void AlertCSVRestart(int signal, void *arg)
-{
-    AlertCSVData *data = (AlertCSVData *)arg;
-    /* close alert file */
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"CSVRestartFunc\n"););
-
-    if(data) 
-    {
-        mSplitFree(&data->args, data->numargs);
-        fclose(data->file);
+        if (data->log) TextLog_Term(data->log);
         free(data->csvargs);
         /* free memory from SpoCSVData */
         free(data);
     }
 }
 
-
-void AlertCSV(Packet *p, char *msg, void *arg, Event *event)
+static void AlertCSVCleanExit(int signal, void *arg)
 {
-    AlertCSVData *data = (AlertCSVData *)arg;
-    RealAlertCSV(p, msg, data->file, data->args, data->numargs, event); 
-    return;
+    AlertCSVCleanup(signal, arg, "AlertCSVCleanExit");
+}
+
+static void AlertCSVRestart(int signal, void *arg)
+{
+    AlertCSVCleanup(signal, arg, "AlertCSVRestart");
 }
 
 
+static void AlertCSV(Packet *p, char *msg, void *arg, Event *event)
+{
+    AlertCSVData *data = (AlertCSVData *)arg;
+    RealAlertCSV(p, msg, data->args, data->numargs, event, data->log); 
+}
 
 /*
  *
- * Function: AlertCSV(Packet *, char *, FILE *, char *, numargs const int)
+ * Function: RealAlertCSV(Packet *, char *, FILE *, char *, numargs const int)
  *
  * Purpose: Write a user defined CSV message
  *
  * Arguments:     p => packet. (could be NULL)
  *              msg => the message to send
- *             file => file pointer to print data to
  *             args => CSV output arguements 
  *          numargs => number of arguements
+ *             log => Log
  * Returns: void function
  *
  */
-void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args, 
-        int numargs, Event *event)
+static void RealAlertCSV(Packet * p, char *msg, char **args, 
+        int numargs, Event *event, TextLog* log)
 {
-    char timestamp[TIMEBUF_SIZE];
     int num; 
     char *type;
     char tcpFlags[9];
 
     if(p == NULL)
 	return;
-
-    bzero((char *) timestamp, TIMEBUF_SIZE);
-    ts_print(p == NULL ? NULL : (struct timeval *) & p->pkth->ts, timestamp);
 
     DEBUG_WRAP(DebugMessage(DEBUG_LOG,"Logging CSV Alert data\n");); 
 
@@ -282,57 +316,50 @@ void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args,
 
 	if(!strncasecmp("timestamp", type, 9))
 	{
-	    fwrite(timestamp, strlen(timestamp), 1, file);
+	    LogTimeStamp(log, p);
 	}
 	else if(!strncasecmp("sig_generator",type,13))
 	{
 	   if(event != NULL)
 	   {
-	       fprintf(file, "%lu",  (unsigned long) event->sig_generator);
+	       TextLog_Print(log,  "%lu",  (unsigned long) event->sig_generator);
 	   }
 	}
 	else if(!strncasecmp("sig_id",type,6))
 	{
 	   if(event != NULL)
 	   {
-	      fprintf(file, "%lu",  (unsigned long) event->sig_id);
+	      TextLog_Print(log,  "%lu",  (unsigned long) event->sig_id);
 	   }
 	}
 	else if(!strncasecmp("sig_rev",type,7))
 	{
 	   if(event != NULL)
 	   {
-	      fprintf(file, "%lu",  (unsigned long) event->sig_rev);
+	      TextLog_Print(log,  "%lu",  (unsigned long) event->sig_rev);
  	   }
 	}
 	else if(!strncasecmp("msg", type, 3))
 	{
-        /* Escape the msg */
-        char *escaped_msg;
-
-        escaped_msg = CSVEscape(msg);
-        if (!escaped_msg)
-        {
-            FatalError("Out of memory escaping msg string");
-        }
-
-	    fwrite(escaped_msg, strlen(escaped_msg),1,file);
-        free(escaped_msg);
+           if ( !TextLog_Quote(log, msg) )
+           {
+               FatalError("Not enough buffer space to escape msg string\n");
+           }
 	}
 	else if(!strncasecmp("proto", type, 5))
 	{
-        if(p->iph)
+        if(IPH_IS_VALID(p))
         {
-            switch (p->iph->ip_proto)
+            switch (GET_IPH_PROTO(p))
             {
                 case IPPROTO_UDP:
-                    fwrite("UDP", 3,1,file);
+                    TextLog_Puts(log, "UDP");
                     break;
                 case IPPROTO_TCP:
-                    fwrite("TCP", 3,1,file);
+                    TextLog_Puts(log, "TCP");
                     break;
                 case IPPROTO_ICMP:
-                    fwrite("ICMP", 4,1,file);
+                    TextLog_Puts(log, "ICMP");
                     break;
             }
         }
@@ -341,7 +368,7 @@ void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args,
 	{
 	    if(p->eh)
 	    {
-            fprintf(file, "%X:%X:%X:%X:%X:%X", p->eh->ether_src[0],
+            TextLog_Print(log,  "%X:%X:%X:%X:%X:%X", p->eh->ether_src[0],
             p->eh->ether_src[1], p->eh->ether_src[2], p->eh->ether_src[3],
             p->eh->ether_src[4], p->eh->ether_src[5]);
 	    }
@@ -350,7 +377,7 @@ void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args,
 	{
 	    if(p->eh)
 	    {
-            fprintf(file, "%X:%X:%X:%X:%X:%X", p->eh->ether_dst[0],
+            TextLog_Print(log,  "%X:%X:%X:%X:%X:%X", p->eh->ether_dst[0],
             p->eh->ether_dst[1], p->eh->ether_dst[2], p->eh->ether_dst[3],
             p->eh->ether_dst[4], p->eh->ether_dst[5]);
 	    }
@@ -359,185 +386,143 @@ void RealAlertCSV(Packet * p, char *msg, FILE * file, char **args,
 	{
 	    if(p->eh)
 	    {
-            fprintf(file,"0x%X",ntohs(p->eh->ether_type));
+            TextLog_Print(log, "0x%X",ntohs(p->eh->ether_type));
 	    }
 	}
 	else if(!strncasecmp("udplength", type, 9))
 	{
 	    if(p->udph)
-		fprintf(file,"%d",ntohs(p->udph->uh_len));
+		TextLog_Print(log, "%d",ntohs(p->udph->uh_len));
 	}
 	else if(!strncasecmp("ethlen", type, 6))
 	{
 	    if(p->eh)
-            fprintf(file,"0x%X",p->pkth->len);
+            TextLog_Print(log, "0x%X",p->pkth->len);
 	}
 	else if(!strncasecmp("trheader", type, 8))
 	{
 	    if(p->trh)
-            PrintTrHeader(file, p);
+            LogTrHeader(log, p);
 	}
 	else if(!strncasecmp("srcport", type, 7))
 	{
-        if(p->iph)
+        if(IPH_IS_VALID(p))
         {
-	        switch(p->iph->ip_proto)
+	        switch(GET_IPH_PROTO(p))
 	        {
 	            case IPPROTO_UDP:
 	            case IPPROTO_TCP:
-		            fprintf(file, "%d", p->sp);
+		            TextLog_Print(log,  "%d", p->sp);
 		            break;
 	        }    
         }
 	}
 	else if(!strncasecmp("dstport", type, 7))
 	{
-        if(p->iph)
+        if(IPH_IS_VALID(p))
         {
-	        switch(p->iph->ip_proto)
+	        switch(GET_IPH_PROTO(p))
 	        {
 	            case IPPROTO_UDP:
 	            case IPPROTO_TCP:
-		            fprintf(file, "%d", p->dp);
+		            TextLog_Print(log,  "%d", p->dp);
 		            break;
 	        }    
         }
 	}
 	else if(!strncasecmp("src", type, 3))
 	{
-        if(p->iph)
-            fputs(inet_ntoa(p->iph->ip_src), file);
+        if(IPH_IS_VALID(p))
+            TextLog_Puts(log, inet_ntoa(GET_SRC_ADDR(p)));
 	}
 	else if(!strncasecmp("dst", type, 3))
 	{
-        if(p->iph)
-            fputs(inet_ntoa(p->iph->ip_dst), file); 
+        if(IPH_IS_VALID(p))
+            TextLog_Puts(log, inet_ntoa(GET_DST_ADDR(p))); 
 	}
 	else if(!strncasecmp("icmptype",type,8))
 	{
 	    if(p->icmph)
 	    {
-		fprintf(file,"%d",p->icmph->type);
+		TextLog_Print(log, "%d",p->icmph->type);
 	    }
 	}
 	else if(!strncasecmp("icmpcode",type,8))
 	{
 	    if(p->icmph)
 	    {
-		fprintf(file,"%d",p->icmph->code);
+		TextLog_Print(log, "%d",p->icmph->code);
 	    }
 	}
 	else if(!strncasecmp("icmpid",type,6))
 	{
 	    if(p->icmph)
-            fprintf(file,"%d",ntohs(p->icmph->s_icmp_id));	   
+            TextLog_Print(log, "%d",ntohs(p->icmph->s_icmp_id));	   
 	}
 	else if(!strncasecmp("icmpseq",type,7))
 	{
 	    if(p->icmph)
-		    fprintf(file,"%d",ntohs(p->icmph->s_icmp_seq));
+		    TextLog_Print(log, "%d",ntohs(p->icmph->s_icmp_seq));
 	}
 	else if(!strncasecmp("ttl",type,3))
 	{
-	    if(p->iph)
-		fprintf(file,"%d",p->iph->ip_ttl);
+	    if(IPH_IS_VALID(p))
+		TextLog_Print(log, "%d",GET_IPH_TTL(p));
 	}
 	else if(!strncasecmp("tos",type,3))
 	{
-	    if(p->iph)
-		fprintf(file,"%d",p->iph->ip_tos);
+	    if(IPH_IS_VALID(p))
+		TextLog_Print(log, "%d",GET_IPH_TOS(p));
 	}
 	else if(!strncasecmp("id",type,2))
 	{
-	    if(p->iph)
-		fprintf(file,"%d",ntohs(p->iph->ip_id));
+	    if(IPH_IS_VALID(p))
+            TextLog_Print(log, "%u", IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((u_int16_t)GET_IPH_ID(p)));
 	}
 	else if(!strncasecmp("iplen",type,5))
 	{
-	    if(p->iph)
-		fprintf(file,"%d",IP_HLEN(p->iph) << 2);
+	    if(IPH_IS_VALID(p))
+		TextLog_Print(log, "%d",GET_IPH_LEN(p) << 2);
 	}
 	else if(!strncasecmp("dgmlen",type,6))
 	{
-	    if(p->iph)
-		fprintf(file,"%d",ntohs(p->iph->ip_len));
+	    if(IPH_IS_VALID(p))
+// XXX might cause a bug when IPv6 is printed?
+		TextLog_Print(log, "%d",ntohs(GET_IPH_LEN(p)));
 	}
 	else if(!strncasecmp("tcpseq",type,6))
 	{
 	    if(p->tcph)
-		fprintf(file,"0x%lX",(u_long) ntohl(p->tcph->th_seq));
+		TextLog_Print(log, "0x%lX",(u_long) ntohl(p->tcph->th_seq));
 	}
 	else if(!strncasecmp("tcpack",type,6))
 	{
 	    if(p->tcph)
-		fprintf(file,"0x%lX",(u_long) ntohl(p->tcph->th_ack));
+		TextLog_Print(log, "0x%lX",(u_long) ntohl(p->tcph->th_ack));
 	}
 	else if(!strncasecmp("tcplen",type,6))
 	{
 	    if(p->tcph)
-		fprintf(file,"%d",TCP_OFFSET(p->tcph) << 2);
+		TextLog_Print(log, "%d",TCP_OFFSET(p->tcph) << 2);
 	}
 	else if(!strncasecmp("tcpwindow",type,9))
 	{
 	    if(p->tcph)
-		fprintf(file,"0x%X",ntohs(p->tcph->th_win));
+		TextLog_Print(log, "0x%X",ntohs(p->tcph->th_win));
 	}
 	else if(!strncasecmp("tcpflags",type,8))
 	{
 	    if(p->tcph)
 	    {   
 		CreateTCPFlagString(p, tcpFlags);
-		fprintf(file,"%s", tcpFlags);
+		TextLog_Print(log, "%s", tcpFlags);
 	    }
 	}
 
 	if (num < numargs - 1) 
-	    fwrite(",",1,1,file);
+	    TextLog_Putc(log, ',');
     }
-    fputc('\n', file);
-   
-
-    return;
-}
-
-
-char *CSVEscape(char *input)
-{
-    size_t strLen;
-    char *buffer;
-    char *current;
-    if((strchr(input, ',') == NULL) && (strchr(input, '"') == NULL))
-        return strdup(input);
-    /* max size of escaped string is 2*size + 3, so we allocate that much */
-    strLen = strlen(input);
-    buffer = (char *)SnortAlloc((strLen * 2) + 3);
-    current = buffer;
-    *current = '"';
-    ++current;
-    while(*input != '\0')
-    {
-        switch(*input)
-        {
-            case '"':
-                *current = '\\';
-                ++current;
-                *current = '"';
-                ++current;
-                break;
-            case '\\':
-                *current = '\\';
-                ++current;
-                *current = '\\';
-                ++current;
-                break;
-            default:
-                *current = *input;
-                ++current;
-                break;
-        }
-        ++input;
-    }
-    *current = '"';
-    return buffer;
+    TextLog_NewLine(log);
+    TextLog_Flush(log);
 }
 

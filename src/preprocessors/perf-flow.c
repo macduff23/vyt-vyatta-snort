@@ -4,7 +4,7 @@
 ** perf-flow.c
 **
 **
-** Copyright (C) 2002 Sourcefire,Inc
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 ** Dan Roelker <droelker@sourcefire.com>
 **
@@ -53,7 +53,8 @@
 #include <string.h>
 
 #include "snort.h"
-#include "util.h" 
+#include "util.h"
+#include "sf_types.h" 
 
 int DisplayFlowStats(SFFLOW_STATS *sfFlowStats);
 
@@ -68,48 +69,37 @@ SFFLOW *sfGetFlowPtr() { return &sfPerf.sfFlow; }
 */
 int InitFlowStats(SFFLOW *sfFlow)
 {
-    sfFlow->pktLenCnt = (UINT64*)malloc(sizeof(UINT64) * (SF_MAX_PKT_LEN+1) );
-    if( sfFlow->pktLenCnt )
-        memset(sfFlow->pktLenCnt,0,sizeof(UINT64)*(SF_MAX_PKT_LEN+1));
+    static char first = 1;
+
+    if (first)
+    {
+        sfFlow->pktLenCnt = (UINT64*)SnortAlloc(sizeof(UINT64) * (SF_MAX_PKT_LEN + 1));
+        sfFlow->portTcpSrc = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
+        sfFlow->portTcpDst = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
+        sfFlow->portUdpSrc = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
+        sfFlow->portUdpDst = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
+        sfFlow->typeIcmp = (UINT64 *)SnortAlloc(sizeof(UINT64) * 256);
+
+        first = 0;
+    }
     else
-        FatalError("PERFMONITOR ERROR: Error allocating pktLenCnt.");
-    
+    {
+        memset(sfFlow->pktLenCnt, 0, sizeof(UINT64) * (SF_MAX_PKT_LEN + 1));
+        memset(sfFlow->portTcpSrc, 0, sizeof(UINT64) * SF_MAX_PORT);
+        memset(sfFlow->portTcpDst, 0, sizeof(UINT64) * SF_MAX_PORT);
+        memset(sfFlow->portUdpSrc, 0, sizeof(UINT64) * SF_MAX_PORT);
+        memset(sfFlow->portUdpDst, 0, sizeof(UINT64) * SF_MAX_PORT);
+        memset(sfFlow->typeIcmp, 0, sizeof(UINT64) * 256);
+    }
+
     sfFlow->pktTotal = 0;
     sfFlow->byteTotal = 0;
 
-    sfFlow->portTcpSrc = (UINT64*)malloc(sizeof(UINT64) * SF_MAX_PORT);
-    if( sfFlow->portTcpSrc )
-        memset( sfFlow->portTcpSrc, 0, sizeof(UINT64)*SF_MAX_PORT );
-    else
-        FatalError("PERFMONITOR ERROR: Error allocating portTcpSrc.");
-
-    sfFlow->portTcpDst = (UINT64*)malloc(sizeof(UINT64) * SF_MAX_PORT );
-    if( sfFlow->portTcpDst )
-        memset( sfFlow->portTcpDst, 0, sizeof(UINT64)*SF_MAX_PORT );
-    else
-        FatalError("PERFMONITOR ERROR: Error allocating portTcpDst.");
-    
     sfFlow->portTcpHigh=0;
     sfFlow->portTcpTotal=0;
 
-    sfFlow->portUdpSrc = (UINT64*)malloc(sizeof(UINT64) * SF_MAX_PORT );
-    if( sfFlow->portUdpSrc )
-        memset( sfFlow->portUdpSrc, 0, sizeof(UINT64)*SF_MAX_PORT );
-    else
-        FatalError("PERFMONITOR ERROR: Error allocating portUdpSrc.");
-
-    sfFlow->portUdpDst = (UINT64*)malloc(sizeof(UINT64) * SF_MAX_PORT );
-    if( sfFlow->portUdpDst )
-        memset( sfFlow->portUdpDst, 0, sizeof(UINT64)*SF_MAX_PORT );
-    else
-        FatalError("PERFMONITOR ERROR: Error allocating portUdpDst.");
-    
     sfFlow->portUdpHigh=0;
     sfFlow->portUdpTotal=0;
-
-    sfFlow->typeIcmp = (UINT64 *)calloc(256, sizeof(UINT64));
-    if(!sfFlow->typeIcmp)
-        FatalError("PERFMONITOR ERROR: Error allocating typeIcmp.");
 
     sfFlow->typeIcmpTotal = 0;
     
@@ -236,13 +226,13 @@ int UpdateICMPFlowStatsEx(int type, int len)
 *
 *   Packet lengths
 */
-int UpdateFlowStats(SFFLOW *sfFlow, unsigned char *pucPacket, int len,
+int UpdateFlowStats(SFFLOW *sfFlow, const unsigned char *pucPacket, int len,
         int iRebuiltPkt)
 {
     /*
     * Track how many packets of each length
     */
-    if( len <= SF_MAX_PKT_LEN )
+    if( (!iRebuiltPkt)&&(len <= SF_MAX_PKT_LEN) )
     {
         sfFlow->pktLenCnt[ len ]++;
         sfFlow->pktTotal++;

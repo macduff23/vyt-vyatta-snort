@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -34,6 +35,17 @@
 #include "util.h"
 #include "debug.h"
 #include "plugin_enum.h"
+#include "sfhashfcn.h"
+
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats icmpCodePerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 typedef struct _IcmpCodeCheckData
 {
@@ -51,11 +63,43 @@ typedef struct _IcmpCodeCheckData
 
 void IcmpCodeCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpCode(char *, OptTreeNode *);
-int IcmpCodeCheck(Packet *, struct _OptTreeNode *, OptFpList *);
+int IcmpCodeCheck(void *option_data, Packet *);
 
+u_int32_t IcmpCodeCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    IcmpCodeCheckData *data = (IcmpCodeCheckData *)d;
 
+    a = data->icmp_code;
+    b = data->icmp_code2;
+    c = data->operator;
 
+    mix(a,b,c);
 
+    a += RULE_OPTION_TYPE_ICMP_CODE;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int IcmpCodeCheckCompare(void *l, void *r)
+{
+    IcmpCodeCheckData *left = (IcmpCodeCheckData *)l;
+    IcmpCodeCheckData *right = (IcmpCodeCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if ((left->icmp_code == right->icmp_code) &&
+        (left->icmp_code2 == right->icmp_code2) &&
+        (left->operator == right->operator))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -71,7 +115,11 @@ int IcmpCodeCheck(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupIcmpCodeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icode", IcmpCodeCheckInit);
+    RegisterPlugin("icode", IcmpCodeCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("icode", &icmpCodePerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: IcmpCodeCheck Initialized\n"););
 }
 
@@ -91,6 +139,7 @@ void SetupIcmpCodeCheck(void)
  ****************************************************************************/
 void IcmpCodeCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
     if(protocol != IPPROTO_ICMP)
     {
         FatalError( "%s(%d): ICMP Options on non-ICMP rule\n", file_name, file_line);
@@ -116,7 +165,9 @@ void IcmpCodeCheckInit(char *data, OptTreeNode *otn, int protocol)
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
     
-    AddOptFuncToList(IcmpCodeCheck, otn);
+    fpl = AddOptFuncToList(IcmpCodeCheck, otn);
+    fpl->type = RULE_OPTION_TYPE_ICMP_CODE;
+    fpl->context = otn->ds_list[PLUGIN_ICMP_CODE];
 }
 
 
@@ -137,6 +188,7 @@ void ParseIcmpCode(char *data, OptTreeNode *otn)
 {
     char *code;
     IcmpCodeCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
     char *endptr = NULL;
 
     /* set the ds pointer to make it easier to reference the option's
@@ -240,6 +292,11 @@ void ParseIcmpCode(char *data, OptTreeNode *otn)
 
         ds_ptr->operator = ICMP_CODE_TEST_EQ;
     }
+    if (add_detection_option(RULE_OPTION_TYPE_ICMP_CODE, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        otn->ds_list[PLUGIN_ICMP_CODE] = ds_ptr_dup;
+        free(ds_ptr);
+    }
 
     return;
 }
@@ -258,45 +315,55 @@ void ParseIcmpCode(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int IcmpCodeCheck(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int IcmpCodeCheck(void *option_data, Packet *p)
 {
     IcmpCodeCheckData *ds_ptr;
-    int success = 0;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
 
-    ds_ptr = otn->ds_list[PLUGIN_ICMP_CODE];
+    ds_ptr = (IcmpCodeCheckData *)option_data;
 
     /* return 0  if we don't have an icmp header */
     if(!p->icmph)
-        return 0; 
+        return rval; 
+
+    PREPROC_PROFILE_START(icmpCodePerfStats);
 
     switch(ds_ptr->operator)
     {
         case ICMP_CODE_TEST_EQ:
             if (ds_ptr->icmp_code == p->icmph->code)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_CODE_TEST_GT:
             if (p->icmph->code > ds_ptr->icmp_code)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_CODE_TEST_LT:
             if (p->icmph->code < ds_ptr->icmp_code)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
             break;
         case ICMP_CODE_TEST_RG:
             if (p->icmph->code > ds_ptr->icmp_code && 
                     p->icmph->code < ds_ptr->icmp_code2)
-                success = 1;
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        default:
             break;
     }
 
-    if (success) 
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Got icmp code match!\n"););
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
+    DEBUG_WRAP(
+        if (rval == DETECTION_OPTION_MATCH)
+        {
+            DebugMessage(DEBUG_PLUGIN, "Got icmp code match!\n");
+        }
+        else
+        {
+            DebugMessage(DEBUG_PLUGIN, "Failed icmp code match!\n");
+        }
+        );
 
-    /* return 0 on failed test */
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Failed icmp code match!\n"););
-    return 0;
+    PREPROC_PROFILE_END(icmpCodePerfStats);
+
+    return rval;
 }

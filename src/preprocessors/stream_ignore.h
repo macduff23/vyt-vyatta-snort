@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2005 Sourcefire, Inc.
+** Copyright (C) 2005-2009 Sourcefire, Inc.
 ** AUTHOR: Steven Sturges
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -38,12 +38,15 @@
 #ifndef STREAM_IGNORE_H_
 #define STREAM_IGNORE_H_
 
-int IgnoreChannel(u_int32_t cliIP, u_int16_t cliPort,
-                  u_int32_t srvIP, u_int16_t srvPort,
+#include "ipv6_port.h"
+
+int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
+                  snort_ip_p srvIP, u_int16_t srvPort,
                   char protocol, char direction, char flags,
                   u_int32_t timeout);
 
 char CheckIgnoreChannel(Packet *);
+void CleanupIgnore();
 
 #endif /* STREAM_IGNORE_H_ */
 

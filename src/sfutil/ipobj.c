@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -52,6 +52,7 @@
 #include "util.h"
 
 
+#ifndef SUP_IP6
 /*
    UITLITY SUPPORT
 */
@@ -255,7 +256,7 @@ int ip_eq( IPADDRESS * ia, IPADDRESS * ib )
     }
     return 0;
 }
-
+#endif
 
 /*
 
@@ -278,6 +279,140 @@ int ip_eq( IPADDRESS * ia, IPADDRESS * ib )
    For a single IPAddress the implied Mask is 32 bits,or 255.255.255.255, or 0xffffffff, or -1.
 
 */
+#ifdef SUP_IP6
+IPSET * ipset_new( )
+{
+    IPSET * p = (IPSET *)SnortAlloc( sizeof(IPSET));
+    sflist_init(&p->ip_list);
+
+    return p;
+}
+
+IPSET * ipset_copy( IPSET *ipsp )
+{
+    IPSET * newset = ipset_new();
+    IP_PORT *ip_port;
+
+    for(ip_port =(IP_PORT*)sflist_first( &ipsp->ip_list );
+        ip_port !=NULL;
+        ip_port =(IP_PORT*)sflist_next( &ipsp->ip_list ) )
+    {
+        ipset_add(newset, &ip_port->ip, &ip_port->portset, ip_port->notflag);
+    }
+    return newset;
+}
+
+void ipset_free( IPSET * ipc )
+{
+    if (ipc)
+    {
+
+        IP_PORT *p = (IP_PORT *) sflist_first(&ipc->ip_list);       
+        while ( p )
+        {
+            sflist_free(&p->portset.port_list);
+            p = (IP_PORT *) sflist_next(&ipc->ip_list);
+        }
+        sflist_free( &ipc->ip_list );
+        free( ipc );
+    }
+}
+
+int     ipset_add     ( IPSET * ipset, sfip_t *ip, void * vport, int notflag)
+{
+    if( !ipset ) return -1;
+
+    {
+        PORTSET  * portset = (PORTSET *) vport;
+        IP_PORT *p = (IP_PORT*)calloc( 1,sizeof(IP_PORT) );
+        if(!p) return -1;
+
+        sfip_set_ip(&p->ip, ip);
+        p->portset = *portset;
+        p->notflag = notflag;
+
+        if( notflag )sflist_add_head( &ipset->ip_list, p ); // test NOT items 1st
+        else         sflist_add_tail( &ipset->ip_list, p );
+    }
+
+    return 0;
+}
+
+int ipset_contains( IPSET * ipc, sfip_t * ip, void *port)
+{
+    PORTRANGE *pr;
+    unsigned short portu;
+    IP_PORT * p;
+
+    if( !ipc ) return 0;
+
+    if ( port )
+        portu = *((unsigned short *)port);
+    else
+        portu = 0;
+
+
+    for(p =(IP_PORT*)sflist_first( &ipc->ip_list ); 
+        p!=0;
+        p =(IP_PORT*)sflist_next( &ipc->ip_list ) )
+    {
+        if( sfip_contains(&p->ip, ip) == SFIP_CONTAINS)
+        {
+            for( pr=(PORTRANGE*)sflist_first(&p->portset.port_list);
+                 pr != 0;
+                 pr=(PORTRANGE*)sflist_next(&p->portset.port_list) )
+            {
+                /* 
+                 * If the matching IP has a wildcard port (pr->port_hi == 0 )
+                 * or if the ports actually match.
+                 */
+                if ( (pr->port_hi == 0) ||
+                     (portu >= pr->port_lo && portu <= pr->port_hi) )
+                {
+                    if( p->notflag )
+                        return 0;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+int ipset_print( IPSET * ipc )
+{
+    char ip_str[80];
+    PORTRANGE * pr;
+
+    if( !ipc ) return 0;
+
+    {
+        IP_PORT * p;
+
+        printf("IPSET\n");
+
+        for( p =(IP_PORT*)sflist_first( &ipc->ip_list );
+             p!=0;
+             p =(IP_PORT*)sflist_next( &ipc->ip_list ) )
+        {
+            SnortSnprintf(ip_str, 80, "%s", sfip_to_str(&p->ip));
+
+            printf("CIDR BLOCK: %c%s", p->notflag ? '!' : ' ', ip_str);
+            
+            for( pr=(PORTRANGE*)sflist_first(&p->portset.port_list);
+                 pr != 0;
+                 pr=(PORTRANGE*)sflist_next(&p->portset.port_list) )
+            {
+                printf("  %d", pr->port_lo);
+                if ( pr->port_hi != pr->port_lo )
+                    printf("-%d", pr->port_hi);
+            }
+            printf("\n");
+        }
+    }
+    return 0;
+}
+#else
 static void ipset_init( IPSET * ipc )
 {
     if( ipc )
@@ -349,7 +484,6 @@ IPSET * ipset_copy( IPSET *ipsp )
     return newset;
 }
 
-
 void ipset_free( IPSET * ipc )
 {
     if( ipc )
@@ -376,6 +510,7 @@ void ipset_free( IPSET * ipc )
         free( ipc );
     }
 }
+
 int ipset_family( IPSET * ipset )
 {
     return ipset->family;	
@@ -531,7 +666,6 @@ int ipset_contains( IPSET * ipc, void * ip, void *port, int family )
     return 0;
 }
 
-
 int ipset_print( IPSET * ipc )
 {
     char ip_str[80], mask_str[80];
@@ -599,6 +733,7 @@ int ipset_print( IPSET * ipc )
 
     return 0;
 }
+#endif
 
 
 static void portset_init( PORTSET * portset )
@@ -623,6 +758,235 @@ static int portset_add(PORTSET * portset, unsigned port_lo, unsigned port_hi)
     return 0;
 }
 
+#ifdef SUP_IP6
+static int port_parse(char *portstr, PORTSET *portset)
+{
+    unsigned port_lo = 0, port_hi = 0;
+    char *port1;
+    char *port_begin;
+    char *port_end;
+    char *port2 = '\0';
+
+    port_begin = strdup(portstr);
+
+    port1 = port_begin;
+    port2 = strstr(port_begin, "-");
+
+    {
+        if (*port1 == '\0')
+        {
+            free(port_begin);
+            return -1;
+        }
+
+        if (port2)
+        {
+            *port2 = '\0';
+            port2++;
+        }
+
+        port_lo = strtoul(port1, &port_end, 10);
+        if (port_end == port1)
+        {
+            free(port_begin);
+            return -2;
+        }
+
+        if (port2)
+        {
+            port_hi = strtoul(port2, &port_end, 10);
+            if (port_end == port2)
+            {
+                free(port_begin);
+                return -3;
+            }
+        }
+        else
+        {
+            port_hi = port_lo;
+        }
+
+        /* check to see if port is out of range */
+        if ( port_hi > 65535 || port_lo > 65535)
+        {
+            free(port_begin);
+            return -4;
+        }
+
+        /* swap ports if necessary */
+        if (port_hi < port_lo)
+        {
+            unsigned tmp;
+
+            tmp = port_hi;
+            port_hi = port_lo;
+            port_lo = tmp;
+        }
+
+        portset_add(portset, port_lo, port_hi);
+    }
+
+    free(port_begin);
+
+    return 0;
+}
+
+static int ip_parse(char *ipstr, sfip_t *ip, char *not_flag, PORTSET *portset, char **endIP)
+{
+    char *port_str;
+    char *comma;
+    char *end_bracket;
+
+    if (*ipstr == '!')
+    {
+        ipstr++;
+        *not_flag = 1;
+    }
+    else
+    {
+        *not_flag = 0;
+    }
+
+    comma = strchr(ipstr, ',');
+    end_bracket = strrchr(ipstr, ']');
+
+    if (comma)
+    {
+        *comma = '\0';
+    }
+    else if (end_bracket)
+    {
+        *end_bracket = '\0';
+    }
+
+    if (sfip_pton(ipstr, ip) != SFIP_SUCCESS)
+        return -1;
+
+    /* Just to get the IP string out of the way */
+    port_str = strtok(ipstr, " \t");
+    /* Is either the port after the 1st space, or NULL */
+    port_str = strtok(NULL, " \t");
+
+    while (port_str)
+    {
+        if (!comma)
+        {
+            comma = strchr(port_str, ',');
+            if (comma)
+                *comma = '\0';
+        }
+
+        if (!end_bracket)
+        {
+            end_bracket = strrchr(port_str, ']');
+            if (end_bracket)
+                *end_bracket = '\0';
+        }
+
+        port_parse(port_str, portset);
+        port_str = strtok(NULL, " \t");
+    }
+
+    if (portset->port_list.count == 0)
+    {
+        /* Make sure we have at least one port range in list, but
+         * an invalid port range to convey all is good.  */
+        portset_add(portset, 0, 0);
+    }
+
+    if (comma)
+    {
+        *endIP = comma;
+        *comma = ',';
+    }
+    else if (end_bracket)
+    {
+        *end_bracket = ']';
+        *endIP = end_bracket;
+    }
+    else
+    {
+        /* Didn't see the comma or end bracket, so set endIP now */
+        *endIP = port_str;
+    }
+
+    return 0;
+}
+
+int ipset_parse(IPSET *ipset, char *ipstr) 
+{
+    char *copy, *startIP, *endIP;
+    int parse_count = 0;
+    char set_not_flag = 0;
+    char item_not_flag;
+    char open_bracket = 0;
+    sfip_t ip;
+    PORTSET portset;
+
+    copy = strdup(ipstr);
+
+    if(!copy)
+        return -2;
+
+    startIP = copy;
+
+    if (*startIP == '!')
+    {
+        set_not_flag = 1;
+        startIP++;
+    }
+
+    while (startIP)
+    {
+        if (*startIP == '[')
+        {
+            open_bracket++;
+            startIP++;
+            if (!*startIP)
+                break;
+        }
+
+        if ((*startIP == ']') || (*startIP == '\0'))
+        {
+            open_bracket--;
+            break;
+        }
+
+        portset_init(&portset);
+
+        if(ip_parse(startIP, &ip, &item_not_flag, &portset, &endIP) != 0)
+        {
+            free(copy);
+            return -5;
+        }
+
+        if(ipset_add(ipset, &ip, &portset, (item_not_flag ^ set_not_flag)) != 0)
+        {
+            free(copy);
+            return -6;
+        }
+
+        parse_count++;
+
+        if (endIP && (*endIP != ']'))
+        {
+            endIP++;
+        }
+
+        startIP = endIP;
+    }
+
+    free(copy);
+
+    if (!parse_count)
+        return -7; 
+
+    if (open_bracket)
+        return -8;
+
+    return 0;
+}
+#else
 /* parsing functions to help make life a bit easier */
 
 /*
@@ -761,6 +1125,7 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
 {
     char *saved, *s_copy, *maskptr, *endp, *portptr = NULL, *addrend;
     struct in_addr addrstuff;
+    char *end_s_copy;
 
     if(!ipstr || !not_flag || !host || !mask) 
         return -1;
@@ -770,6 +1135,7 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
         return -3;
 
     saved = s_copy = strdup(ipstr);
+    end_s_copy = s_copy + strlen(s_copy);
 
     if(!s_copy)
     {
@@ -818,7 +1184,7 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
 
         maskptr = strstr(s_copy, "/");
 
-        portptr = strstr(s_copy, ":");
+        portptr = strstr(s_copy, " ");
 
         if(!maskptr)
         {
@@ -837,8 +1203,16 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
         }
         else
         {
-            *portptr = '\0';
-            portptr++;
+            while ((portptr < end_s_copy) && isspace((int)(*portptr)))
+            {
+                *portptr = '\0';
+                portptr++;
+            }
+            if (portptr >= end_s_copy)
+            {
+                /* no port */
+                portptr = NULL;
+            }
         }
 
         /* this will just be the address part as *maskptr and *portptr == '\0'
@@ -994,27 +1368,27 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
     return 0;
 }
 
-int ip4_setparse(IPSET *ipset, char *ipstr) 
+int ipset_parse(IPSET *ipset, char *ipstr) 
 {
-    char *s_copy, *startIP, *endIP;
+    char *copy, *startIP, *endIP;
     int parse_count = 0;
     int set_not_flag = 0;
     int item_not_flag;
     unsigned host, mask;
     PORTSET portset;
 
-    s_copy = strdup(ipstr);
+    copy = strdup(ipstr);
 
-    if(!s_copy)
+    if(!copy)
         return -2;
 
-    if (*s_copy == '!')
+    startIP = copy;
+
+    if (*startIP == '!')
     {
         set_not_flag = 1;
-        s_copy++;
+        startIP++;
     }
-
-    startIP = s_copy;
 
     while (startIP)
     {
@@ -1036,14 +1410,14 @@ int ip4_setparse(IPSET *ipset, char *ipstr)
 
         if(ip4_parse(startIP, 0, &item_not_flag, &host, &mask, &portset) != 0)
         {
-            free(s_copy);
+            free(copy);
             return -5;
         }
 
         if(ipset_add(ipset, &host, &mask, &portset,
                      (item_not_flag ^ set_not_flag), IPV4_FAMILY) != 0)
         {
-            free(s_copy);
+            free(copy);
             return -6;
         }
 
@@ -1055,13 +1429,14 @@ int ip4_setparse(IPSET *ipset, char *ipstr)
         startIP = endIP;
     }
 
-    free(s_copy);
+    free(copy);
 
     if (!parse_count)
         return -7; 
 
     return 0;
 }
+#endif
 
 #ifdef MAIN_IP
 

@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -22,5 +23,7 @@
 #define __SP_IPOPTION_CHECK_H__
 
 void SetupIpOptionCheck(void);
+u_int32_t IpOptionCheckHash(void *d);
+int IpOptionCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IPOPTION_CHECK_H__ */

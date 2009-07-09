@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2007 Sourcefire, Inc.
+ * Copyright (C) 2005-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -23,9 +23,13 @@
 #define SF_PREPROC_INFO_H
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   0
-#define BUILD_VERSION   10
+#define MINOR_VERSION   2
+#define BUILD_VERSION   11
+#ifdef SUP_IP6
+#define PREPROC_NAME    "SF_FTPTELNET (IPV6)"
+#else
 #define PREPROC_NAME    "SF_FTPTELNET"
+#endif
 
 #define DYNAMIC_PREPROC_SETUP SetupFTPTelnet
 extern void SetupFTPTelnet();

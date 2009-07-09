@@ -1,7 +1,7 @@
 /*
  * sid637.c
  *
- * Copyright (C) 2006-2007 Sourcefire,Inc
+ * Copyright (C) 2006-2008 Sourcefire,Inc
  * Steven A. Sturges <ssturges@sourcefire.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -45,7 +45,7 @@
 /* content:"|0A|help|0A|quite|0A|";  */
 static ContentInfo sid637content = 
 {
-    "|0A|help|0A|quite|0A|",/* pattern to search for */
+    (u_int8_t *)"|0A|help|0A|quite|0A|",/* pattern to search for */
     0,                      /* depth */
     0,                      /* offset */
     CONTENT_BUF_NORMALIZED, /* flags */

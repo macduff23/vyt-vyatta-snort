@@ -25,7 +25,12 @@ CONFFLAGS= --prefix=/usr \
 	--enable-smbalerts \
 	--enable-prelude \
 	--enable-inline \
-	--enable-flexresp
+        --enable-flexresp 
+
+aclocal.m4:
+	aclocal-1.9 -I m4/
+	automake-1.9 -i
+	autoconf
 
 clean-sources:
 	# Clean the sources
@@ -40,15 +45,14 @@ clean: clean-sources
 # Clean all the stamps
 	rm -f build*stamp install-stamp configure-stamp
 # Clean binaries we create when building the packages
-	rm -f src/snort-mysql
-	rm -f src/snort-pgsql
-	rm -f src/snort-inline
 	rm -f src/snort-basic
 	rm -f src/snort
 # Clean documents
 	cd doc && [ ! -f Makefile ] || $(MAKE) distclean
-	rm -f doc/snort_manual.{pdf,ps,aux,log,toc}
-	rm -f doc/faq.{idx,out,log,toc,aux,pdf,ps}
+	rm -f doc/snort_manual.pdf doc/snort_manual.ps doc/snort_manual.aux \
+	    doc/snort_manual.log doc/snort_manual.toc
+	rm -f doc/faq.idx doc/faq.out doc/faq.log doc/faq.toc doc/faq.aux \
+	    doc/faq.pdf doc/faq.ps
 	dh_clean
 
 configure: configure-stamp
@@ -97,19 +101,26 @@ install-arch:
 # Snort binaries
 	install -m 755 -o root -g root src/snort-basic $(TMP)/vyatta-snort/usr/sbin/snort
 
+# Default config
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-mysql/etc/snort/snort.common.parameters
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort-pgsql/etc/snort/snort.common.parameters
+#	install -m 644 -o root -g root `pwd`/debian/snort.common.parameters $(TMP)/snort/etc/snort/snort.common.parameters
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
+
+
 #  Install init.d initscripts
 	install -m 755 -o root -g root `pwd`/debian/vyatta-snort.init.d $(TMP)/vyatta-snort/etc/init.d/snort
+
 
 #  Install PPP initscripts
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-up.d $(TMP)/vyatta-snort/etc/ppp/ip-up.d/snort
 	install -m 755 -o root -g root `pwd`/debian/my/snort.ip-down.d $(TMP)/vyatta-snort/etc/ppp/ip-down.d/snort
 
-# Default config
-	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
-
 # Move libraries to the snort-common-libraries package
 	mv $(TMP)/vyatta-snort-common/usr/lib/ $(TMP)/vyatta-snort-common-libraries/usr/
-	mv $(TMP)/vyatta-snort-common/usr/src/ $(TMP)/vyatta-snort-common-libraries/usr/
+# Remove headers, as this is not a -dev package
+#	mv $(TMP)/vyatta-snort-common/usr/src/ $(TMP)/vyatta-snort-common-libraries/usr/
+	rm -rf $(TMP)/vyatta-sort-common/usr/src/
 
 	dh_install -s
 
@@ -129,6 +140,9 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/clamav.config $(TMP)/vyatta-snort-common/etc/snort/
 
+# Default config
+	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
+
 #  Install files of the arch-independent packages
 	cp rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/rules/
 	
@@ -140,7 +154,6 @@ install-indep:
 
 # Remove useless directories
 	rm -rf $(TMP)/vyatta-snort-common/etc/ppp
-
 	dh_install -i
 
 # Build architecture-independent files here.

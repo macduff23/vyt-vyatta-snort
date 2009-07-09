@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -35,6 +36,15 @@
 #include "util.h"
 #include "plugin_enum.h"
 
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats tcpAckPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 typedef struct _TcpAckCheckData
 {
@@ -43,9 +53,37 @@ typedef struct _TcpAckCheckData
 
 void TcpAckCheckInit(char *, OptTreeNode *, int);
 void ParseTcpAck(char *, OptTreeNode *);
-int CheckTcpAckEq(Packet *, struct _OptTreeNode *, OptFpList *);
+int CheckTcpAckEq(void *option_data, Packet *p);
 
+u_int32_t TcpAckCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    TcpAckCheckData *data = (TcpAckCheckData *)d;
 
+    a = data->tcp_ack;
+    b = RULE_OPTION_TYPE_TCP_ACK;
+    c = 0;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int TcpAckCheckCompare(void *l, void *r)
+{
+    TcpAckCheckData *left = (TcpAckCheckData *)l;
+    TcpAckCheckData *right = (TcpAckCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->tcp_ack == right->tcp_ack)
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -61,7 +99,10 @@ int CheckTcpAckEq(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupTcpAckCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ack", TcpAckCheckInit);
+    RegisterPlugin("ack", TcpAckCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("ack", &tcpAckPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: TcpAckCheck Initialized\n"););
 }
 
@@ -81,6 +122,7 @@ void SetupTcpAckCheck(void)
  ****************************************************************************/
 void TcpAckCheckInit(char *data, OptTreeNode *otn, int protocol)
 {
+    OptFpList *fpl;
 
     if(protocol != IPPROTO_TCP)
     {
@@ -105,7 +147,9 @@ void TcpAckCheckInit(char *data, OptTreeNode *otn, int protocol)
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
-    AddOptFuncToList(CheckTcpAckEq, otn);
+    fpl = AddOptFuncToList(CheckTcpAckEq, otn);
+    fpl->type = RULE_OPTION_TYPE_TCP_ACK;
+    fpl->context = otn->ds_list[PLUGIN_TCP_ACK_CHECK];
 }
 
 
@@ -125,6 +169,7 @@ void TcpAckCheckInit(char *data, OptTreeNode *otn, int protocol)
 void ParseTcpAck(char *data, OptTreeNode *otn)
 {
     TcpAckCheckData *ds_ptr;  /* data struct pointer */
+    void *ds_ptr_dup;
     char **ep = NULL;
 
     /* set the ds pointer to make it easier to reference the option's
@@ -133,6 +178,12 @@ void ParseTcpAck(char *data, OptTreeNode *otn)
 
     ds_ptr->tcp_ack = strtoul(data, ep, 0);
     ds_ptr->tcp_ack = htonl(ds_ptr->tcp_ack);
+
+    if (add_detection_option(RULE_OPTION_TYPE_TCP_ACK, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_TCP_ACK_CHECK] = ds_ptr_dup;
+    }
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Ack set to %lX\n", ds_ptr->tcp_ack););
 }
@@ -151,15 +202,20 @@ void ParseTcpAck(char *data, OptTreeNode *otn)
  * Returns: void function
  *
  ****************************************************************************/
-int CheckTcpAckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int CheckTcpAckEq(void *option_data, Packet *p)
 {
+    TcpAckCheckData *ackCheckData = (TcpAckCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
+
     if(!p->tcph)
-        return 0; /* if error appeared when tcp header was processed,
+        return rval; /* if error appeared when tcp header was processed,
                * test fails automagically */
-    if(((TcpAckCheckData *)otn->ds_list[PLUGIN_TCP_ACK_CHECK])->tcp_ack == p->tcph->th_ack)
+    PREPROC_PROFILE_START(tcpAckPerfStats);
+
+    if(ackCheckData->tcp_ack == p->tcph->th_ack)
     {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
+        rval = DETECTION_OPTION_MATCH;
     }
     else
     {
@@ -168,5 +224,6 @@ int CheckTcpAckEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
     }
 
     /* if the test isn't successful, return 0 */
-    return 0;
+    PREPROC_PROFILE_END(tcpAckPerfStats);
+    return rval;
 }

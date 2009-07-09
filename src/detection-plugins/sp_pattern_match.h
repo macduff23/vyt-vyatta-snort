@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -27,6 +28,18 @@
 #include "rules.h" /* needed for OptTreeNode defintion */
 #include <ctype.h>
 
+#define CHECK_AND_PATTERN_MATCH 1
+#define CHECK_URI_PATTERN_MATCH 2
+
+#define HTTP_SEARCH_URI 0x01
+#define HTTP_SEARCH_HEADER 0x02
+#define HTTP_SEARCH_CLIENT_BODY 0x04
+#define HTTP_SEARCH_METHOD 0x08
+#define HTTP_SEARCH_COOKIE 0x10
+
+/* Flags */
+#define CONTENT_FAST_PATTERN 0x01
+
 typedef struct _PatternMatchData
 {
     u_int8_t exception_flag; /* search for "not this pattern" */
@@ -42,21 +55,42 @@ typedef struct _PatternMatchData
     int nocase;             /* Toggle case insensitity */
     int use_doe;            /* Use the doe_ptr for relative pattern searching */
     int uri_buffer;         /* Index of the URI buffer */
+    int buffer_func;        /* buffer function CheckAND or CheckUri */
     u_int pattern_size;     /* size of app layer pattern */
     u_int replace_size;     /* size of app layter replace pattern */
     char *replace_buf;      /* app layer pattern to replace with */
     char *pattern_buf;      /* app layer pattern to match on */
-    int (*search)(char *, int, struct _PatternMatchData *);  /* search function */
+    int (*search)(const char *, int, struct _PatternMatchData *);  /* search function */
     int *skip_stride; /* B-M skip array */
     int *shift_stride; /* B-M shift array */
     u_int pattern_max_jump_size; /* Maximum distance we can jump to search for
                                   * this pattern again. */
     struct _PatternMatchData *next; /* ptr to next match struct */
+    int flags;              /* flags */
     OptFpList *fpl;         /* Pointer to the OTN FPList for this pattern */
                             /* Needed to be able to set the isRelative flag */
+
+    /* Set if fast pattern matcher found a content in the packet,
+       but the rule option specifies a negated content. Only 
+       applies to negative contents that are not relative */
+    struct 
+    {
+        struct timeval ts;
+        UINT64 packet_number;
+        u_int32_t rebuild_flag;
+
+    } last_check;
+
 } PatternMatchData;
 
 void SetupPatternMatch(void);
 int SetUseDoePtr(OptTreeNode *otn);
+void PatternMatchFree(void *d);
+u_int32_t PatternMatchHash(void *d);
+int PatternMatchCompare(void *l, void *r);
+void FinalizeContentUniqueness(OptTreeNode *otn);
+void PatternMatchDuplicatePmd(void *src, PatternMatchData *pmd_dup);
+int PatternMatchAdjustRelativeOffsets(PatternMatchData *pmd, const u_int8_t *orig_doe_ptr, const u_int8_t *start_doe_ptr, const u_int8_t *dp);
+int PatternMatchUriBuffer(void *p);
 
 #endif /* __SP_PATTERN_MATCH_H__ */

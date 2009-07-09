@@ -61,7 +61,8 @@ am_libspd_a_OBJECTS = sp_dsize_check.$(OBJEXT) \
 	sp_byte_jump.$(OBJEXT) sp_pcre.$(OBJEXT) sp_isdataat.$(OBJEXT) \
 	sp_flowbits.$(OBJEXT) sp_asn1.$(OBJEXT) \
 	sp_asn1_detect.$(OBJEXT) sp_respond2.$(OBJEXT) \
-	sp_ftpbounce.$(OBJEXT) sp_urilen_check.$(OBJEXT)
+	sp_ftpbounce.$(OBJEXT) sp_urilen_check.$(OBJEXT) \
+	sp_cvs.$(OBJEXT) detection_options.$(OBJEXT)
 libspd_a_OBJECTS = $(am_libspd_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp =
@@ -116,6 +117,7 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEX = @LEX@
 LIBOBJS = @LIBOBJS@
 LIBPRELUDE_CFLAGS = @LIBPRELUDE_CFLAGS@
 LIBPRELUDE_CONFIG = @LIBPRELUDE_CONFIG@
@@ -146,6 +148,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+YACC = @YACC@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -216,7 +219,9 @@ sp_byte_jump.c sp_byte_jump.h sp_pcre.c sp_pcre.h sp_isdataat.c sp_isdataat.h  \
 sp_flowbits.c sp_flowbits.h sp_asn1.c sp_asn1.h sp_asn1_detect.c sp_asn1_detect.h \
 sp_respond2.c sp_respond2.h \
 sp_ftpbounce.c sp_ftpbounce.h \
-sp_urilen_check.c sp_urilen_check.h 
+sp_urilen_check.c sp_urilen_check.h \
+sp_cvs.c sp_cvs.h \
+detection_options.c detection_options.h
 
 all: all-am
 

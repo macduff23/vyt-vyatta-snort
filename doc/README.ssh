@@ -89,6 +89,22 @@ preprocessor ssh: server_ports { 22 } \
                   max_client_bytes 19600 \
                   max_encrypted_packets 20
 
+== Alerts ==
+
+The SSH Preprocessor uses generator ID 128 and can produce the following 
+alerts:
+
+SID   Description
+---   -----------
+1     Gobbles exploit
+2     SSH1 CRC32 exploit
+3     Server version string overflow
+4     Protocol mismatch
+5     Bad message direction
+6     Payload size incorrect for the given payload
+7     Failed to detect SSH version string
+
+
 == Conclusion ==
 
 The SSH preprocessor should work by default.  After max_client_packets is 

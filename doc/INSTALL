@@ -440,31 +440,52 @@ More information is available at:
 http://freeware.sgi.com/2000Feb/Installable/gcc-2.8.1-sgipl2.html
 
 
-
-* SunOS
--------
- Similar problem with GCC has been noticed on SunOS4.x platforms which causes
-snort to SIGBUS at certain places. Please use naitive C compiler instead.
-
 * MAC OSX
 ---------
 On Darwin (maybe others), the configure script shipped as part of the
 source distribution needs to be recreated.  To do this, run the
 following commands:
 
+glibtoolize --force
 aclocal -I m4
 autoheader
 automake --add-missing --copy
 autoconf
 
-If you plan to use the dynamic plugin capability (ie,
-configure --enable-dynamicplugin), snort needs to be linked using
-the two level namespace.  To do this, set the LD_TWOLEVEL_NAMESPACE
-environment variable to something prior to running configure.
-An example:
+Snort needs to be linked using the two level namespace.  To do this, set 
+the LD_TWOLEVEL_NAMESPACE environment variable to something prior to running
+configure. An example:
 
 $ export LD_TWOLEVEL_NAMESPACE=1
-$ configure --enable-dynamicplugin
+$ ./configure
+$ make
+
+* MAC OSX TIGER & LEOPARD
+-------------------------
+For users of MAC OSX 10.5 (Leopard), the following environment variables
+must be set before running configure & make. 
+
+For users of MAC OSX 10.4 (Tiger), this also applies if the compiler
+has been updated, otherwise, the instructions above may be used.
+
+Reference information for MAC OSX can be found at these two links.
+
+http://developer.apple.com/releasenotes/Darwin/SymbolVariantsRelNotes
+http://lists.apple.com/archives/xcode-users/2007/Jun/msg00163.html
+
+$ export LD_TWOLEVEL_NAMESPACE=1
+$ export MACOSX_DEPLOYMENT_TARGET=10.5 
+$ ./configure
+$ make
+
+The dynamicengine line in the default snort.conf must be updated to load 
+libsf_engine.dylib, instead of libsf_engine.so. The following line:
+
+    dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so
+
+Should be changed to:
+
+    dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.dylib
 
 * Open BSD/Free BSD/MAC OSX
 ---------------------------
@@ -478,15 +499,13 @@ Work arounds:
 can be located under /usr/local/lib/snort_dynamicengine and
 /usr/local/lib/snort_dynamicpreprocessor.  
 
-1a) For OpenBSD, the object files ending in .0 will need to be
-symlinked to .so. For example:
-
-ln -s libsf_smtp_preproc.0  libsf_smtp_preproc.so
-
-1b) For MAC OSX, the object files ending in .0 will need to be
+1a) For MAC OSX, the object files ending in .0 will need to be
 symlinked to .dylib. For example:
 
 ln -s libsf_smtp_preproc.0  libsf_smtp_preproc.dylib
+
+1b) FreeBSD and OpenBSD should work correctly, but if not,
+symlink the .so.0 files to a corresponding .so.
 
 2) Use the --dynamic-preprocessor-lib (rather than
 --dynamic-preprocessor-lib-dir) to load the version specific

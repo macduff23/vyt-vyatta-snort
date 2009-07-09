@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -65,6 +66,8 @@
 #include "parser.h"
 #include "mstring.h"
 #include "util.h"
+#include "strlcatu.h"
+#include "strlcpyu.h"
 
 #include "snort.h"
 
@@ -75,7 +78,7 @@ typedef struct _SyslogData
     int options;
 } SyslogData;
 
-void AlertSyslogInit(u_char *);
+void AlertSyslogInit(char *);
 SyslogData *ParseSyslogArgs(char *);
 void AlertSyslog(Packet *, char *, void *, Event *);
 void AlertSyslogCleanExit(int, void *);
@@ -105,7 +108,7 @@ void AlertSyslogSetup(void)
 
 
 /*
- * Function: AlertSyslogInit(u_char *)
+ * Function: AlertSyslogInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -115,7 +118,7 @@ void AlertSyslogSetup(void)
  * Returns: void function
  *
  */
-void AlertSyslogInit(u_char *args)
+void AlertSyslogInit(char *args)
 {
     SyslogData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: Alert-Syslog Initialized\n"););
@@ -515,12 +518,19 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
 
     event_string[0] = '\0';
 
-    if(p && p->iph)
+    /* Remove this check when we support IPv6 below. */
+    /* sip and dip char arrays need to change size for IPv6. */
+    if (!IS_IP4(p))
     {
-        if (strlcpy(sip, inet_ntoa(p->iph->ip_src), sizeof(sip)) >= sizeof(sip))
+        return;
+    }
+
+    if(p && IPH_IS_VALID(p))
+    {
+        if (strlcpy(sip, inet_ntoa(GET_SRC_ADDR(p)), sizeof(sip)) >= sizeof(sip))
             return;
 
-        if (strlcpy(dip, inet_ntoa(p->iph->ip_dst), sizeof(dip)) >= sizeof(dip))
+        if (strlcpy(dip, inet_ntoa(GET_DST_ADDR(p)), sizeof(dip)) >= sizeof(dip))
             return;
 
         if(event != NULL)
@@ -572,27 +582,27 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
             }
         }
 
-        if((p->iph->ip_proto != IPPROTO_TCP &&
-            p->iph->ip_proto != IPPROTO_UDP) || 
-            p->frag_flag)
+        if((GET_IPH_PROTO(p) != IPPROTO_TCP &&
+                    GET_IPH_PROTO(p) != IPPROTO_UDP) || 
+                p->frag_flag)
         {
             if(!pv.alert_interface_flag)
             {
-                if( protocol_names[p->iph->ip_proto]  )
+                if( protocol_names[GET_IPH_PROTO(p)] )
                 {
                     if( SnortSnprintf(ip_data, STD_BUF, " {%s} %s -> %s",  
-                                      protocol_names[p->iph->ip_proto],
+                                      protocol_names[GET_IPH_PROTO(p)],
                                       sip, dip) != SNORT_SNPRINTF_SUCCESS )
-                   return;
+                        return;
                 }
             }
             else
             {
-                if( protocol_names[p->iph->ip_proto] && PRINT_INTERFACE(pv.interface) )
+                if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pv.interface) )
                 {
                     if( SnortSnprintf(ip_data, STD_BUF, " <%s> {%s} %s -> %s",  
                                       PRINT_INTERFACE(pv.interface), 
-                                      protocol_names[p->iph->ip_proto], 
+                                      protocol_names[GET_IPH_PROTO(p)],
                                       sip, dip) != SNORT_SNPRINTF_SUCCESS )
                         return ;
                 }
@@ -602,21 +612,21 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
         {
             if(pv.alert_interface_flag)
             {
-               if( protocol_names[p->iph->ip_proto] && PRINT_INTERFACE(pv.interface) )
+               if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pv.interface) )
                {
                    if( SnortSnprintf(ip_data, STD_BUF, " <%s> {%s} %s:%i -> %s:%i",
                                      PRINT_INTERFACE(pv.interface), 
-                                     protocol_names[p->iph->ip_proto], sip,
+                                     protocol_names[GET_IPH_PROTO(p)], sip,
                                      p->sp, dip, p->dp) != SNORT_SNPRINTF_SUCCESS )
                        return ;
                }
             }
             else
             {
-               if( protocol_names[p->iph->ip_proto] )
+               if( protocol_names[GET_IPH_PROTO(p)] )
                {
                    if( SnortSnprintf(ip_data, STD_BUF, " {%s} %s:%i -> %s:%i",
-                                     protocol_names[p->iph->ip_proto], sip, p->sp, 
+                                     protocol_names[GET_IPH_PROTO(p)], sip, p->sp, 
                                      dip, p->dp) != SNORT_SNPRINTF_SUCCESS )
                        return ;
                }

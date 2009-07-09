@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2004-2007 Sourcefire, Inc.
+ * Copyright (C) 2004-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -31,6 +31,9 @@
 /* Normally exported functions, for plugin registration. */
 void SetupFlowBits();
 void FlowBitsVerify();
+void FlowBitsFree(void *d);
+u_int32_t FlowBitsHash(void *d);
+int FlowBitsCompare(void *l, void *r);
 
 /* These functions are now exported to be used by dynamic plugins */
 StreamFlowData *GetFlowbitsData(Packet *p);

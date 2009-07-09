@@ -1,11 +1,13 @@
 # Rule Profiling Configuration
 #
 # syntax:
-# config profile_rules: print [all | num], sort sort_option
+# config profile_rules: print [all | num], sort sort_option, filename file_option [append]
 #  - where num is the number of rules to print
 #  - where sort_option is one of:
 #     checks, matches, nomatches, avg_ticks,
 #     avg_ticks_per_match, avg_ticks_per_nomatch, total_ticks
+#  - where file_option is the output filename
+#  - where append dictates that the output will go to the same file each time (optional)
 #
 # examples:
 #
@@ -21,6 +23,12 @@
 #
 # 4) Print top 100 rules, based on total time
 # config profile_rules: print 100, sort total_ticks
+#
+# 5) Print with default options, save results to performance.txt each time
+# config profile_rules: filename performance.txt append
+#
+# 6) Print top 20 rules, save results to perf.txt with timestamp in filename
+# config profile_rules: print 20, filename perf.txt
 
 When you use this (see configuration info with example output),
 snort will print the following table at exit.  The column info
@@ -58,13 +66,22 @@ options and no content.  Quick to check, the few options may or may not
 match.  We are looking at moving some of these into code... Especially
 those with low SIDs. 
 
+By default, this information will be printed to the console when Snort
+exits. You can use the "filename" option in snort.conf to specify a
+file where this will be written. If "append" is not specified, a new
+file will be created each time Snort is run. The filenames will have
+timestamps appended to them. These files will be found in the logging
+directory.
+
 # Preprocessor Profiling Configuration
 #
 # syntax:
-# config profile_preprocs: print [all | num], sort sort_option
+# config profile_preprocs: print [all | num], sort sort_option, filename file_option [append]
 #  - where num is the number of rules to print
 #  - where sort_option is one of:
 #     checks, avg_ticks, total_ticks
+#  - where file_option is the output filename
+#  - where append dictates that the output will go to the same file each time (optional)
 #
 # examples:
 #

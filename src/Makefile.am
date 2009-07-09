@@ -5,7 +5,6 @@ bin_PROGRAMS = snort
 
 snort_SOURCES = cdefs.h \
 event.h \
-fatal.h \
 generators.h \
 prototypes.h \
 plugin_enum.h \
@@ -27,8 +26,6 @@ snprintf.c snprintf.h \
 strlcatu.c strlcatu.h \
 strlcpyu.c strlcpyu.h \
 tag.c tag.h \
-ubi_BinTree.c ubi_BinTree.h \
-ubi_SplayTree.c ubi_SplayTree.h \
 util.c util.h \
 detect.c detect.h \
 signature.c signature.h \
@@ -46,23 +43,27 @@ sfthreshold.c sfthreshold.h \
 packet_time.c packet_time.h \
 event_wrapper.c event_wrapper.h \
 smalloc.h \
-snort_packet_header.h \
 event_queue.c event_queue.h \
-inline.c inline.h ipv6.c ipv6.h
+inline.c inline.h \
+ipv6_port.h \
+ppm.c ppm.h \
+pcap_pkthdr32.h \
+cpuclock.h \
+sf_types.h \
+log_text.c log_text.h
 
 snort_LDADD = output-plugins/libspo.a \
 detection-plugins/libspd.a            \
 dynamic-plugins/libdynamic.a            \
 preprocessors/libspp.a                \
-preprocessors/flow/portscan/libportscan.a \
-preprocessors/flow/libflow.a \
 parser/libparser.a \
+target-based/libtarget_based.a \
 preprocessors/HttpInspect/libhttp_inspect.a \
 preprocessors/Stream5/libstream5.a \
 sfutil/libsfutil.a
 
 EXAMPLES_DIR = dynamic-examples
 
-SUBDIRS = sfutil win32 output-plugins detection-plugins dynamic-plugins preprocessors parser dynamic-preprocessors $(EXAMPLES_DIR)
+SUBDIRS = sfutil win32 output-plugins detection-plugins dynamic-plugins preprocessors parser dynamic-preprocessors target-based $(EXAMPLES_DIR)
 
 INCLUDES = @INCLUDES@

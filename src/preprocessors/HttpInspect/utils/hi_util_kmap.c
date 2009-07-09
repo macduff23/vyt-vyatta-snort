@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -77,7 +77,7 @@ static void s_free( void * p )
 /*
 *
 */
-KMAP * KMapNew( void (*userfree)(void*p) )
+KMAP * KMapNew( KMapUserFreeFunc userfree )
 {
     KMAP * km = (KMAP*) s_malloc( sizeof(KMAP) );
     

@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 
 ** This program is free software; you can redistribute it and/or modify
@@ -54,13 +55,7 @@
 extern int detect_depth;
 #endif /* GIDS */
 
-#ifdef TEST_MSTRING
-#define FatalPrintError perror
-#else
-void FatalPrintError(char *);
-#endif
-
-extern u_int8_t *doe_ptr;
+extern const u_int8_t *doe_ptr;
 
 #ifdef TEST_MSTRING
 
@@ -108,13 +103,13 @@ int main()
  *      array.
  *
  ****************************************************************/
-char **mSplit(char *str, char *sep, int max_strs, int *toks, char meta)
+char **mSplit(char *str, const char *sep, int max_strs, int *toks, char meta)
 {
     char **retstr;      /* 2D array which is returned to caller */
     char *idx;          /* index pointer into str */
     char *end;          /* ptr to end of str */
-    char *sep_end;      /* ptr to end of seperator string */
-    char *sep_idx;      /* index ptr into seperator string */
+    const char *sep_end;/* ptr to end of seperator string */
+    const char *sep_idx;/* index ptr into seperator string */
     int len = 0;        /* length of current token string */
     int curr_str = 0;       /* current index into the 2D return array */
     unsigned char last_char = 0xFF;  /* initialize to something that won't be in meta */
@@ -123,7 +118,7 @@ char **mSplit(char *str, char *sep, int max_strs, int *toks, char meta)
 
     *toks = 0;
 
-    if (!str) return NULL;
+    if (!str || !*str) return NULL;
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                 "[*] Splitting string: %s\n", str);
@@ -177,11 +172,7 @@ char **mSplit(char *str, char *sep, int max_strs, int *toks, char meta)
                     if(curr_str <= max_strs)
                     {
                         /* allocate space for the new token */
-                        if((retstr[curr_str] = (char *)
-                                    calloc(1,(sizeof(char) * len) + 1)) == NULL)
-                        {
-                            FatalPrintError("calloc");
-                        }
+                        retstr[curr_str] = (char *)SnortAlloc((len + 1) * sizeof(char));
 
                         /* copy the token into the return string array */
                         memcpy(retstr[curr_str], (idx - len), len);
@@ -224,9 +215,7 @@ char **mSplit(char *str, char *sep, int max_strs, int *toks, char meta)
                                     "for last token ", len + 1););
                         fflush(stdout);
 
-                        if((retstr[curr_str] = (char *)
-                                    calloc(1,(sizeof(char) * len) + 1)) == NULL)
-                            FatalPrintError("calloc");
+                        retstr[curr_str] = (char *)SnortAlloc((len + 1) * sizeof(char));
 
                         memcpy(retstr[curr_str], idx, len);
                         retstr[curr_str][len] = 0;
@@ -278,9 +267,7 @@ char **mSplit(char *str, char *sep, int max_strs, int *toks, char meta)
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                     "Allocating %d bytes for last token ", len + 1););
 
-        if((retstr[curr_str] = (char *)
-                    calloc(1,(sizeof(char) * len) + 1)) == NULL)
-            FatalPrintError("calloc");
+        retstr[curr_str] = (char *)SnortAlloc((len + 1) * sizeof(char));
 
         memcpy(retstr[curr_str], (idx - len), len);
         retstr[curr_str][len] = 0;
@@ -358,11 +345,11 @@ void mSplitFree(char ***pbuf, int num_toks)
  *      failure (substr not in str)
  *
  ****************************************************************/
-int mContainsSubstr(char *buf, int b_len, char *pat, int p_len)
+int mContainsSubstr(const char *buf, int b_len, const char *pat, int p_len)
 {
-    char *b_idx;        /* index ptr into the data buffer */
-    char *p_idx;        /* index ptr into the pattern buffer */
-    char *b_end;        /* ptr to the end of the data buffer */
+    const char *b_idx;  /* index ptr into the data buffer */
+    const char *p_idx;  /* index ptr into the pattern buffer */
+    const char *b_end;  /* ptr to the end of the data buffer */
     int m_cnt = 0;      /* number of pattern matches so far... */
 #ifdef DEBUG
     unsigned long loopcnt = 0;
@@ -520,7 +507,7 @@ int *make_shift(char *ptrn, int plen)
  *      failure (substr not in str)
  *
  ****************************************************************/
-int mSearch(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
+int mSearch(const char *buf, int blen, const char *ptrn, int plen, int *skip, int *shift)
 {
     int b_idx = plen;
 
@@ -533,10 +520,10 @@ int mSearch(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
                 "plen: %d\n", buf, blen, ptrn, plen););
 
 #ifdef DEBUG
-    hexbuf = fasthex(buf, blen);
+    hexbuf = fasthex((const u_char *)buf, blen);
     DebugMessage(DEBUG_PATTERN_MATCH,"buf: %s\n", hexbuf);
     free(hexbuf);
-    hexbuf = fasthex(ptrn, plen);
+    hexbuf = fasthex((const u_char *)ptrn, plen);
     DebugMessage(DEBUG_PATTERN_MATCH,"ptrn: %s\n", hexbuf);
     free(hexbuf);
     DebugMessage(DEBUG_PATTERN_MATCH,"buf: %p  blen: %d  ptrn: %p  "
@@ -562,7 +549,7 @@ int mSearch(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
                 DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                             "match: compares = %d.\n", cmpcnt););
 
-                doe_ptr = &(buf[b_idx]) + plen;
+                doe_ptr = (const u_int8_t *)&(buf[b_idx]) + plen;
 
 #ifdef GIDS
                 detect_depth = b_idx;
@@ -606,7 +593,7 @@ int mSearch(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
  *      failure (substr not in str)
  *
  ****************************************************************/
-int mSearchCI(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
+int mSearchCI(const char *buf, int blen, const char *ptrn, int plen, int *skip, int *shift)
 {
     int b_idx = plen;
 #ifdef DEBUG
@@ -631,7 +618,7 @@ int mSearchCI(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
                 DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                             "match: compares = %d.\n", 
                             cmpcnt););
-                doe_ptr = &(buf[b_idx]) + plen;
+                doe_ptr = (const u_int8_t *)&(buf[b_idx]) + plen;
 #ifdef GIDS
                 detect_depth = b_idx;
 #endif /* GIDS */
@@ -671,7 +658,7 @@ int mSearchCI(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
  *      failure (substr not in str)
  *
  ****************************************************************/
-int mSearchREG(char *buf, int blen, char *ptrn, int plen, int *skip, int *shift)
+int mSearchREG(const char *buf, int blen, const char *ptrn, int plen, int *skip, int *shift)
 {
     int b_idx = plen;
     int literal = 0;

@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -33,24 +34,70 @@
 #include "parser.h"
 #include "plugin_enum.h"
 #include "util.h"
+#include "sfhashfcn.h"
 
-#define EQ                   0
-#define GT                   1
-#define LT                   2
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats dsizePerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+#define DSIZE_EQ                   1
+#define DSIZE_GT                   2
+#define DSIZE_LT                   3
+#define DSIZE_RANGE                4
 
 typedef struct _DsizeCheckData
 {
     int dsize;
     int dsize2;
-
+    char operator;
 } DsizeCheckData;
 
 void DsizeCheckInit(char *, OptTreeNode *, int);
 void ParseDsize(char *, OptTreeNode *);
-int CheckDsizeEq(Packet *, struct _OptTreeNode *, OptFpList *);
-int CheckDsizeGT(Packet *, struct _OptTreeNode *, OptFpList *);
-int CheckDsizeLT(Packet *, struct _OptTreeNode *, OptFpList *);
-int CheckDsizeRange(Packet *, struct _OptTreeNode *, OptFpList *);
+
+int CheckDsize(void *option_data, Packet *p);
+
+u_int32_t DSizeCheckHash(void *d)
+{
+    u_int32_t a,b,c;
+    DsizeCheckData *data = (DsizeCheckData *)d;
+
+    a = data->dsize;
+    b = data->dsize2;
+    c = data->operator;
+
+    mix(a,b,c);
+
+    a += RULE_OPTION_TYPE_DSIZE;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int DSizeCheckCompare(void *l, void *r)
+{
+    DsizeCheckData *left = (DsizeCheckData *)l;
+    DsizeCheckData *right = (DsizeCheckData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+                                
+    if (( left->dsize == right->dsize) &&
+        ( left->dsize2 == right->dsize2) &&
+        ( left->operator == right->operator))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -66,7 +113,10 @@ int CheckDsizeRange(Packet *, struct _OptTreeNode *, OptFpList *);
 void SetupDsizeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("dsize", DsizeCheckInit);
+    RegisterPlugin("dsize", DsizeCheckInit, NULL, OPT_TYPE_DETECTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("dsize_eq", &dsizePerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: DsizeCheck Initialized\n"););
 }
 
@@ -128,6 +178,8 @@ void ParseDsize(char *data, OptTreeNode *otn)
     char *pcEnd;
     char *pcTok;
     int  iDsize = 0;
+    void *ds_ptr_dup;
+    OptFpList *fpl;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -175,27 +227,43 @@ void ParseDsize(char *data, OptTreeNode *otn)
 
         ds_ptr->dsize2 = (unsigned short)iDsize;
 
+        ds_ptr->operator = DSIZE_RANGE;
+
 #ifdef DEBUG
         printf("min dsize: %d\n", ds_ptr->dsize);
         printf("max dsize: %d\n", ds_ptr->dsize2);
 #endif
-        AddOptFuncToList(CheckDsizeRange, otn);
+        fpl = AddOptFuncToList(CheckDsize, otn);
+        fpl->type = RULE_OPTION_TYPE_DSIZE;
+
+        if (add_detection_option(RULE_OPTION_TYPE_DSIZE, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+        {
+            free(ds_ptr);
+            ds_ptr = otn->ds_list[PLUGIN_DSIZE_CHECK] = ds_ptr_dup;
+        }
+        fpl->context = ds_ptr;
+
         return;
     }
     else if(*data == '>')
     {
         data++;
-        AddOptFuncToList(CheckDsizeGT, otn);
+        fpl = AddOptFuncToList(CheckDsize, otn);
+        ds_ptr->operator = DSIZE_GT;
     }
     else if(*data == '<')
     {
         data++;
-        AddOptFuncToList(CheckDsizeLT, otn);
+        fpl = AddOptFuncToList(CheckDsize, otn);
+        ds_ptr->operator = DSIZE_LT;
     }
     else
     {
-        AddOptFuncToList(CheckDsizeEq, otn);
+        fpl = AddOptFuncToList(CheckDsize, otn);
+        ds_ptr->operator = DSIZE_EQ;
     }
+
+    fpl->type = RULE_OPTION_TYPE_DSIZE;
 
     while(isspace((int)*data)) data++;
 
@@ -208,10 +276,16 @@ void ParseDsize(char *data, OptTreeNode *otn)
 
     ds_ptr->dsize = (unsigned short)iDsize;
 
+    if (add_detection_option(RULE_OPTION_TYPE_DSIZE, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(ds_ptr);
+        ds_ptr = otn->ds_list[PLUGIN_DSIZE_CHECK] = ds_ptr_dup;
+     }
+     fpl->context = ds_ptr;
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Payload length = %d\n", ds_ptr->dsize););
 
 }
-
 
 /****************************************************************************
  * 
@@ -223,145 +297,48 @@ void ParseDsize(char *data, OptTreeNode *otn)
  *            otn => pointer to the current rule's OTN
  *
  * Returns:  0 on failure, return value of next list function on success
- *
  ****************************************************************************/
-int CheckDsizeEq(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
+int CheckDsize(void *option_data, Packet *p)
 {
+    DsizeCheckData *ds_ptr = (DsizeCheckData *)option_data;
+    int rval = DETECTION_OPTION_NO_MATCH;
+    PROFILE_VARS;
+
+    if (!ds_ptr)
+        return rval;
+
+    PREPROC_PROFILE_END(dsizePerfStats);
 
     /* fake packet dsizes are always wrong */
     if(p->packet_flags & PKT_REBUILT_STREAM)
     {
-        return 0;
+        PREPROC_PROFILE_END(dsizePerfStats);
+        return rval;
     }
-    
-    if(((DsizeCheckData *)otn->ds_list[PLUGIN_DSIZE_CHECK])->dsize == p->dsize)
+
+    switch (ds_ptr->operator)
     {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-    else
-    {
-        /* you can put debug comments here or not */
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Not equal\n"););
-    }
-
-    /* if the test isn't successful, return 0 */
-    return 0;
-}
-
-
-
-/****************************************************************************
- * 
- * Function: CheckDsizeGT(char *, OptTreeNode *)
- *
- * Purpose: Test the packet's payload size against the rule payload size 
- *          value.  This test determines if the packet payload size is 
- *          greater than the rule dsize.
- *
- * Arguments: data => argument data
- *            otn => pointer to the current rule's OTN
- *
- * Returns:  0 on failure, return value of next list function on success
- *
- ****************************************************************************/
-int CheckDsizeGT(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    /* fake packet dsizes are always wrong */
-    if(p->packet_flags & PKT_REBUILT_STREAM)
-    {
-        return 0;
+        case DSIZE_EQ:
+            if (ds_ptr->dsize == p->dsize)
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case DSIZE_GT:
+            if (ds_ptr->dsize < p->dsize)
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case DSIZE_LT:
+            if (ds_ptr->dsize > p->dsize)
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        case DSIZE_RANGE:
+            if ((ds_ptr->dsize <= p->dsize) &&
+                (ds_ptr->dsize2 >= p->dsize))
+                rval = DETECTION_OPTION_MATCH;
+            break;
+        default:
+            break;
     }
 
-    if(((DsizeCheckData *)otn->ds_list[PLUGIN_DSIZE_CHECK])->dsize < p->dsize)
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-    else
-    {
-        /* you can put debug comments here or not */
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Not equal\n"););
-    }
-
-    /* if the test isn't successful, return 0 */
-    return 0;
-}
-
-
-
-
-/****************************************************************************
- * 
- * Function: CheckDsizeLT(char *, OptTreeNode *)
- *
- * Purpose: Test the packet's payload size against the rule payload size 
- *          value.  This test determines if the packet payload size is 
- *          less than the rule dsize.
- *
- * Arguments: data => argument data
- *            otn => pointer to the current rule's OTN
- *
- * Returns:  0 on failure, return value of next list function on success
- *
- ****************************************************************************/
-int CheckDsizeLT(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    /* fake packet dsizes are always wrong */
-    if(p->packet_flags & PKT_REBUILT_STREAM)
-    {
-        return 0;
-    }
-    
-    if(((DsizeCheckData *)otn->ds_list[PLUGIN_DSIZE_CHECK])->dsize > p->dsize)
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-    else
-    {
-        /* you can put debug comments here or not */
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Not equal\n"););
-    }
-
-    /* if the test isn't successful, return 0 */
-    return 0;
-}
-
-
-/****************************************************************************
- *
- * Function: CheckDsizeRange(char *, OptTreeNode *)
- *
- * Purpose: Test the packet's payload size against the rule payload size
- *          values.  This test determines if the packet payload size is
- *          in the range of the rule dsize min and max.
- *
- * Arguments: data => argument data
- *            otn => pointer to the current rule's OTN
- *
- * Returns:  0 on failure, return value of next list function on success
- *
- ****************************************************************************/
-int CheckDsizeRange(Packet *p, struct _OptTreeNode *otn, OptFpList *fp_list)
-{
-    /* fake packet dsizes are always wrong */
-    if(p->packet_flags & PKT_REBUILT_STREAM)
-    {
-        return 0;
-    }
-
-    if(((DsizeCheckData *)otn->ds_list[PLUGIN_DSIZE_CHECK])->dsize <= p->dsize &&
-     ((DsizeCheckData *)otn->ds_list[PLUGIN_DSIZE_CHECK])->dsize2 >= p->dsize)
-    {
-        /* call the next function in the function list recursively */
-        return fp_list->next->OptTestFunc(p, otn, fp_list->next);
-    }
-    else
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,
-                                "CheckDsizeRange(): not in range\n"););
-    }
-
-    return 0;
+    PREPROC_PROFILE_END(dsizePerfStats);
+    return rval;
 }

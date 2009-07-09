@@ -41,11 +41,13 @@
 #define _RPC_TYPES_H
 
 #ifdef WIN32
-    /* These are now located in <stdint.h> */
-	/* typedef int int32_t; */
-	/* typedef unsigned int u_int32_t; */
-    #include <stdint.h>
-	typedef char * caddr_t;
+/* These are now located in <stdint.h> */
+/* typedef int int32_t; */
+/* typedef unsigned int u_int32_t; */
+#include <stdint.h>
+#ifndef caddr_t
+typedef char * caddr_t;
+#endif
 #endif
 #define	bool_t	int32_t
 #define	enum_t	int32_t

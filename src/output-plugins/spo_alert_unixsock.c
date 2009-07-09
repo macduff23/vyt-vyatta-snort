@@ -1,5 +1,6 @@
 /* $Id$ */
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -83,7 +84,7 @@ struct sockaddr_un alertaddr;
 struct sockaddr_in alertaddr;
 #endif
 
-void AlertUnixSockInit(u_char *);
+void AlertUnixSockInit(char *);
 void AlertUnixSock(Packet *, char *, void *, Event *);
 void ParseAlertUnixSockArgs(char *);
 void AlertUnixSockCleanExit(int, void *);
@@ -113,7 +114,7 @@ void AlertUnixSockSetup(void)
 
 
 /*
- * Function: AlertUnixSockInit(u_char *)
+ * Function: AlertUnixSockInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -123,7 +124,7 @@ void AlertUnixSockSetup(void)
  * Returns: void function
  *
  */
-void AlertUnixSockInit(u_char *args)
+void AlertUnixSockInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertUnixSock Initialized\n"););
 
@@ -209,11 +210,11 @@ void AlertUnixSock(Packet *p, char *msg, void *arg, Event *event)
             }
     
             /* we don't log any headers besides eth yet */
-            if (p->iph && p->pkt) 
+            if (IPH_IS_VALID(p) && p->pkt) 
             {
                 alertpkt.nethdr=(char *)p->iph-(char *)p->pkt;
 	
-                switch(p->iph->ip_proto)
+                switch(GET_IPH_PROTO(p))
                 {
                     case IPPROTO_TCP:
                        if (p->tcph) 

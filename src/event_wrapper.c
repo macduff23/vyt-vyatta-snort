@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 1998-2006 Sourcefire, Inc.
+ ** Copyright (C) 1998-2009 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -49,7 +49,6 @@
 #include "fpdetect.h"
 #include "debug.h"
 
-#ifndef PREPROCESSOR_AND_DECODER_RULE_EVENTS
 OptTreeNode * GenerateSnortEventOtn(
                             u_int32_t gen_id,
                             u_int32_t sig_id,
@@ -70,6 +69,8 @@ OptTreeNode * GenerateSnortEventOtn(
    p->sigInfo.message = msg;
    p->sigInfo.priority = priority;
    p->sigInfo.class_id = classification;
+
+   p->generated = 1;
             
    p->sigInfo.rule_type=SI_RULE_TYPE_PREPROC; /* TODO: could be detect ... */
    p->sigInfo.rule_flushing=SI_RULE_FLUSHING_OFF; /* only standard rules do this */
@@ -82,7 +83,10 @@ OptTreeNode * GenerateSnortEventOtn(
 
    p->rtn = calloc( 1, sizeof(RuleTreeNode) );
    if( !p->rtn )
-       return 0;
+   {
+       free(p);
+       return NULL;
+   }
 
    p->rtn->type = RULE_ALERT;
   
@@ -91,7 +95,6 @@ OptTreeNode * GenerateSnortEventOtn(
    
    return p;
 }
-#endif
 
 /*
  * This function has been updated to find an otn and route the call to fpLogEvent
@@ -119,7 +122,7 @@ u_int32_t GenerateSnortEvent(Packet *p,
      * Check if we have a preprocessor or decoder event
      * Preprocessors and decoders may be configured to inspect
      * and alert in their principle configuration (legacy code) 
-     * this test than checks if the rule otn says they should 
+     * this test then checks if the rule otn says they should 
      * be enabled or not.  The rule itself will decide if it should
      * be an alert or a drop (sdrop) condition.
      */
@@ -132,33 +135,45 @@ u_int32_t GenerateSnortEvent(Packet *p,
      */
      if( !potn ) 
      {
-#ifndef PREPROCESSOR_AND_DECODER_RULE_EVENTS
-        /* 
-        * Until we have official 'preprocessor/decoder rules' we will add
-        * the rule to the otn_lookup , once enabled, rmove this call to gen the otn...
-        * Once a preprocessor/decoder event fires we egnerate the otn, and next time it's
-        * found above in otn_lookup ..
-        */
-        potn = GenerateSnortEventOtn(
+#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
+        if (pv.generate_preprocessor_decoder_otn)
+        {
+            /* If configured to generate preprocessor and decoder OTNs,
+             * do so... */
+            potn = GenerateSnortEventOtn(
                             gen_id,
                             sig_id,
                             sig_rev,
                             classification,
                             priority,
                             msg);
+        }
+#else
+        /* 
+         * Until we have official 'preprocessor/decoder rules' we
+         * will add the rule to the otn_lookup , once enabled, remove
+         * this call to gen the otn...  Once a preprocessor/decoder
+         * event fires we generate the otn, and next time it's found
+         * above in otn_lookup.
+         */
+        potn = GenerateSnortEventOtn(
+                        gen_id,
+                        sig_id,
+                        sig_rev,
+                        classification,
+                        priority,
+                        msg);
+#endif
         if( potn )  
         {
             otn_lookup_add(potn);
         }
-        else
-        {
-           /* no otn found - do not add it to the queue */
-           return 0;
-        }
-#else
-           /* no otn found - do not add it to the queue */
-           return 0;
-#endif
+     }
+
+     if (!potn)
+     {
+         /* no otn found - do not add it to the queue */
+         return 0;
      }
 
      fpLogEvent( potn->rtn, potn,  p );
@@ -199,7 +214,7 @@ int LogTagData(Packet *p,
 
     SetEvent(&event, gen_id, sig_id, sig_rev, classification, priority, event_ref);
 
-    event.ref_time.tv_sec = ref_sec;
+    event.ref_time.tv_sec = (u_int32_t)ref_sec;
     
     if(p)
         CallLogFuncs(p, msg, NULL, &event);

@@ -1,6 +1,7 @@
 /* $Id$ */
 
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Maciej Szarpak
 **
@@ -67,6 +68,17 @@
 #include "debug.h"
 #include "util.h"
 #include "plugin_enum.h"
+#include "sfhashfcn.h"
+
+#include "snort.h"
+#include "profiler.h"
+#ifdef PERF_PROFILING
+PreprocStats reactPerfStats;
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+
+#include "sfhashfcn.h"
+#include "detection_options.h"
 
 #define TCP_DATA_BUF    1024
 
@@ -97,6 +109,93 @@ extern int nd; /* raw socket */
 int nd = -1;   /* raw socket */
 #endif
 
+void ReactFree(void *d)
+{
+    ReactData *data = (ReactData *)d;
+    if (data->html_resp_buf)
+        free(data->html_resp_buf);
+    free(data);
+}
+
+u_int32_t ReactHash(void *d)
+{
+    u_int32_t a,b,c,tmp;
+    unsigned int i,j,k,l;
+    ReactData *data = (ReactData *)d;
+
+    a = data->reaction_flag;
+    b = data->proxy_port_nr;
+    c = data->html_resp_size;
+
+    mix(a,b,c);
+
+    for (i=0,j=0;i<data->html_resp_size;i+=4)
+    {
+        tmp = 0;
+        k = data->html_resp_size - i;
+        if (k > 4)
+            k=4;
+                                                               
+        for (l=0;l<k;l++)
+        {
+            tmp |= *(data->html_resp_buf + i + l) << l*8;
+        }
+
+        switch (j)
+        {
+            case 0:
+                a += tmp;
+                break;
+            case 1:
+                b += tmp;
+                break;
+            case 2:
+                c += tmp;
+                break;
+        }
+        j++;
+
+        if (j == 3)
+        {
+            mix(a,b,c);
+            j = 0;
+        }
+    }
+
+    if (j != 0)
+    {
+        mix(a,b,c);
+    }
+
+    a += RULE_OPTION_TYPE_REACT;
+
+    final(a,b,c);
+
+    return c;
+}
+
+int ReactCompare(void *l, void *r)
+{
+    ReactData *left = (ReactData *)l;
+    ReactData *right = (ReactData *)r;
+
+    if (!left || !right)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (left->html_resp_size != right->html_resp_size)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (memcmp(left->html_resp_buf, right->html_resp_buf, left->html_resp_size) != 0)
+        return DETECTION_OPTION_NOT_EQUAL;
+
+    if (( left->reaction_flag == right->reaction_flag) &&
+        ( left->proxy_port_nr == right->proxy_port_nr))
+    {
+        return DETECTION_OPTION_EQUAL;
+    }
+
+    return DETECTION_OPTION_NOT_EQUAL;
+}
 
 /****************************************************************************
  * 
@@ -115,7 +214,10 @@ void SetupReact(void)
 
 /* we need an empty plug otherwise. To avoid #ifdef in plugbase */
 
-    RegisterPlugin("react", ReactInit);
+    RegisterPlugin("react", ReactInit, NULL, OPT_TYPE_ACTION);
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("react", &reactPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: React Initialized!\n"););
 }
 
@@ -137,6 +239,8 @@ void SetupReact(void)
 void ReactInit(char *data, OptTreeNode *otn, int protocol)
 {
     ReactData *idx;
+    void *idx_dup;
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"In ReactInit()\n"););
 #if defined(ENABLE_REACT) && !defined(ENABLE_RESPONSE)
     AddFuncToRestartList(ReactRestart, NULL);
@@ -163,6 +267,12 @@ void ReactInit(char *data, OptTreeNode *otn, int protocol)
 
     /* parse the react keywords */
     ParseReact(data, otn, idx);
+
+    if (add_detection_option(RULE_OPTION_TYPE_REACT, (void *)idx, &idx_dup) == DETECTION_OPTION_EQUAL)
+    {
+        free(idx);
+        idx = idx_dup;
+     }
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
@@ -268,11 +378,11 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
     else
     {
         /* prepare the html response data */
-        buf_size = 0;
+        buf_size = 1;  /* allocate one extra byte for '\0' */
         if(idx->reaction_flag == REACT_BLOCK)
         {
             /* count the respond buf size (max TCP_DATA_BUF) */
-            buf_size = strlen(tmp_buf1) + strlen(tmp_buf2) + strlen(tmp_buf3) + strlen(VERSION) + 1;
+            buf_size += strlen(tmp_buf1) + strlen(tmp_buf2) + strlen(tmp_buf3) + strlen(VERSION);
 
             if(buf_size > TCP_DATA_BUF)
             {
@@ -288,17 +398,17 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
                 }
 
                 /* create html response buffer */
-                idx->html_resp_buf = (char *)SnortAlloc(sizeof(char) * buf_size);
+                idx->html_resp_buf = (u_char *)SnortAlloc(sizeof(char) * buf_size);
 
                 if (idx->html_resp_size == 1)
                 {
-                    ret = SnortSnprintf(idx->html_resp_buf, buf_size,
+                    ret = SnortSnprintf((char *)idx->html_resp_buf, buf_size,
                                         "%s%s%s%s%s",
                                         tmp_buf1, VERSION, tmp_buf2, otn->sigInfo.message, tmp_buf3);
                 }
                 else
                 {
-                    ret = SnortSnprintf(idx->html_resp_buf, buf_size,
+                    ret = SnortSnprintf((char *)idx->html_resp_buf, buf_size,
                                         "%s%s%s%s",
                                         tmp_buf1, VERSION, tmp_buf2, tmp_buf3);
                 }
@@ -312,7 +422,7 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
         else if(idx->reaction_flag == REACT_WARN)
         {
             /* count the respond buf size (max TCP_DATA_BUF) */
-            buf_size = strlen(tmp_buf4) + strlen(tmp_buf5) + strlen(tmp_buf6) + strlen(VERSION) + 1;
+            buf_size += strlen(tmp_buf4) + strlen(tmp_buf5) + strlen(tmp_buf6) + strlen(VERSION);
 
             if(buf_size > TCP_DATA_BUF)
             {
@@ -329,17 +439,17 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
                 }
 
                 /* create html response buffer */
-                idx->html_resp_buf = (char *)SnortAlloc(sizeof(char) * buf_size);
+                idx->html_resp_buf = (u_char *)SnortAlloc(sizeof(char) * buf_size);
 
                 if (idx->html_resp_size == 1)
                 {
-                    ret = SnortSnprintf(idx->html_resp_buf, buf_size,
+                    ret = SnortSnprintf((char *)idx->html_resp_buf, buf_size,
                                         "%s%s%s%s%s",
                                         tmp_buf4, VERSION, tmp_buf5, otn->sigInfo.message, tmp_buf6);
                 }
                 else
                 {
-                    ret = SnortSnprintf(idx->html_resp_buf, buf_size,
+                    ret = SnortSnprintf((char *)idx->html_resp_buf, buf_size,
                                         "%s%s%s%s",
                                         tmp_buf4, VERSION, tmp_buf5, tmp_buf6);
                 }
@@ -377,14 +487,24 @@ int React(Packet *p,  RspFpList *fp_list)
 {
     ReactData *idx;
     int i;
+    PROFILE_VARS;
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"In React()\n"););
+
+    if(!p->tcph)
+    {
+        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"No TCP header ... leaving"););
+        return 1;
+    }
+
+    PREPROC_PROFILE_START(reactPerfStats);
 
     idx = (ReactData *)fp_list->params;
 
     if(idx == NULL)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Nothing to do ... leaving"););
+        PREPROC_PROFILE_END(reactPerfStats);
         return 1;
     }
 
@@ -467,6 +587,7 @@ int React(Packet *p,  RspFpList *fp_list)
             }
         }
     }
+    PREPROC_PROFILE_END(reactPerfStats);
     return 1;
 }    
 

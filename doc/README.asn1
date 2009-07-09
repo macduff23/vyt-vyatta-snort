@@ -156,4 +156,16 @@ My own notes about ASN.1, as understood from skimming through Section 3
    data value follows immediately, and continues until two zero-bytes
    are encountered.
 
+Alerts
+======
+
+ASN.1 uses generator ID 115 and can produce the following alerts:
+
+SID   Description
+---   -----------
+1     Indefinite ASN.1 length encoding
+2     Invalid ASN.1 length encoding
+3     ASN.1 oversized item, possible overflow
+4     ASN.1 spec violation, possible overflow
+5     Datum length > packet length
 

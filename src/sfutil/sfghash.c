@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2007 Sourcefire, Inc.
+ * Copyright (C) 2003-2009 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -18,7 +18,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
  ****************************************************************************/
- 
+
 /*
 *
 *  sfghash.c
@@ -43,12 +43,14 @@
 *      it has no predictable cycles, and each hash table gets a different
 *      randomized hashing function. So even with the source code, you cannot predict 
 *      anything with this function.  If an  attacker can can setup a feedback
-*      loop he might gain some knowledge of how to muck with us, buit even in that case
+*      loop he might gain some knowledge of how to muck with us, but even in that case
 *      his odds are astronomically skinny.  This is actually the same problem as solved
 *      early on with hashing functions where degenerate data with close keys could
 *      produce very long bucket chains.
 *
-*  Author: Marc Norton
+*  8/31/06 - man - Added prime tables to speed up prime number lookup.
+* 
+* Author: Marc Norton
 *
 */
 #include <stdio.h>
@@ -58,17 +60,14 @@
 
 #include "sfghash.h"
 
-/*
-*  uncomment this include to use xalloc functions
-*/
-
+#include "sfprimetable.h"
 /*
 *  Private Malloc
 */
 static 
 void * s_alloc( int n )
 {
-     return calloc( 1, n );
+     return calloc( 1,n );
 }
 
 /*
@@ -81,43 +80,11 @@ void s_free( void * p )
 }
 
 /*
-*  A classic hash routine using prime numbers
-*
-*  Constants for the Prime No. based hash routines
-*/
-
-
-/*
-*   Primiitive Prime number test, not very fast nor efficient, but should be ok for
-*   hash table sizes of typical size.
-*/
-static 
-int isPrime(int num )
-{
-   int i;
-   for(i=2;i<num;i++)
-   {
-      if( (num % i) == 0 ) break;//oops not prime, should have a remainder
-   }
-   if( i == num ) return 1;
-   return 0;
-}
-/*
-*  Iterate number till we find a prime.
-*/
-static
-int calcNextPrime(int num )
-{
-	while( !isPrime( num ) ) num++;
-	return num;
-}
-
-/*
 *
 *    Create a new hash table
 *
 *    nrows    : number of rows in hash table, primes are best.
-*               > 0  => we calc the nearest prime .ge. nrows internally
+*               > 0  => we use the nearest prime internally
 *               < 0  => we use the magnitude as nrows.
 *    keysize  : > 0 => bytes in each key, keys are binary bytes,
 *               all keys are the same size.
@@ -140,7 +107,7 @@ SFGHASH * sfghash_new( int nrows, int keysize, int userkeys, void (*userfree)(vo
 
    if( nrows > 0 ) /* make sure we have a prime number */
    {
-      nrows = calcNextPrime( nrows );
+      nrows = sf_nearest_prime( nrows );
    }
    else   /* use the magnitude or nrows as is */
    { 
@@ -148,24 +115,24 @@ SFGHASH * sfghash_new( int nrows, int keysize, int userkeys, void (*userfree)(vo
    }
 
    h = (SFGHASH*)s_alloc( sizeof(SFGHASH) );
-   if( !h )
-       return 0;
+   if( !h ) 
+	   return 0;
 
    memset( h, 0, sizeof(SFGHASH) );
 
    h->sfhashfcn = sfhashfcn_new( nrows );
    if( !h->sfhashfcn ) 
    {
-      free(h);
-      return 0;
+       free(h);
+	   return 0;
    }
 
    h->table = (SFGHASH_NODE**) s_alloc( sizeof(SFGHASH_NODE*) * nrows );
    if( !h->table ) 
    {
-      free(h->sfhashfcn);
-      free(h);
-      return 0;
+       free(h->sfhashfcn);
+       free(h);
+	   return 0;
    }
 
    for( i=0; i<nrows; i++ )
@@ -198,11 +165,11 @@ void sfghash_splaymode( SFGHASH * t, int n )
    t->splay = n;
 }
 
-
 /*
 *  Delete the hash Table 
 *
-*  free key's, free node's, and free the users data.
+*  free key's, free node's, and free the users data, if they
+*  supply a free function 
 */
 void sfghash_delete( SFGHASH * h )
 {
@@ -247,6 +214,7 @@ int sfghash_count( SFGHASH * t )
 }
 
 
+
 /*
 *  Add a key + data pair
 *  ---------------------
@@ -284,7 +252,7 @@ int sfghash_add( SFGHASH * t, void * key, void * data )
     }
     else
     {
-	/* need the nul byte for strcmp() in sfghash_find() */
+	     /* need the null byte for strcmp() in sfghash_find() */
         klen = strlen( (char*)key ) + 1;
     }
     
@@ -371,7 +339,7 @@ int sfghash_add( SFGHASH * t, void * key, void * data )
 */
 static void movetofront( SFGHASH *t , int index, SFGHASH_NODE * n )
 {
-    if( t->table[index] != n ) // if not at fron of list already...
+    if( t->table[index] != n ) // if not at front of list already...
     {
       /* Unlink the node */
       if( n->prev ) n->prev->next = n->next;
@@ -523,6 +491,7 @@ int sfghash_remove( SFGHASH * t, void * key)
    return SFGHASH_ERR;  
 }
 
+
 /* Internal use only */
 static void sfghash_next( SFGHASH * t )
 {
@@ -592,6 +561,31 @@ SFGHASH_NODE * sfghash_findnext( SFGHASH * t )
     sfghash_next( t ); 
 
     return  n;
+}
+
+
+/** 
+ * Make sfhashfcn use a separate set of operators for the backend.
+ *
+ * @param h sfhashfcn ptr
+ * @param hash_fcn user specified hash function
+ * @param keycmp_fcn user specified key comparisoin function
+ */
+
+int sfghash_set_keyops( SFGHASH *h ,
+                        unsigned (*hash_fcn)( SFHASHFCN * p,
+                                              unsigned char *d,
+                                              int n),
+                        int (*keycmp_fcn)( const void *s1,
+                                           const void *s2,
+                                           size_t n))
+{
+    if(h && hash_fcn && keycmp_fcn)
+    {
+        return sfhashfcn_set_keyops(h->sfhashfcn, hash_fcn, keycmp_fcn);
+    }
+
+    return -1;
 }
 
 

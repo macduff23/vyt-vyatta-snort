@@ -1,13 +1,13 @@
 ## $Id
 AUTOMAKE_OPTIONS=foreign no-dependencies
 
-INCLUDES = -I../include
+INCLUDES = -I../include -I${top_srcdir}/src/dynamic-preprocessors/libs
 
 libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
 
 lib_LTLIBRARIES = libsf_smtp_preproc.la
 
-libsf_smtp_preproc_la_LDFLAGS = -module
+libsf_smtp_preproc_la_LDFLAGS = -export-dynamic
 
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c 
@@ -30,7 +30,9 @@ smtp_xlink2state.h \
 snort_smtp.c \
 snort_smtp.h \
 spp_smtp.c \
-spp_smtp.h
+spp_smtp.h \
+${top_srcdir}/src/dynamic-preprocessors/libs/ssl.c \
+${top_srcdir}/src/dynamic-preprocessors/libs/ssl.h
 
 EXTRA_DIST = \
 sf_smtp.dsp
@@ -39,7 +41,7 @@ sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
 all-local:
-	$(MAKE) DESTDIR=$(PWD)/../build install-libLTLIBRARIES
+	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
 	rm -f sf_dynamic_preproc_lib.c

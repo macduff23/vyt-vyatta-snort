@@ -3,7 +3,7 @@
 **
 **  pcrm.c
 **
-**  Copyright (C) 2002 Sourcefire,Inc
+**  Copyright (C) 2002-2009 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -275,13 +275,31 @@ static void prmxFreeGroup(PORT_GROUP *pg)
      RULE_NODE * rn, *rx;
 
      rn = pg->pgHead;
-
      while( rn )
      {
-       rx = rn->rnNext;       
+       rx = rn->rnNext;
        free( rn ); 
        rn = rx;
-     }         
+     }
+     pg->pgHead = NULL;
+
+     rn = pg->pgHeadNC;
+     while( rn )
+     {
+       rx = rn->rnNext;
+       free( rn ); 
+       rn = rx;
+     }
+     pg->pgHeadNC = NULL;
+
+     rn = pg->pgUriHead;
+     while( rn )
+     {
+       rx = rn->rnNext;
+       free( rn ); 
+       rn = rx;
+     }
+     pg->pgUriHead = NULL;
 }
 
 /*
@@ -392,11 +410,12 @@ void prmFreeByteMap( BYTE_RULE_MAP * p )
 **    int - 0 is successful, 1 is failure
 **
 */
-static int prmxAddPortRule( PORT_GROUP *p, RULE_PTR rd )
+//static
+int prmxAddPortRule( PORT_GROUP *p, RULE_PTR rd )
 {
     if( !p->pgHead )
     {
-         p->pgHead = (RULE_NODE*) calloc(1, sizeof(RULE_NODE) );
+         p->pgHead = (RULE_NODE*) calloc( 1,sizeof(RULE_NODE) );
          if( !p->pgHead )return 1;
 	 
          p->pgHead->rnNext      = 0;
@@ -405,7 +424,7 @@ static int prmxAddPortRule( PORT_GROUP *p, RULE_PTR rd )
     }
     else
     {
-         p->pgTail->rnNext = (RULE_NODE*)calloc(1, sizeof(RULE_NODE) );
+         p->pgTail->rnNext = (RULE_NODE*)calloc( 1,sizeof(RULE_NODE) );
          if(!p->pgTail->rnNext)return 1;
 	 
          p->pgTail             = p->pgTail->rnNext;
@@ -455,7 +474,8 @@ static int prmxAddPortRule( PORT_GROUP *p, RULE_PTR rd )
 **    int - 0 is successful, 1 is failure
 **
 */
-static int prmxAddPortRuleUri( PORT_GROUP *p, RULE_PTR rd )
+//static 
+int prmxAddPortRuleUri( PORT_GROUP *p, RULE_PTR rd )
 {
     if( !p->pgUriHead )
     {
@@ -519,11 +539,12 @@ static int prmxAddPortRuleUri( PORT_GROUP *p, RULE_PTR rd )
 **    int - 0 is successful, 1 is failure
 **
 */
-static int prmxAddPortRuleNC( PORT_GROUP *p, RULE_PTR rd )
+//static 
+int prmxAddPortRuleNC( PORT_GROUP *p, RULE_PTR rd )
 {
     if( !p->pgHeadNC )
     {
-         p->pgHeadNC = (RULE_NODE*) calloc(1, sizeof(RULE_NODE) );
+         p->pgHeadNC = (RULE_NODE*) calloc( 1,sizeof(RULE_NODE) );
          if( !p->pgHeadNC )return 1;
 	 
          p->pgTailNC             = p->pgHeadNC;
@@ -532,7 +553,7 @@ static int prmxAddPortRuleNC( PORT_GROUP *p, RULE_PTR rd )
     }
     else
     {
-         p->pgTailNC->rnNext = (RULE_NODE*)calloc(1, sizeof(RULE_NODE) );
+         p->pgTailNC->rnNext = (RULE_NODE*)calloc( 1,sizeof(RULE_NODE) );
          if(!p->pgTailNC->rnNext)return 1;
 	 
          p->pgTailNC             = p->pgTailNC->rnNext;
@@ -1117,10 +1138,10 @@ int prmAddByteRuleNC( BYTE_RULE_MAP * p, int dport, RULE_PTR rd )
 int prmFindRuleGroup( PORT_RULE_MAP * p, int dport, int sport, PORT_GROUP ** src, PORT_GROUP **dst , PORT_GROUP ** gen)
 {
     int stat= 0;
-    
-    if(!p)
-       return 0;
-    
+
+    if (!p)
+        return 0;
+
     if( (dport != ANYPORT && dport < MAX_PORTS) && p->prmDstPort[dport] )
     {
          *dst  = p->prmDstPort[dport];
@@ -1141,7 +1162,7 @@ int prmFindRuleGroup( PORT_RULE_MAP * p, int dport, int sport, PORT_GROUP ** src
     }
 
     /* If no Src/Dst rules - use the generic set, if any exist  */
-    if( !stat &&  (p->prmGeneric > 0) ) 
+    if( !stat &&  ((p->prmGeneric != NULL) && (p->prmGeneric->pgCount > 0)) ) 
     {
        *gen  = p->prmGeneric;
         stat = 4;

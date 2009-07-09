@@ -1,4 +1,5 @@
 /*
+** Copyright (C) 2002-2009 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -59,6 +60,7 @@
 
 #include "decode.h"
 #include "event.h"
+#include "mstring.h"
 #include "plugbase.h"
 #include "spo_plugbase.h"
 #include "parser.h"
@@ -69,32 +71,48 @@
 
 /* For the traversal of reassembled packets */
 #include "stream_api.h"
+#define M_BYTES (1024*1024)
+
+#define DEFAULT_FILE  "snort.log"
+#define DEFAULT_LIMIT (128*M_BYTES)
+
+/*
+ * <pcap file> ::= <pcap file hdr> [<pcap pkt hdr> <packet>]*
+ * on 64 bit systems, some fields in the <pcap * hdr> are 8 bytes
+ * but still stored on disk as 4 bytes.
+ * eg: (sizeof(*pkth) = 24) > (dumped size = 16)
+ * so we use PCAP_*_HDR_SZ defines in lieu of sizeof().
+ */
+
+#define PCAP_FILE_HDR_SZ (24)
+#define PCAP_PKT_HDR_SZ  (16)
 
 typedef struct _LogTcpdumpData
 {
     char *filename;
-    int log_written;
     pcap_dumper_t *dumpd;
+    time_t lastTime;
+    size_t size;
+    size_t limit;
+    char logdir[STD_BUF];
 
 } LogTcpdumpData;
 
 /* list of function prototypes for this preprocessor */
-void LogTcpdumpInit(u_char *);
-LogTcpdumpData *ParseTcpdumpArgs(char *);
-void LogTcpdump(Packet *, char *, void *, Event *);
-void TcpdumpInitLogFileFinalize(int unused, void *arg);
-void TcpdumpInitLogFile(LogTcpdumpData *);
-void SpoLogTcpdumpCleanExitFunc(int, void *);
-void SpoLogTcpdumpRestartFunc(int, void *);
-void DirectLogTcpdump(struct pcap_pkthdr *, u_int8_t *);
-void LogTcpdumpSingle(Packet *, char *, void *, Event *);
-void LogTcpdumpStream(Packet *, char *, void *, Event *);
-
-
+static void LogTcpdumpInit(char *);
+static LogTcpdumpData *ParseTcpdumpArgs(char *);
+static void LogTcpdump(Packet *, char *, void *, Event *);
+static void TcpdumpInitLogFileFinalize(int unused, void *arg);
+static void TcpdumpInitLogFile(LogTcpdumpData *);
+static void TcpdumpRollLogFile(LogTcpdumpData*);
+static void SpoLogTcpdumpCleanExitFunc(int, void *);
+static void SpoLogTcpdumpRestartFunc(int, void *);
+static void LogTcpdumpSingle(Packet *, char *, void *, Event *);
+static void LogTcpdumpStream(Packet *, char *, void *, Event *);
 
 /* external globals from rules.c */
-extern pcap_dumper_t *dumpd;  /* ptr to pcap packet dump facility */
 extern PV pv;              /* program variables struct */
+extern pcap_t *pd;         /* pcap handle */
 
 /* If you need to instantiate the plugin's data structure, do it here */
 LogTcpdumpData *log_tcpdump_ptr;
@@ -111,7 +129,7 @@ LogTcpdumpData *log_tcpdump_ptr;
  * Returns: void function
  *
  */
-void LogTcpdumpSetup()
+void LogTcpdumpSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
@@ -122,7 +140,7 @@ void LogTcpdumpSetup()
 
 
 /*
- * Function: LogTcpdumpInit(u_char *)
+ * Function: LogTcpdumpInit(char *)
  *
  * Purpose: Calls the argument parsing function, performs final setup on data
  *          structs, links the preproc function into the function list.
@@ -132,7 +150,7 @@ void LogTcpdumpSetup()
  * Returns: void function
  *
  */
-void LogTcpdumpInit(u_char *args)
+static void LogTcpdumpInit(char *args)
 {
     LogTcpdumpData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: Log-Tcpdump Initialized\n"););
@@ -141,7 +159,7 @@ void LogTcpdumpInit(u_char *args)
     pv.log_plugin_active = 1;
 
     /* parse the argument list from the rules file */
-    data = ParseTcpdumpArgs((char *)args);
+    data = ParseTcpdumpArgs(args);
     log_tcpdump_ptr = data;
 
     //TcpdumpInitLogFile(data);
@@ -155,50 +173,79 @@ void LogTcpdumpInit(u_char *args)
     AddFuncToRestartList(SpoLogTcpdumpRestartFunc, data);
 }
 
-
-
 /*
  * Function: ParseTcpdumpArgs(char *)
  *
- * Purpose: Process the preprocessor arguements from the rules file and 
- *          initialize the preprocessor's data struct.  This function doesn't
- *          have to exist if it makes sense to parse the args in the init 
- *          function.
+ * Purpose: Process positional args, if any.  Syntax is:
+ * output log_tcpdump: [<logpath> [<limit>]]
+ * limit ::= <number>('G'|'M'|K')
  *
  * Arguments: args => argument list
  *
  * Returns: void function
- *
  */
-LogTcpdumpData *ParseTcpdumpArgs(char *args)
+static LogTcpdumpData *ParseTcpdumpArgs(char *args)
 {
+    char **toks;
+    int num_toks;
     LogTcpdumpData *data;
+    int i;
 
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "ParseTcpdumpArgs: %s\n", args););
     data = (LogTcpdumpData *) SnortAlloc(sizeof(LogTcpdumpData));
 
-    DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Args: %s<>\n", args););
-
-    if(args != NULL)
+    if ( !data )
     {
-        while(isspace((int)*args)) args++;
-        if(strcmp(args, "") != 0)
-            data->filename = strdup(args);
-        else
-            data->filename = strdup("snort.log");
+        FatalError("log_tcpdump: unable to allocate memory!\n");
     }
-    else
-    {
-        data->filename = strdup("snort.log");
-    }
+    data->filename = NULL;
+    data->limit = DEFAULT_LIMIT;
 
-    if (!data->filename)
-    {
-        FatalError("Unable to allocate memory for tcpdump log filename\n");
-    }
+    if ( !args ) args = "";
+    toks = mSplit((char*)args, " ", 3, &num_toks, '\\');
 
+    for (i = 0; i < num_toks; i++)
+    {
+        const char* tok = toks[i];
+        char *end;
+
+        switch (i)
+        {
+            case 0:
+                data->filename = SnortStrdup(tok);
+                break;
+
+            case 1:
+                data->limit = strtol(tok, &end, 10);
+
+                if ( tok == end )
+                    FatalError("log_tcpdump error in %s(%i): %s\n",
+                        file_name, file_line, tok);
+
+                if ( end && toupper(*end) == 'G' )
+                    data->limit <<= 30; /* GB */
+
+                else if ( end && toupper(*end) == 'M' )
+                    data->limit <<= 20; /* MB */
+
+                else if ( end && toupper(*end) == 'K' )
+                    data->limit <<= 10; /* KB */
+                break;
+
+            case 2:
+                FatalError("log_tcpdump: error in %s(%i): %s\n",
+                    file_name, file_line, tok);
+                break;
+        }
+    }
+    mSplitFree(&toks, num_toks);
+    if ( !data->filename ) data->filename = SnortStrdup(DEFAULT_FILE);
+
+    DEBUG_WRAP(DebugMessage(
+        DEBUG_INIT, "log_tcpdump: '%s' %ld\n", data->filename, data->limit
+    ););
     return data;
 }
-
 
 /*
  * Function: PreprocFunction(Packet *)
@@ -212,7 +259,7 @@ LogTcpdumpData *ParseTcpdumpArgs(char *args)
  *
  * Returns: void function
  */
-void LogTcpdump(Packet *p, char *msg, void *arg, Event *event)
+static void LogTcpdump(Packet *p, char *msg, void *arg, Event *event)
 {
 
     if(p)
@@ -228,14 +275,30 @@ void LogTcpdump(Packet *p, char *msg, void *arg, Event *event)
     }
 }
 
-void LogTcpdumpSingle(Packet *p, char *msg, void *arg, Event *event)
+static INLINE size_t SizeOf (const struct pcap_pkthdr *pkth)
+{
+    return PCAP_PKT_HDR_SZ + pkth->caplen;
+}
+
+static int SizeOfCallback(struct pcap_pkthdr *pkth,
+                             u_int8_t *packet_data, void *userdata)
+{
+    size_t* pSize = (size_t*)userdata;
+    (*pSize) += SizeOf(pkth);
+
+    return 0;
+}
+
+static void LogTcpdumpSingle(Packet *p, char *msg, void *arg, Event *event)
 {
     LogTcpdumpData *data = (LogTcpdumpData *)arg;
+    size_t dumpSize = SizeOf(p->pkth);
 
-    data->log_written = 1;
+    if ( data->size + dumpSize > data->limit )
+        TcpdumpRollLogFile(data);
 
-    /* sizeof(struct pcap_pkthdr) = 16 bytes */
     pcap_dump((u_char *)data->dumpd,p->pkth,p->pkt);
+    data->size += dumpSize;
 
     if(!pv.line_buffer_flag)
     { 
@@ -248,36 +311,33 @@ void LogTcpdumpSingle(Packet *p, char *msg, void *arg, Event *event)
     }
 }
 
-int LogTcpdumpStreamCallback(SnortPktHeader *pkth, u_int8_t *packet_data,
-        void *userdata)
+static int LogTcpdumpStreamCallback(struct pcap_pkthdr *pkth,
+                             u_int8_t *packet_data, void *userdata)
 {
     LogTcpdumpData *data = (LogTcpdumpData *)userdata;
-    struct pcap_pkthdr pcap_pkth;
-
-    pcap_pkth.ts.tv_sec = (time_t)pkth->ts.tv_sec;
-#if defined(LINUX) || defined(SOLARIS) || defined(FREEBSD)
-    pcap_pkth.ts.tv_usec = (suseconds_t)pkth->ts.tv_usec;
-#else /* WIN32, OpenBSD */
-    pcap_pkth.ts.tv_usec = (long)pkth->ts.tv_usec;
-#endif
-    pcap_pkth.caplen = (bpf_u_int32)pkth->caplen;
-    pcap_pkth.len = (bpf_u_int32)pkth->pktlen;
 
     pcap_dump((u_char *)data->dumpd, 
-              &pcap_pkth, 
+              pkth, 
               (u_char *) packet_data);
 
     return 0;
 }
 
-void LogTcpdumpStream(Packet *p, char *msg, void *arg, Event *event)
+static void LogTcpdumpStream(Packet *p, char *msg, void *arg, Event *event)
 {
     LogTcpdumpData *data = (LogTcpdumpData *)arg;
+    size_t dumpSize = 0;
 
-    data->log_written = 1;
+    if (stream_api)
+        stream_api->traverse_reassembled(p, SizeOfCallback, &dumpSize);
+
+    if ( data->size + dumpSize > data->limit )
+        TcpdumpRollLogFile(data);
 
     if (stream_api)
         stream_api->traverse_reassembled(p, LogTcpdumpStreamCallback, data);
+
+    data->size += dumpSize;
 
     if(!pv.line_buffer_flag)
     { 
@@ -290,7 +350,7 @@ void LogTcpdumpStream(Packet *p, char *msg, void *arg, Event *event)
     }
 }
 
-void TcpdumpInitLogFileFinalize(int unused, void *arg)
+static void TcpdumpInitLogFileFinalize(int unused, void *arg)
 {
     TcpdumpInitLogFile((LogTcpdumpData *)arg);
 }
@@ -304,53 +364,67 @@ void TcpdumpInitLogFileFinalize(int unused, void *arg)
  *
  * Returns: void function
  */
-void TcpdumpInitLogFile(LogTcpdumpData *data)
+static void TcpdumpInitLogFile(LogTcpdumpData *data)
 {
-    time_t curr_time;      /* place to stick the clock data */
-    //struct tm *loc_time;   /* place to stick the adjusted clock data */
-    //char timebuf[10];
-    char logdir[STD_BUF];
     int value;
+    data->lastTime = time(NULL);
 
-    bzero(logdir, STD_BUF);
-    //bzero(timebuf, 10);
-    curr_time = time(NULL);
-    //loc_time = localtime(&curr_time);
-    //strftime(timebuf,9,"%m%d@%H%M",loc_time);
-
-    if(data->filename[0] == '/')
-        value = SnortSnprintf(logdir, STD_BUF, "%s.%lu", data->filename, 
-                              (unsigned long)curr_time);
-    else
-        value = SnortSnprintf(logdir, STD_BUF, "%s/%s.%lu", pv.log_dir, 
-                              data->filename, (unsigned long)curr_time);
+    if(pv.nostamp) 
+    {
+        if(data->filename[0] == '/')
+            value = SnortSnprintf(data->logdir, STD_BUF, "%s", data->filename);
+        else
+            value = SnortSnprintf(data->logdir, STD_BUF, "%s/%s", pv.log_dir, 
+                                  data->filename);
+    }
+    else 
+    {
+        if(data->filename[0] == '/')
+            value = SnortSnprintf(data->logdir, STD_BUF, "%s.%lu", data->filename, 
+                                  (u_int32_t)data->lastTime);
+        else
+            value = SnortSnprintf(data->logdir, STD_BUF, "%s/%s.%lu", pv.log_dir, 
+                                  data->filename, (u_int32_t)data->lastTime);
+    }
 
     if(value != SNORT_SNPRINTF_SUCCESS)
         FatalError("log file logging path and file name are too long\n");
 
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "Opening %s\n", logdir););
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG, "Opening %s\n", data->logdir););
 
     if(!pv.test_mode_flag)
     {
-        data->dumpd = pcap_dump_open(pd,logdir);
+        data->dumpd = pcap_dump_open(pd,data->logdir);
         if(data->dumpd == NULL)
         {
             FatalError("log_tcpdump TcpdumpInitLogFile(): %s\n", strerror(errno));
         }
-
-        /* keep a copy of the filename for later reference */
-        if(data->filename != NULL)
-        {
-            bzero( data->filename, strlen(data->filename) );
-            free(data->filename);
-            data->filename = strdup(logdir);
-        }
     }
-
-    return;
+    data->size = PCAP_FILE_HDR_SZ;
 }
 
+static void TcpdumpRollLogFile(LogTcpdumpData* data)
+{
+    time_t now = time(NULL);
+    int tmp = pv.nostamp;
 
+    /* don't roll over any sooner than resolution
+     * of filename discriminator
+     */
+    if ( now <= data->lastTime ) return;
+    pv.nostamp = 0;
+
+    /* close the output file */
+    if( data->dumpd != NULL )
+    {
+        pcap_dump_close(data->dumpd);
+        data->dumpd = NULL;
+        data->size = 0;
+    }
+    TcpdumpInitLogFile(data);
+
+    pv.nostamp = tmp;
+}
 
 /*
  * Function: SpoLogTcpdumpCleanExitFunc()
@@ -362,12 +436,12 @@ void TcpdumpInitLogFile(LogTcpdumpData *data)
  *
  * Returns: void function
  */
-void SpoLogTcpdumpCleanExitFunc(int signal, void *arg)
+static void SpoLogTcpdumpCleanup(int signal, void *arg, const char* msg)
 {
     /* cast the arg pointer to the proper type */
     LogTcpdumpData *data = (LogTcpdumpData *) arg;
 
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"SpoLogTcpdumpCleanExitFunc\n"););
+    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"%s\n", msg););
 
     /* close the output file */
     if( data->dumpd != NULL )
@@ -380,86 +454,53 @@ void SpoLogTcpdumpCleanExitFunc(int signal, void *arg)
      * if we haven't written any data, dump the output file so there aren't
      * fragments all over the disk 
      */
-    if(!pv.test_mode_flag && data->filename!=NULL && pc.alert_pkts==0 && pc.log_pkts==0)
+    if(!pv.test_mode_flag && *data->logdir && pc.alert_pkts==0 && pc.log_pkts==0)
     {
         int ret;
 
-        ret = unlink(data->filename);
+        ret = unlink(data->logdir);
 
         if (ret != 0)
         {
             ErrorMessage("Could not remove tcpdump output file %s: %s\n",
-                         data->filename, strerror(errno));
+                         data->logdir, strerror(errno));
         }
     }
 
-    /* free up initialized memory */
-    if( data->filename != NULL )
+    if (data->filename)
     {
-        bzero(data->filename, strlen(data->filename));
-        free(data->filename);
+        free (data->filename);
     }
+
     bzero(data, sizeof(LogTcpdumpData));
     free(data);
 }
 
-
-
-/*
- * Function: SpoLogTcpdumpRestartFunc()
- *
- * Purpose: For restarts (SIGHUP usually) clean up structs that need it
- *
- * Arguments: signal => signal that caused this event
- *            arg => data ptr to reference this plugin's data
- *
- * Returns: void function
- */
-void SpoLogTcpdumpRestartFunc(int signal, void *arg)
+static void SpoLogTcpdumpCleanExitFunc(int signal, void *arg)
 {
-
-    LogTcpdumpData *data = (LogTcpdumpData *)arg;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_LOG,"SpoLogTcpdumpRestartFunc\n"););
-
-    if( data->dumpd != NULL )
-    {
-        pcap_dump_close(data->dumpd); 
-        data->dumpd = NULL;
-    }
-
-    /* 
-     * if we haven't written any data, dump the output file so there aren't
-     * fragments all over the disk 
-     */
-    if(data->filename!=NULL && pc.alert_pkts==0 && pc.log_pkts==0)
-    {
-        int ret;
-
-        ret = unlink(data->filename);
-
-        if (ret != 0)
-        {
-            ErrorMessage("Could not remove tcpdump output file %s: %s\n",
-                         data->filename, strerror(errno));
-        }
-    }
-
-    if( data->filename != NULL )
-    {
-        bzero(data->filename, strlen(data->filename));
-        free(data->filename);
-    }
-    bzero(data, sizeof(LogTcpdumpData));
-    free(data);
+    SpoLogTcpdumpCleanup(signal, arg, "SpoLogTcpdumpCleanExitFunc");
 }
 
+static void SpoLogTcpdumpRestartFunc(int signal, void *arg)
+{
+    SpoLogTcpdumpCleanup(signal, arg, "SpoLogTcpdumpRestartFunc");
+}
 
+void LogTcpdumpReset(void)
+{
+    TcpdumpRollLogFile(log_tcpdump_ptr);
+}
 
 void DirectLogTcpdump(struct pcap_pkthdr *ph, u_int8_t *pkt)
 {
+    size_t dumpSize = SizeOf(ph);
+
+    if ( log_tcpdump_ptr->size + dumpSize > log_tcpdump_ptr->limit )
+        TcpdumpRollLogFile(log_tcpdump_ptr);
+
     pc.log_pkts++;
     pcap_dump((u_char *)log_tcpdump_ptr->dumpd, ph, pkt);
-    return;
+
+    log_tcpdump_ptr->size += dumpSize;
 }
-        
+
