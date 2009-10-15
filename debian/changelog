@@ -1,3 +1,9 @@
+vyatta-snort (2.8.4.1-vyatta+3) unstable; urgency=low
+
+  * add .merge-branch-exclude
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 15 Oct 2009 12:26:46 -0700
+
 vyatta-snort (2.8.4.1-vyatta+2) unstable; urgency=low
 
   * Merge snort 2.8.4.
