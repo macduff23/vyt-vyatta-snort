@@ -1,3 +1,9 @@
+vyatta-snort (2.8.4.1-vyatta-4) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- Mohit Mehta <mohit.mehta@vyatta.com>  Tue, 16 Feb 2010 10:29:44 -0800
+
 vyatta-snort (2.8.4.1-vyatta+3) unstable; urgency=low
 
   * add .merge-branch-exclude
