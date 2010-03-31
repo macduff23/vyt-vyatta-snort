@@ -63,34 +63,63 @@
 #include "perf-base.h"
 #include "perf-flow.h"
 #include "perf-event.h"
+#include "debug.h"
+#include "decode.h"
 
-typedef struct _SFPERF {
+#define LINUX_FILE_LIMIT    0x80000000  /* 2 GB */
+#define ROLLOVER_THRESH     0x200       /* 512 bytes */
+#define MAX_PERF_FILE_SIZE (LINUX_FILE_LIMIT)
+#define MIN_PERF_FILE_SIZE  0x1000      /* 4096 bytes */
 
-    int    iPerfFlags;
-    unsigned int    iPktCnt;
 
-    int    sample_interval;
-    time_t    sample_time;
+/* The perfmonitor configuration */
+typedef struct _SFPERF
+{
+    int perf_flags;
+    unsigned int pkt_cnt;
+    int sample_interval;
+    time_t sample_time;
+    char *file;
+    FILE *fh;
+    int base_flags;
+    int base_reset;
+    int flow_max_port_to_track;
+    uint32_t max_file_size;
 
-    SFBASE  sfBase;
-    SFFLOW  sfFlow;
-    SFEVENT sfEvent;
-
-    char    file[1024];
-    FILE  * fh;
-    
 } SFPERF;
 
-int sfInitPerformanceStatistics(SFPERF *sfPerf);
-int sfSetPerformanceSampleTime(SFPERF *sfPerf, int iSeconds);
-int sfSetPerformanceAccounting(SFPERF *sfPerf, int iReset);
-int sfSetPerformanceStatistics(SFPERF *sfPerf, int iFlag);
-int sfSetPerformanceStatisticsEx(SFPERF *sfPerf, int iFlag, void * param);
-int sfRotatePerformanceStatisticsFile(SFPERF *sfPerf);
-int sfPerformanceStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
-                       int iRebuiltPkt);
-int sfProcessPerfStats(SFPERF *sfPerf);
-int CheckSampleInterval(time_t curr_time, SFPERF *sfPerf);
+
+extern int perfmon_rotate_perf_file;
+
+int sfInitPerformanceStatistics(SFPERF *);
+int sfSetPerformanceSampleTime(SFPERF *, int);
+int sfSetPerformanceAccounting(SFPERF *, int);
+int sfSetPerformanceStatistics(SFPERF *, int);
+int sfSetPerformanceStatisticsEx(SFPERF *, int, void *);
+int sfSetMaxFileSize(SFPERF *sfPerf, uint32_t iSize);
+int sfRotatePerformanceStatisticsFile(void);
+int sfPerformanceStats(SFPERF *, Packet *, int);
+int sfProcessPerfStats(SFPERF *);
+int CheckSampleInterval(Packet *, SFPERF *);
 int ResetPerfStats(SFPERF *);
+
+static INLINE void SetRotatePerfFileFlag(void);
+static INLINE int IsSetRotatePerfFileFlag(void);
+static INLINE void ClearRotatePerfFileFlag(void);
+
+static INLINE void SetRotatePerfFileFlag(void)
+{
+    perfmon_rotate_perf_file = 1;
+}
+
+static INLINE int IsSetRotatePerfFileFlag(void)
+{
+    return perfmon_rotate_perf_file;
+}
+
+static INLINE void ClearRotatePerfFileFlag(void)
+{
+    perfmon_rotate_perf_file = 0;
+}
 
 #endif

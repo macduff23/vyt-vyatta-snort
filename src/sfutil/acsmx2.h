@@ -46,7 +46,7 @@
    #define AC32
 */
 
-/* #define AC32 */
+#define AC32
 
 #ifdef AC32
 
@@ -62,7 +62,7 @@ typedef    unsigned short acstate_t;
 
 typedef struct _acsm_userdata2
 {
-    u_int32_t ref_count;
+    uint32_t ref_count;
     void *id;
 
 } ACSM_USERDATA2;
@@ -200,5 +200,6 @@ void acsmPrintInfo2( ACSM_STRUCT2 * p);
 int acsmPrintDetailInfo2(ACSM_STRUCT2*);
 int acsmPrintSummaryInfo2(void);
 void acsmx2_print_qinfo(void);
+void acsm_init_summary(void);
 
 #endif

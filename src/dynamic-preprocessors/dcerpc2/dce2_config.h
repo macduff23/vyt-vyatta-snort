@@ -31,7 +31,10 @@
 #include "dce2_list.h"
 #include "sf_types.h"
 #include "sf_ip.h"
+#include "sfrt.h"
 #include "sf_snort_packet.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 /********************************************************************
  * Macros
@@ -60,6 +63,8 @@
 
 #define DCE2_PORTS__MAX  (UINT16_MAX + 1)
 #define DCE2_PORTS__MAX_INDEX  (DCE2_PORTS__MAX / 8)
+
+#define DCE2_MEMCAP__DEFAULT  (100 * 1024)  /* 100 MB */
 
 /********************************************************************
  * Enumerations
@@ -233,11 +238,19 @@ typedef struct _DCE2_ServerConfig
 
 } DCE2_ServerConfig;
 
+typedef struct _DCE2_Config
+{
+    DCE2_GlobalConfig *gconfig;
+    DCE2_ServerConfig *dconfig;
+    table_t *sconfigs;
+    uint32_t ref_count;
+
+} DCE2_Config;
+
 /********************************************************************
  * Extern variables
  ********************************************************************/
-extern DCE2_GlobalConfig *dce2_gconfig;   /* Global configuration */
-extern DCE2_ServerConfig *dce2_dconfig;   /* Default server configuration */
+extern DCE2_Config *dce2_eval_config;
 
 /********************************************************************
  * Inline function prototypes
@@ -278,10 +291,10 @@ static INLINE DCE2_Ret DCE2_CheckAndSetMask(int, int *);
 /********************************************************************
  * Public function prototypes
  ********************************************************************/
-void DCE2_GlobalConfigure(char *);
-void DCE2_ServerConfigure(char *);
-void DCE2_CreateDefaultServerConfig(void);
-void DCE2_ScCheckTransports(void);
+void DCE2_GlobalConfigure(DCE2_Config *, char *);
+void DCE2_ServerConfigure(DCE2_Config *, char *);
+void DCE2_CreateDefaultServerConfig(DCE2_Config *, tSfPolicyId);
+void DCE2_ScCheckTransports(DCE2_Config *);
 const DCE2_ServerConfig * DCE2_ScGetConfig(const SFSnortPacket *);
 int DCE2_ScIsPortSet(const DCE2_ServerConfig *, const uint16_t, const DCE2_TransType);
 int DCE2_ScIsDetectPortSet(const DCE2_ServerConfig *, const uint16_t, const DCE2_TransType);
@@ -292,6 +305,8 @@ DCE2_Ret DCE2_GetValue(char *, char *, void *, int, DCE2_IntType, uint8_t);
 DCE2_Ret DCE2_ParseIpList(char **, char *, DCE2_Queue *);
 DCE2_Ret DCE2_ParseIp(char **, char *, sfip_t *);
 DCE2_Ret DCE2_ParsePortList(char **, char *, uint8_t *);
+void DCE2_FreeConfigs(tSfPolicyUserContextId config);
+void DCE2_FreeConfig(DCE2_Config *);
 
 /********************************************************************
  * Function: DCE2_GcMemcap()
@@ -308,7 +323,7 @@ DCE2_Ret DCE2_ParsePortList(char **, char *, uint8_t *);
  ********************************************************************/
 static INLINE uint32_t DCE2_GcMemcap(void)
 {
-    return dce2_gconfig->memcap;
+    return dce2_eval_config->gconfig->memcap;
 }
 
 /********************************************************************
@@ -327,7 +342,7 @@ static INLINE uint32_t DCE2_GcMemcap(void)
  ********************************************************************/
 static INLINE int DCE2_GcMaxFrag(void)
 {
-    if (dce2_gconfig->max_frag_len != DCE2_SENTINEL) return 1;
+    if (dce2_eval_config->gconfig->max_frag_len != DCE2_SENTINEL) return 1;
     return 0;
 }
 
@@ -349,7 +364,8 @@ static INLINE int DCE2_GcMaxFrag(void)
  ********************************************************************/
 static INLINE uint16_t DCE2_GcMaxFragLen(void)
 {
-    if (DCE2_GcMaxFrag()) return (uint16_t)dce2_gconfig->max_frag_len;
+    if (DCE2_GcMaxFrag())
+        return (uint16_t)dce2_eval_config->gconfig->max_frag_len;
     return UINT16_MAX;
 }
 
@@ -372,7 +388,7 @@ static INLINE uint16_t DCE2_GcMaxFragLen(void)
  ********************************************************************/
 static INLINE int DCE2_GcAlertOnEvent(DCE2_EventFlag eflag)
 {
-    return dce2_gconfig->event_mask & eflag;
+    return dce2_eval_config->gconfig->event_mask & eflag;
 }
 
 /********************************************************************
@@ -393,7 +409,7 @@ static INLINE int DCE2_GcAlertOnEvent(DCE2_EventFlag eflag)
  ********************************************************************/
 static INLINE DCE2_CS DCE2_GcDceDefrag(void)
 {
-    return dce2_gconfig->dce_defrag;
+    return dce2_eval_config->gconfig->dce_defrag;
 }
 
 /********************************************************************
@@ -412,7 +428,8 @@ static INLINE DCE2_CS DCE2_GcDceDefrag(void)
  ********************************************************************/
 static INLINE int DCE2_GcReassembleEarly(void)
 {
-    if (dce2_gconfig->reassemble_threshold > 0) return 1;
+    if (dce2_eval_config->gconfig->reassemble_threshold > 0)
+        return 1;
     return 0;
 }
 
@@ -434,7 +451,8 @@ static INLINE int DCE2_GcReassembleEarly(void)
  ********************************************************************/
 static INLINE uint16_t DCE2_GcReassembleThreshold(void)
 {
-    if (DCE2_GcReassembleEarly()) return dce2_gconfig->reassemble_threshold;
+    if (DCE2_GcReassembleEarly())
+        return dce2_eval_config->gconfig->reassemble_threshold;
     return UINT16_MAX;
 }
 

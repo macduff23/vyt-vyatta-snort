@@ -31,7 +31,6 @@
 #ifndef __SMTP_CONFIG_H__
 #define __SMTP_CONFIG_H__
 
-
 #define CONF_SEPARATORS                  " \t\n\r"
 #define CONF_PORTS                       "ports"
 #define CONF_INSPECTION_TYPE             "inspection_type"
@@ -79,6 +78,28 @@
 
 #define ERRSTRLEN   512
 
+typedef struct _SMTPSearch
+{
+    char *name;
+    int   name_len;
+
+} SMTPSearch;
+
+typedef struct _SMTPToken
+{
+    char *name;
+    int   name_len;
+    int   search_id;
+
+} SMTPToken;
+
+typedef struct _SMTPCmdConfig
+{
+    char alert;          /*  1 if alert when seen                          */
+    char normalize;      /*  1 if we should normalize this command         */
+    int  max_line_len;   /*  Max length of this particular command         */
+
+} SMTPCmdConfig;
 
 typedef struct _SMTPConfig
 {
@@ -95,21 +116,18 @@ typedef struct _SMTPConfig
     char  alert_xlink2state;
     char  drop_xlink2state;
     char  print_cmds;    
+    SMTPToken *cmds;
+    SMTPCmdConfig *cmd_config;
+    SMTPSearch *cmd_search;
+    void *cmd_search_mpse;
+    int num_cmds;
+
+    int ref_count;
 
 } SMTPConfig;
 
-typedef struct _SMTPCmdConfig
-{
-    char alert;          /*  1 if alert when seen                          */
-    char normalize;      /*  1 if we should normalize this command         */
-    int  max_line_len;   /*  Max length of this particular command         */
-
-} SMTPCmdConfig;
-
-
 /* Function prototypes  */
-void SMTP_ParseArgs(char *);
-
+void SMTP_ParseArgs(SMTPConfig *, char *);
 
 #endif
 

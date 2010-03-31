@@ -25,7 +25,6 @@
 
 #include <sys/types.h>
 
-void UnifiedSetup();
-int UnifiedLogData(u_int32_t type, u_int32_t length, void *data);
+void UnifiedSetup(void);
 
 #endif  /* __SPO_UNIFIED_H__ */

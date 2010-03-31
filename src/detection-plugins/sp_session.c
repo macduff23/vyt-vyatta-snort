@@ -100,9 +100,9 @@ int LogSessionData(void *option_data, Packet *p);
 void DumpSessionData(FILE *, Packet *, SessionData *);
 FILE *OpenSessionFile(Packet *);
 
-u_int32_t SessionHash(void *d)
+uint32_t SessionHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     SessionData *data = (SessionData *)d;
 
     a = data->session_flag;
@@ -145,7 +145,7 @@ int SessionCompare(void *l, void *r)
 void SetupSession(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("session", SessionInit, NULL, OPT_TYPE_LOGGING);
+    RegisterRuleOption("session", SessionInit, NULL, OPT_TYPE_LOGGING);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("session", &sessionPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -225,7 +225,7 @@ void SessionInit(char *data, OptTreeNode *otn, int protocol)
 void ParseSession(char *data, OptTreeNode *otn)
 {
     SessionData *ds_ptr;  /* data struct pointer */
-    void *ds_ptr_dup;
+    //void *ds_ptr_dup;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -255,11 +255,13 @@ void ParseSession(char *data, OptTreeNode *otn)
 
     FatalError("%s(%d): invalid session modifier: %s\n", file_name, file_line, data);
 
+#if 0
     if (add_detection_option(RULE_OPTION_TYPE_SESSION, (void *)ds_ptr, &ds_ptr_dup) == DETECTION_OPTION_EQUAL)
     {
         free(ds_ptr);
         ds_ptr = otn->ds_list[PLUGIN_SESSION] = ds_ptr_dup;
     }
+#endif
 }
 
 
@@ -383,47 +385,47 @@ FILE *OpenSessionFile(Packet *p)
 #ifdef SUP_IP6
     dst = GET_DST_IP(p);
     src = GET_SRC_IP(p);
-    if(sfip_contains(&pv.homenet, dst) == SFIP_CONTAINS) {
-        if(sfip_contains(&pv.homenet, src) == SFIP_NOT_CONTAINS)
+    if(sfip_contains(&snort_conf->homenet, dst) == SFIP_CONTAINS) {
+        if(sfip_contains(&snort_conf->homenet, src) == SFIP_NOT_CONTAINS)
 #else
-    if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
+    if((p->iph->ip_dst.s_addr & snort_conf->netmask) == snort_conf->homenet)
     {
-        if((p->iph->ip_src.s_addr & pv.netmask) != pv.homenet)
+        if((p->iph->ip_src.s_addr & snort_conf->netmask) != snort_conf->homenet)
 #endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_SRC_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }
     else
     {
 #ifdef SUP_IP6
-        if(sfip_contains(&pv.homenet, src) == SFIP_CONTAINS)
+        if(sfip_contains(&snort_conf->homenet, src) == SFIP_CONTAINS)
 #else
-        if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
+        if((p->iph->ip_src.s_addr & snort_conf->netmask) == snort_conf->homenet)
 #endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_DST_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_SRC_ADDR(p)));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, inet_ntoa(GET_DST_ADDR(p)));
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, inet_ntoa(GET_DST_ADDR(p)));
             }
         }
     }

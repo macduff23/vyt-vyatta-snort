@@ -126,6 +126,13 @@
 116 || 163 || snort_decoder: WARNING: Invalid GRE v.0 header
 116 || 164 || snort_decoder: WARNING: Invalid GRE v.1 PPTP header
 116 || 165 || snort_decoder: WARNING: GRE Trans header length > payload length
+116 || 170 || snort_decoder: Bad MPLS Frame
+116 || 171 || snort_decoder: MPLS Label 0 Appears in Nonbottom Header
+116 || 172 || snort_decoder: MPLS Label 1 Appears in Bottom Header
+116 || 173 || snort_decoder: MPLS Label 2 Appears in Nonbottom Header
+116 || 174 || snort_decoder: Bad use of label 3
+116 || 175 || snort_decoder:  MPLS Label 4, 5,.. or 15 Appears in Header
+116 || 176 || snort_decoder:  Too Many MPLS headers
 116 || 250 || snort_decoder: WARNING: ICMP Original IP Header Truncated!
 116 || 251 || snort_decoder: WARNING: ICMP Original IP Header Not IPv4!
 116 || 252 || snort_decoder: WARNING: ICMP Original Datagram Length < Original IP Header Length!
@@ -139,6 +146,12 @@
 116 || 274 || snort_decoder: WARNING: IPV6 dgm len < IPV6 Hdr len!
 116 || 275 || snort_decoder: WARNING: IPV6 dgm len > captured len!
 116 || 291 || snort_decoder: IPV6 tunneled over IPv4, IPv6 header truncated, possible Linux Kernel attack
+116 || 400 || snort_decoder: WARNING: XMAS Attack Detected!
+116 || 401 || snort_decoder: WARNING: Nmap XMAS Attack Detected!
+116 || 402 || snort_decoder: DOS NAPTHA Vulnerability Detected!
+116 || 403 || snort_decoder: Bad Traffic SYN to multicast address
+116 || 404 || snort_decoder: WARNING: IPV4 packet with zero TTL
+116 || 405 || snort_decoder: WARNING: IPV4 packet with bad frag bits (Both MF and DF set)
 117 || 1 || spp_portscan2: Portscan detected!
 118 || 1 || spp_conversation: Bad IP protocol!
 119 || 1 || http_inspect: ASCII ENCODING
@@ -160,6 +173,7 @@
 119 || 17 || http_inspect: UNAUTHORIZED PROXY USE DETECTED
 119 || 18 || http_inspect: WEBROOT DIRECTORY TRAVERSAL
 119 || 19 || http_inspect: LONG HEADER
+119 || 21 || http_inspect: MULTIPLE CONTENT LENGTH HEADER FIELDS
 120 || 1 || http_inspect: ANOMALOUS HTTP SERVER ON UNDEFINED HTTP PORT
 121 || 1 || flow-portscan: Fixed Scale Scanner Limit Exceeded
 121 || 2 || flow-portscan: Sliding Scale Scanner Limit Exceeded
@@ -203,6 +217,8 @@
 123 || 9 || frag3: IPv6 BSD mbufs remote kernel buffer overflow
 123 || 10 || frag3: Bogus fragmentation packet. Possible BSD attack
 123 || 11 || frag3: TTL value less than configured minimum, not using for reassembly
+123 || 12 || frag3: Number of overlapping fragments exceed configured limit
+123 || 13 || frag3: Fragments smaller than configured min_fragment_length
 124 || 1 || smtp: Attempted command buffer overflow
 124 || 2 || smtp: Attempted data header buffer overflow
 124 || 3 || smtp: Attempted response buffer overflow
@@ -210,6 +226,7 @@
 124 || 5 || smtp: Unknown command
 124 || 6 || smtp: Illegal command
 124 || 7 || smtp: Attempted header name buffer overflow
+124 || 8 || smtp: Attempted X-Link2State command buffer overflow
 125 || 1 || ftp_pp: Telnet command on FTP command channel
 125 || 2 || ftp_pp: Invalid FTP command
 125 || 3 || ftp_pp: FTP parameter length overflow
@@ -290,3 +307,6 @@
 133 || 43 || dcerpc2: Connectionless DCE/RPC - Bad sequence number
 134 || 1 || ppm: rule tree disabled
 134 || 2 || ppm: rule tree enabled
+135 || 1 || internal: syn received
+135 || 2 || internal: session established
+135 || 3 || internal: session cleared

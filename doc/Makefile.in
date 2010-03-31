@@ -203,6 +203,7 @@ README.decode \
 README.decoder_preproc_rules \
 README.dns \
 README.event_queue \
+README.filters \
 README.FLEXRESP \
 README.FLEXRESP2 \
 README.flowbits \
@@ -213,10 +214,12 @@ README.http_inspect \
 README.INLINE \
 README.ipip \
 README.ipv6 \
+README.multipleconfigs \
 README.pcap_readmode \
 README.PerfProfiling \
 README.PLUGINS \
 README.ppm \
+README.reload \
 README.sfportscan \
 README.SMTP \
 README.ssh \

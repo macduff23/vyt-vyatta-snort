@@ -98,7 +98,7 @@
  * should both match the ones specified in the
  * AM_INIT_AUTOMAKE() macro of configure.in
  */
-#define VERSION "2.8.4.1"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
+#define VERSION "2.8.5.2"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
 #define PACKAGE "snort"
 
 #define IFNAMSIZ   255
@@ -209,7 +209,7 @@ enum msg_type {
     REPLY=1
 };
 
-
+typedef unsigned long mode_t;
 
 struct timezone {
         int     tz_minuteswest; /* minutes west of Greenwich */
@@ -273,14 +273,16 @@ int   init_winsock(void);
 
 
 #if defined(ENABLE_WIN32_SERVICE)
-    #define SERVICE_CMDLINE_PARAM            "/SERVICE"
-    #define SERVICE_INSTALL_CMDLINE_PARAM    "/INSTALL"
-    #define SERVICE_UNINSTALL_CMDLINE_PARAM  "/UNINSTALL"
-    #define SERVICE_SHOW_CMDLINE_PARAM       "/SHOW"
-
-    int   SnortServiceMain(int argc, char* argv[]);
+#define SERVICE_CMDLINE_PARAM            "/SERVICE"
+#define SERVICE_INSTALL_CMDLINE_PARAM    "/INSTALL"
+#define SERVICE_UNINSTALL_CMDLINE_PARAM  "/UNINSTALL"
+#define SERVICE_SHOW_CMDLINE_PARAM       "/SHOW"
+int   SnortServiceMain(int argc, char* argv[]);
 #endif  /* ENABLE_WIN32_SERVICE */
 
+#ifndef S_IFIFO
+#define S_IFIFO _S_IFIFO
+#endif
 
 #endif /* __CONFIG_H__ */
 

@@ -74,8 +74,6 @@ Snort \- open source network intrusion detection system
 .I file
 .B ] [--dynamic-preprocessor-lib-dir
 .I directory
-.B ] [--dump-dynamic-preproc-genmsg
-.I directory
 .B ] [--alert-before-pass
 .B ] [--treat-drop-as-alert
 .B ] [--process-all-events
@@ -271,10 +269,6 @@ Process
 packets and exit.
 .IP -N
 Turn off packet logging.  The program still generates alerts normally.
-.IP -o
-Change the order in which the rules are applied to packets.  Instead of being
-applied in the standard Alert->Pass->Log order, this will apply them in 
-Pass->Alert->Log order.
 .IP -O
 Obfuscate the IP addresses when in ASCII packet dump mode.  This switch changes
 the IP addresses that get printed to the screen/log file to "xxx.xxx.xxx.xxx".
@@ -382,9 +376,6 @@ must be included in snort.conf.
 Load a dynamic preprocessor shared library specified by file.
 .IP "--dynamic-preprocessor-lib-dir directory"
 Load all dynamic preprocessor shared libraries specified from directory.
-.IP "--dump-dynamic-preproc-genmsg directory"
-Create gen-msg.map files from all loaded dynamic preprocessor libraries.
-Files will be created in directory.  
 .IP "--alert-before-pass"
 Process alert, drop, sdrop, or reject before pass.
 Default is pass before alert, drop, etc.

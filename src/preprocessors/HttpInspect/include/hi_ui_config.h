@@ -39,6 +39,7 @@
 #include "sfrt.h"
 #include "ipv6_port.h"
 #include "sf_ip.h"
+#include "sfPolicy.h"
 
 /*
 **  Defines
@@ -59,7 +60,7 @@
 
 /**Maximum number of entries in server_lookup table.
 */
-#define HI_UI_CONFIG_MAX_SERVERS  41
+#define HI_UI_CONFIG_MAX_SERVERS 1025
 
 /**
 **  Defines a search type for the server configurations in the
@@ -100,7 +101,7 @@ typedef enum e_PROFILES
 typedef struct s_HTTPINSPECT_CONF
 {
     int  port_count;
-    char ports[65536];
+    char ports[MAXPORTS_STORAGE];
     int  server_flow_depth;
     int  client_flow_depth;
     int  post_depth;
@@ -216,14 +217,12 @@ typedef struct s_HTTPINSPECT_GLOBAL_CONF
     char             *iis_unicode_map_filename;
     int              iis_unicode_codepage;
 
-    HTTPINSPECT_CONF global_server;
+    HTTPINSPECT_CONF *global_server;
     SERVER_LOOKUP    *server_lookup;
-    SERVER_LOOKUP    *server_lookupIpv6;
 
-#ifdef TARGET_BASED
-    /* Store the protocol id received from the stream reassembler */
-    int16_t app_protocol_id;
-#endif
+    int hex_lookup[256];
+    int valid_lookup[256];
+
 
 }  HTTPINSPECT_GLOBAL_CONF;    
 
@@ -231,7 +230,7 @@ typedef struct s_HTTPINSPECT_GLOBAL_CONF
 **  Functions
 */
 int hi_ui_config_init_global_conf(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
-int hi_ui_config_default(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
+int hi_ui_config_default(HTTPINSPECT_CONF *GlobalConf);
 int hi_ui_config_reset_global(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
 int hi_ui_config_reset_server(HTTPINSPECT_CONF *ServerConf);
 

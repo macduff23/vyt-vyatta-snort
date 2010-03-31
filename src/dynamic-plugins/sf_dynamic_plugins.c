@@ -40,25 +40,22 @@
 #include <dlfcn.h>
 #include <fnmatch.h>
 #if defined(HPUX)
-#define EXT "*.sl"
-#elif defined(MACOS)
-#define EXT "*.dylib"
-#elif defined(OPENBSD)
-#define EXT "*.so"
-#define EXT2 "*.so.*"
+#define MODULE_EXT "*.sl"
 #else
-#define EXT "*.so"
+#define MODULE_EXT "*.so*"
 #endif
 typedef void * PluginHandle;
 #else /* !WIN32 */
 #include <windows.h>
-#define EXT "dll"
+#define MODULE_EXT "dll"
 typedef HANDLE PluginHandle;
 /* Of course, WIN32 couldn't do things the unix way...
  * Define a few of these to get around portability issues.
  */
 #define getcwd _getcwd  
+#ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
+#endif
 #endif /* !WIN32 */
 
 #include <errno.h>
@@ -92,6 +89,8 @@ extern HttpUri UriBufs[URI_COUNT]; /* detect.c */
 #include "target-based/sftarget_reader.h"
 #endif
 
+extern SnortConfig *snort_conf;
+extern SnortConfig *snort_conf_for_parsing;
 
 #ifndef DEBUG
 char *no_file = "unknown";
@@ -134,6 +133,14 @@ typedef struct _DynamicPreprocessorPlugin
     struct _DynamicPreprocessorPlugin *prev;
 } DynamicPreprocessorPlugin;
 
+typedef struct _LoadableModule
+{
+    char *prefix;
+    char *name;
+    struct _LoadableModule *next;
+
+} LoadableModule;
+
 static DynamicPreprocessorPlugin *loadedPreprocessorPlugins = NULL;
 
 void CloseDynamicLibrary(PluginHandle handle)
@@ -148,17 +155,20 @@ void CloseDynamicLibrary(PluginHandle handle)
 #define NONFATAL 0
 #define FATAL 1
 
-void *getSymbol(PluginHandle handle, char *symbol, DynamicPluginMeta *meta, int fatal)
+typedef void (*dlsym_func)(void);
+
+static dlsym_func getSymbol(
+    PluginHandle handle, char *symbol, DynamicPluginMeta *meta, int fatal)
 {
-    void *symbolPtr = NULL;
+    dlsym_func symbolPtr = NULL;
 
     if (!handle)
         return symbolPtr;
 
 #ifndef WIN32
-    symbolPtr = dlsym(handle, symbol);
+    symbolPtr = (dlsym_func)dlsym(handle, symbol);
 #else
-    symbolPtr = GetProcAddress(handle, symbol);
+    symbolPtr = (dlsym_func)GetProcAddress(handle, symbol);
 #endif
 
     if (!symbolPtr)
@@ -204,7 +214,7 @@ PluginHandle openDynamicLibrary(char *library_name, int useGlobal)
 {
     PluginHandle handle;
 #ifndef WIN32
-    handle = dlopen(library_name, RTLD_NOW | (useGlobal ? RTLD_GLOBAL: 0));
+    handle = dlopen(library_name, RTLD_NOW | (useGlobal ? RTLD_GLOBAL : RTLD_LOCAL));
 #else
     handle = LoadLibrary(library_name);
 #endif
@@ -223,45 +233,112 @@ void LoadAllLibs(char *path, LoadLibraryFunc loadFunc)
 {
 #ifndef WIN32
     char path_buf[PATH_MAX];
-    struct dirent *dirEntry;
+    struct dirent *dir_entry;
     DIR *directory;
     int  count = 0;
+    LoadableModule *modules = NULL;
 
     directory = opendir(path);
-    if (directory)
+    if (directory != NULL)
     {
-        dirEntry = readdir(directory);
-        while (dirEntry)
+        dir_entry = readdir(directory);
+        while (dir_entry != NULL)
         {
-            if (dirEntry->d_reclen &&
-                !fnmatch(EXT, dirEntry->d_name, FNM_PATHNAME | FNM_PERIOD))
+            if ((dir_entry->d_reclen != 0) &&
+                (fnmatch(MODULE_EXT, dir_entry->d_name, FNM_PATHNAME | FNM_PERIOD) == 0))
             {
-                SnortSnprintf(path_buf, PATH_MAX, "%s%s%s", path, "/", dirEntry->d_name);
-                loadFunc(path_buf, 1);
-                count++;
-            }
-            dirEntry = readdir(directory);
-        }
-        closedir(directory);
-#ifdef OPENBSD
-        directory = opendir(path);
-        if (directory)
-        {
-            dirEntry = readdir(directory);
-            while (dirEntry)
-            {
-                if (dirEntry->d_reclen &&
-                    !fnmatch(EXT2, dirEntry->d_name, FNM_PATHNAME | FNM_PERIOD))
+                /* Get the string up until the first dot.  This will be
+                 * considered the file prefix. */
+                char *dot = strchr(dir_entry->d_name, '.');
+
+                if (dot != NULL)
                 {
-                    SnortSnprintf(path_buf, PATH_MAX, "%s%s%s", path, "/", dirEntry->d_name);
-                    loadFunc(path_buf, 1);
-                    count++;
+                    size_t len = (size_t)(dot - dir_entry->d_name);  // len >= 0
+                    LoadableModule *tmp = modules;
+                    LoadableModule *prev = NULL;
+
+                    while (tmp != NULL)
+                    {
+                        /* Make sure the prefix lengths are the same */
+                        if (strlen(tmp->prefix) == len)
+                        {
+                            /* And make sure they are the same string */
+                            if (strncmp(tmp->prefix, dir_entry->d_name, len) == 0)
+                            {
+                                /* Take the shorter, since the longer probably
+                                 * has version information and the shorter ones
+                                 * are generally links to the most recent
+                                 * version, e.g.
+                                 * libsf_engine.so.0.0.0
+                                 * libsf_engine.so.0 -> libsf_engine.so.0.0.0
+                                 * libsf_engine.so   -> libsf_engine.so.0.0.0
+                                 * Mac seems to do
+                                 * libsf_engine.0.so
+                                 * libsf_engine.0.0.0.so -> libsf_engine.0.so
+                                 * libsf_engine.so       -> libsf_engine.0.so
+                                 * We don't want to load the same same thing
+                                 * more than once. */
+                                if (strlen(dir_entry->d_name) < strlen(tmp->name))
+                                {
+                                    /* There will be enough space since at
+                                     * least the longer of the two will have
+                                     * been allocated */
+                                    strcpy(tmp->name, dir_entry->d_name);
+                                }
+
+                                break;
+                            }
+                        }
+
+                        prev = tmp;
+                        tmp = tmp->next;
+                    }
+
+                    if (tmp == NULL)
+                    {
+                        tmp = SnortAlloc(sizeof(LoadableModule));
+
+                        /* include NULL byte */
+                        tmp->prefix = SnortAlloc(len + 1);
+                        /* will be NULL terminated because SnortAlloc uses calloc */
+                        strncpy(tmp->prefix, dir_entry->d_name, len);
+
+                        /* include NULL byte */
+                        tmp->name = SnortAlloc(strlen(dir_entry->d_name) + 1);
+                        /* will be NULL terminated because SnortAlloc uses calloc */
+                        strncpy(tmp->name, dir_entry->d_name, strlen(dir_entry->d_name));
+
+                        tmp->next = NULL;
+
+                        if (modules == NULL)
+                            modules = tmp;
+                        else if (prev != NULL)
+                            prev->next = tmp;
+                    }
                 }
-                dirEntry = readdir(directory);
             }
+
+            dir_entry = readdir(directory);
         }
+
         closedir(directory);
-#endif
+
+        while (modules != NULL)
+        {
+            LoadableModule *tmp = modules;
+
+            SnortSnprintf(path_buf, PATH_MAX, "%s%s%s", path, "/", modules->name);
+            loadFunc(path_buf, 1);
+            count++;
+
+            modules = modules->next;
+
+            /* These will all have been allocated together */
+            free(tmp->prefix);
+            free(tmp->name);
+            free(tmp);
+        }
+
         if ( count == 0 )
         {
             LogMessage("Warning: No dynamic libraries found in directory %s!\n", path);
@@ -294,7 +371,7 @@ void LoadAllLibs(char *path, LoadLibraryFunc loadFunc)
     {
         /* A directory was specified with trailing dir character */
         _splitpath(path_buf, drive, dir, fname, ext);
-        _makepath(path_buf, drive, dir, "*", EXT);
+        _makepath(path_buf, drive, dir, "*", MODULE_EXT);
         directory = &dir[0];
         useDrive = 1;
     }
@@ -305,7 +382,7 @@ void LoadAllLibs(char *path, LoadLibraryFunc loadFunc)
         {
             FatalError("Improperly formatted directory name: %s\n", path);
         }
-        _makepath(path_buf, "", path_buf, "*", EXT);
+        _makepath(path_buf, "", path_buf, "*", MODULE_EXT);
         directory = path;
     }
 
@@ -349,7 +426,7 @@ void AddEnginePlugin(PluginHandle handle,
     }
 
     memcpy(&(newPlugin->metaData), meta, sizeof(DynamicPluginMeta));
-    newPlugin->metaData.libraryPath = strdup(meta->libraryPath);
+    newPlugin->metaData.libraryPath = SnortStrdup(meta->libraryPath);
     newPlugin->initFunc = initFunc;
     newPlugin->versCheck = compatFunc;
 }
@@ -372,23 +449,25 @@ void RemoveEnginePlugin(DynamicEnginePlugin *plugin)
             plugin->next->prev = plugin->prev;
     }
     CloseDynamicLibrary(plugin->handle);
+    if (plugin->metaData.libraryPath != NULL)
+        free(plugin->metaData.libraryPath);
     free(plugin);
 }
 
-int ValidateDynamicEngines()
+int ValidateDynamicEngines(void)
 {
     int testNum = 0;
     DynamicEnginePlugin *curPlugin = loadedEngines;
     CompatibilityFunc versFunc = NULL;
 	
-    while( (void *)curPlugin != NULL)
+    while( curPlugin != NULL)
     {
         versFunc = (CompatibilityFunc)curPlugin->versCheck;
         /* if compatibility checking func is absent, skip validating */
-        if( (void *)versFunc != NULL)
+        if( versFunc != NULL)
         {
             DynamicDetectionPlugin *lib = loadedDetectionPlugins;
-            while( (void *)lib != NULL)
+            while( lib != NULL)
             {				
                 if (lib->metaData.type == TYPE_DETECTION)					
                 {
@@ -396,7 +475,7 @@ int ValidateDynamicEngines()
                     DynamicPluginMeta reqEngineMeta;
 					            
                     engineFunc = (RequiredEngineLibFunc) getSymbol(lib->handle, "EngineVersion", &(lib->metaData), 1);
-                    if( (void *)engineFunc != NULL)
+                    if( engineFunc != NULL)
                     {
                         engineFunc(&reqEngineMeta);
                     }
@@ -470,23 +549,24 @@ void LoadAllDynamicEngineLibs(char *path)
     LogMessage("  Finished Loading all dynamic engine libs from %s\n", path);
 }
 
-void CloseDynamicEngineLibs()
+void CloseDynamicEngineLibs(void)
 {
     DynamicEnginePlugin *tmpplugin, *plugin = loadedEngines;
     while (plugin)
     {
         tmpplugin = plugin->next;
-        if (!(plugin->metaData.type & TYPE_DETECTION))
-        {
+        //if (!(plugin->metaData.type & TYPE_DETECTION))
+        //{
             CloseDynamicLibrary(plugin->handle);
             free(plugin->metaData.libraryPath);
             free(plugin);
-        }
-        else
-        {
-            /* NOP, handle will be closed when we close the DetectionLib */
-            ;
-        }
+        //}
+        //else
+        //{
+        //  HUH?
+        //    /* NOP, handle will be closed when we close the DetectionLib */
+        //    ;
+        //}
         plugin = tmpplugin;
     }
     loadedEngines = NULL;
@@ -510,6 +590,8 @@ void RemovePreprocessorPlugin(DynamicPreprocessorPlugin *plugin)
             plugin->next->prev = plugin->prev;
     }
     CloseDynamicLibrary(plugin->handle);
+    if (plugin->metaData.libraryPath != NULL)
+        free(plugin->metaData.libraryPath);
     free(plugin);
 }
 
@@ -533,7 +615,7 @@ void AddPreprocessorPlugin(PluginHandle handle,
     }
 
     memcpy(&(newPlugin->metaData), meta, sizeof(DynamicPluginMeta));
-    newPlugin->metaData.libraryPath = strdup(meta->libraryPath);
+    newPlugin->metaData.libraryPath = SnortStrdup(meta->libraryPath);
     newPlugin->initFunc = initFunc;
 }
 
@@ -557,7 +639,7 @@ void AddDetectionPlugin(PluginHandle handle,
     }
 
     memcpy(&(newPlugin->metaData), meta, sizeof(DynamicPluginMeta));
-    newPlugin->metaData.libraryPath = strdup(meta->libraryPath);
+    newPlugin->metaData.libraryPath = SnortStrdup(meta->libraryPath);
     newPlugin->initFunc = initFunc;
 }
 
@@ -584,6 +666,8 @@ void RemoveDetectionPlugin(DynamicDetectionPlugin *plugin)
             plugin->metaData.minor,
             plugin->metaData.build);
     CloseDynamicLibrary(plugin->handle);
+    if (plugin->metaData.libraryPath != NULL)
+        free(plugin->metaData.libraryPath);
     free(plugin);
 }
 
@@ -635,7 +719,7 @@ int LoadDynamicDetectionLib(char *library_name, int indent)
     return 0;
 }
 
-void CloseDynamicDetectionLibs()
+void CloseDynamicDetectionLibs(void)
 {
     DynamicDetectionPlugin *tmpplugin, *plugin = loadedDetectionPlugins;
     while (plugin)
@@ -656,7 +740,7 @@ void LoadAllDynamicDetectionLibs(char *path)
     LogMessage("  Finished Loading all dynamic detection libs from %s\n", path);
 }
 
-void LoadAllDynamicDetectionLibsCurrPath()
+void LoadAllDynamicDetectionLibsCurrPath(void)
 {
     char path_buf[PATH_MAX];
     char *ret = NULL;
@@ -672,7 +756,7 @@ void LoadAllDynamicDetectionLibsCurrPath()
     LoadAllDynamicDetectionLibs(path_buf);
 }
 
-void RemoveDuplicateEngines()
+void RemoveDuplicateEngines(void)
 {
     int removed = 0;
     DynamicEnginePlugin *engine1;
@@ -738,7 +822,7 @@ void RemoveDuplicateEngines()
     } while (removed);
 }
 
-void RemoveDuplicateDetectionPlugins()
+void RemoveDuplicateDetectionPlugins(void)
 {
     int removed = 0;
     DynamicDetectionPlugin *lib1 = NULL;
@@ -804,7 +888,7 @@ void RemoveDuplicateDetectionPlugins()
     } while (removed);
 }
 
-void RemoveDuplicatePreprocessorPlugins()
+void RemoveDuplicatePreprocessorPlugins(void)
 {
     int removed = 0;
     DynamicPreprocessorPlugin *pp1 = NULL;
@@ -870,7 +954,7 @@ void RemoveDuplicatePreprocessorPlugins()
     } while (removed);
 }
 
-void VerifyDetectionPluginRequirements()
+void VerifyDetectionPluginRequirements(void)
 {
     DynamicDetectionPlugin *lib1 = NULL;
 
@@ -993,34 +1077,32 @@ void *pcreStudy(const void *code, int options, const char **errptr)
 
     extra_extra = pcre_study((const pcre*)code, 0, errptr);
 
-#define SNORT_PCRE_MATCH_LIMIT pv.pcre_match_limit
-#define SNORT_PCRE_MATCH_LIMIT_RECURSION pv.pcre_match_limit_recursion
     if (extra_extra)
     {
-        if ((SNORT_PCRE_MATCH_LIMIT != -1) && !(snort_options & SNORT_PCRE_OVERRIDE_MATCH_LIMIT))
+        if ((ScPcreMatchLimit() != -1) && !(snort_options & SNORT_PCRE_OVERRIDE_MATCH_LIMIT))
         {
             if (extra_extra->flags & PCRE_EXTRA_MATCH_LIMIT)
             {
-                extra_extra->match_limit = SNORT_PCRE_MATCH_LIMIT;
+                extra_extra->match_limit = ScPcreMatchLimit();
             }
             else
             {
                 extra_extra->flags |= PCRE_EXTRA_MATCH_LIMIT;
-                extra_extra->match_limit = SNORT_PCRE_MATCH_LIMIT;
+                extra_extra->match_limit = ScPcreMatchLimit();
             }
         }
 
 #ifdef PCRE_EXTRA_MATCH_LIMIT_RECURSION
-        if ((SNORT_PCRE_MATCH_LIMIT_RECURSION != -1) && !(snort_options & SNORT_PCRE_OVERRIDE_MATCH_LIMIT))
+        if ((ScPcreMatchLimitRecursion() != -1) && !(snort_options & SNORT_PCRE_OVERRIDE_MATCH_LIMIT))
         {
             if (extra_extra->flags & PCRE_EXTRA_MATCH_LIMIT_RECURSION)
             {
-                extra_extra->match_limit_recursion = SNORT_PCRE_MATCH_LIMIT_RECURSION;
+                extra_extra->match_limit_recursion = ScPcreMatchLimitRecursion();
             }
             else
             {
                 extra_extra->flags |= PCRE_EXTRA_MATCH_LIMIT_RECURSION;
-                extra_extra->match_limit_recursion = SNORT_PCRE_MATCH_LIMIT_RECURSION;
+                extra_extra->match_limit_recursion = ScPcreMatchLimitRecursion();
             }
         }
 #endif
@@ -1028,20 +1110,20 @@ void *pcreStudy(const void *code, int options, const char **errptr)
     else
     {
         if (!(snort_options & SNORT_PCRE_OVERRIDE_MATCH_LIMIT) &&
-            ((SNORT_PCRE_MATCH_LIMIT != -1) || (SNORT_PCRE_MATCH_LIMIT_RECURSION != -1)))
+            ((ScPcreMatchLimit() != -1) || (ScPcreMatchLimitRecursion() != -1)))
         {
             extra_extra = (pcre_extra *)SnortAlloc(sizeof(pcre_extra));
-            if (SNORT_PCRE_MATCH_LIMIT != -1)
+            if (ScPcreMatchLimit() != -1)
             {
                 extra_extra->flags |= PCRE_EXTRA_MATCH_LIMIT;
-                extra_extra->match_limit = SNORT_PCRE_MATCH_LIMIT;
+                extra_extra->match_limit = ScPcreMatchLimit();
             }
 
 #ifdef PCRE_EXTRA_MATCH_LIMIT_RECURSION
-            if (SNORT_PCRE_MATCH_LIMIT_RECURSION != -1)
+            if (ScPcreMatchLimitRecursion() != -1)
             {
                 extra_extra->flags |= PCRE_EXTRA_MATCH_LIMIT_RECURSION;
-                extra_extra->match_limit_recursion = SNORT_PCRE_MATCH_LIMIT_RECURSION;
+                extra_extra->match_limit_recursion = ScPcreMatchLimitRecursion();
             }
 #endif
         }
@@ -1050,12 +1132,13 @@ void *pcreStudy(const void *code, int options, const char **errptr)
     return extra_extra;
 }
 
-int pcreExec(const void *code, const void *extra, const char *subj, int len, int start, int options, int *ovec, int ovecsize)
+int pcreExec(const void *code, const void *extra, const char *subj,
+             int len, int start, int options, int *ovec, int ovecsize)
 {
     return pcre_exec((const pcre *)code, (const pcre_extra *)extra, subj, len, start, options, ovec, ovecsize);
 }
 
-int InitDynamicEngines()
+int InitDynamicEngines(char *dynamic_rules_path)
 {
     int i;
     DynamicEngineData engineData;
@@ -1070,13 +1153,16 @@ int InitDynamicEngines()
     engineData.flowbitCheck = &DynamicFlowbitCheck;
     engineData.asn1Detect = &DynamicAsn1Detect;
 
-    /* Pull this out of pv.dynamic_rules_path */
-    engineData.dataDumpDirectory = pv.dynamic_rules_path;
+    if (dynamic_rules_path != NULL)
+        engineData.dataDumpDirectory = SnortStrdup(dynamic_rules_path);
+    else
+        engineData.dataDumpDirectory = NULL;
+
     engineData.logMsg = &LogMessage;
     engineData.errMsg = &ErrorMessage;
     engineData.fatalMsg = &FatalError;
 
-    engineData.getPreprocOptFuncs = &GetPreprocessorRuleOptionFuncs;
+    engineData.preprocRuleOptInit = &DynamicPreprocRuleOptInit;
 
     engineData.setRuleData = &DynamicSetRuleData;
     engineData.getRuleData = &DynamicGetRuleData;
@@ -1124,16 +1210,16 @@ int InitDynamicPreprocessorPlugins(DynamicPreprocessorData *info)
 /* Do this to avoid exposing Packet & PreprocessFuncNode from
  * snort to non-GPL code */
 typedef void (*SnortPacketProcessFunc)(Packet *, void *);
-void *AddPreprocessor(void (*func)(void *, void *), unsigned short priority,
-                      unsigned int preproc_id, uint32_t proto_mask)
+void *AddPreprocessor(void (*func)(void *, void *), u_int16_t priority,
+                      u_int32_t preproc_id, u_int32_t proto_mask)
 {
     SnortPacketProcessFunc preprocessorFunc = (SnortPacketProcessFunc)func;
     return (void *)AddFuncToPreprocList(preprocessorFunc, priority, preproc_id, proto_mask);
 }
 
-void *AddPreprocessorCheck(void (*func)(void))
+void AddPreprocessorCheck(void (*func)(void))
 {
-    return (void *)AddFuncToConfigCheckList(func);
+    AddFuncToConfigCheckList(func);
 }
 
 void DynamicDisableDetection(void *p)
@@ -1151,14 +1237,14 @@ int DynamicDetect(void *p)
     return Detect((Packet *)p);
 }
 
-int DynamicSetPreprocessorBit(void *p, unsigned int preprocId)
+int DynamicSetPreprocessorBit(void *p, u_int32_t preprocId)
 {
     return SetPreprocBit((Packet *)p, preprocId);
 }
 
-int DynamicSetPreprocessorGetReassemblyPktBit(void *p, unsigned int preprocId)
+int DynamicSetPreprocessorReassemblyPktBit(void *p, u_int32_t preprocId)
 {
-    return SetPreprocGetReassemblyPktBit((Packet *)p, preprocId);
+    return SetPreprocReassemblyPktBit((Packet *)p, preprocId);
 }
 
 int DynamicDropInline(void *p)
@@ -1168,12 +1254,12 @@ int DynamicDropInline(void *p)
 
 void *DynamicGetRuleClassByName(char *name)
 {
-    return (void *)ClassTypeLookupByType(name);
+    return (void *)ClassTypeLookupByType(snort_conf, name);
 }
 
 void *DynamicGetRuleClassById(int id)
 {
-    return (void *)ClassTypeLookupById(id);
+    return (void *)ClassTypeLookupById(snort_conf, id);
 }
 
 void DynamicRegisterPreprocessorProfile(char *keyword, void *stats, int layer, void *parent)
@@ -1183,10 +1269,10 @@ void DynamicRegisterPreprocessorProfile(char *keyword, void *stats, int layer, v
 #endif
 }
 
-int DynamicProfilingPreprocs()
+int DynamicProfilingPreprocs(void)
 {
 #ifdef PERF_PROFILING
-    return pv.profile_preprocs_flag;
+    return ScProfilePreprocs();
 #else
     return 0;
 #endif
@@ -1216,21 +1302,45 @@ static INLINE void DynamicIP6SetCallbacks(void *p, int family, char orig)
 
 int DynamicSnortEventqLog(void *p)
 {
-    return SnortEventqLog((Packet *)p);
+    return SnortEventqLog(snort_conf->event_queue, (Packet *)p);
 }
 
-int InitDynamicPreprocessors()
+tSfPolicyId DynamicGetParserPolicy(void)
+{
+    return getParserPolicy();
+}
+
+tSfPolicyId DynamicGetRuntimePolicy(void)
+{
+    return getRuntimePolicy();
+}
+
+tSfPolicyId DynamicGetDefaultPolicy(void)
+{
+    return getDefaultPolicy();
+}
+
+void DynamicSetParserPolicy(tSfPolicyId id)
+{
+    setParserPolicy(id);
+}
+int DynamicGetInlineMode(void)
+{
+    return ScInlineMode();
+}
+
+int InitDynamicPreprocessors(void)
 {
     int i;
     DynamicPreprocessorData preprocData;
 
     preprocData.version = PREPROCESSOR_DATA_VERSION;
+    preprocData.size = sizeof(DynamicPreprocessorData);
     preprocData.altBuffer = &DecodeBuffer[0];
     preprocData.altBufferLen = DECODE_BLEN;
     for (i=0;i<MAX_URIINFOS;i++)
         preprocData.uriBuffers[i] = (UriInfo*)&UriBufs[i];
 
-    /* Pull this out of pv.dynamic_rules_path */
     preprocData.logMsg = &LogMessage;
     preprocData.errMsg = &ErrorMessage;
     preprocData.fatalMsg = &FatalError;
@@ -1255,8 +1365,7 @@ int InitDynamicPreprocessors()
 
     preprocData.alertAdd = &SnortEventqAdd;
     preprocData.thresholdCheck = &sfthreshold_test;
-
-    preprocData.inlineMode = &InlineMode;
+    preprocData.inlineMode = DynamicGetInlineMode;
     preprocData.inlineDrop = &DynamicDropInline;
 
     preprocData.detect = &DynamicDetect;
@@ -1289,8 +1398,8 @@ int InitDynamicPreprocessors()
     preprocData.registerPreprocStats = &RegisterPreprocStats;
     preprocData.addPreprocReset = &AddFuncToPreprocResetList;
     preprocData.addPreprocResetStats = &AddFuncToPreprocResetStatsList;
-    preprocData.addPreprocGetReassemblyPkt = &AddFuncToPreprocGetReassemblyPktList;
-    preprocData.setPreprocGetReassemblyPktBit = &DynamicSetPreprocessorGetReassemblyPktBit;
+    preprocData.addPreprocReassemblyPkt = &AddFuncToPreprocReassemblyPktList;
+    preprocData.setPreprocReassemblyPktBit = &DynamicSetPreprocessorReassemblyPktBit;
     preprocData.disablePreprocessors = &DynamicDisablePreprocessors;
 
 #ifdef SUP_IP6
@@ -1309,13 +1418,27 @@ int InitDynamicPreprocessors()
 
     preprocData.preprocOptOverrideKeyword = &RegisterPreprocessorRuleOptionOverride;
     preprocData.isPreprocEnabled = &IsPreprocEnabled;
+    preprocData.getParserPolicy = DynamicGetParserPolicy;
+    preprocData.getRuntimePolicy = DynamicGetRuntimePolicy;
+    preprocData.getDefaultPolicy = DynamicGetDefaultPolicy;
+    preprocData.setParserPolicy = DynamicSetParserPolicy;
+
+#ifdef SNORT_RELOAD
+    preprocData.addPreprocReloadVerify = AddFuncToPreprocReloadVerifyList;
+#endif
 
     return InitDynamicPreprocessorPlugins(&preprocData);
 }
 
-int InitDynamicDetectionPlugins()
+int InitDynamicDetectionPlugins(SnortConfig *sc)
 {
     DynamicDetectionPlugin *plugin;
+
+    if (sc == NULL)
+        return -1;
+
+    snort_conf_for_parsing = sc;
+
     VerifyDetectionPluginRequirements();
 
     plugin = loadedDetectionPlugins;
@@ -1329,18 +1452,26 @@ int InitDynamicDetectionPlugins()
                     plugin->metaData.major,
                     plugin->metaData.minor,
                     plugin->metaData.build);
+
+            snort_conf_for_parsing = NULL;
+
             return -1;
         }
+
         plugin = plugin->next;
     }
+
+    snort_conf_for_parsing = NULL;
+
     return 0;
 }
 
-int DumpDetectionLibRules()
+int DumpDetectionLibRules(void)
 {
     DynamicDetectionPlugin *plugin = loadedDetectionPlugins;
     DumpDetectionRules ruleDumpFunc = NULL;
     int retVal = 0;
+    int dumped = 0;
 
     LogMessage("Dumping dynamic rules...\n");
     while (plugin)
@@ -1356,12 +1487,20 @@ int DumpDetectionLibRules()
         {
             if (ruleDumpFunc())
             {
-                LogMessage("Failed to open rules file %s for writing\n");
+                LogMessage("Failed to dump the rules for Library %s %d.%d.%d\n", 
+                    plugin->metaData.uniqueName,
+                    plugin->metaData.major,
+                    plugin->metaData.minor,
+                    plugin->metaData.build);
+                dumped = 1;
             }
         }
         plugin = plugin->next;
     }
-    LogMessage("  Finished dumping dynamic rules.\n");
+    if( dumped == 0)
+    {
+        LogMessage("  Finished dumping dynamic rules.\n");
+    }
     return retVal;
 }
 
@@ -1375,7 +1514,7 @@ int LoadDynamicPreprocessor(char *library_name, int indent)
     LogMessage("%sLoading dynamic preprocessor library %s... ",
                indent ? "  " : "", library_name);
 
-    handle = openDynamicLibrary(library_name, 1);
+    handle = openDynamicLibrary(library_name, 0);
     metaData.libraryPath = library_name;
 
     GetPluginVersion(handle, &metaData);
@@ -1403,7 +1542,7 @@ void LoadAllDynamicPreprocessors(char *path)
     LogMessage("  Finished Loading all dynamic preprocessor libs from %s\n", path);
 }
 
-void CloseDynamicPreprocessorLibs()
+void CloseDynamicPreprocessorLibs(void)
 {
     DynamicPreprocessorPlugin *tmpplugin, *plugin = loadedPreprocessorPlugins;
     while (plugin)

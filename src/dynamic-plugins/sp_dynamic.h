@@ -27,6 +27,10 @@
 
 #include "sf_dynamic_define.h"
 #include "sf_dynamic_engine.h"
+#include "snort.h"
+#include "sf_types.h"
+#include "sf_engine/sf_snort_plugin_api.h"
+#include "detection-plugins/sp_pattern_match.h"
 
 typedef struct _DynamicData
 {
@@ -35,15 +39,43 @@ typedef struct _DynamicData
     OTNHasFunction hasOptionFunction;
     int fpContentFlags;
     GetFPContentFunction fastPatternContents;
+    PatternMatchData *pmds;
+
 } DynamicData;
 
 void SetupDynamic(void);
-int RegisterDynamicRule(
-    u_int32_t gid, u_int32_t sid, void *info,
-    OTNCheckFunction, OTNHasFunction,
-    int fpContentFlags, GetFPContentFunction
-);
 
+int RegisterDynamicRule(
+    u_int32_t gid,
+    u_int32_t sid,
+    void *info,
+    OTNCheckFunction,
+    OTNHasFunction,
+    int fpContentFlags,
+    GetFPContentFunction,
+    RuleFreeFunc freeFunc
+    );
+
+typedef struct _DynamicRuleNode
+{
+    Rule *rule;
+    OTNCheckFunction chkFunc;
+    OTNHasFunction hasFunc;
+    int fpContentFlags;
+    GetFPContentFunction fpFunc;
+    int converted;
+    RuleFreeFunc freeFunc;
+    struct _DynamicRuleNode *next;
+
+} DynamicRuleNode;
+
+void DynamicRuleListFree(DynamicRuleNode *);
+
+#ifdef SNORT_RELOAD
+int ReloadDynamicRules(SnortConfig *);
+#endif
+
+int DynamicPreprocRuleOptInit(void *);
 u_int32_t DynamicFlowbitRegister(char *name, int op);
 int DynamicFlowbitCheck(void *pkt, int op, u_int32_t id);
 int DynamicAsn1Detect(void *pkt, void *ctxt, const u_int8_t *cursor);

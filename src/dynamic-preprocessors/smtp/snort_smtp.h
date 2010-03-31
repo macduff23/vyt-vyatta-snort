@@ -42,6 +42,9 @@
 
 #include "sf_snort_packet.h"
 #include "ssl.h"
+#include "smtp_config.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 #ifdef DEBUG
 #include "sf_types.h"
@@ -216,22 +219,6 @@ typedef struct _SMTPSearchInfo
 
 } SMTPSearchInfo;
 
-typedef struct _SMTPSearch
-{
-    char *name;
-    int   name_len;
-
-} SMTPSearch;
-
-typedef struct _SMTPToken
-{
-    char *name;
-    int   name_len;
-    int   search_id;
-
-} SMTPToken;
-
-
 typedef struct _SMTPMimeBoundary
 {
     char   boundary[2 + MAX_BOUNDARY_LEN + 1];  /* '--' + MIME boundary string + '\0' */
@@ -254,8 +241,9 @@ typedef struct _SMTP
     int state_flags;
     int session_flags;
     int alert_mask;
+    int reassembling;
 #ifdef DEBUG
-    UINT64 session_number;
+    uint64_t session_number;
 #endif
 
     /* may want to keep track where packet didn't end with end of line marker
@@ -271,6 +259,9 @@ typedef struct _SMTP
      * int               current_mime_boundary;
      */
 
+    tSfPolicyId policy_id;
+    tSfPolicyUserContextId config;
+
 } SMTP;
 
 
@@ -279,11 +270,13 @@ typedef struct _SMTP
 
 /* Function prototypes ****************************************************/
 
-void SMTP_InitCmds(void);
+void SMTP_InitCmds(SMTPConfig *config);
 void SMTP_SearchInit(void);
 void SMTP_Free(void);
 void SnortSMTP(SFSnortPacket *);
-int  SMTP_IsServer(u_int16_t);
+int  SMTP_IsServer(uint16_t);
+void SMTP_FreeConfig(SMTPConfig *);
+void SMTP_FreeConfigs(tSfPolicyUserContextId);
 
 /**************************************************************************/
 

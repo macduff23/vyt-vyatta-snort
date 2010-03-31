@@ -58,24 +58,24 @@ typedef struct
                          * dimensions */
     int dim_size;       /* And this variable keeps track of 'dimensions''s 
                          * dimensions! */
-    u_int32_t mem_cap;  /* User-defined maximum memory that can be allocated
+    uint32_t mem_cap;  /* User-defined maximum memory that can be allocated
                          * for the DIR-n-m derivative */
 
     int cur_num;        /* Present number of used nodes */
 
-    u_int32_t allocated;
+    uint32_t allocated;
 
     dir_sub_table_t *sub_table;
 } dir_table_t;
 
 /*******************************************************************/
 /* DIR-n-m functions, these are not intended to be called directly */
-dir_table_t *  sfrt_dir_new(u_int32_t mem_cap, int count,...);
+dir_table_t *  sfrt_dir_new(uint32_t mem_cap, int count,...);
 void           sfrt_dir_free(void *);
 tuple_t        sfrt_dir_lookup(IP ip, void *table);
 int            sfrt_dir_insert(IP ip, int len, word data_index,
                                int behavior, void *table);
-u_int32_t      sfrt_dir_usage(void *table);
+uint32_t      sfrt_dir_usage(void *table);
 
 #endif /* SFRT_DIR_H_ */
 

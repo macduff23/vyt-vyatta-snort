@@ -80,16 +80,16 @@ extern PreprocStats ruleOTNEvalPerfStats;
 #include "sfhashfcn.h"
 #include "detection_options.h"
 
-extern const u_int8_t *doe_ptr;
-extern u_int8_t DecodeBuffer[DECODE_BLEN];
+extern const uint8_t *doe_ptr;
+extern uint8_t DecodeBuffer[DECODE_BLEN];
 
 void FTPBounceInit(char *, OptTreeNode *, int);
 void FTPBounceParse(char *, OptTreeNode *);
 int FTPBounce(void *option_data, Packet *p);
 
-u_int32_t FTPBounceHash(void *d)
+uint32_t FTPBounceHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
 
     /* NO data stored for the option */
 
@@ -122,7 +122,7 @@ int FTPBounceCompare(void *l, void *r)
 void SetupFTPBounce(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ftpbounce", FTPBounceInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ftpbounce", FTPBounceInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ftpbounce", &ftpBouncePerfStats, 3, &ruleOTNEvalPerfStats);
@@ -187,16 +187,11 @@ void FTPBounceInit(char *data, OptTreeNode *otn, int protocol)
  ****************************************************************************/
 void FTPBounceParse(char *data, OptTreeNode *otn)
 {
-    char **toks;
-    int num_toks;
-
-    toks = mSplit(data, ",", 12, &num_toks, 0);
-
-    if(num_toks > 0)
-        FatalError("ERROR %s (%d): Bad arguments to ftpbounce: %s\n", file_name,
-                file_line, data);
-
-    mSplitFree(&toks, num_toks);
+    if (data != NULL)
+    {
+        FatalError("%s (%d): Bad arguments to ftpbounce: %s\n", file_name,
+                   file_line, data);
+    }
 }
 
 
@@ -217,13 +212,13 @@ void FTPBounceParse(char *data, OptTreeNode *otn)
  ****************************************************************************/
 int FTPBounce(void *option_data, Packet *p)
 {
-    u_int32_t ip = 0;
+    uint32_t ip = 0;
     int octet=0;
-    const u_int8_t *this_param = doe_ptr;
+    const uint8_t *this_param = doe_ptr;
 
     int dsize;
     int use_alt_buffer = p->packet_flags & PKT_ALT_DECODE;
-    const u_int8_t *base_ptr, *end_ptr, *start_ptr;
+    const uint8_t *base_ptr, *end_ptr, *start_ptr;
     PROFILE_VARS;
 
     if (!doe_ptr)

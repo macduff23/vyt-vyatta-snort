@@ -47,6 +47,8 @@
     #define ERRORRET assert(0==1)
 #endif /* DEBUG */
 
+#include "sf_types.h"
+
 
 /*
  * Check to make sure that p is less than or equal to the ptr range
@@ -54,7 +56,7 @@
  *
  * 1 means it's in bounds, 0 means it's not
  */
-static INLINE int inBounds(const u_int8_t *start, const u_int8_t *end, const u_int8_t *p)
+static INLINE int inBounds(const uint8_t *start, const uint8_t *end, const uint8_t *p)
 {
     if(p >= start && p < end)
     {
@@ -89,7 +91,7 @@ static INLINE int SafeMemcpy(void *dst, const void *src, size_t n, const void *s
         ERRORRET;
     }
 
-    tmp = ((u_int8_t*)dst) + (n-1);
+    tmp = ((uint8_t*)dst) + (n-1);
     if (tmp < dst)
     {
         ERRORRET;
@@ -131,7 +133,7 @@ static INLINE int SafeMemmove(void *dst, const void *src, size_t n, const void *
         ERRORRET;
     }
 
-    tmp = ((u_int8_t*)dst) + (n-1);
+    tmp = ((uint8_t*)dst) + (n-1);
     if (tmp < dst)
     {
         ERRORRET;
@@ -157,7 +159,7 @@ static INLINE int SafeMemmove(void *dst, const void *src, size_t n, const void *
  * 
  * @return 0 on failure, 1 on success
  */
-static INLINE int SafeWrite(u_int8_t *start, u_int8_t *end, u_int8_t *dst, u_int8_t *src)
+static INLINE int SafeWrite(uint8_t *start, uint8_t *end, uint8_t *dst, uint8_t *src)
 {
     if(!inBounds(start, end, dst))
     {
@@ -168,7 +170,7 @@ static INLINE int SafeWrite(u_int8_t *start, u_int8_t *end, u_int8_t *dst, u_int
     return 1;
 }
 
-static inline int SafeRead(u_int8_t *start, u_int8_t *end, u_int8_t *src, u_int8_t *read)
+static INLINE int SafeRead(uint8_t *start, uint8_t *end, uint8_t *src, uint8_t *read)
 {
     if(!inBounds(start,end, src))
     {

@@ -71,6 +71,9 @@
 
 #include "snort.h"
 
+extern OptTreeNode *otn_tmp;
+extern char *pcap_interface;
+
 typedef struct _SyslogData
 {
     int facility;
@@ -102,7 +105,7 @@ void AlertSyslogSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_syslog", NT_OUTPUT_ALERT, AlertSyslogInit);
+    RegisterOutputPlugin("alert_syslog", OUTPUT_TYPE_FLAG__ALERT, AlertSyslogInit);
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: Alert-Syslog is setup...\n"););
 }
 
@@ -123,12 +126,10 @@ void AlertSyslogInit(char *args)
     SyslogData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: Alert-Syslog Initialized\n"););
 
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     data = ParseSyslogArgs(args);
 
-    if (pv.daemon_flag)
+    if (ScDaemonMode())
         data->options |= LOG_PID;
 
     openlog("snort", data->options, data->facility);
@@ -136,7 +137,7 @@ void AlertSyslogInit(char *args)
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Linking syslog alert function to call list...\n"););
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertSyslog, NT_OUTPUT_ALERT, data);
+    AddFuncToOutputList(AlertSyslog, OUTPUT_TYPE__ALERT, data);
     AddFuncToCleanExitList(AlertSyslogCleanExit, data);
     AddFuncToRestartList(AlertSyslogRestart, data);
 }
@@ -190,7 +191,6 @@ SyslogData *ParseSyslogArgs(char *args)
         }
 
         return data;
-
     }
 
     /*
@@ -205,6 +205,7 @@ SyslogData *ParseSyslogArgs(char *args)
 
 #ifdef WIN32
     /* split the host/port part from the facilities/priorities part */
+    facility_string = NULL;
     config_toks = mSplit(args, ",", 2, &num_config_toks, '\\');
     switch( num_config_toks )
     {
@@ -212,14 +213,14 @@ SyslogData *ParseSyslogArgs(char *args)
             LogMessage("alert_syslog output processor is defaulting to syslog "
                     "server on %s port %d!\n",
                     DEFAULT_SYSLOG_HOST, DEFAULT_SYSLOG_PORT);
-            strncpy(pv.syslog_server, DEFAULT_SYSLOG_HOST, STD_BUF-1);
-            pv.syslog_server_port = DEFAULT_SYSLOG_PORT;
-            facility_string = config_toks[0];
+            SnortStrncpy(snort_conf->syslog_server, DEFAULT_SYSLOG_HOST, sizeof(snort_conf->syslog_server));
+            snort_conf->syslog_server_port = DEFAULT_SYSLOG_PORT;
+            facility_string = SnortStrdup(config_toks[0]);
             break;
 
         case 2:  /* config consists of host info, and facility/priority info */
             host_string     = config_toks[0];
-            facility_string = config_toks[1];
+            facility_string = SnortStrdup(config_toks[1]);
             /* split host_string into "host" vs. "server" vs. "port" */
             host_toks = mSplit(host_string, "=:", 3, &num_host_toks, 0);
             if(num_host_toks > 0 && strcmp(host_toks[0], "host") != 0 )
@@ -240,16 +241,16 @@ SyslogData *ParseSyslogArgs(char *args)
             switch(num_host_toks)
             {
                 case 2:  /* ie,  host=localhost (defaults to port 514) */
-                    strncpy(pv.syslog_server, host_toks[1], STD_BUF-1);
-                    pv.syslog_server_port = DEFAULT_SYSLOG_PORT;  /* default */
+                    SnortStrncpy(snort_conf->syslog_server, host_toks[1], sizeof(snort_conf->syslog_server));
+                    snort_conf->syslog_server_port = DEFAULT_SYSLOG_PORT;  /* default */
                     break;
 
                 case 3:  /* ie.  host=localhost:514 */
-                    strncpy(pv.syslog_server, host_toks[1], STD_BUF-1);
-                    pv.syslog_server_port = atoi(host_toks[2]);
-                    if( pv.syslog_server_port == 0 )
+                    SnortStrncpy(snort_conf->syslog_server, host_toks[1], sizeof(snort_conf->syslog_server));
+                    snort_conf->syslog_server_port = atoi(host_toks[2]);
+                    if (snort_conf->syslog_server_port == 0)
                     {
-                        pv.syslog_server_port = DEFAULT_SYSLOG_PORT; /*default*/
+                        snort_conf->syslog_server_port = DEFAULT_SYSLOG_PORT; /*default*/
                         LogMessage("WARNING %s(%d) => alert_syslog port "
                                 "appears to be non-numeric ('%s').  Defaulting " 
                                 "to port %d!\n", file_name, file_line, 
@@ -272,12 +273,10 @@ SyslogData *ParseSyslogArgs(char *args)
     }
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Logging alerts to syslog "
-                "server %s on port %d\n", pv.syslog_server, 
-                pv.syslog_server_port););
+                "server %s on port %d\n", snort_conf->syslog_server, 
+                snort_conf->syslog_server_port););
     mSplitFree(&config_toks, num_facility_toks);
 #endif /* WIN32 */
-
-
 
     /* tokenize the facility/priority argument list */
     facility_toks = mSplit(facility_string, " |", 31, &num_facility_toks, '\\');
@@ -334,6 +333,7 @@ SyslogData *ParseSyslogArgs(char *args)
         }
         else
 #endif
+
         /* possible openlog facilities */
 
 #ifdef LOG_AUTHPRIV 
@@ -485,7 +485,16 @@ SyslogData *ParseSyslogArgs(char *args)
                     file_name, file_line, tmp);
         }
     }
+
     mSplitFree(&facility_toks, num_facility_toks);
+
+    /* Add facility flags to priority flags for logging to syslog */
+    data->priority |= data->facility;
+
+#ifdef WIN32
+    if (facility_string != NULL)
+        free(facility_string);
+#endif
 
     return data;
 }
@@ -504,7 +513,6 @@ SyslogData *ParseSyslogArgs(char *args)
  * Returns: void function
  *
  */
-extern OptTreeNode *otn_tmp;
 void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
 {
     char sip[16];
@@ -586,7 +594,7 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
                     GET_IPH_PROTO(p) != IPPROTO_UDP) || 
                 p->frag_flag)
         {
-            if(!pv.alert_interface_flag)
+            if(!ScAlertInterface())
             {
                 if( protocol_names[GET_IPH_PROTO(p)] )
                 {
@@ -598,10 +606,10 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
             }
             else
             {
-                if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pv.interface) )
+                if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pcap_interface) )
                 {
                     if( SnortSnprintf(ip_data, STD_BUF, " <%s> {%s} %s -> %s",  
-                                      PRINT_INTERFACE(pv.interface), 
+                                      PRINT_INTERFACE(pcap_interface), 
                                       protocol_names[GET_IPH_PROTO(p)],
                                       sip, dip) != SNORT_SNPRINTF_SUCCESS )
                         return ;
@@ -610,12 +618,12 @@ void AlertSyslog(Packet *p, char *msg, void *arg, Event *event)
         }
         else
         {
-            if(pv.alert_interface_flag)
+            if(ScAlertInterface())
             {
-               if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pv.interface) )
+               if( protocol_names[GET_IPH_PROTO(p)] && PRINT_INTERFACE(pcap_interface) )
                {
                    if( SnortSnprintf(ip_data, STD_BUF, " <%s> {%s} %s:%i -> %s:%i",
-                                     PRINT_INTERFACE(pv.interface), 
+                                     PRINT_INTERFACE(pcap_interface), 
                                      protocol_names[GET_IPH_PROTO(p)], sip,
                                      p->sp, dip, p->dp) != SNORT_SNPRINTF_SUCCESS )
                        return ;

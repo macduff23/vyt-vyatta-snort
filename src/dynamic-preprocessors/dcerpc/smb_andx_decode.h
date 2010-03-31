@@ -31,14 +31,14 @@
 
 typedef unsigned short uni_char_t;
 
-int ProcessSMBSetupXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBNTCreateX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBReadX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBLockingX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size);
-void ReassembleSMBWriteX(u_int8_t *, u_int16_t);
+int ProcessSMBSetupXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBNTCreateX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBReadX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBWriteX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBLockingX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+int ProcessSMBTransaction(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size);
+void ReassembleSMBWriteX(uint8_t *, uint16_t);
 
 #endif /* _SMB_ANDX_DECODE_H_ */

@@ -47,18 +47,18 @@ int hasProtocol(HostAttributeEntry *hostEntry,
 
 int getProtocol(HostAttributeEntry *hostEntry,
                int ipprotocol,
-               u_int16_t port);
+               uint16_t port);
 
 int getApplicationProtocolId(HostAttributeEntry *host_entry,
                int ipprotocol,
-               u_int16_t port,
+               uint16_t port,
                char direction);
 
 #define SFAT_UNKNOWN_STREAM_POLICY 0
-u_int16_t getStreamPolicy(HostAttributeEntry *host_entry);
+uint16_t getStreamPolicy(HostAttributeEntry *host_entry);
 char isStreamPolicySet(HostAttributeEntry *host_entry);
 #define SFAT_UNKNOWN_FRAG_POLICY 0
-u_int16_t getFragPolicy(HostAttributeEntry *host_entry);
+uint16_t getFragPolicy(HostAttributeEntry *host_entry);
 char isFragPolicySet(HostAttributeEntry *host_entry);
 
 #endif /* _SFTARGET_HOSTENTRY_H_ */

@@ -39,7 +39,11 @@
 **  NOTES:
 **    - Stop using global variables so we can have multiple instances,
 **      but we don't need that functionality right now.
-*/  
+*/
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +56,7 @@
 #endif
 
 #include "asn1.h"
+#include "util.h"
 
 /*
 **  Macros
@@ -67,9 +72,7 @@
 
 #define ASN1_MAX_STACK 128
 
-static ASN1_TYPE *g_asn1_mem        = NULL;
-static int        g_asn1_max_nodes  = 0;
-static int        g_asn1_node_index = 0;
+ASN1_CONFIG asn1_config;
 
 /*
 **  NAME
@@ -83,9 +86,7 @@ static int        g_asn1_node_index = 0;
 */
 static void asn1_init_node_index(void)
 {
-    g_asn1_node_index = 0;
-
-    return;
+    asn1_config.node_index = 0;
 }
 
 /*
@@ -100,12 +101,12 @@ static void asn1_init_node_index(void)
 **  @retval NULL memory allocation failed
 **  @retval !NULL function successful
 */
-static ASN1_TYPE *asn1_node_alloc(void)
+static ASN1_TYPE * asn1_node_alloc(void)
 {
-    if(!g_asn1_mem || (g_asn1_max_nodes <= g_asn1_node_index))
+    if ((asn1_config.mem == NULL) || (asn1_config.num_nodes <= asn1_config.node_index))
         return NULL;
 
-    return &g_asn1_mem[g_asn1_node_index++];
+    return &asn1_config.mem[asn1_config.node_index++];
 }
 
 /*
@@ -123,25 +124,16 @@ static ASN1_TYPE *asn1_node_alloc(void)
 **  @retval ASN1_ERR_MEM_ALLOC memory allocation failed
 **  @retval ASN1_ERR_INVALID_ARG invalid argument
 */
-int asn1_init_mem(int iNodes)
+void asn1_init_mem(int num_nodes)
 {
-    if(iNodes <= 0)
-        return ASN1_ERR_INVALID_ARG;
+    if (num_nodes <= 0)
+        return;
 
-    /*
-    **  This makes sure that we don't initialize multiple times.
-    */
-    if(g_asn1_mem && g_asn1_max_nodes > 0)
-        return ASN1_OK;
-        
-    g_asn1_mem = (ASN1_TYPE *)calloc(1,sizeof(ASN1_TYPE)*iNodes);
-    if(!g_asn1_mem)
-        return ASN1_ERR_MEM_ALLOC;
-
-    g_asn1_max_nodes = iNodes;
-
-    return ASN1_OK;
+    asn1_config.mem = (ASN1_TYPE *)SnortAlloc(sizeof(ASN1_TYPE) * num_nodes);
+    asn1_config.num_nodes = num_nodes;
+    asn1_config.node_index = 0;
 }
+
 /*
 **  NAME
 **    asn1_free_mem::
@@ -153,17 +145,13 @@ int asn1_init_mem(int iNodes)
 **  @return none
 **
 */
-void asn1_free_mem()
+void asn1_free_mem(void)
 {
-    /*
-    **  This makes sure that we don't free garbage.
-    */
-    if(g_asn1_mem)
+    if (asn1_config.mem != NULL)
     {
-        free(g_asn1_mem);
-        g_asn1_mem = NULL;
+        free(asn1_config.mem);
+        asn1_config.mem = NULL;
     }
-    g_asn1_max_nodes = 0;
 }
 
 /*

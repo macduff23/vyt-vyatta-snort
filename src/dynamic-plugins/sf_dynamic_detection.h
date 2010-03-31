@@ -26,17 +26,18 @@
 #define _SF_DYNAMIC_DETECTION_H_
 
 #include "sf_dynamic_meta.h"
+#include "snort.h"
 
 /* Function prototypes for Dynamic Detection Plugins */
-void CloseDynamicDetectionLibs();
-void LoadAllDynamicDetectionLibsCurrPath();
+void CloseDynamicDetectionLibs(void);
+void LoadAllDynamicDetectionLibsCurrPath(void);
 void LoadAllDynamicDetectionLibs(char *path);
 int LoadDynamicDetectionLib(char *library_name, int indent);
-int InitDynamicDetectionPlugins();
-void RemoveDuplicateDetectionPlugins();
+int InitDynamicDetectionPlugins(SnortConfig *);
+void RemoveDuplicateDetectionPlugins(void);
 
-typedef int (*InitDetectionLibFunc)();
-typedef int (*DumpDetectionRules)();
+typedef int (*InitDetectionLibFunc)(void);
+typedef int (*DumpDetectionRules)(void);
 
 typedef int (*RequiredEngineLibFunc)(DynamicPluginMeta *);
 

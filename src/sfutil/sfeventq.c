@@ -51,58 +51,7 @@
 
 #include <stdlib.h>
 #include "sfeventq.h"
-typedef struct s_SF_EVENTQ_NODE
-{
-    void   *event;
-
-    struct s_SF_EVENTQ_NODE *prev;
-    struct s_SF_EVENTQ_NODE *next;
-
-}  SF_EVENTQ_NODE;
-
-typedef struct s_SF_EVENTQ
-{
-    /*
-    **  Handles the actual ordering and memory
-    **  of the event queue and it's nodes.
-    */
-    SF_EVENTQ_NODE *head;
-    SF_EVENTQ_NODE *last;
-
-    SF_EVENTQ_NODE *node_mem;
-    char           *event_mem;
-
-    /*
-    **  The reserve event allows us to allocate one extra node
-    **  and compare against the last event in the queue to determine
-    **  if the incoming event is a higher priority than the last 
-    **  event in the queue.
-    */
-    char           *reserve_event;
-    
-    /*
-    **  Queue configuration
-    */
-    int max_nodes;
-    int log_nodes;
-    int event_size;
-
-    /*
-    **  This function orders the events as they
-    **  arrive.
-    */
-    int (*sort)(void *event1, void *event2);
-
-    /*
-    **  This element tracks the current number of
-    **  nodes in the event queue.
-    */
-    int cur_nodes;
-    int cur_events;
-
-}  SF_EVENTQ;
-
-static SF_EVENTQ s_eventq;
+#include "util.h"
 
 /*
 **  NAME
@@ -119,34 +68,29 @@ static SF_EVENTQ s_eventq;
 **  @retval -1 failure
 **  @retval  0 success
 */
-int sfeventq_init(int max_nodes, int log_nodes, int event_size, 
-                  int (*sort)(void *, void *))
+SF_EVENTQ * sfeventq_new(int max_nodes, int log_nodes, int event_size, 
+                         int (*sort)(void *, void *))
 {
+    SF_EVENTQ *eq;
+
     if(max_nodes <= 0 || log_nodes <= 0 || event_size <= 0 ) /* || !sort) Jan06 -- not required */
-        return -1;
+        return NULL;
 
-    /*
-    **  Initialize the memory for the nodes that we are going to use.
-    */
-    s_eventq.node_mem  = 
-        (SF_EVENTQ_NODE *)calloc(1,sizeof(SF_EVENTQ_NODE)*max_nodes);
-    if(!s_eventq.node_mem)
-        return -1;
+    eq = (SF_EVENTQ *)SnortAlloc(sizeof(SF_EVENTQ));
 
-    s_eventq.event_mem = (char *)calloc(1,event_size*(max_nodes+1));
-    if(!s_eventq.event_mem)
-        return -1;
+    /* Initialize the memory for the nodes that we are going to use. */
+    eq->node_mem = (SF_EVENTQ_NODE *)SnortAlloc(sizeof(SF_EVENTQ_NODE) * max_nodes);
+    eq->event_mem = (char *)SnortAlloc(event_size * (max_nodes + 1));
 
-    s_eventq.max_nodes  = max_nodes;
-    s_eventq.log_nodes  = log_nodes;
-    s_eventq.event_size = event_size;
-    s_eventq.sort       = sort;
-    s_eventq.cur_nodes  = 0;
-    s_eventq.cur_events = 0;
-    s_eventq.reserve_event = 
-        (void *)(&s_eventq.event_mem[max_nodes*s_eventq.event_size]);
+    eq->max_nodes = max_nodes;
+    eq->log_nodes = log_nodes;
+    eq->event_size = event_size;
+    eq->sort = sort;
+    eq->cur_nodes = 0;
+    eq->cur_events = 0;
+    eq->reserve_event = (void *)(&eq->event_mem[max_nodes * eq->event_size]);
 
-    return 0;
+    return eq;
 }
 
 /*
@@ -165,26 +109,24 @@ int sfeventq_init(int max_nodes, int log_nodes, int event_size,
 **  @retval  NULL unable to allocate memory.
 **  @retval !NULL ptr to memory.
 */
-void *sfeventq_event_alloc(void)
+void * sfeventq_event_alloc(SF_EVENTQ *eq)
 {
     void *event;
 
-    if(s_eventq.cur_events >= s_eventq.max_nodes)
+    if (eq->cur_events >= eq->max_nodes)
     {
-        if(!s_eventq.reserve_event)
+        if (eq->reserve_event == NULL)
             return NULL;
         
-        event = (void *)s_eventq.reserve_event;
-        s_eventq.reserve_event = NULL;
+        event = (void *)eq->reserve_event;
+        eq->reserve_event = NULL;
 
         return event;
     }
 
-    event = 
-        (void *)(&s_eventq.event_mem[s_eventq.cur_events*s_eventq.event_size]);
+    event = (void *)(&eq->event_mem[eq->cur_events * eq->event_size]);
 
-    s_eventq.cur_events++;
-
+    eq->cur_events++;
 
     return event;
 }
@@ -199,15 +141,12 @@ void *sfeventq_event_alloc(void)
 **
 **  @return void
 */
-void sfeventq_reset(void)
+void sfeventq_reset(SF_EVENTQ *eq)
 {
-    s_eventq.head       = NULL;
-    s_eventq.cur_nodes  = 0;
-    s_eventq.cur_events = 0;
-    s_eventq.reserve_event = 
-        (void *)(&s_eventq.event_mem[s_eventq.max_nodes*s_eventq.event_size]);
-
-    return;
+    eq->head = NULL;
+    eq->cur_nodes = 0;
+    eq->cur_events = 0;
+    eq->reserve_event = (void *)(&eq->event_mem[eq->max_nodes * eq->event_size]);
 }
 
 /*
@@ -220,25 +159,25 @@ void sfeventq_reset(void)
 **  @return none
 **
 */
-void sfeventq_free(void)
+void sfeventq_free(SF_EVENTQ *eq)
 {
-    /* Clean out the events */
-    sfeventq_reset();
+    if (eq == NULL)
+        return;
 
-    /*
-    **  Free the memory for the nodes that were in use.
-    */
-    if (s_eventq.node_mem)
+    /* Free the memory for the nodes that were in use. */
+    if (eq->node_mem != NULL)
     {
-        free(s_eventq.node_mem);
-        s_eventq.node_mem = NULL;
+        free(eq->node_mem);
+        eq->node_mem = NULL;
     }
 
-    if (s_eventq.event_mem)
+    if (eq->event_mem != NULL)
     {
-        free(s_eventq.event_mem);
-        s_eventq.event_mem = NULL;
+        free(eq->event_mem);
+        eq->event_mem = NULL;
     }
+
+    free(eq);
 }
 
 /*
@@ -261,39 +200,39 @@ void sfeventq_free(void)
 **  @retval NULL resource exhaustion and event is lower priority than last node
 **  @retval !NULL ptr to node memory.
 */
-static SF_EVENTQ_NODE *get_eventq_node(void *event)
+static SF_EVENTQ_NODE * get_eventq_node(SF_EVENTQ *eq, void *event)
 {
     SF_EVENTQ_NODE *node;
 
-    if(s_eventq.cur_nodes >= s_eventq.max_nodes)
+    if (eq->cur_nodes >= eq->max_nodes)
     {
         /*
         **  If this event does not have a higher priority than
         **  the last one, we don't won't it.
         */
-        if (!s_eventq.sort)
+        if (!eq->sort)
         {
             return NULL;
         }
 
-        if(!s_eventq.sort(event, s_eventq.last->event))
+        if (!eq->sort(event, eq->last->event))
         {
-            s_eventq.reserve_event = event;
+            eq->reserve_event = event;
             return NULL;
         }
 
-        node = s_eventq.last;
+        node = eq->last;
 
         /*
         **  Set up new reserve event.
         */
-        s_eventq.reserve_event = node->event;
+        eq->reserve_event = node->event;
         node->event = event;
 
-        if(s_eventq.last->prev)
+        if (eq->last->prev)
         {
-            s_eventq.last       = s_eventq.last->prev;
-            s_eventq.last->next = NULL;
+            eq->last = eq->last->prev;
+            eq->last->next = NULL;
         }
 
         /*
@@ -305,7 +244,7 @@ static SF_EVENTQ_NODE *get_eventq_node(void *event)
     /*
     **  We grab the next node from the node memory.
     */
-    return &s_eventq.node_mem[s_eventq.cur_nodes++];
+    return &eq->node_mem[eq->cur_nodes++];
 }
 
 /*
@@ -323,7 +262,7 @@ static SF_EVENTQ_NODE *get_eventq_node(void *event)
 **  @retval -1 add event failed
 **  @retval  0 add event succeeded
 */
-int sfeventq_add(void *event)
+int sfeventq_add(SF_EVENTQ *eq, void *event)
 {
     SF_EVENTQ_NODE *node;
     SF_EVENTQ_NODE *tmp;
@@ -337,7 +276,7 @@ int sfeventq_add(void *event)
     **  is lower in priority then the last ranked event.
     **  So we just drop it.
     */
-    node = get_eventq_node(event);
+    node = get_eventq_node(eq, event);
     if(!node)
         return 0;
 
@@ -348,20 +287,20 @@ int sfeventq_add(void *event)
     /*
     **  This is the first node
     */
-    if(s_eventq.cur_nodes == 1)
+    if(eq->cur_nodes == 1)
     {
-        s_eventq.head = s_eventq.last = node;
+        eq->head = eq->last = node;
         return 0;
     }
 
     /*
     **  Now we search for where to insert this node.
     */
-    if( s_eventq.sort ) /* Not used --- Jan06 each action group is presorted in fpFinalSelect */
+    if (eq->sort) /* Not used --- Jan06 each action group is presorted in fpFinalSelect */
     {
-        for(tmp = s_eventq.head; tmp; tmp = tmp->next)
+        for(tmp = eq->head; tmp; tmp = tmp->next)
         {
-            if(s_eventq.sort(event, tmp->event))
+            if(eq->sort(event, tmp->event))
             {
                 /*
                 **  Put node here.
@@ -369,7 +308,7 @@ int sfeventq_add(void *event)
                 if(tmp->prev)
                     tmp->prev->next = node;
                 else
-                    s_eventq.head   = node;
+                    eq->head   = node;
 
                 node->prev = tmp->prev;
                 node->next = tmp;
@@ -384,10 +323,10 @@ int sfeventq_add(void *event)
     /*
     **  This means we are the last node.
     */
-    node->prev          = s_eventq.last;
+    node->prev = eq->last;
 
-    s_eventq.last->next = node;
-    s_eventq.last       = node;
+    eq->last->next = node;
+    eq->last = node;
 
     return 0;
 }
@@ -406,23 +345,23 @@ int sfeventq_add(void *event)
 **  @retval  0 no events logged
 **  @retval  1 events logged
 */
-int sfeventq_action(int (*action_func)(void *, void *), void *user)
+int sfeventq_action(SF_EVENTQ *eq, int (*action_func)(void *, void *), void *user)
 {
     SF_EVENTQ_NODE *node;
-    int             logged = 0;
+    int logged = 0;
 
-    if(!action_func)
+    if (action_func == NULL)
         return -1;
 
-    if(!(s_eventq.head))
+    if (eq->head == NULL)
         return 0;
-    
-    for(node = s_eventq.head; node; node = node->next)
+
+    for (node = eq->head; node != NULL; node = node->next)
     {
-        if(logged >= s_eventq.log_nodes)
+        if (logged >= eq->log_nodes)
             return 1;
 
-        if(action_func(node->event, user))
+        if (action_func(node->event, user))
             return -1;
 
         logged++;

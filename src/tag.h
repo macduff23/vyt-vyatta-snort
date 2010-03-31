@@ -30,11 +30,22 @@
 #include "event.h"
 #include "decode.h"
 
+
+#define TAG_SESSION   1
+#define TAG_HOST      2
+#define TAG_HOST_SRC  3
+#define TAG_HOST_DST  4
+
+#define TAG_METRIC_SECONDS    0x1
+#define TAG_METRIC_PACKETS    0x2
+#define TAG_METRIC_BYTES      0x4
+#define TAG_METRIC_UNLIMITED  0x8
+
+
 void InitTag(void);
 void CleanupTag(void);
-void ParseTag(char *, OptTreeNode *);
 int CheckTagList(Packet *, Event *);
-void SetTags(Packet *, OptTreeNode *, u_int32_t);
+void SetTags(Packet *, OptTreeNode *, uint16_t);
 void TagCacheReset(void);
 
 #endif /* __TAG_H__ */

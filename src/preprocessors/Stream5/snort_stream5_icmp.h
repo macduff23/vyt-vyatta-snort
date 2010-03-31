@@ -22,13 +22,17 @@
 #ifndef STREAM5_ICMP_H_
 #define STREAM5_ICMP_H_
 
+#include "stream5_common.h"
+#include "sfPolicy.h"
+
 void Stream5CleanIcmp(void);
 void Stream5ResetIcmp(void);
-void Stream5InitIcmp(void);
-int Stream5VerifyUdpConfig(void);
-void Stream5IcmpPolicyInit(char *);
+void Stream5InitIcmp(Stream5GlobalConfig *);
+void Stream5IcmpPolicyInit(Stream5IcmpConfig *, char *);
+int Stream5VerifyIcmpConfig(Stream5IcmpConfig *, tSfPolicyId);
 int Stream5ProcessIcmp(Packet *p);
 void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
-                         snort_ip_p ip, u_int16_t port);
+                         snort_ip_p ip, uint16_t port);
+void Stream5IcmpConfigFree(Stream5IcmpConfig *);
 
 #endif /* STREAM5_ICMP_H_ */

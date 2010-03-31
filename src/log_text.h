@@ -59,7 +59,7 @@ static void LogTcpOptions(TextLog*, Packet*);
 static void LogEmbeddedICMPHeader(TextLog*, const ICMPHdr*);
 static void LogICMPEmbeddedIP(TextLog*, Packet*);
 static void LogReference(TextLog*, ReferenceNode*);
-static void LogCharData(TextLog*, char* data, int len);
+static void ScOutputCharData(TextLog*, char* data, int len);
 static void LogNetData (TextLog*, const u_char* data, const int len);
 #endif
 
@@ -74,7 +74,7 @@ void PrintEAPHeader(FILE*, Packet*);
 
 /* commented out all over the place! */
 /* still called in snort.c and spp_stream4.c */
-void ClearDumpBuf();
+void ClearDumpBuf(void);
 
 /* called from snort.c */
 void PrintWifiPkt(FILE*, Packet*);

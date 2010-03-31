@@ -297,6 +297,7 @@ EXTRA_DIST = \
 ./WIN32-Prj/snort_installer_options.ini \
 ./WIN32-Prj/snort.dep \
 ./WIN32-Prj/snort.dsp \
+./WIN32-Prj/snort_initialize.dsp \
 ./WIN32-Prj/build_all.dsp \
 ./WIN32-Prj/sf_engine.dsp \
 ./WIN32-Prj/sf_engine_initialize.dsp \

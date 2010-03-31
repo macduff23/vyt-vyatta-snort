@@ -26,7 +26,7 @@
 #define __SP_SESSION_H__
 
 void SetupSession(void);
-u_int32_t SessionHash(void *d);
+uint32_t SessionHash(void *d);
 int SessionCompare(void *l, void *r);
 
 #endif  /* __SP_SESSION_H__ */

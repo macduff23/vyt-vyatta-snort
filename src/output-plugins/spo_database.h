@@ -25,6 +25,6 @@
 #ifndef __SPO_DATABASE_H__
 #define __SPO_DATABASE_H__
 
-void DatabaseSetup();
+void DatabaseSetup(void);
 
 #endif  /* __SPO_DATABASE_H__ */

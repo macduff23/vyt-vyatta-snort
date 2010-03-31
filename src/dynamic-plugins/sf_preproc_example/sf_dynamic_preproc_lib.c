@@ -24,15 +24,12 @@
 #include "sf_dynamic_meta.h"
 #include "sf_dynamic_preprocessor.h"
 #include "sf_dynamic_common.h"
+#include "sf_dynamic_define.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>
-
-/* Forward decl of Function that initializes/registers
- * the preproc config keywords. */
-extern void DynamicInitialize();
 
 DynamicPreprocessorData _dpd;
 
@@ -60,7 +57,14 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
         return -1;
     }
 
+    if (dpd->size != sizeof(DynamicPreprocessorData))
+    {
+        return -1;
+    }
+
+
     _dpd.version = dpd->version;
+    _dpd.size = dpd->size;
     _dpd.altBuffer = dpd->altBuffer;
     _dpd.altBufferLen = dpd->altBufferLen;
     for (i=0;i<MAX_URIINFOS;i++)
@@ -113,8 +117,8 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
     _dpd.registerPreprocStats = dpd->registerPreprocStats;
     _dpd.addPreprocReset = dpd->addPreprocReset;
     _dpd.addPreprocResetStats = dpd->addPreprocResetStats;
-    _dpd.addPreprocGetReassemblyPkt = dpd->addPreprocGetReassemblyPkt;
-    _dpd.setPreprocGetReassemblyPktBit = dpd->setPreprocGetReassemblyPktBit;
+    _dpd.addPreprocReassemblyPkt = dpd->addPreprocReassemblyPkt;
+    _dpd.setPreprocReassemblyPktBit = dpd->setPreprocReassemblyPktBit;
     _dpd.disablePreprocessors = dpd->disablePreprocessors;
 
 #ifdef SUP_IP6
@@ -133,6 +137,15 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
 
     _dpd.preprocOptOverrideKeyword = dpd->preprocOptOverrideKeyword;
     _dpd.isPreprocEnabled = dpd->isPreprocEnabled;
+
+#ifdef SNORT_RELOAD
+    _dpd.addPreprocReloadVerify = dpd->addPreprocReloadVerify;
+#endif
+
+    _dpd.getRuntimePolicy = dpd->getRuntimePolicy;
+    _dpd.getParserPolicy = dpd->getParserPolicy;
+    _dpd.getDefaultPolicy = dpd->getDefaultPolicy;
+    _dpd.setParserPolicy = dpd->setParserPolicy;
 
     DYNAMIC_PREPROC_SETUP();
     return 0;

@@ -25,7 +25,7 @@
 #define __SP_ICMP_ID_H__
 
 void SetupIcmpIdCheck(void);
-u_int32_t IcmpIdCheckHash(void *d);
+uint32_t IcmpIdCheckHash(void *d);
 int IcmpIdCheckCompare(void *l, void *r);
 
 #endif  /* __SP_ICMP_ID_H__ */

@@ -32,11 +32,11 @@ typedef struct _IcmpTypeCheckData
     /* the icmp type number */
     int icmp_type;
     int icmp_type2;
-    u_int8_t operator;
+    uint8_t operator;
 } IcmpTypeCheckData;
 
 void SetupIcmpTypeCheck(void);
-u_int32_t IcmpTypeCheckHash(void *d);
+uint32_t IcmpTypeCheckHash(void *d);
 int IcmpTypeCheckCompare(void *l, void *r);
 
 #endif  /* __SP_ICMP_TYPE_CHECK_H__ */

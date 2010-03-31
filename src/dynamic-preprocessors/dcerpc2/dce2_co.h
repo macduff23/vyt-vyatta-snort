@@ -34,14 +34,16 @@
 /********************************************************************
  * Macros
  ********************************************************************/
-#define DCE2_MOCK_HDR_LEN__CO   (sizeof(DceRpcCoHdr) + sizeof(DceRpcCoRequest))
+#define DCE2_MOCK_HDR_LEN__CO_CLI   (sizeof(DceRpcCoHdr) + sizeof(DceRpcCoRequest))
+#define DCE2_MOCK_HDR_LEN__CO_SRV   (sizeof(DceRpcCoHdr) + sizeof(DceRpcCoResponse))
 
 /********************************************************************
  * Structures
  ********************************************************************/
 typedef struct _DCE2_CoFragTracker
 {
-    DCE2_Buffer *frag_buf;
+    DCE2_Buffer *cli_frag_buf;
+    DCE2_Buffer *srv_frag_buf;
 
     int opnum;    /* Opnum that is ultimatley used for request */
     int ctx_id;   /* Context id that is ultimatley used for request */
@@ -97,7 +99,7 @@ typedef struct _DCE2_CoTracker
 /********************************************************************
  * Public function prototypes
  ********************************************************************/
-void DCE2_CoInitRdata(uint8_t *);
+void DCE2_CoInitRdata(uint8_t *, int);
 void DCE2_CoProcess(DCE2_SsnData *, DCE2_CoTracker *, const uint8_t *, uint16_t);
 void DCE2_CoInitTracker(DCE2_CoTracker *);
 void DCE2_CoCleanTracker(DCE2_CoTracker *);

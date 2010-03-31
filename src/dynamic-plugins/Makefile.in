@@ -47,7 +47,8 @@ ARFLAGS = cru
 libdynamic_a_AR = $(AR) $(ARFLAGS)
 libdynamic_a_LIBADD =
 am_libdynamic_a_OBJECTS = sf_dynamic_plugins.$(OBJEXT) \
-	sp_dynamic.$(OBJEXT) sp_preprocopt.$(OBJEXT)
+	sp_dynamic.$(OBJEXT) sp_preprocopt.$(OBJEXT) \
+	sf_convert_dynamic.$(OBJEXT)
 libdynamic_a_OBJECTS = $(am_libdynamic_a_OBJECTS)
 DEFAULT_INCLUDES = -I. -I$(top_builddir)@am__isrc@
 depcomp =
@@ -209,7 +210,9 @@ sf_dynamic_preprocessor.h \
 sp_dynamic.c \
 sp_dynamic.h \
 sp_preprocopt.c \
-sp_preprocopt.h
+sp_preprocopt.h \
+sf_convert_dynamic.c \
+sf_convert_dynamic.h 
 
 SUBDIRS = sf_engine sf_preproc_example
 all: all-recursive

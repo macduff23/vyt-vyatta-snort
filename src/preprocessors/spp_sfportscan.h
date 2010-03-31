@@ -20,15 +20,15 @@
  ****************************************************************************/
  
 /*
-**  @file       spp_psng.h
+**  @file       spp_sfportscan.h
 **
 **  @author     Daniel Roelker <droelker@sourcefire.com>
 **
 **  @brief      APIs for Snort Portscan
 */
-#ifndef __SPP_PSNG_H__
-#define __SPP_PSNG_H__
+#ifndef __SPP_SFPORTSCAN_H__
+#define __SPP_SFPORTSCAN_H__
 
-void SetupPsng(void);
+void SetupSfPortscan(void);
 
 #endif

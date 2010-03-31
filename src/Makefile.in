@@ -46,17 +46,17 @@ CONFIG_CLEAN_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
-am_snort_OBJECTS = codes.$(OBJEXT) debug.$(OBJEXT) decode.$(OBJEXT) \
-	log.$(OBJEXT) mstring.$(OBJEXT) parser.$(OBJEXT) \
-	profiler.$(OBJEXT) plugbase.$(OBJEXT) snort.$(OBJEXT) \
-	snprintf.$(OBJEXT) strlcatu.$(OBJEXT) strlcpyu.$(OBJEXT) \
-	tag.$(OBJEXT) util.$(OBJEXT) detect.$(OBJEXT) \
-	signature.$(OBJEXT) mempool.$(OBJEXT) sf_sdlist.$(OBJEXT) \
-	fpcreate.$(OBJEXT) fpdetect.$(OBJEXT) pcrm.$(OBJEXT) \
-	byte_extract.$(OBJEXT) sfthreshold.$(OBJEXT) \
-	packet_time.$(OBJEXT) event_wrapper.$(OBJEXT) \
-	event_queue.$(OBJEXT) inline.$(OBJEXT) ppm.$(OBJEXT) \
-	log_text.$(OBJEXT)
+am_snort_OBJECTS = debug.$(OBJEXT) decode.$(OBJEXT) log.$(OBJEXT) \
+	mstring.$(OBJEXT) parser.$(OBJEXT) profiler.$(OBJEXT) \
+	plugbase.$(OBJEXT) snort.$(OBJEXT) snprintf.$(OBJEXT) \
+	strlcatu.$(OBJEXT) strlcpyu.$(OBJEXT) tag.$(OBJEXT) \
+	util.$(OBJEXT) detect.$(OBJEXT) signature.$(OBJEXT) \
+	mempool.$(OBJEXT) sf_sdlist.$(OBJEXT) fpcreate.$(OBJEXT) \
+	fpdetect.$(OBJEXT) pcrm.$(OBJEXT) byte_extract.$(OBJEXT) \
+	sfthreshold.$(OBJEXT) packet_time.$(OBJEXT) \
+	event_wrapper.$(OBJEXT) event_queue.$(OBJEXT) inline.$(OBJEXT) \
+	ppm.$(OBJEXT) log_text.$(OBJEXT) detection_filter.$(OBJEXT) \
+	rate_filter.$(OBJEXT)
 snort_OBJECTS = $(am_snort_OBJECTS)
 snort_DEPENDENCIES = output-plugins/libspo.a \
 	detection-plugins/libspd.a dynamic-plugins/libdynamic.a \
@@ -218,7 +218,6 @@ plugin_enum.h \
 rules.h \
 sys_include.h \
 checksum.h \
-codes.c codes.h \
 debug.c debug.h \
 decode.c decode.h \
 log.c log.h \
@@ -257,7 +256,9 @@ ppm.c ppm.h \
 pcap_pkthdr32.h \
 cpuclock.h \
 sf_types.h \
-log_text.c log_text.h
+log_text.c log_text.h \
+detection_filter.c detection_filter.h \
+rate_filter.c rate_filter.h
 
 snort_LDADD = output-plugins/libspo.a \
 detection-plugins/libspd.a            \

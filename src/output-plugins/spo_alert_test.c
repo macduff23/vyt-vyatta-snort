@@ -87,6 +87,8 @@
 
 #include <sys/types.h>
 
+extern SnortConfig *snort_conf_for_parsing;
+
 #define TEST_FLAG_FILE     0x01
 #define TEST_FLAG_STDOUT   0x02
 #define TEST_FLAG_MSG      0x04
@@ -96,7 +98,7 @@
 typedef struct _SpoAlertTestData
 {
     FILE *file;
-    u_int8_t flags;
+    uint8_t flags;
 
 } SpoAlertTestData;
 
@@ -125,7 +127,7 @@ void AlertTestSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_test", NT_OUTPUT_ALERT, AlertTestInit);
+    RegisterOutputPlugin("alert_test", OUTPUT_TYPE_FLAG__ALERT, AlertTestInit);
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: AlertTest is setup...\n"););
 }
 
@@ -147,15 +149,13 @@ void AlertTestInit(char *args)
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertTest Initialized\n"););
 
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     data = ParseAlertTestArgs(args);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Linking AlertTest functions to call lists...\n"););
     
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertTest, NT_OUTPUT_ALERT, data);
+    AddFuncToOutputList(AlertTest, OUTPUT_TYPE__ALERT, data);
     AddFuncToCleanExitList(AlertTestCleanExitFunc, data);
     AddFuncToRestartList(AlertTestRestartFunc, data);
 }
@@ -318,7 +318,7 @@ SpoAlertTestData * ParseAlertTestArgs(char *args)
                     filename_end++;
                     filename_end = '\0';
 
-                    outfile = ProcessFileOption(filename);
+                    outfile = ProcessFileOption(snort_conf_for_parsing, filename);
                     data->file = OpenAlertFile(outfile);
                     data->flags |= TEST_FLAG_FILE;
                     free(outfile);

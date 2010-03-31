@@ -211,7 +211,7 @@ void DCE2_ClProcess(DCE2_SsnData *sd, DCE2_ClTracker *clt)
     uint16_t data_len = sd->wire_pkt->payload_size;
     PROFILE_VARS;
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Cl processing ...\n");
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Cl processing ...\n"));
 
     dce2_stats.cl_pkts++;
 
@@ -241,40 +241,40 @@ void DCE2_ClProcess(DCE2_SsnData *sd, DCE2_ClTracker *clt)
         switch (DceRpcClPduType(cl_hdr))
         {
             case DCERPC_PDU_TYPE__REQUEST:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Request\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Request\n"));
                 dce2_stats.cl_request++;
                 DCE2_ClRequest(sd, at, cl_hdr, data_ptr, data_len);
                 break;
 
             case DCERPC_PDU_TYPE__ACK:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Ack\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Ack\n"));
                 dce2_stats.cl_ack++;
                 break;
 
             case DCERPC_PDU_TYPE__CL_CANCEL:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Cancel\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Cancel\n"));
                 dce2_stats.cl_cancel++;
                 break;
 
             case DCERPC_PDU_TYPE__FACK:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Fack\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Fack\n"));
                 dce2_stats.cl_cli_fack++;
                 break;
 
             case DCERPC_PDU_TYPE__PING:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Ping\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Ping\n"));
                 dce2_stats.cl_ping++;
                 break;
 
             case DCERPC_PDU_TYPE__RESPONSE:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Response from client.  Changing stream direction.");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Response from client.  Changing stream direction."));
                 _dpd.streamAPI->update_direction(sd->wire_pkt->stream_session_ptr, SSN_DIR_RESPONDER,
                                                  GET_SRC_IP(((SFSnortPacket *)sd->wire_pkt)),
                                                  sd->wire_pkt->src_port);
                 break;
 
             default:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Other pdu type\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Other pdu type\n"));
                 dce2_stats.cl_other_req++;
                 break;
         }
@@ -284,12 +284,12 @@ void DCE2_ClProcess(DCE2_SsnData *sd, DCE2_ClTracker *clt)
         switch (DceRpcClPduType(cl_hdr))
         {
             case DCERPC_PDU_TYPE__RESPONSE:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Response\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Response\n"));
                 dce2_stats.cl_response++;
                 break;
 
             case DCERPC_PDU_TYPE__REJECT:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Reject\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Reject\n"));
                 dce2_stats.cl_reject++;
 
                 if (DceRpcClSeqNum(cl_hdr) == at->seq_num)
@@ -301,32 +301,32 @@ void DCE2_ClProcess(DCE2_SsnData *sd, DCE2_ClTracker *clt)
                 break;
 
             case DCERPC_PDU_TYPE__CANCEL_ACK:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Cancel Ack\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Cancel Ack\n"));
                 dce2_stats.cl_cancel_ack++;
                 break;
 
             case DCERPC_PDU_TYPE__FACK:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Fack\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Fack\n"));
                 dce2_stats.cl_srv_fack++;
                 break;
 
             case DCERPC_PDU_TYPE__FAULT:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Fault\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Fault\n"));
                 dce2_stats.cl_fault++;
                 break;
 
             case DCERPC_PDU_TYPE__NOCALL:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "No call\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "No call\n"));
                 dce2_stats.cl_nocall++;
                 break;
 
             case DCERPC_PDU_TYPE__WORKING:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Working\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Working\n"));
                 dce2_stats.cl_working++;
                 break;
 
             default:
-                DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Other pdu type\n");
+                DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Other pdu type\n"));
                 dce2_stats.cl_other_resp++;
                 break;
         }
@@ -504,7 +504,7 @@ static void DCE2_ClRequest(DCE2_SsnData *sd, DCE2_ClActTracker *at, DceRpcClHdr 
 {
     uint32_t seq_num = DceRpcClSeqNum(cl_hdr);
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__CL, "Processing Request ...\n");
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CL, "Processing Request ...\n"));
 
     if (seq_num > at->seq_num)
     {
@@ -905,7 +905,7 @@ static void DCE2_ClFragReassemble(DCE2_SsnData *sd, DCE2_ClActTracker *at, const
     DCE2_Detect(sd);
     DCE2_PopPkt();
 
-    dce2_stats.cl_reassembled++;
+    dce2_stats.cl_frag_reassembled++;
 }
 
 /********************************************************************

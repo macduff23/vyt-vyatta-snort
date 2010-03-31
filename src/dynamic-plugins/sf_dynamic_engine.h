@@ -36,6 +36,7 @@
 
 #include "sf_dynamic_define.h"
 #include "sf_dynamic_meta.h"
+#include "sf_types.h"
 
 /* specifies that a function does not return 
  * used for quieting Visual Studio warnings
@@ -54,7 +55,7 @@
 typedef int (*OTNCheckFunction)(void* pPacket, void* pRule);
 
 /* flowFlag is FLOW_*; check flowFlag iff non-zero */
-typedef int (*OTNHasFunction)(void* pRule, enum DynamicOptionType, int flowFlag);
+typedef int (*OTNHasFunction)(void* pRule, DynamicOptionType, int flowFlag);
 
 /* Data struct & function prototype used to get list of
  * Fast Pattern Content information. */
@@ -69,12 +70,13 @@ typedef struct _FPContentInfo
 #define FASTPATTERN_NORMAL 0x01
 #define FASTPATTERN_URI    0x02
 typedef int (*GetFPContentFunction)(void *, int, FPContentInfo**, int);
+typedef void (*RuleFreeFunc)(void *);
 
 /* ruleInfo is passed to OTNCheckFunction when the fast pattern matches. */
 typedef int (*RegisterRule)(
     u_int32_t, u_int32_t, void *,
     OTNCheckFunction, OTNHasFunction,
-    int, GetFPContentFunction
+    int, GetFPContentFunction, RuleFreeFunc
 );
 typedef u_int32_t (*RegisterBit)(char *, int);
 typedef int (*CheckFlowbit)(void *, int, u_int32_t);
@@ -86,10 +88,10 @@ typedef void (*PreprocOptionCleanup)(void *dataPtr);
 #define PREPROC_OPT_NOT_EQUAL   1
 typedef u_int32_t (*PreprocOptionHash)(void *);
 typedef int (*PreprocOptionKeyCompare)(void *, void *);
-typedef int (*RegisterPreprocRuleOpt)(char *, PreprocOptionInit, PreprocOptionEval,
-                                      PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
-typedef int (*GetPreprocRuleOptFuncs)(char *, void **, void **);
-
+typedef int (*RegisterPreprocRuleOpt)(
+    char *, PreprocOptionInit, PreprocOptionEval,
+    PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
+typedef int (*PreprocRuleOptInit)(void *);
 
 typedef void (*SetRuleData)(void *, void *);
 typedef void *(*GetRuleData)(void *);
@@ -127,7 +129,7 @@ typedef struct _DynamicEngineData
     LogMsgFunc fatalMsg;
     char *dataDumpDirectory;
 
-    GetPreprocRuleOptFuncs getPreprocOptFuncs;
+    PreprocRuleOptInit preprocRuleOptInit;
 
     SetRuleData setRuleData;
     GetRuleData getRuleData;
@@ -147,16 +149,16 @@ typedef struct _DynamicEngineData
 } DynamicEngineData;
 
 /* Function prototypes for Dynamic Engine Plugins */
-void CloseDynamicEngineLibs();
+void CloseDynamicEngineLibs(void);
 void LoadAllDynamicEngineLibs(char *path);
 int LoadDynamicEngineLib(char *library_name, int indent);
 typedef int (*InitEngineLibFunc)(DynamicEngineData *);
 typedef int (*CompatibilityFunc)(DynamicPluginMeta *meta, DynamicPluginMeta *lib);
 
-int InitDynamicEngines();
-void RemoveDuplicateEngines();
-int DumpDetectionLibRules();
-int ValidateDynamicEngines();
+int InitDynamicEngines(char *);
+void RemoveDuplicateEngines(void);
+int DumpDetectionLibRules(void);
+int ValidateDynamicEngines(void);
 
 /* This was necessary because of static code analysis not recognizing that
  * fatalMsg did not return - use instead of fatalMsg

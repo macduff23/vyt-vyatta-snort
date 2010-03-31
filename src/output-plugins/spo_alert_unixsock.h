@@ -36,19 +36,19 @@
 /* this struct is for the alert socket code.... */
 typedef struct _Alertpkt
 {
-    u_int8_t alertmsg[ALERTMSG_LENGTH]; /* variable.. */
+    uint8_t alertmsg[ALERTMSG_LENGTH]; /* variable.. */
     struct pcap_pkthdr pkth;
-    u_int32_t dlthdr;       /* datalink header offset. (ethernet, etc.. ) */
-    u_int32_t nethdr;       /* network header offset. (ip etc...) */
-    u_int32_t transhdr;     /* transport header offset (tcp/udp/icmp ..) */
-    u_int32_t data;
-    u_int32_t val;  /* which fields are valid. (NULL could be
+    uint32_t dlthdr;       /* datalink header offset. (ethernet, etc.. ) */
+    uint32_t nethdr;       /* network header offset. (ip etc...) */
+    uint32_t transhdr;     /* transport header offset (tcp/udp/icmp ..) */
+    uint32_t data;
+    uint32_t val;  /* which fields are valid. (NULL could be
                     * valids also) */
     /* Packet struct --> was null */
 #define NOPACKET_STRUCT 0x1
     /* no transport headers in packet */
 #define NO_TRANSHDR    0x2
-    u_int8_t pkt[SNAPLEN];
+    uint8_t pkt[SNAPLEN];
     Event event;
 } Alertpkt;
 

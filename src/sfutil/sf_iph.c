@@ -74,39 +74,39 @@ sfip_t *orig_ip6_ret_dst(Packet *p)
     return &p->orig_ip6h->ip_dst;
 }
 
-u_int16_t ip6_ret_toc(Packet *p)
+uint16_t ip6_ret_toc(Packet *p)
 {
-    u_int16_t toc;
+    uint16_t toc;
     VALIDATE(p,1);
 
-    toc = (u_int16_t)((ntohl(p->ip6h->vcl) & 0x0FF00000) >> 20);
+    toc = (uint16_t)((ntohl(p->ip6h->vcl) & 0x0FF00000) >> 20);
 
     return toc;
 }
 
-u_int16_t orig_ip6_ret_toc(Packet *p)
+uint16_t orig_ip6_ret_toc(Packet *p)
 {
-    u_int16_t toc;
+    uint16_t toc;
     VALIDATE(p,1);
 
-    toc = (u_int16_t)((ntohl(p->orig_ip6h->vcl) & 0x0FF00000) >> 20);
+    toc = (uint16_t)((ntohl(p->orig_ip6h->vcl) & 0x0FF00000) >> 20);
     return toc;
 }
 
-u_int8_t ip6_ret_hops(Packet *p)
+uint8_t ip6_ret_hops(Packet *p)
 {
 //    VALIDATE(p,1);
 
     return p->ip6h->hop_lmt;
 }
-u_int8_t orig_ip6_ret_hops(Packet *p)
+uint8_t orig_ip6_ret_hops(Packet *p)
 {
 //    VALIDATE(p,1);
 
     return p->orig_ip6h->hop_lmt;
 }
 
-u_int16_t ip6_ret_len(Packet *p)
+uint16_t ip6_ret_len(Packet *p)
 {
     VALIDATE(p,1);
 
@@ -116,14 +116,14 @@ u_int16_t ip6_ret_len(Packet *p)
     return p->ip6h->len;
 }
 
-u_int16_t orig_ip6_ret_len(Packet *p)
+uint16_t orig_ip6_ret_len(Packet *p)
 {
     VALIDATE(p,1);
 
     return p->orig_ip6h->len;
 }
 
-u_int32_t ip6_ret_id(Packet *p)
+uint32_t ip6_ret_id(Packet *p)
 {
     IP6Frag *frag_hdr;
     if (p->ip6_extension_count == 0)
@@ -134,25 +134,25 @@ u_int32_t ip6_ret_id(Packet *p)
     return frag_hdr->ip6f_ident;
 }
 
-u_int32_t orig_ip6_ret_id(Packet *p)
+uint32_t orig_ip6_ret_id(Packet *p)
 {
 // XXX-IPv6 "NOT YET IMPLEMENTED - IP6 identification"
     return 0;
 }
 
-u_int8_t ip6_ret_next(Packet *p)
+uint8_t ip6_ret_next(Packet *p)
 {
     VALIDATE(p,1);
     return p->ip6h->next;
 }
 
-u_int8_t orig_ip6_ret_next(Packet *p)
+uint8_t orig_ip6_ret_next(Packet *p)
 {
     VALIDATE(p,1);
     return p->orig_ip6h->next;
 }
 
-u_int16_t ip6_ret_off(Packet *p)
+uint16_t ip6_ret_off(Packet *p)
 {
     IP6Frag *frag_hdr;
     if (p->ip6_extension_count == 0)
@@ -163,20 +163,20 @@ u_int16_t ip6_ret_off(Packet *p)
     return frag_hdr->ip6f_offlg;
 }
 
-u_int16_t orig_ip6_ret_off(Packet *p)
+uint16_t orig_ip6_ret_off(Packet *p)
 {
 // XXX-IPv6 "NOT YET IMPLEMENTED - IP6 frag offset"
     return 0;
 }
 
-u_int8_t ip6_ret_ver(Packet *p)
+uint8_t ip6_ret_ver(Packet *p)
 {
-    return (u_int8_t)IP6_VER(p->ip6h->vcl); 
+    return (uint8_t)IP6_VER(p->ip6h->vcl); 
 }
 
-u_int8_t orig_ip6_ret_ver(Packet *p)
+uint8_t orig_ip6_ret_ver(Packet *p)
 {
-    return (u_int8_t)IP6_VER(p->orig_ip6h->vcl); 
+    return (uint8_t)IP6_VER(p->orig_ip6h->vcl); 
 }
 
 sfip_t *ip4_ret_dst(Packet *p)
@@ -203,113 +203,113 @@ sfip_t *orig_ip4_ret_src(Packet *p)
     return &p->orig_ip4h->ip_src;
 }
 
-u_int16_t ip4_ret_tos(Packet *p)
+uint16_t ip4_ret_tos(Packet *p)
 {
    VALIDATE(p,1);
 
    return p->ip4h->ip_tos;
 }
 
-u_int16_t orig_ip4_ret_tos(Packet *p)
+uint16_t orig_ip4_ret_tos(Packet *p)
 {
    VALIDATE(p,1);
 
    return p->orig_ip4h->ip_tos;
 }
 
-u_int8_t ip4_ret_ttl(Packet *p)
+uint8_t ip4_ret_ttl(Packet *p)
 {
     VALIDATE(p,1);
 
     return p->ip4h->ip_ttl;
 }
 
-u_int8_t orig_ip4_ret_ttl(Packet *p)
+uint8_t orig_ip4_ret_ttl(Packet *p)
 {
     VALIDATE(p,1);
 
     return p->orig_ip4h->ip_ttl;
 }
 
-u_int16_t ip4_ret_len(Packet *p)
+uint16_t ip4_ret_len(Packet *p)
 {
     VALIDATE(p,1);
 
     return p->ip4h->ip_len;
 }
 
-u_int16_t orig_ip4_ret_len(Packet *p)
+uint16_t orig_ip4_ret_len(Packet *p)
 {
     VALIDATE(p,1);
 
     return p->orig_ip4h->ip_len;
 }
 
-u_int32_t ip4_ret_id(Packet *p)
+uint32_t ip4_ret_id(Packet *p)
 {
     VALIDATE(p,1);
     
-    return (u_int32_t)p->ip4h->ip_id;
+    return (uint32_t)p->ip4h->ip_id;
 }
 
-u_int32_t orig_ip4_ret_id(Packet *p)
+uint32_t orig_ip4_ret_id(Packet *p)
 {
     VALIDATE(p,1);
     
-    return (u_int32_t)p->orig_ip4h->ip_id;
+    return (uint32_t)p->orig_ip4h->ip_id;
 }
 
-u_int8_t ip4_ret_proto(Packet *p)
+uint8_t ip4_ret_proto(Packet *p)
 {
     // VALIDATION()
     
     return p->ip4h->ip_proto;
 }
 
-u_int8_t orig_ip4_ret_proto(Packet *p)
+uint8_t orig_ip4_ret_proto(Packet *p)
 {
     // VALIDATION()
     
     return p->orig_ip4h->ip_proto;
 }
 
-u_int16_t ip4_ret_off(Packet *p)
+uint16_t ip4_ret_off(Packet *p)
 {
     return p->ip4h->ip_off;
 }
 
-u_int16_t orig_ip4_ret_off(Packet *p)
+uint16_t orig_ip4_ret_off(Packet *p)
 {
     return p->orig_ip4h->ip_off;
 }
 
-u_int8_t ip4_ret_ver(Packet *p)
+uint8_t ip4_ret_ver(Packet *p)
 {
     return IP_VER(p->iph); 
 }
 
-u_int8_t orig_ip4_ret_ver(Packet *p)
+uint8_t orig_ip4_ret_ver(Packet *p)
 {
     return IP_VER(p->orig_iph);
 }
 
-u_int8_t ip4_ret_hlen(Packet *p)
+uint8_t ip4_ret_hlen(Packet *p)
 {
     return IP_HLEN(p->iph);
 }
 
-u_int8_t orig_ip4_ret_hlen(Packet *p)
+uint8_t orig_ip4_ret_hlen(Packet *p)
 {
     return IP_HLEN(p->orig_iph);
 }
 
-u_int8_t ip6_ret_hlen(Packet *p)
+uint8_t ip6_ret_hlen(Packet *p)
 {
     /* Snort is expecting this number to be in terms of 32 bit words */
     return IP6_HDR_LEN / 4 ;
 }
 
-u_int8_t orig_ip6_ret_hlen(Packet *p)
+uint8_t orig_ip6_ret_hlen(Packet *p)
 {
     return IP6_HDR_LEN / 4;
 }
@@ -326,9 +326,9 @@ void sfiph_build(Packet *p, const void *hdr, int family)
      * That means this is a nested IP.  */
     if (p->family != NO_IP)
     {
-        if (p->iph_api.ver == IPH_API_V4)
+        if (p->iph_api->ver == IPH_API_V4)
             memcpy(&p->outer_ip4h, &p->inner_ip4h, sizeof(IP4Hdr));
-        else if (p->iph_api.ver == IPH_API_V6)
+        else if (p->iph_api->ver == IPH_API_V6)
             memcpy(&p->outer_ip6h, &p->inner_ip6h, sizeof(IP6Hdr));
 
         p->outer_iph_api = p->iph_api;
@@ -375,12 +375,12 @@ void sfiph_orig_build(Packet *p, const void *hdr, int family)
 
     /* If iph_api is already set, we've been here before.
      * That means this is a nested IP.  */
-    if (p->orig_iph_api.ver == IPH_API_V4)
+    if (p->orig_iph_api && (p->orig_iph_api->ver == IPH_API_V4))
     {
         memcpy(&p->outer_orig_ip4h, &p->inner_orig_ip4h, sizeof(IP4Hdr));
         p->outer_orig_iph_api = p->orig_iph_api;
     }
-    else if (p->orig_iph_api.ver == IPH_API_V6)
+    else if (p->orig_iph_api && (p->orig_iph_api->ver == IPH_API_V6))
     {
         memcpy(&p->outer_orig_ip6h, &p->inner_orig_ip6h, sizeof(IP6Hdr));
         p->outer_orig_iph_api = p->orig_iph_api;

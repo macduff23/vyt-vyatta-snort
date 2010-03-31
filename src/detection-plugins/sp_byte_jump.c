@@ -85,6 +85,7 @@
 #include "plugin_enum.h"
 #include "mstring.h"
 #include "byte_extract.h"
+#include "sp_byte_jump.h"
 #include "sfhashfcn.h"
 
 #include "snort.h"
@@ -94,45 +95,32 @@ PreprocStats byteJumpPerfStats;
 extern PreprocStats ruleOTNEvalPerfStats;
 #endif
 
-extern const u_int8_t *doe_ptr;
-extern u_int8_t DecodeBuffer[DECODE_BLEN];
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+extern const uint8_t *doe_ptr;
+extern uint8_t DecodeBuffer[DECODE_BLEN];
 
 typedef struct _ByteJumpOverrideData
 {
     char *keyword;
     char *option;
-    RuleOverrideFunc func;
+    RuleOptOverrideFunc func;
     struct _ByteJumpOverrideData *next;
 } ByteJumpOverrideData;
 
-static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func);
 ByteJumpOverrideData *byteJumpOverrideFuncs = NULL;
 
-typedef struct _ByteJumpData
+static void ByteJumpOverride(char *keyword, char *option, RuleOptOverrideFunc func);
+static void ByteJumpOverrideFuncsFree(void);
+static void ByteJumpInit(char *, OptTreeNode *, int);
+static ByteJumpOverrideData * ByteJumpParse(char *, ByteJumpData *, OptTreeNode *);
+static void ByteJumpOverrideCleanup(int, void *);
+
+
+uint32_t ByteJumpHash(void *d)
 {
-    u_int32_t bytes_to_grab; /* number of bytes to compare */
-    int32_t offset;
-    u_int8_t relative_flag;
-    u_int8_t data_string_convert_flag;
-    u_int8_t from_beginning_flag;
-    u_int8_t align_flag;
-    u_int8_t endianess;
-    u_int32_t base;
-    u_int32_t multiplier;
-    int32_t post_offset;
-
-} ByteJumpData;
-
-#include "sfhashfcn.h"
-#include "detection_options.h"
-
-void ByteJumpInit(char *, OptTreeNode *, int);
-ByteJumpOverrideData * ByteJumpParse(char *, ByteJumpData *, OptTreeNode *);
-int ByteJump(void *option_data, Packet *);
-
-u_int32_t ByteJumpHash(void *d)
-{
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     ByteJumpData *data = (ByteJumpData *)d;
 
     a = data->bytes_to_grab;
@@ -183,7 +171,7 @@ int ByteJumpCompare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func)
+static void ByteJumpOverride(char *keyword, char *option, RuleOptOverrideFunc func)
 {
     ByteJumpOverrideData *new = SnortAlloc(sizeof(ByteJumpOverrideData));
 
@@ -193,6 +181,28 @@ static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func)
     
     new->next = byteJumpOverrideFuncs;
     byteJumpOverrideFuncs = new;
+}
+
+static void ByteJumpOverrideFuncsFree(void)
+{
+    ByteJumpOverrideData *node = byteJumpOverrideFuncs;
+
+    while (node != NULL)
+    {
+        ByteJumpOverrideData *tmp = node;
+
+        node = node->next;
+
+        if (tmp->keyword != NULL)
+            free(tmp->keyword);
+
+        if (tmp->option != NULL)
+            free(tmp->option);
+
+        free(tmp);
+    }
+
+    byteJumpOverrideFuncs = NULL;
 }
 
 /****************************************************************************
@@ -208,8 +218,14 @@ static void ByteJumpOverride(char *keyword, char *option, RuleOverrideFunc func)
  ****************************************************************************/
 void SetupByteJump(void)
 {
+    /* This list is only used during parsing */
+    if (byteJumpOverrideFuncs != NULL)
+        ByteJumpOverrideFuncsFree();
+
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("byte_jump", ByteJumpInit, ByteJumpOverride, OPT_TYPE_DETECTION);
+    RegisterRuleOption("byte_jump", ByteJumpInit, ByteJumpOverride, OPT_TYPE_DETECTION);
+    AddFuncToCleanExitList(ByteJumpOverrideCleanup, NULL);
+    AddFuncToRuleOptParseCleanupList(ByteJumpOverrideFuncsFree);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("byte_jump", &byteJumpPerfStats, 3, &ruleOTNEvalPerfStats);
@@ -234,7 +250,7 @@ void SetupByteJump(void)
  * Returns: void function
  *
  ****************************************************************************/
-void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
+static void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
 {
     ByteJumpData *idx;
     OptFpList *fpl;
@@ -317,7 +333,7 @@ void ByteJumpInit(char *data, OptTreeNode *otn, int protocol)
  * Returns: void function
  *
  ****************************************************************************/
-ByteJumpOverrideData * ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
+static ByteJumpOverrideData * ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode *otn)
 {
     char **toks;
     char *endp;
@@ -330,7 +346,7 @@ ByteJumpOverrideData * ByteJumpParse(char *data, ByteJumpData *idx, OptTreeNode 
     toks = mSplit(data, ",", 12, &num_toks, 0);
 
     if(num_toks < 2)
-        FatalError("ERROR %s (%d): Bad arguments to byte_jump: %s\n", file_name,
+        FatalError("%s (%d): Bad arguments to byte_jump: %s\n", file_name,
                 file_line, data);
 
     /* set how many bytes to process from the packet */
@@ -501,13 +517,13 @@ int ByteJump(void *option_data, Packet *p)
 {
     ByteJumpData *bjd = (ByteJumpData *)option_data;
     int rval = DETECTION_OPTION_NO_MATCH;
-    u_int32_t value = 0;
-    u_int32_t jump_value = 0;
-    u_int32_t payload_bytes_grabbed = 0;
+    uint32_t value = 0;
+    uint32_t jump_value = 0;
+    uint32_t payload_bytes_grabbed = 0;
     int32_t tmp = 0;
     int dsize;
     int use_alt_buffer = p->packet_flags & PKT_ALT_DECODE;
-    const u_int8_t *base_ptr, *end_ptr, *start_ptr;
+    const uint8_t *base_ptr, *end_ptr, *start_ptr;
     PROFILE_VARS;
 
     PREPROC_PROFILE_START(byteJumpPerfStats);
@@ -661,3 +677,10 @@ int ByteJump(void *option_data, Packet *p)
     PREPROC_PROFILE_END(byteJumpPerfStats);
     return rval;
 }
+
+static void ByteJumpOverrideCleanup(int signal, void *data)
+{
+    if (byteJumpOverrideFuncs != NULL)
+        ByteJumpOverrideFuncsFree();
+}
+

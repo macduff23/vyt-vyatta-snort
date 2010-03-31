@@ -37,12 +37,13 @@
 #include <ctype.h>
 
 #define SFKSEARCH_TRACK_Q
+
 #ifdef SFKSEARCH_TRACK_Q
-#include "snort.h"
-#include "util.h"
-extern PV pv;
+# include "snort.h"
+# include "util.h"
 #endif
 
+#include "debug.h"
 #include "sfksearch.h"
 #include "bounds.h"
 
@@ -51,6 +52,11 @@ static void KTrieFree(KTRIENODE *n);
 static unsigned int mtot = 0;
 
 unsigned int KTrieMemUsed(void) { return mtot; }
+
+void KTrieInitMemUsed(void)
+{
+    mtot = 0;
+}
     
 /*
 *  Allocate Memory
@@ -112,7 +118,7 @@ static void init_xlatcase(void)
 /*
 *
 */
-static inline void ConvertCaseEx( unsigned char * d, unsigned char *s, int m )
+static INLINE void ConvertCaseEx( unsigned char * d, unsigned char *s, int m )
 {
      int i;
      for( i=0; i < m; i++ )
@@ -597,20 +603,20 @@ int KTrieCompile(KTRIE_STRUCT * ts,
   return 0;
 }
 
-void sfksearch_print_qinfo()
+void sfksearch_print_qinfo(void)
 {
 #ifdef SFKSEARCH_TRACK_Q
-    if( pv.max_inq )
+    if( snort_conf->max_inq )
     {
-        LogMessage("lowmem: queue size     = %u, max  = %u\n", pv.max_inq,SFK_MAX_INQ );
-        LogMessage("lowmem: queue flushes  = %u \n", (unsigned)pv.tot_inq_flush );
-        LogMessage("lowmem: queue inserts  = %u \n", (unsigned)pv.tot_inq_inserts );
-        LogMessage("lowmem: queue uinserts = %u \n", (unsigned)pv.tot_inq_uinserts );
+        LogMessage("lowmem: queue size     = %u, max  = %u\n", snort_conf->max_inq,SFK_MAX_INQ );
+        LogMessage("lowmem: queue flushes  = %u \n", (unsigned)snort_conf->tot_inq_flush );
+        LogMessage("lowmem: queue inserts  = %u \n", (unsigned)snort_conf->tot_inq_inserts );
+        LogMessage("lowmem: queue uinserts = %u \n", (unsigned)snort_conf->tot_inq_uinserts );
     }
 #endif
 }
 static
-inline 
+INLINE
 void 
 _init_queue( SFK_PMQ * b)
 {
@@ -620,14 +626,14 @@ _init_queue( SFK_PMQ * b)
 
 /* uniquely insert into q */
 static  
-inline
+INLINE
 int
 _add_queue(SFK_PMQ * b, void * p  )
 {
     int i;
 
 #ifdef SFKSEARCH_TRACK_Q
-    pv.tot_inq_inserts++;
+    snort_conf->tot_inq_inserts++;
 #endif
 
     for(i=(int)(b->inq)-1;i>=0;i--)
@@ -635,7 +641,7 @@ _add_queue(SFK_PMQ * b, void * p  )
             return 0;
     
 #ifdef SFKSEARCH_TRACK_Q
-    pv.tot_inq_uinserts++;
+    snort_conf->tot_inq_uinserts++;
 #endif
 
     if( b->inq < SFK_MAX_INQ )
@@ -654,7 +660,7 @@ _add_queue(SFK_PMQ * b, void * p  )
 }
 
 static
-inline
+INLINE
 unsigned
 _process_queue( SFK_PMQ * q, 
            int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
@@ -664,9 +670,9 @@ _process_queue( SFK_PMQ * q,
     unsigned int    i;
 
 #ifdef SFKSEARCH_TRACK_Q
-    if( q->inq > pv.max_inq ) 
-        pv.max_inq = q->inq;
-    pv.tot_inq_flush += q->inq_flush;
+    if( q->inq > snort_conf->max_inq ) 
+        snort_conf->max_inq = q->inq;
+    snort_conf->tot_inq_flush += q->inq_flush;
 #endif
 
     for( i=0; i<q->inq; i++ )
@@ -686,7 +692,7 @@ _process_queue( SFK_PMQ * q,
 }
 
 static 
-inline 
+INLINE
 int KTriePrefixMatchQ( KTRIE_STRUCT  * kt, 
         unsigned char * T, 
         int n,
@@ -762,7 +768,7 @@ int KTriePrefixMatchQ( KTRIE_STRUCT  * kt,
 *   returns:
 *   # pattern matches
 */
-static inline int KTriePrefixMatch( KTRIE_STRUCT  * kt, 
+static INLINE int KTriePrefixMatch( KTRIE_STRUCT  * kt, 
        unsigned char * T, 
        unsigned char * Tc, 
        unsigned char * bT, 
@@ -822,7 +828,7 @@ static inline int KTriePrefixMatch( KTRIE_STRUCT  * kt,
 }
 
 static
-inline 
+INLINE
 int KTrieSearchQ( KTRIE_STRUCT * ks, unsigned char * T, int n, 
                   int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
                   void * data )
@@ -839,7 +845,7 @@ int KTrieSearchQ( KTRIE_STRUCT * ks, unsigned char * T, int n,
 }
 
 static 
-inline
+INLINE
 int KTrieSearchQBC( KTRIE_STRUCT * ks, unsigned char * T, int n,
                     int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
                     void * data )
@@ -878,7 +884,7 @@ int KTrieSearchQBC( KTRIE_STRUCT * ks, unsigned char * T, int n,
 *
 */
 static
-inline
+INLINE
 int KTrieSearchNoBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
                      int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
                      void * data )
@@ -903,7 +909,7 @@ int KTrieSearchNoBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
 *
 */
 static
-inline
+INLINE
 int KTrieSearchBC( KTRIE_STRUCT * ks, unsigned char * Tx, int n,
                    int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
                    void * data )

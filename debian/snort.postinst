@@ -45,14 +45,12 @@ case "$1" in
 	db_get snort/interface || true; 	INTERFACE="$RET"
 	db_get snort/address_range || true;	ADDRESS_RANGE="$RET"
 	db_get snort/disable_promiscuous || true; DISABLE_PROMISCUOUS=$RET
-	db_get snort/reverse_order || true;	REVERSE_ORDER=$RET
 	db_get snort/send_stats || true;	STATS_SEND="$RET"
 	db_get snort/stats_rcpt || true;	STATS_RCPT="$RET"
 	db_get snort/stats_treshold || true;	STATS_THRESHOLD="$RET"
 	db_get snort/options || true;		OPTIONS="$RET"
 
 	test "$DISABLE_PROMISCUOUS" = "true" && OPTIONS="$OPTIONS -p"
-	test "$REVERSE_ORDER" = "true" && OPTIONS="$OPTIONS -o"
 	# Failsafe in case the values above are blank (jfs)
 	[ -z "$STATS_RCPT" ] && STATS_RCPT=root
 	[ -z "$STATS_THRESHOLD" ] && STATS_THRESHOLD=1

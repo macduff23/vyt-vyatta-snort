@@ -128,6 +128,15 @@
 
 #define     DECODE_IPV6_TUNNELED_IPV4_TRUNCATED   291
 
+#define     DECODE_TCP_XMAS                       400 
+#define     DECODE_TCP_NMAP_XMAS                  401 
+
+#define     DECODE_DOS_NAPTHA                     402 
+#define     DECODE_SYN_TO_MULTICAST               403 
+#define     DECODE_ZERO_TTL                       404 
+#define     DECODE_BAD_FRAGBITS                   405 
+
+
 /*
 **  HttpInspect Generator IDs
 **
@@ -158,6 +167,7 @@
 #define     HI_CLIENT_WEBROOT_DIR                   18  /* done */
 #define     HI_CLIENT_LONG_HDR                      19  /* done */
 #define     HI_CLIENT_MAX_HEADERS                   20  /* done */
+#define     HI_CLIENT_MULTIPLE_CONTLEN              21
 
 #define GENERATOR_SPP_HTTP_INSPECT_ANOM_SERVER      120
 #define     HI_ANOM_SERVER_ALERT                    1   /* done */
@@ -207,6 +217,8 @@
 #define     FRAG3_IPV6_BSD_ICMP_FRAG                9
 #define     FRAG3_IPV6_BAD_FRAG_PKT                10
 #define     FRAG3_MIN_TTL_EVASION                  11
+#define     FRAG3_EXCESSIVE_OVERLAP                12
+#define     FRAG3_TINY_FRAGMENT                    13
 
 #define GENERATOR_SMTP                             124
 #define     SMTP_COMMAND_OVERFLOW                  1
@@ -216,6 +228,7 @@
 #define     SMTP_UNKNOWN_CMD                       5
 #define     SMTP_ILLEGAL_CMD                       6
 #define     SMTP_HEADER_NAME_OVERFLOW              7
+#define     SMTP_XLINK2STATE_OVERFLOW              8
     
 /*
 **  FTPTelnet Generator IDs
@@ -241,7 +254,15 @@
 #define FTPP_TELNET_SUBNEG_BEGIN_NO_END       3
 
 #define GENERATOR_SPP_ISAKMP                 127
-#define GENERATOR_SPP_SSH                128
+
+#define GENERATOR_SPP_SSH                    128
+#define     SSH_EVENT_RESPOVERFLOW             1
+#define     SSH_EVENT_CRC32                    2
+#define     SSH_EVENT_SECURECRT                3
+#define     SSH_EVENT_PROTOMISMATCH            4
+#define     SSH_EVENT_WRONGDIR                 5
+#define     SSH_EVENT_PAYLOAD_SIZE             6
+#define     SSH_EVENT_VERSION                  7
 
 #define GENERATOR_SPP_STREAM5                     129
 #define     STREAM5_SYN_ON_EST                      1
@@ -312,9 +333,19 @@
 #define     DCE2_EVENT__CL_DATA_LT_HDR               42
 #define     DCE2_EVENT__CL_BAD_SEQ_NUM               43
 
-#define GENERATOR_PPM                             134
-#define     PPM_EVENT_RULE_TREE_DISABLED            1
-#define     PPM_EVENT_RULE_TREE_ENABLED             2
+#define GENERATOR_PPM                               134
+#define     PPM_EVENT_RULE_TREE_DISABLED              1
+#define     PPM_EVENT_RULE_TREE_ENABLED               2
+
+#define GENERATOR_INTERNAL                          135
+#define     INTERNAL_EVENT_SYN_RECEIVED               1
+#define     INTERNAL_EVENT_SESSION_ADD                2
+#define     INTERNAL_EVENT_SESSION_DEL                3
+
+/* Reserved for Marty's IP blacklisting patch
+#define GENERATOR_SPP_IPLIST                        136 */
+
+#define GENERATOR_SPP_SSLPP                         137
 
 /*  This is where all the alert messages will be archived for each
     internal alerts */
@@ -344,24 +375,28 @@
 #define FRAG3_IPV6_BSD_ICMP_FRAG_STR "(spp_frag3) IPv6 BSD mbufs remote kernel buffer overflow"
 #define FRAG3_IPV6_BAD_FRAG_PKT_STR "(spp_frag3) Bogus fragmentation packet. Possible BSD attack"
 #define FRAG3_MIN_TTL_EVASION_STR "(spp_frag3) TTL value less than configured minimum, not using for reassembly"
+#define FRAG3_EXCESSIVE_OVERLAP_STR "(spp_frag3) Excessive fragment overlap"
+#define FRAG3_TINY_FRAGMENT_STR "(spp_frag3) Tiny fragment"
 
 /*   Stream5 strings */
-#define     STREAM5_SYN_ON_EST_STR "Syn on established session"
-#define     STREAM5_DATA_ON_SYN_STR "Data on SYN packet"
-#define     STREAM5_DATA_ON_CLOSED_STR "Data sent on stream not accepting data"
-#define     STREAM5_BAD_TIMESTAMP_STR "TCP Timestamp is outside of PAWS window"
-#define     STREAM5_BAD_SEGMENT_STR "Bad segment, adjusted size <= 0"
-#define     STREAM5_WINDOW_TOO_LARGE_STR "Window size (after scaling) larger than policy allows"
-#define     STREAM5_EXCESSIVE_TCP_OVERLAPS_STR "Limit on number of overlapping TCP packets reached"
-#define     STREAM5_DATA_AFTER_RESET_STR "Data sent on stream after TCP Reset"
-#define     STREAM5_SESSION_HIJACKED_CLIENT_STR "TCP Client possibly hijacked, different Ethernet Address"
-#define     STREAM5_SESSION_HIJACKED_SERVER_STR "TCP Server possibly hijacked, different Ethernet Address"
-#define     STREAM5_DATA_WITHOUT_FLAGS_STR "TCP Data with no TCP Flags set"
-#define     STREAM5_SMALL_SEGMENT_STR "Consecutive TCP small segments exceeding threshold"
+#define STREAM5_SYN_ON_EST_STR "Syn on established session"
+#define STREAM5_DATA_ON_SYN_STR "Data on SYN packet"
+#define STREAM5_DATA_ON_CLOSED_STR "Data sent on stream not accepting data"
+#define STREAM5_BAD_TIMESTAMP_STR "TCP Timestamp is outside of PAWS window"
+#define STREAM5_BAD_SEGMENT_STR "Bad segment, adjusted size <= 0"
+#define STREAM5_WINDOW_TOO_LARGE_STR "Window size (after scaling) larger than policy allows"
+#define STREAM5_EXCESSIVE_TCP_OVERLAPS_STR "Limit on number of overlapping TCP packets reached"
+#define STREAM5_DATA_AFTER_RESET_STR "Data sent on stream after TCP Reset"
+#define STREAM5_SESSION_HIJACKED_CLIENT_STR "TCP Client possibly hijacked, different Ethernet Address"
+#define STREAM5_SESSION_HIJACKED_SERVER_STR "TCP Server possibly hijacked, different Ethernet Address"
+#define STREAM5_DATA_WITHOUT_FLAGS_STR "TCP Data with no TCP Flags set"
+#define STREAM5_SMALL_SEGMENT_STR "Consecutive TCP small segments exceeding threshold"
+
+#define STREAM5_INTERNAL_EVENT_STR ""
 
 /* PPM strings */
-#define     PPM_EVENT_RULE_TREE_DISABLED_STR "Rule Options Disabled by Rule Latency"
-#define     PPM_EVENT_RULE_TREE_ENABLED_STR "Rule Options Re-enabled by Rule Latency"
+#define PPM_EVENT_RULE_TREE_DISABLED_STR "Rule Options Disabled by Rule Latency"
+#define PPM_EVENT_RULE_TREE_ENABLED_STR "Rule Options Re-enabled by Rule Latency"
 
 /*   Snort decoder strings */
 #define DECODE_NOT_IPV4_DGRAM_STR "(snort_decoder) WARNING: Not IPv4 datagram!"
@@ -434,6 +469,14 @@
 #define DECODE_IPV6_DGRAM_LT_IPHDR_STR "(snort_decoder) WARNING: IP dgm len < IP Hdr len!"
 #define DECODE_IPV6_DGRAM_GT_CAPLEN_STR "(snort_decoder) WARNING: IP dgm len > captured len!"
 #define DECODE_IPV6_TUNNELED_IPV4_TRUNCATED_STR "(snort_decoder) IPV6 tunneled over IPv4, IPv6 header truncated, possible Linux Kernel attack"
+
+#define DECODE_TCP_XMAS_STR "(snort_decoder) WARNING: XMAS Attack Detected!"
+#define DECODE_TCP_NMAP_XMAS_STR "(snort_decoder) WARNING: Nmap XMAS Attack Detected!"
+
+#define DECODE_DOS_NAPTHA_STR "(snort_decoder) DOS NAPTHA Vulnerability Detected!"
+#define DECODE_SYN_TO_MULTICAST_STR "(snort_decoder) Bad Traffic SYN to multicast address"
+#define DECODE_ZERO_TTL_STR "(snort_decoder) WARNING: IPV4 packet with zero TTL"
+#define DECODE_BAD_FRAGBITS_STR "(snort_decoder) WARNING: IPV4 packet with bad frag bits (Both MF and DF set)"
 
 /*  RPC decode preprocessor strings */
 #define RPC_FRAG_TRAFFIC_STR "(spp_rpc_decode) Fragmented RPC Records"

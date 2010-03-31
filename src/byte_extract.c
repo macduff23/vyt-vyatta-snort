@@ -39,7 +39,7 @@
  * Grab a binary representation of data from a buffer
  *
  * This method will read either a big or little endian value in binary
- * data from the packet and return an u_int32_t value. 
+ * data from the packet and return an uint32_t value. 
  * 
  * @param endianess value to read the byte as
  * @param bytes_to_grab how many bytes should we grab from the packet
@@ -50,9 +50,9 @@
  *
  * @returns 0 on success, otherwise failure
  */
-int byte_extract(int endianess, int bytes_to_grab, const u_int8_t *ptr,
-                 const u_int8_t *start, const u_int8_t *end,
-                 u_int32_t *value)
+int byte_extract(int endianess, int bytes_to_grab, const uint8_t *ptr,
+                 const uint8_t *start, const uint8_t *end,
+                 uint32_t *value)
 {
     if(endianess != LITTLE && endianess != BIG)
     {
@@ -142,9 +142,9 @@ int byte_extract(int endianess, int bytes_to_grab, const u_int8_t *ptr,
  *
  * @returns 0 on success, otherwise failure
  */
-int string_extract(int bytes_to_grab, int base, const u_int8_t *ptr,
-                   const u_int8_t *start, const u_int8_t *end,
-                   u_int32_t *value)
+int string_extract(int bytes_to_grab, int base, const uint8_t *ptr,
+                   const uint8_t *start, const uint8_t *end,
+                   uint32_t *value)
 {
     char byte_array[TEXTLEN];
     char *parse_helper;
@@ -198,11 +198,11 @@ int string_extract(int bytes_to_grab, int base, const u_int8_t *ptr,
 void test_extract(void)
 {
     int i;
-    u_int32_t ret;
+    uint32_t ret;
     
-    u_int8_t value1[2];    
-    u_int8_t value2[2];
-    u_int8_t value3[4];
+    uint8_t value1[2];    
+    uint8_t value2[2];
+    uint8_t value3[4];
 
     value1[0] = 0;
     value1[1] = 0xff;
@@ -311,16 +311,16 @@ void test_extract(void)
         }
         else
         {         
-            printf("[loop] value: %x %x\n", ret, *(u_int32_t *) &value3);
+            printf("[loop] value: %x %x\n", ret, *(uint32_t *) &value3);
         }
     }
 }
 
-void test_string()
+void test_string(void)
 {
     char *stringdata = "21212312412";
     int datalen = strlen(stringdata);
-    u_int32_t ret;
+    uint32_t ret;
     
     if(string_extract(4, 10, stringdata,  stringdata, stringdata + datalen,  &ret) < 0)
     {

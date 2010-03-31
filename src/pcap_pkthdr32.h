@@ -34,14 +34,16 @@
 #include <time.h>
 #include <sys/types.h>
 
+#include "sf_types.h"
+
 
 /* we must use fixed size of 32 bits, because on-disk
  * format of savefiles uses 32-bit tv_sec (and tv_usec)
  */
-struct timeval32
+struct sf_timeval32
 {
-    u_int32_t tv_sec;      /* seconds */
-    u_int32_t tv_usec;     /* microseconds */
+    uint32_t tv_sec;      /* seconds */
+    uint32_t tv_usec;     /* microseconds */
 };
 
 /* this is equivalent to the pcap pkthdr struct, but we need
@@ -49,9 +51,9 @@ struct timeval32
  */
 struct pcap_pkthdr32
 {
-    struct timeval32 ts;   /* packet timestamp */
-    u_int32_t caplen;      /* packet capture length */
-    u_int32_t pktlen;      /* packet "real" length */
+    struct sf_timeval32 ts;   /* packet timestamp */
+    uint32_t caplen;      /* packet capture length */
+    uint32_t pktlen;      /* packet "real" length */
 };
 
 

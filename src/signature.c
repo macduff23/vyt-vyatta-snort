@@ -25,674 +25,190 @@
 #include "rules.h"
 #include "mstring.h"
 #include "sfutil/sfghash.h"
+#include "snort.h"
+#include "parser.h"
 
 #ifdef TARGET_BASED
 #include "target-based/sftarget_protocol_reference.h"
 #endif
+#include "parser.h"
+#include "sfPolicy.h"
 
-extern char *file_name;
-extern int file_line;
+/* for eval and free functions */
+#include "detection-plugins/sp_pattern_match.h"
 
-static OptTreeNode *soidOTN;
+extern SnortConfig *snort_conf_for_parsing;
 
-SFGHASH * soid_sg_otn_map = NULL;
-SFGHASH * sg_rule_otn_map = NULL;
+static OptTreeNode *soidOTN = NULL;
 
 /********************* Reference Implementation *******************************/
 
-ReferenceNode *AddReference(ReferenceNode *rn, char *system, char *id)
+ReferenceNode * AddReference(SnortConfig *sc, ReferenceNode **head, char *system, char *id)
 {
-    ReferenceNode *newNode;
+    ReferenceNode *node;
 
-    if(system == NULL || id == NULL)
+    if ((system == NULL) || (id == NULL) ||
+        (sc == NULL) || (head == NULL))
     {
-        ErrorMessage("NULL reference argument\n");
-        return rn;
+        return NULL;
     }
-    
+
     /* create the new node */
-    newNode = (ReferenceNode *)SnortAlloc(sizeof(ReferenceNode));
+    node = (ReferenceNode *)SnortAlloc(sizeof(ReferenceNode));
     
     /* lookup the reference system */
-    newNode->system = ReferenceSystemLookup(system);
-    if (!newNode->system)
-    {
-        newNode->system = ReferenceSystemAdd(system, NULL);
-    }
-    newNode->id = SnortStrdup(id);
+    node->system = ReferenceSystemLookup(sc->references, system);
+    if (node->system == NULL)
+        node->system = ReferenceSystemAdd(&sc->references, system, NULL);
+
+    node->id = SnortStrdup(id);
     
-    /* add the node to the list */
-    newNode->next = rn;
+    /* Add the node to the front of the list */
+    node->next = *head;
+    *head = node;
     
-    return newNode;
+    return node;
 }
 
 /* print a reference node */
-void FPrintReference(FILE *fp, ReferenceNode *refNode)
+void FPrintReference(FILE *fp, ReferenceNode *ref_node)
 {
-    if(refNode)
+    if ((fp == NULL) || (ref_node == NULL))
+        return;
+
+    if (ref_node->system != NULL)
     {
-        if(refNode->system)
+        if(ref_node->system->url)
         {
-            if(refNode->system->url)
-                fprintf(fp, "[Xref => %s%s]", refNode->system->url, 
-                        refNode->id);
-            else
-                fprintf(fp, "[Xref => %s %s]", refNode->system->name,
-                        refNode->id);
+            fprintf(fp, "[Xref => %s%s]", ref_node->system->url, 
+                    ref_node->id);
         }
         else
         {
-            fprintf(fp, "[Xref => %s]", refNode->id);
+            fprintf(fp, "[Xref => %s %s]", ref_node->system->name,
+                    ref_node->id);
         }
-    }
-    return;   
-}
-
-void ParseReference(char *args, OptTreeNode *otn)
-{
-    char **toks, *system, *id;
-    int num_toks;
-
-    /* 2 tokens: system, id */
-    toks = mSplit(args, ",", 2, &num_toks, 0);
-    if(num_toks != 2)
-    {
-        LogMessage("WARNING %s(%d): invalid Reference spec '%s'.  Ignored\n",
-                file_name, file_line, args);
     }
     else
     {
-        system = toks[0];
-        while ( isspace((int) *system) )
-            system++;
-
-        id = toks[1];
-        while ( isspace((int) *id) )
-            id++;
-            
-        otn->sigInfo.refs = AddReference(otn->sigInfo.refs, system, id);
+        fprintf(fp, "[Xref => %s]", ref_node->id);
     }
-
-    mSplitFree(&toks, num_toks);
-
-    return;
 }
-
 
 /********************* End of Reference Implementation ************************/
 
 /********************** Reference System Implementation ***********************/
 
-ReferenceSystemNode *referenceSystems = NULL;
-
-ReferenceSystemNode *ReferenceSystemAdd(char *name, char *url)
+ReferenceSystemNode * ReferenceSystemAdd(ReferenceSystemNode **head, char *name, char *url)
 {   
-    ReferenceSystemNode *newNode;
-    if(name == NULL)
+    ReferenceSystemNode *node;
+
+    if (name == NULL)
     {
         ErrorMessage("NULL reference system name\n");
         return NULL;
     }
 
+    if (head == NULL)
+        return NULL;
+
     /* create the new node */
-    newNode = (ReferenceSystemNode *)SnortAlloc(sizeof(ReferenceSystemNode));
+    node = (ReferenceSystemNode *)SnortAlloc(sizeof(ReferenceSystemNode));
 
-    newNode->name = SnortStrdup(name);
-    if(url)
-        newNode->url = SnortStrdup(url);
-    else
-        newNode->url = NULL;
+    node->name = SnortStrdup(name);
+    if (url != NULL)
+        node->url = SnortStrdup(url);
 
-    /* add to the list */
-    newNode->next = referenceSystems;
-    referenceSystems = newNode;
-    return newNode;
+    /* Add to the front of the list */
+    node->next = *head;
+    *head = node;
+
+    return node;
 }
 
-void DeleteReferenceSystems()
+ReferenceSystemNode * ReferenceSystemLookup(ReferenceSystemNode *head, char *name)
 {
-    ReferenceSystemNode *current, *tmpReference;
+    if (name == NULL)
+        return NULL;
 
-    current = referenceSystems;
-    while (current)
+    while (head != NULL)
     {
-        tmpReference = current->next;
-        if (current->url)
-            free(current->url);
-        if (current->name)
-            free(current->name);
-        free(current);
-        current = tmpReference;
+        if (strcasecmp(name, head->name) == 0)
+            break;
+
+        head = head->next;
     }
-    referenceSystems = NULL;
-}
-ReferenceSystemNode *ReferenceSystemLookup(char *name)
-{   
-    ReferenceSystemNode *refSysNode = referenceSystems;
-    while(refSysNode)
-    {
-        if(strcasecmp(name, refSysNode->name) == 0)
-            return refSysNode;
-        refSysNode = refSysNode->next;
-    }
-    return NULL;
+
+    return head;
 }
 
-void ParseReferenceSystemConfig(char *args)
-{
-    char **toks;
-    char *name = NULL;
-    char *url = NULL;
-    int num_toks;
-
-    /* 2 tokens: name <url> */
-    toks = mSplit(args, " ", 2, &num_toks, 0);
-    name = toks[0];
-    if(num_toks == 2)
-    {
-        url = toks[1];
-        while(isspace((int)*url))
-            url++;
-        if(url[0] == '\0')
-            url = NULL;
-    }
-    ReferenceSystemAdd(name, url);
-
-    mSplitFree(&toks, num_toks);
-    return;
-}
 
 /****************** End of Reference System Implementation ********************/
 
-/********************* Miscellaneous Parsing Functions ************************/
-
-void ParseSID(char *sid, OptTreeNode *otn)
-{
-    if(sid != NULL)
-    {
-        while(isspace((int)*sid)) { sid++; }
-
-        if(isdigit((int)sid[0]))
-        {
-            otn->sigInfo.id = atoi(sid);
-            /* deprecated */
-            otn->event_data.sig_id = atoi(sid);
-            return;
-        }
-
-        LogMessage("WARNING %s(%d) => Bad SID found: %s\n", file_name, 
-                file_line, sid);
-        return;
-    }
-
-    LogMessage("WARNING %s(%d) => SID found without ID number\n", file_name, 
-               file_line);
-
-    return;
-}
-
-void ParseGID(char *gid, OptTreeNode *otn)
-{
-    if(gid != NULL)
-    {
-        while(isspace((int)*gid)) { gid++; }
-
-        if(isdigit((int)gid[0]))
-        {
-            otn->sigInfo.generator = atoi(gid);
-            otn->event_data.sig_generator = atoi(gid);
-            return;
-        }
-
-        LogMessage("WARNING %s(%d) => Bad GID found: %s\n", file_name, 
-                file_line, gid);
-        return;
-    }
-
-    LogMessage("WARNING %s(%d) => GID found without ID number\n", file_name, 
-               file_line);
-
-    return;
-}
-void ParseRev(char *rev, OptTreeNode *otn)
-{
-    if(rev != NULL)
-    {
-        while(isspace((int)*rev)) { rev++; }
-
-        if(isdigit((int)rev[0]))
-        {
-            otn->sigInfo.rev = atoi(rev);
-            /* deprecated */
-            otn->event_data.sig_rev = atoi(rev);
-            return;
-        }
-
-        LogMessage("WARNING %s(%d) => Bad Rev found: %s\n", file_name, 
-            file_line, rev);
-                
-        return;
-    }
-
-    LogMessage("WARNING %s(%d) => Rev found without number!\n", file_name, 
-            file_line);
-
-    return;
-}
-/****************** End of Miscellaneous Parsing Functions ********************/
-
 /************************ Class/Priority Implementation ***********************/
 
-ClassType *classTypes = NULL;
-
-int AddClassificationConfig(ClassType *newNode);
-
-void ParsePriority(char *priority, OptTreeNode *otn)
+/* NOTE:  This lookup can only be done during parse time */
+ClassType * ClassTypeLookupByType(SnortConfig *sc, char *type)
 {
-    if(priority != NULL)
-    {
-        while(isspace((int)*priority))
-            priority++;
+    ClassType *node;
 
-        if(isdigit((int)priority[0]))
-        {
-            otn->sigInfo.priority = atoi(priority);
-            /* deprecated */
-            otn->event_data.priority = atoi(priority);
-            return;
-        }
+    if (sc == NULL)
+        FatalError("%s(%d) Snort config is NULL.\n", __FILE__, __LINE__);
 
-        LogMessage("WARNING %s(%d) => Bad Priority: %s\n", file_name, 
-                file_line, priority);
-
-        return;
-    }
-
-    LogMessage("WARNING %s(%d) => Priority without an argument!\n", file_name, 
-            file_line);
-
-    return;
-}
-/*
- * metadata may be key/value pairs or just keys
- * 
- * metadata: key [=] value, key [=] value, key [=] value, key, key, ... ;
- *
- * This option may be used one or more times, with one or more key/value pairs.
- *
- * updated 8/28/06 - man 
- *
- * keys:
- * 
- * engine
- * rule-flushing
- * rule-type
- * soid
- * service 
- * os
- */
-void ParseMetadata(char * metadata, OptTreeNode *otn)
-{
-    char * key;
-    char * value;
-    char **toks;
-    int    num_toks;
-    char **key_toks;
-    int    num_keys;
-    char  *endPtr;
-    int    i;
-
-    if( !metadata )
-    {
-        LogMessage("WARNING %s(%d) => Metadata without an argument!\n", 
-            file_name,file_line);
-        return;
-    }
-    
-    while(isspace((int)*metadata)) 
-        metadata++;
-    
-    if( !strlen(metadata) ) return;
-  
-    DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES, "metadata: %s\n",metadata););
-    
-    key_toks = mSplit(metadata, ",", 100, &num_keys, 0);
-   
-    for(i=0;i<num_keys;i++)
-    {
-
-        /* keys are requied .. */
-        key   = strtok(key_toks[i]," =");
-        if( !key  )
-        {
-            mSplitFree(&key_toks, num_keys);
-            return;
-        }
-
-        /* values are optional - depends on key */
-        value = strtok(0," ");
-    
-        DEBUG_WRAP(
-            DebugMessage(DEBUG_CONFIGRULES, "metadata: key=%s",key);
-            if(value)
-                DebugMessage(DEBUG_CONFIGRULES, " value=%s",value);
-            DebugMessage(DEBUG_CONFIGRULES, "\n");
-        );
-       
-        /* 
-         * process key/valuies 
-         */
-        if( strcmp(key,"engine")==0 )
-        {
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-            
-            if( strcmp(value,"shared")==0 )
-            {
-                otn->sigInfo.shared = 1;
-            }
-        }
-        /* this should follow 'rule-type' since it changes rule_flusing defaults set by rule-type */
-        else if( strcmp(key,"rule-flushing")==0 )
-        {
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-
-            if(  strcmp(value,"enabled")==0 ||
-                 strcmp(value,"on")==0 )
-            {
-                otn->sigInfo.rule_flushing= SI_RULE_FLUSHING_ON;
-            }
-            else if( strcmp(value,"disabled")==0 ||
-                     strcmp(value,"off")==0 )
-            {
-                otn->sigInfo.rule_flushing = SI_RULE_FLUSHING_OFF;
-            }
-            else
-            {
-               /* error */
-               FatalError("%s(%d)=> Metadata Key 'rule-type', passed an invalid value '%s'\n",
-                    file_name, file_line, value);
-            }
-        }
-        else if( strcmp(key,"rule-type")==0 )
-        {
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-
-            if( strcmp(value,"preproc")==0 )
-            {
-                otn->sigInfo.rule_type= SI_RULE_TYPE_PREPROC;
-                otn->sigInfo.rule_flushing = SI_RULE_FLUSHING_OFF;
-            }
-            else if( strcmp(value,"decode")==0 )
-            {
-                otn->sigInfo.rule_type = SI_RULE_TYPE_DECODE;
-                otn->sigInfo.rule_flushing = SI_RULE_FLUSHING_OFF;
-            }
-            else if( strcmp(value,"detect")==0 )
-            {
-                otn->sigInfo.rule_type = SI_RULE_TYPE_DETECT;
-                otn->sigInfo.rule_flushing = SI_RULE_FLUSHING_ON;
-            }
-            else
-            {
-               /* error */
-               FatalError("%s(%d)=> Metadata Key 'rule-type', passed an invalid value '%s'\n",
-                    file_name, file_line, value);
-            }
-        }
-        else if (strcmp(key, "soid")==0 )
-        {
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-
-            /* value is a : separated pair of gid:sid representing
-             * the GID/SID of the original rule.  This is used when
-             * the rule is duplicated rule by a user with different
-             * IP/port info.
-             */
-            toks = mSplit(value, "|", 2, &num_toks, 0);
-            if (num_toks != 2)
-            {
-                FatalError("%s(%d)=> Metadata Key '%s' Invalid Value."
-                    "Must be a pipe (|) separated pair.\n",
-                    file_name, file_line, key);
-            }
-
-            otn->sigInfo.otnKey.generator = strtoul(toks[0], &endPtr, 10);
-            if( *endPtr )
-                FatalError("Bogus gid %s",toks[0]);
-            
-            otn->sigInfo.otnKey.id = strtoul(toks[1], &endPtr, 10);
-            if( *endPtr )
-                FatalError("Bogus sid %s",toks[1]);
-
-            mSplitFree(&toks, num_toks);
-        }
-#ifdef TARGET_BASED 
-#ifdef PORTLISTS
-        else if( strcmp(key,"service") == 0 ) /* track all of the rules for each service */
-        {
-            // metadata: service http, ... ;
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-            otn->sigInfo.service = SnortStrdup(value);
-            otn->sigInfo.service_ordinal = FindProtocolReference(otn->sigInfo.service);
-            if (otn->sigInfo.service_ordinal == SFTARGET_UNKNOWN_PROTOCOL)
-            {
-                otn->sigInfo.service_ordinal = AddProtocolReference(otn->sigInfo.service);
-            }
-        }
-        else if( strcmp(key,"os") == 0 ) /* track all of the rules for each os */
-        {
-            // metadata: os = Linux:w
-            // 
-            if( !value )
-                FatalError("metadata key '%s' requires a value\n",key);
-            otn->sigInfo.os = SnortStrdup(value);
-        }
-#endif
-#endif
-        else
-        {
-            //LogMessage("Ignoring Metadata : %s = %s \n",key,value);
-        }
-    }
-
-    mSplitFree(&key_toks, num_keys);
-
-    return;
-}
-
-
-
-void ParseClassType(char *classtype, OptTreeNode *otn)
-{
-    ClassType *classType;
-    if(classtype != NULL)
-    {
-        while(isspace((int)*classtype)) 
-            classtype++;
-
-        if(strlen(classtype) > 0)
-        {
-            classType = ClassTypeLookupByType(classtype);
-            if (classType)
-            {
-                otn->sigInfo.classType = classType;
-
-                /*
-                **  Add the class_id to class_id so we can
-                **  reference it for all rules, whether they have
-                **  a class_id or not.
-                */
-                otn->sigInfo.class_id = classType->id;
-                
-                if(otn->sigInfo.priority == 0)
-                    otn->sigInfo.priority = classType->priority;
-                /* deprecated */
-                otn->event_data.classification = classType->id;
-                if(otn->event_data.priority == 0)
-                    otn->event_data.priority = classType->priority;
-                return;
-            }
-        }
-        FatalError("%s(%d) => Unknown ClassType: %s\n", file_name, 
-                   file_line, classtype);
-        return;
-    }
-
-    LogMessage("WARNING %s(%d) => ClassType without an argument!\n", file_name, 
-               file_line);
-
-    return;
-}
-
-ClassType *ClassTypeLookupByType(char *type)
-{
-    ClassType *idx = classTypes;
-    if(!type)
+    if (type == NULL)
         return NULL;
 
-    while(idx)
+    node = sc->classifications;
+
+    while (node != NULL)
     {
-        if(strcasecmp(type, idx->type) == 0)
-            return idx;
-        idx = idx->next;
+        if (strcasecmp(type, node->type) == 0)
+            break;
+
+        node = node->next;
     }
-    return NULL;
+
+    return node;
 }
 
-ClassType *ClassTypeLookupById(int id)
+/* NOTE:  This lookup can only be done during parse time */
+ClassType * ClassTypeLookupById(SnortConfig *sc, int id)
 {
-    ClassType *idx = classTypes;
-    while(idx)
+    ClassType *node;
+
+    if (sc == NULL)
+        FatalError("%s(%d) Snort config is NULL.\n", __FILE__, __LINE__);
+
+    node = sc->classifications;
+
+    while (node != NULL)
     {
-        if(idx->id == id)
-            return idx;
-        idx = idx->next;
+        if (id == node->id)
+            break;
+
+        node = node->next;
     }
-    return NULL;
+
+    return node;
 }
 
-
-void ParseClassificationConfig(char *args)
+OptTreeNode * SoRuleOtnLookup(SFGHASH *so_rule_otn_map, uint32_t gid, uint32_t sid)
 {
-    char **toks;
-    int num_toks;
-    char *data;
-    ClassType *newNode;
+    OptTreeNode *otn = NULL;
+    OtnKey key;
 
-    toks = mSplit(args, ",",3, &num_toks, '\\');
+    if (so_rule_otn_map == NULL)
+        return NULL;
 
-    if(num_toks != 3)
-    {
-        ErrorMessage("%s(%d): Invalid classification config: %s\n",
-                     file_name, file_line, args);
-    }
-    else
-    {
-        /* create the new node */
-        newNode = (ClassType *)SnortAlloc(sizeof(ClassType));
+    key.gid = gid;
+    key.sid = sid;
 
-        data = toks[0];
-        while(isspace((int)*data)) 
-            data++;
-        newNode->type = SnortStrdup(data);   /* XXX: oom check */
+    soidOTN = otn = (OptTreeNode *)sfghash_find(so_rule_otn_map, &key);
 
-        data = toks[1];
-        while(isspace((int)*data))
-            data++;
-        newNode->name = SnortStrdup(data);   /* XXX: oom check */
-
-        data = toks[2];
-        while(isspace((int)*data))
-            data++;
-        /* XXX: error checking needed */
-        newNode->priority = atoi(data); /* XXX: oom check */
-
-        if(AddClassificationConfig(newNode) == -1)
-        {
-            ErrorMessage("%s(%d): Duplicate classification \"%s\""
-                    "found, ignoring this line\n", file_name, file_line, 
-                    newNode->type);
-
-            if(newNode)
-            {
-                if(newNode->name)
-                    free(newNode->name);
-                if(newNode->type)
-                    free(newNode->type);
-                free(newNode);
-            }
-        }
-    }
-
-    mSplitFree(&toks, num_toks);
-    return;
-}
-
-void DeleteClassifications()
-{
-    ClassType *current, *tmpClass;
-
-    current = classTypes;
-    while (current)
-    {
-        tmpClass = current->next;
-        if (current->type)
-            free(current->type);
-        if (current->name)
-            free(current->name);
-        free(current);
-        current = tmpClass;
-    }
-    classTypes = NULL;
-}
-
-int AddClassificationConfig(ClassType *newNode)
-{
-    int max_id = 0;
-    ClassType *current;
-
-    current = classTypes;
-
-    while(current)
-    {
-        /* dup check */
-        if(strcasecmp(current->type, newNode->type) == 0)
-            return -1;
-        
-        if(current->id > max_id)
-            max_id = current->id;
-        
-        current = current->next;
-    }
-
-    /* insert node */
-    
-    newNode->id = max_id + 1;
-    newNode->next = classTypes;
-    classTypes = newNode;
-
-    return newNode->id;
-}
-
-        
-OptTreeNode * soid_sg_otn_lookup( u_int32_t gid, u_int32_t sid )
-{
-    OptTreeNode * otn = NULL;
-    sg_otn_key_t  key;
-
-    key.generator=gid;
-    key.id       =sid;
-    soidOTN = otn = (OptTreeNode*) sfghash_find(soid_sg_otn_map,&key);
     return otn;
 }
 
-OptTreeNode * soid_sg_otn_lookup_next( u_int32_t gid, u_int32_t sid )
+OptTreeNode * SoRuleOtnLookupNext(uint32_t gid, uint32_t sid)
 {
     OptTreeNode * otn = NULL;
 
@@ -705,27 +221,26 @@ OptTreeNode * soid_sg_otn_lookup_next( u_int32_t gid, u_int32_t sid )
     return otn;
 }
 
-int soid_otn_lookup_init()
+SFGHASH * SoRuleOtnLookupNew(void)
 {
-    if (!soid_sg_otn_map)
-    {
-        soid_sg_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,NULL/* free*/);
-        if (!soid_sg_otn_map)
-            return -1;
-    }
-    return 0;
+    return sfghash_new(10000, sizeof(OtnKey), 0, NULL);
 }
 
-void soid_otn_lookup_add( OptTreeNode * otn_tmp )
+void SoRuleOtnLookupAdd(SFGHASH *so_rule_otn_map, OptTreeNode *otn)
 {
-    if (otn_tmp->sigInfo.otnKey.generator == 0)
+    if ((so_rule_otn_map == NULL) || (otn == NULL))
+        return;
+
+    if (otn->sigInfo.otnKey.gid == 0)
     {
-         otn_tmp->sigInfo.otnKey.generator= otn_tmp->sigInfo.generator;
-         otn_tmp->sigInfo.otnKey.id = otn_tmp->sigInfo.id;
+         otn->sigInfo.otnKey.gid = otn->sigInfo.generator;
+         otn->sigInfo.otnKey.sid = otn->sigInfo.id;
     }
-    if (sfghash_add(soid_sg_otn_map,&(otn_tmp->sigInfo.otnKey),otn_tmp) == SFGHASH_INTABLE)
+
+    if (sfghash_add(so_rule_otn_map, &(otn->sigInfo.otnKey), otn) == SFGHASH_INTABLE)
     {
-         OptTreeNode *otn_original = soid_sg_otn_map->cnode->data;
+         OptTreeNode *otn_original = so_rule_otn_map->cnode->data;
+
          if (!otn_original)
          {
              /* */
@@ -735,110 +250,172 @@ void soid_otn_lookup_add( OptTreeNode * otn_tmp )
          {
              otn_original = otn_original->nextSoid;
          }
-         otn_original->nextSoid = otn_tmp;
+
+         otn_original->nextSoid = otn;
     }
 }
 
-void soid_otn_lookup_free()
+void SoRuleOtnLookupFree(SFGHASH *so_rule_otn_map)
 {
-    if (soid_sg_otn_map)
-    {
-        sfghash_delete(soid_sg_otn_map);
-        soid_sg_otn_map = NULL;
-    }
-}
-
-void otn_remove(OptTreeNode *otn) 
-{
-    sg_otn_key_t key;
-    
-    if(!otn) 
+    if (so_rule_otn_map == NULL)
         return;
 
-    key.generator = otn->sigInfo.generator; 
-    key.id = otn->sigInfo.id;
-
-    sfghash_remove(soid_sg_otn_map, &(otn->sigInfo.otnKey));
-    sfghash_remove(sg_rule_otn_map, &key);
+    sfghash_delete(so_rule_otn_map);
 }
 
-void otn_free(void *data)
+void OtnRemove(SFGHASH *otn_map, SFGHASH *so_rule_otn_map, OptTreeNode *otn) 
+{
+    OtnKey key;
+    
+    if (otn == NULL) 
+        return;
+
+    key.gid = otn->sigInfo.generator; 
+    key.sid = otn->sigInfo.id;
+
+    if (so_rule_otn_map != NULL)
+        sfghash_remove(so_rule_otn_map, &(otn->sigInfo.otnKey));
+
+    if (otn_map != NULL)
+        sfghash_remove(otn_map, &key);
+}
+
+void OtnDeleteData(void *data)
 {
     OptTreeNode *otn = (OptTreeNode *)data;
-    OptFpList *opt_func, *opt_func_tmp;
-    RspFpList *rsp_func, *rsp_func_tmp;
-    ReferenceNode *ref_node, *ref_node_tmp;
+    OptFpList *opt_func;
 
-    if (!otn)
+    if (otn == NULL)
         return;
 
     opt_func = otn->opt_func;
-    while (opt_func)
+    while (opt_func != NULL)
     {
-        opt_func_tmp = opt_func;
+        /* For each of the pattern matcher options in this rule,
+         * delete the data associated with it.  This is the only
+         * rule option type (as of now) that this is required for since
+         * patterns are not added to the hash table (via
+         * add_detection_option()) until FinalizeContentUniqueness() is
+         * called -- after the duplicate OTN checks. 
+         *
+         * All other rule option types are added to the hash table 
+         * at parse time, thus the data associated with that rule
+         * option is cleaned from the hash table when the table itself
+         * is cleaned up.
+         */
+        OptFpList *tmp = opt_func;
+
         opt_func = opt_func->next;
-        free(opt_func_tmp);
+
+        if ((tmp->OptTestFunc == CheckANDPatternMatch) ||
+            (tmp->OptTestFunc == CheckUriPatternMatch))
+        {
+            PatternMatchFree(tmp->context);
+        }
     }
+}
+
+void OtnFree(void *data)
+{
+    OptTreeNode *otn = (OptTreeNode *)data;
+    OptFpList *opt_func;
+    RspFpList *rsp_func;
+    ReferenceNode *ref_node;
+#ifdef TARGET_BASED
+    unsigned int svc_idx;
+#endif
+
+    if (otn == NULL)
+        return;
+
+    opt_func = otn->opt_func;
+    while (opt_func != NULL)
+    {
+        OptFpList *tmp = opt_func;
+
+        opt_func = opt_func->next;
+        free(tmp);
+    }
+
     rsp_func = otn->rsp_func;
     while (rsp_func)
     {
-        rsp_func_tmp = rsp_func;
+        RspFpList *tmp = rsp_func;
+
         rsp_func = rsp_func->next;
-        free(rsp_func_tmp);
+        free(tmp);
     }
 
-    if (otn->sigInfo.message)
+    if (otn->sigInfo.message != NULL)
     {
         if (!otn->generated)
             free(otn->sigInfo.message);
     }
 #ifdef TARGET_BASED 
 #ifdef PORTLISTS
-    if (otn->sigInfo.service)
-        free(otn->sigInfo.service);
+    for (svc_idx = 0; svc_idx < otn->sigInfo.num_services; svc_idx++)
+    {
+        if (otn->sigInfo.services[svc_idx].service)
+            free(otn->sigInfo.services[svc_idx].service);
+    }
+    if (otn->sigInfo.services)
+        free(otn->sigInfo.services);
 #endif
 #endif
 
     ref_node = otn->sigInfo.refs;
-    while (ref_node)
+    while (ref_node != NULL)
     {
-        ref_node_tmp = ref_node;
+        ReferenceNode *tmp = ref_node;
+
         ref_node = ref_node->next;
-        free(ref_node_tmp->id);
-        free(ref_node_tmp);
+        free(tmp->id);
+        free(tmp);
     }
 
-    if (otn->tag)
-    {
+    if (otn->tag != NULL)
         free(otn->tag);
-        otn->tag = NULL;
+
+    /* RTN was generated on the fly.  Don't necessarily know which policy
+     * at this point so go through all RTNs and delete them */
+    if (otn->generated)
+    {
+        int i;
+
+        for (i = 0; i < otn->proto_node_num; i++)
+        {
+            RuleTreeNode *rtn = deleteRtnFromOtn(otn, i);
+            if (rtn != NULL)
+                free(rtn);
+        }
     }
 
-    if (otn->generated)
-        free(otn->rtn);
+    if (otn->proto_nodes)
+        free(otn->proto_nodes);
+
+    if (otn->detection_filter)
+        free(otn->detection_filter);
 
     free(otn);
 }
 
-int otn_lookup_init()
+SFGHASH * OtnLookupNew(void)
 {
-    if (!sg_rule_otn_map)
-    {
-        sg_rule_otn_map = sfghash_new(10000,sizeof(sg_otn_key_t),0,otn_free);
-        if (!sg_rule_otn_map)
-            return -1;
-    }
-    return 0;
+    return sfghash_new(10000, sizeof(OtnKey), 0, OtnFree);
 }
-void otn_lookup_add( OptTreeNode * otn )
+
+void OtnLookupAdd(SFGHASH *otn_map, OptTreeNode *otn)
 {
     int status;
-    sg_otn_key_t key;
-    
-    key.generator = otn->sigInfo.generator;
-    key.id = otn->sigInfo.id;
+    OtnKey key;
 
-    status = sfghash_add(sg_rule_otn_map, &key, otn);
+    if (otn_map == NULL)
+        return;
+
+    key.gid = otn->sigInfo.generator;
+    key.sid = otn->sigInfo.id;
+
+    status = sfghash_add(otn_map, &key, otn);
     switch (status)
     {
         case SFGHASH_OK:
@@ -847,16 +424,16 @@ void otn_lookup_add( OptTreeNode * otn )
 
         case SFGHASH_INTABLE:
             /* Assume it's a rule without an sid */
-            if (key.id == 0)
+            if (key.sid == 0)
             {
-                FatalError("%s(%d): Duplicate rule with same gid (%u) and no sid.  To "
+                ParseError("Duplicate rule with same gid (%u) and no sid.  To "
                            "avoid this, make sure all of your rules define an "
-                           "sid.\n", file_name, file_line, key.generator);
+                           "sid.\n", key.gid);
             }
             else
             {
-                FatalError("%s(%d): Duplicate rule with same gid (%u) and sid (%u)\n",
-                           file_name, file_line, key.generator, key.id);
+                ParseError("Duplicate rule with same gid (%u) and sid (%u)\n",
+                           key.gid, key.sid);
             }
 
             break;
@@ -866,30 +443,36 @@ void otn_lookup_add( OptTreeNode * otn )
             break;
 
         default:
-            FatalError("%s(%d): otn_lookup_add() - unexpected return value "
+            FatalError("%s(%d): OtnLookupAdd() - unexpected return value "
                        "from sfghash_add().\n", __FILE__, __LINE__);
             break;
     }
 }
 
-OptTreeNode * otn_lookup( u_int32_t gid, u_int32_t sid )
+OptTreeNode * OtnLookup(SFGHASH *otn_map, uint32_t gid, uint32_t sid)
 {
     OptTreeNode * otn;
-    sg_otn_key_t  key;
+    OtnKey key;
 
-    key.generator=gid;
-    key.id       =sid;
-    otn = (OptTreeNode*) sfghash_find(sg_rule_otn_map,&key);
+    if (otn_map == NULL)
+        return NULL;
+
+    key.gid = gid;
+    key.sid = sid;
+
+    otn = (OptTreeNode *)sfghash_find(otn_map, &key);
+
     return otn;
 }
 
-void otn_lookup_free()
+void OtnLookupFree(SFGHASH *otn_map)
 {
-    if (sg_rule_otn_map)
-    {
-        sfghash_delete(sg_rule_otn_map);
-        sg_rule_otn_map = NULL;
-    }
+    if (otn_map == NULL)
+        return;
+
+    sfghash_delete(otn_map);
 }
+
         
 /***************** End of Class/Priority Implementation ***********************/
+

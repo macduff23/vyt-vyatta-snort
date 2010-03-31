@@ -788,7 +788,7 @@ typedef struct _SmbNt10_NtCreateAndXReq   /* smb_wct = 24 */
     uint32_t smb_flags;         /* flags */
     uint32_t smb_root_fid;      /* fid for previously opened directory */
     uint32_t smb_access;        /* specifies the type of file access */
-    UINT64   smb_alloc_size;    /* initial allocation size of the file */
+    uint64_t   smb_alloc_size;    /* initial allocation size of the file */
     uint32_t smb_file_attrs;    /* specifies the file attributes for the file */
     uint32_t smb_share_access;  /* the type of share access */
     uint32_t smb_create_disp;   /* actions to take if file does or does not exist */
@@ -813,13 +813,13 @@ typedef struct _SmbNt10_NtCreateAndXResp    /* smb_wct = 34 */
     uint8_t  smb_oplock_level;
     uint16_t smb_fid;
     uint32_t smb_create_action;
-    UINT64   smb_creation_time;
-    UINT64   smb_last_access_time;
-    UINT64   smb_last_write_time;
-    UINT64   smb_change_time;
+    uint64_t   smb_creation_time;
+    uint64_t   smb_last_access_time;
+    uint64_t   smb_last_write_time;
+    uint64_t   smb_change_time;
     uint32_t smb_file_attrs;
-    UINT64   smb_alloc_size;
-    UINT64   smb_eof;
+    uint64_t   smb_alloc_size;
+    uint64_t   smb_eof;
     uint16_t smb_file_type;
     uint16_t smb_device_state;
     uint8_t  smb_directory;

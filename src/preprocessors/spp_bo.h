@@ -25,6 +25,6 @@
 #ifndef __SPP_BO_H__
 #define __SPP_BO_H__
 
-void SetupBo();
+void SetupBo(void);
 
 #endif  /* __SPP_BO_H__ */

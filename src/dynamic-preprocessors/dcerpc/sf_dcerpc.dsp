@@ -172,6 +172,10 @@ SOURCE=..\include\sf_dynamic_preproc_lib.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\include\sfPolicyUserData.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\smb_andx_decode.c
 # End Source File
 # Begin Source File

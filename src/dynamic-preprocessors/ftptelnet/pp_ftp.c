@@ -85,8 +85,8 @@ static int ftp_cmd_pipe_index = 0;
  * Function: getIP(char **ip_start,
  *                 char *last_char,
  *                 char term_char,
- *                 u_int32_t *ipRet,
- *                 u_int16_t *portRet)
+ *                 uint32_t *ipRet,
+ *                 uint16_t *portRet)
  *
  * Purpose: Returns a 32bit IP address and port from an FTP-style
  *          string -- ie, a,b,c,d,p1,p2.  Stops checking when term_char
@@ -104,10 +104,10 @@ static int ftp_cmd_pipe_index = 0;
  *
  */
 int getIP(const int type, const char **ip_start, const char *last_char, char term_char,
-          snort_ip *ipRet, u_int16_t *portRet)
+          snort_ip *ipRet, uint16_t *portRet)
 {
-    u_int32_t ip=0;
-    u_int16_t port=0;
+    uint32_t ip=0;
+    uint16_t port=0;
     int octet=0;
     const char *this_param = *ip_start;
     
@@ -165,8 +165,8 @@ int getIP(const int type, const char **ip_start, const char *last_char, char ter
  * Function: getIP959(char **ip_start,
  *                 char *last_char,
  *                 char term_char,
- *                 u_int32_t *ipRet,
- *                 u_int16_t *portRet)
+ *                 uint32_t *ipRet,
+ *                 uint16_t *portRet)
  *
  * Purpose: Returns a 32bit IP address and port from an RFC 959 FTP-style
  *          string -- ie, a,b,c,d,p1,p2.  Stops checking when term_char
@@ -184,11 +184,11 @@ int getIP(const int type, const char **ip_start, const char *last_char, char ter
  */
 static int getIP959(
     const char **ip_start, const char *last_char, char term_char,
-    snort_ip *ipRet, u_int16_t *portRet
+    snort_ip *ipRet, uint16_t *portRet
 )
 {
-    u_int32_t ip=0;
-    u_int16_t port=0;
+    uint32_t ip=0;
+    uint16_t port=0;
     int octet=0;
     const char *this_param = *ip_start;
     do
@@ -260,12 +260,12 @@ static int getIP959(
  */
 static int getIP1639 (
     const char **ip_start, const char *last_char, char term_char,
-    snort_ip* ipRet, u_int16_t *portRet
+    snort_ip* ipRet, uint16_t *portRet
 )
 {
     char bytes[21];  /* max of 1+5+3 and 1+17+3 */
     const char* tok = *ip_start;
-    int nBytes = 0;
+    unsigned nBytes = 0;
     bytes[0] = 0;
 
     /* first we just try to get a sequence of csv bytes */
@@ -378,7 +378,7 @@ void CopyField (
 
 static int getIP2428 (
     const char **ip_start, const char *last_char, char term_char,
-    snort_ip* ipRet, u_int16_t *portRet, FTP_PARAM_TYPE ftyp
+    snort_ip* ipRet, uint16_t *portRet, FTP_PARAM_TYPE ftyp
 )
 {
     const char* tok = *ip_start;
@@ -426,7 +426,7 @@ static int getIP2428 (
 
             case 3:  /* check port */
                 port = atoi(tok);
-                if ( port < 0 || port > 65535 )
+                if ( port < 0 || port > MAXPORTS-1 )
                     return FTPP_MALFORMED_IP_PORT;
                 *portRet = port;
                 fieldMask |= 4;
@@ -459,7 +459,7 @@ static int getIP2428 (
 
 static int getFTPip(
     FTP_PARAM_TYPE ftyp, const char **ip_start, const char *last_char,
-    char term_char, snort_ip *ipRet, u_int16_t *portRet
+    char term_char, snort_ip *ipRet, uint16_t *portRet
 ) 
 {
     if ( ftyp == e_host_port )
@@ -664,17 +664,13 @@ static int validate_param(SFSnortPacket *p,
     {
     case e_head:
         /* shouldn't get here, but just in case */
+        /* this hack is because we do get here! */
+        this_param--;
         break;
     case e_unrestricted:
         /* strings/filenames only occur as the last param,
          * so move to the end of the param buffer. */
-        {
-            do
-            {
-                this_param++;
-            }
-            while (this_param < end);
-        }
+        this_param = end;
         break;
     case e_strformat:
         /* Check for 2 % signs within the parameter for an FTP command
@@ -786,12 +782,14 @@ static int validate_param(SFSnortPacket *p,
         /* check that this_param matches the literal specified */
         {
             const char* s = ThisFmt->format.literal;
+            size_t n = strlen(s);
 
-            if ( strncmp(this_param, s, strlen(s)) )
+            if ( strncmp(this_param, s, n) )
             {
                 /* Alert on non-char */
                 return FTPP_INVALID_PARAM;
             }
+            this_param += n;
         }
         break;
                             /* check that this_param is:  */
@@ -800,7 +798,7 @@ static int validate_param(SFSnortPacket *p,
     case e_extd_host_port:  /* EPRT: |<af>|<addr>|<port>| */
         {
             snort_ip ipAddr;
-            u_int16_t port=0;
+            uint16_t port=0;
 
             int ret = getFTPip(
                 ThisFmt->type, &this_param, end, ' ', &ipAddr, &port
@@ -1036,14 +1034,23 @@ int initialize_ftp(FTP_SESSION *Session, SFSnortPacket *p, int iMode)
     int iRet;
     const unsigned char *read_ptr = p->payload;
     FTP_CLIENT_REQ *req;
+    char ignoreTelnetErase = FTPP_APPLY_TNC_ERASE_CMDS;
+    FTPTELNET_GLOBAL_CONF *global_conf = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(Session->global_conf, Session->policy_id);
 
     /* Normalize this packet ala telnet */
-    iRet = normalize_telnet(Session->global_conf, NULL, p, iMode);
+    if (((iMode == FTPP_SI_CLIENT_MODE) &&
+         (Session->client_conf->ignore_telnet_erase_cmds.on == 1)) ||
+        ((iMode == FTPP_SI_SERVER_MODE) &&
+         (Session->server_conf->ignore_telnet_erase_cmds.on == 1)) )
+        ignoreTelnetErase = FTPP_IGNORE_TNC_ERASE_CMDS;
+
+    iRet = normalize_telnet(global_conf, NULL, p, iMode, ignoreTelnetErase);
+
     if (iRet != FTPP_SUCCESS && iRet != FTPP_NORMALIZED)
     {
         if (iRet == FTPP_ALERT)
         {
-            if (Session->global_conf->global_telnet.detect_anomalies)
+            if (global_conf->telnet_config->detect_anomalies)
             {
                 ftp_eo_event_log(Session, FTP_EO_EVASIVE_TELNET_CMD, NULL, NULL);
         }   }
@@ -1104,6 +1111,8 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
                        FTP_CLIENT_REQ *req, int rsp_code)
 {
     int iRet = FTPP_SUCCESS;
+    FTPTELNET_GLOBAL_CONF *global_conf = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(Session->global_conf, Session->policy_id);
+
     if (Session->server_conf->data_chan)
     {
         if (rsp_code == 226)
@@ -1123,7 +1132,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
                 if ( rsp_code >= 227 && rsp_code <= 229 )
                 {
                     snort_ip ipAddr;
-                    u_int16_t port=0;
+                    uint16_t port=0;
                     const char *ip_begin = req->param_begin;
                     IP_CLEAR(ipAddr);
                     Session->data_chan_state &= ~DATA_CHAN_PASV_CMD_ISSUED;
@@ -1266,7 +1275,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
         }
     } /* if (Session->server_conf->data_chan) */
 
-    if (Session->global_conf->encrypted.on)
+    if (global_conf->encrypted.on)
     {
         switch(Session->encr_state)
         {
@@ -1275,7 +1284,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
             {
                 /* Could check that response msg includes "TLS" */
                 Session->encr_state = AUTH_TLS_ENCRYPTED;
-                if (Session->global_conf->encrypted.alert)
+                if (global_conf->encrypted.alert)
                 {
                     /* Alert on encrypted channel */
                     ftp_eo_event_log(Session, FTP_EO_ENCRYPTED,
@@ -1290,7 +1299,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
             {
                 /* Could check that response msg includes "SSL" */
                 Session->encr_state = AUTH_SSL_ENCRYPTED;
-                if (Session->global_conf->encrypted.alert)
+                if (global_conf->encrypted.alert)
                 {
                     /* Alert on encrypted channel */
                     ftp_eo_event_log(Session, FTP_EO_ENCRYPTED,
@@ -1304,7 +1313,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
             if (rsp_code == 234)
             {
                 Session->encr_state = AUTH_UNKNOWN_ENCRYPTED;
-                if (Session->global_conf->encrypted.alert)
+                if (global_conf->encrypted.alert)
                 {
                     /* Alert on encrypted channel */
                     ftp_eo_event_log(Session, FTP_EO_ENCRYPTED,
@@ -1315,7 +1324,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
             }
             break;
         }
-    } /* if (Session->global_conf->encrypted.on) */
+    } /* if (global_conf->encrypted.on) */
 
     return iRet;
 }
@@ -1356,7 +1365,7 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
     int space = 0;
     long state = FTP_CMD_OK;
     int rsp_code = 0;
-
+    FTPTELNET_GLOBAL_CONF *global_conf = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(ftpssn->global_conf, ftpssn->policy_id);
     FTP_CLIENT_REQ *req;
     FTP_CMD_CONF *CmdConf = NULL;
 
@@ -1435,11 +1444,12 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
 
         if (iMode == FTPP_SI_CLIENT_MODE)
         {
-            if ( ((req->cmd_size != 4) && (req->cmd_size != 3)) ||
-                 (state == FTP_CMD_INV) )
+            if ( (req->cmd_size > ftpssn->server_conf->max_cmd_len)
+              || (req->cmd_size < MIN_CMD)
+              || (state == FTP_CMD_INV) )
             {
                 /* Uh, something is very wrong...
-                 * nonalpha char seen or cmd is not 3 or 4 chars.
+                 * nonalpha char seen or cmd is bad length.
                  * See if this might be encrypted, ie, non-alpha bytes. */
                 const unsigned char *ptr = (const unsigned char *)req->cmd_begin;
                 while (ptr < (const unsigned char *)req->cmd_end)
@@ -1466,13 +1476,13 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
                 if (ftpssn->encr_state == 0)
                 {
                     ftpssn->encr_state = AUTH_UNKNOWN_ENCRYPTED;
-                    if (ftpssn->global_conf->encrypted.alert)
+                    if (global_conf->encrypted.alert)
                     {
                         /* Alert on encrypted channel */
                         ftp_eo_event_log(ftpssn, FTP_EO_ENCRYPTED,
                             NULL, NULL);
                     }
-                    if (!ftpssn->global_conf->check_encrypted_data)
+                    if (!global_conf->check_encrypted_data)
                     {
                         /* Mark this session & packet as one to ignore */
                         _dpd.streamAPI->stop_inspection(p->stream_session_ptr, p,
@@ -1489,7 +1499,7 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
                  * Check the list of valid FTP commands as
                  * supplied in ftpssn.
                  */
-                if (req->cmd_size > 4)
+                if ( req->cmd_size > ftpssn->server_conf->max_cmd_len )
                 {
                     /* Alert, cmd not found */
                     ftp_eo_event_log(ftpssn, FTP_EO_INVALID_CMD, NULL, NULL);
@@ -1550,13 +1560,13 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
                 if (ftpssn->encr_state == 0)
                 {
                     ftpssn->encr_state = AUTH_UNKNOWN_ENCRYPTED;
-                    if (ftpssn->global_conf->encrypted.alert)
+                    if (global_conf->encrypted.alert)
                     {
                         /* Alert on encrypted channel */
                         ftp_eo_event_log(ftpssn, FTP_EO_ENCRYPTED,
                             NULL, NULL);
                     }
-                    if (!ftpssn->global_conf->check_encrypted_data)
+                    if (!global_conf->check_encrypted_data)
                     {
                         /* Mark this session & packet as one to ignore */
                         _dpd.streamAPI->stop_inspection(p->stream_session_ptr, p,
@@ -1748,7 +1758,7 @@ int check_ftp(FTP_SESSION  *ftpssn, SFSnortPacket *p, int iMode)
                 iRet = FTPP_ALERT;
             }
 
-            if (ftpssn->global_conf->inspection_type ==
+            if (global_conf->inspection_type ==
                 FTPP_UI_CONFIG_STATEFUL)
             {
                 int newRet = do_stateful_checks(ftpssn, p, req, rsp_code);

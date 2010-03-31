@@ -25,16 +25,19 @@
 #define __IP_ADDR_SET_H__
 
 #include <sys/types.h>
+#include "sf_types.h"
 
 #ifdef SUP_IP6
-#include "sf_ipvar.h"
-sfip_var_t *IpAddrSetParse(char *);
-#else
+# include "ipv6_port.h"
+# include "sfutil/sf_ipvar.h"
+#endif
+
+#ifndef SUP_IP6
 typedef struct _IpAddrNode
 {
-    u_int32_t ip_addr;   /* IP addr */
-    u_int32_t netmask;   /* netmask */
-    u_int8_t  addr_flags; /* flag for normal/exception processing */
+    uint32_t ip_addr;   /* IP addr */
+    uint32_t netmask;   /* netmask */
+    uint8_t  addr_flags; /* flag for normal/exception processing */
 
     struct _IpAddrNode *next;
 } IpAddrNode;
@@ -44,19 +47,24 @@ typedef struct _IpAddrSet
     IpAddrNode *iplist;
     IpAddrNode *neg_iplist;
 } IpAddrSet;
+#endif  /* SUP_IP6 */
 
+
+void IpAddrSetDestroy(IpAddrSet *);
+IpAddrSet *IpAddrSetParse(char *);
+
+
+#ifndef SUP_IP6
 /* flags */
 #define EXCEPT_IP   0x01
 
 void IpAddrSetPrint(char *prefix, IpAddrSet *);
-void IpAddrSetDestroy(IpAddrSet *);
 IpAddrSet *IpAddrSetCopy(IpAddrSet *);
-IpAddrSet *IpAddrSetCreate();
-IpAddrSet *IpAddrSetParse(char *);
+IpAddrSet *IpAddrSetCreate(void);
 int IpAddrSetContains(IpAddrSet *, struct in_addr);
-
 
 /* XXX legacy support function */
 int ParseIP(char *paddr, IpAddrSet *, int); 
-#endif // SUP_IP6
-#endif /* __IP_ADDR_SET_H__ */
+#endif  /* SUP_IP6 */
+
+#endif  /* __IP_ADDR_SET_H__ */

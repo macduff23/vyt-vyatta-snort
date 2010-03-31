@@ -49,14 +49,14 @@
 PreprocStats mpsePerfStats;
 #endif
 
-static UINT64 s_bcnt=0;
+static uint64_t s_bcnt=0;
 
 typedef struct _mpse_struct {
 
     int    method;
     void * obj;
     int    verbose;
-    UINT64 bcnt;
+    uint64_t bcnt;
     char   inc_global_counter;
 
 } MPSE;
@@ -329,9 +329,6 @@ int mpsePrintInfo( void *pvoid )
 
 int mpsePrintSummary(void )
 {
-   fflush(stderr);
-   fflush(stdout);
-
    acsmPrintSummaryInfo();
    acsmPrintSummaryInfo2();
    bnfaPrintSummary();
@@ -345,10 +342,15 @@ int mpsePrintSummary(void )
      (x > 1.e+6) ? "MBytes" : "KBytes" );
      
    }
-   fflush(stderr);
-   fflush(stdout);
 
    return 0;
+}
+
+void mpseInitSummary(void)
+{
+    acsm_init_summary();
+    bnfaInitSummary();
+    KTrieInitMemUsed();
 }
 
 int mpseSearch( void *pvoid, const unsigned char * T, int n, 
@@ -432,17 +434,17 @@ int mpseGetPatternCount(void *pvoid)
     return 0;
 }
 
-UINT64 mpseGetPatByteCount( )
+uint64_t mpseGetPatByteCount(void)
 {
     return s_bcnt; 
 }
 
-void mpseResetByteCount( )
+void mpseResetByteCount(void)
 {
     s_bcnt = 0;
 }
 
-void mpse_print_qinfo()
+void mpse_print_qinfo(void)
 {
     sfksearch_print_qinfo();
     bnfa_print_qinfo();

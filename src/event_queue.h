@@ -23,11 +23,21 @@
 #define __EVENT_QUEUE_H__
 
 #include "decode.h"
+#include "sfutil/sfeventq.h"
 
 #define SNORT_EVENTQ_PRIORITY    1
 #define SNORT_EVENTQ_CONTENT_LEN 2
 
 struct _OptTreeNode;
+
+typedef struct _EventQueueConfig
+{
+    int max_events;
+    int log_events;
+    int order;
+    int process_all_events;
+
+} EventQueueConfig;
 
 typedef struct s_SNORT_EVENTQ_USER
 {
@@ -35,15 +45,6 @@ typedef struct s_SNORT_EVENTQ_USER
     void *pkt;
 
 } SNORT_EVENTQ_USER;
-
-typedef struct s_SNORT_EVENT_QUEUE
-{
-    int max_events;
-    int log_events;
-    int order;
-    int process_all_events;
-
-} SNORT_EVENT_QUEUE;
 
 typedef struct _EventNode
 {
@@ -57,10 +58,12 @@ typedef struct _EventNode
 
 } EventNode;
 
-int  SnortEventqInit(void);
-void SnortEventqFree(void);
+EventQueueConfig * EventQueueConfigNew(void);
+void EventQueueConfigFree(EventQueueConfig *);
+SF_EVENTQ * SnortEventqNew(EventQueueConfig *);
+void SnortEventqFree(SF_EVENTQ *);
 void SnortEventqReset(void);
-int  SnortEventqLog(Packet *);
+int  SnortEventqLog(SF_EVENTQ *, Packet *);
 int  SnortEventqAdd(unsigned int gid,unsigned int sid,unsigned int rev, 
                     unsigned int classification,unsigned int pri,char *msg,
                     void *rule_info);

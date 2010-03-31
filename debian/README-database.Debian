@@ -25,7 +25,7 @@
 
  Once you have setup the database, you will need to start Snort manually
  since it was left unstarted after the installation. To do this
- remove the file '/etc/snort/db-pending-configuration' and then
+ remove the file '/etc/snort/db-pending-config' and then
  do '/etc/init.d/snort start'. Confirm that snort is working and up
  by running '/etc/init.d/snort status' and reviewing the messages in
  the /var/log/daemon.log syslog file.

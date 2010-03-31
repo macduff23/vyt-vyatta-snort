@@ -40,7 +40,7 @@
 #include "sf_types.h"
 
 double calc_percent(double amt, double total);
-double calc_percent64(UINT64 amt, UINT64 total);
+double calc_percent64(uint64_t amt, uint64_t total);
 
 #endif /* _UTIL_MATH_H */
 

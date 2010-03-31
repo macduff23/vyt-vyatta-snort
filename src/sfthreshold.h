@@ -25,19 +25,21 @@
 #include "sfthd.h"
 #include "ipv6_port.h"
 
-void ParseThreshold2( THDX_STRUCT * thdx, char * s );
-void ProcessThresholdOptions( char * args);
-void ParseSFThreshold( char * rule );
-void ParseSFSuppress( char * rule );
+typedef struct _ThresholdConfig
+{
+    int memcap;
+    int enabled;
+    ThresholdObjects *thd_objs;
 
-int  sfthreshold_init( void );
-void sfthreshold_free( void );
+} ThresholdConfig;
+
+ThresholdConfig * ThresholdConfigNew(void);
+void ThresholdConfigFree(ThresholdConfig *);
 void sfthreshold_reset(void);
-
-int  sfthreshold_create( THDX_STRUCT * thdx  );
-int  sfthreshold_test( unsigned gen_id,unsigned  sig_id, snort_ip_p sip, snort_ip_p dip, long  curtime );
-
-void print_thresholding();
+int sfthreshold_create(ThresholdConfig *, THDX_STRUCT *);
+int sfthreshold_test(unsigned int, unsigned int, snort_ip_p, snort_ip_p, long curtime);
+void print_thresholding(ThresholdConfig *);
 void sfthreshold_reset_active(void);
+void sfthreshold_free(void);
 
 #endif

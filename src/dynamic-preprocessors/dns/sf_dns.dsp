@@ -160,6 +160,10 @@ SOURCE=..\include\sf_dynamic_preproc_lib.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\include\sfPolicyUserData.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\spp_dns.c
 # End Source File
 # End Group

@@ -50,7 +50,7 @@ typedef enum
 typedef struct _MapData
 {
     char s_mapvalue[STD_BUF];
-    u_int32_t l_mapid;
+    uint32_t l_mapid;
 } MapData;
 
 typedef MapData MapEntry;
@@ -61,7 +61,7 @@ typedef struct _AttributeData
     union
     {
         char s_value[STD_BUF];
-        u_int32_t l_value;
+        uint32_t l_value;
     } value;
     int confidence;
     int16_t attributeOrdinal;
@@ -79,7 +79,7 @@ typedef struct _ApplicationEntry
     AttributeData protocol;
     AttributeData application;
     AttributeData version;
-    u_int8_t fields;
+    uint8_t fields;
     struct _ApplicationEntry *next;
 } ApplicationEntry;
 
@@ -99,10 +99,10 @@ typedef struct _HostInfo
     AttributeData version;
 
     char streamPolicySet;
-    u_int16_t streamPolicy;
+    uint16_t streamPolicy;
     char streamPolicyName[STD_BUF];
     char fragPolicySet;
-    u_int16_t fragPolicy;
+    uint16_t fragPolicy;
     char fragPolicyName[STD_BUF];
 } HostInfo;
 
@@ -113,8 +113,8 @@ typedef struct _HostAttributeEntry
 #ifdef SUP_IP6
     sfip_t ipAddr;
 #else
-    u_int32_t ipAddr;
-    u_int8_t bits;
+    uint32_t ipAddr;
+    uint8_t bits;
 #endif
 
     HostInfo hostInfo;
@@ -125,8 +125,8 @@ typedef struct _HostAttributeEntry
 /* Callback Functions from YACC */
 int SFAT_AddMapEntry(MapEntry *);
 char *SFAT_LookupAttributeNameById(int id);
-HostAttributeEntry * SFAT_CreateHostEntry();
-int SFAT_AddHostEntryToMap();
+HostAttributeEntry * SFAT_CreateHostEntry(void);
+int SFAT_AddHostEntryToMap(void);
 #ifdef SUP_IP6
 int SFAT_SetHostIp(char *);
 #else
@@ -134,8 +134,8 @@ int SFAT_SetHostIp4(char *);
 #endif
 int SFAT_SetOSAttribute(AttributeData *data, int attribute);
 int SFAT_SetOSPolicy(char *policy_name, int attribute);
-ApplicationEntry * SFAT_CreateApplicationEntry();
-int SFAT_AddApplicationData();
+ApplicationEntry * SFAT_CreateApplicationEntry(void);
+int SFAT_AddApplicationData(void);
 int SFAT_SetApplicationAttribute(AttributeData *data, int attribute);
 void PrintAttributeData(char *prefix, AttributeData *data);
 
@@ -146,31 +146,33 @@ typedef struct _GetPolicyIdsCallbackList
     GetPolicyIdFunc policyCallback;
     struct _GetPolicyIdsCallbackList *next;
 } GetPolicyIdsCallbackList;
-void SFAT_SetPolicyIds(GetPolicyIdFunc policyCallback);
+void SFAT_SetPolicyIds(GetPolicyIdFunc policyCallback, int snortPolicyId);
 
 /* Cleanup Functions, called by Snort shutdown */
-void SFAT_Cleanup();
+void SFAT_Cleanup(void);
 void FreeHostEntry(HostAttributeEntry *host);
 
 /* Parsing Functions -- to be called by Snort parser */
 int SFAT_ParseAttributeTable(char *args);
 
 /* Function to swap out new table */
-void AttributeTableReloadCheck();
+void AttributeTableReloadCheck(void);
 
 /* Status functions */
-u_int32_t SFAT_NumberOfHosts();
+uint32_t SFAT_NumberOfHosts(void);
 
 /* API Lookup functions, to be called by Stream & Frag */
 #ifdef SUP_IP6
 HostAttributeEntry *SFAT_LookupHostEntryByIP(sfip_t *ipAddr);
 #else
-HostAttributeEntry *SFAT_LookupHostEntryByIp4Addr(u_int32_t ipAddr);
+HostAttributeEntry *SFAT_LookupHostEntryByIp4Addr(uint32_t ipAddr);
 #endif
 HostAttributeEntry *SFAT_LookupHostEntryBySrc(Packet *p);
 HostAttributeEntry *SFAT_LookupHostEntryByDst(Packet *p);
 
 /* Returns whether this has been configured */
-int IsAdaptiveConfigured(void);
+int IsAdaptiveConfigured(tSfPolicyId, int);
+
+void SFAT_StartReloadThread(void);
 
 #endif /* SF_TARGET_READER_H_ */

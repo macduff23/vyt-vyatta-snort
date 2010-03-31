@@ -55,6 +55,7 @@
 #include "ipv6_port.h"
 #include "ppm.h"
 #include "sf_types.h"
+#include "sp_replace.h"
 
 #ifdef PORTLISTS
 #include "sfutil/sfportobject.h"
@@ -65,55 +66,29 @@
 PreprocStats detectPerfStats;
 #endif
 
-extern uint8_t ip_proto_array[NUM_IP_PROTOS];
 extern int preproc_proto_mask;
+extern SnortConfig *snort_conf;
+extern OutputFuncNode *AlertList;
+extern OutputFuncNode *LogList;
 
 #ifdef TARGET_BASED
 #include "target-based/sftarget_protocol_reference.h"
 #endif
+#include "sfPolicy.h"
 
 /* #define ITERATIVE_ENGINE */
 
-extern ListHead Alert;         /* Alert Block Header */
-extern ListHead Log;           /* Log Block Header */
-extern ListHead Pass;          /* Pass Block Header */
-extern ListHead Activation;    /* Activation Block Header */
-extern ListHead Dynamic;       /* Dynamic Block Header */
-extern ListHead Drop;
-#ifdef GIDS
-extern ListHead SDrop;
-extern ListHead Reject;
-#endif /* GIDS */
+OptTreeNode *otn_tmp = NULL;       /* OptTreeNode temp ptr */
 
-extern RuleTreeNode *rtn_tmp;      /* temp data holder */
-extern OptTreeNode *otn_tmp;       /* OptTreeNode temp ptr */
-extern ListHead *head_tmp;         /* ListHead temp ptr */
-
-extern RuleListNode *RuleLists;
-extern RuleListNode *nonDefaultRules;
-
-extern int dynamic_rules_present;
-extern int active_dynamic_nodes;
-
-extern PreprocessFuncNode *PreprocessList;  /* Preprocessor function list */
-extern OutputFuncNode *AlertList;   /* Alert function list */
-extern OutputFuncNode *LogList; /* log function list */
-extern PreprocGetReassemblyPktFuncNode *PreprocGetReassemblyPktList;
-
-/*
-**  The HTTP decode structre
-*/
+/* The HTTP decode structre */
 extern HttpUri UriBufs[URI_COUNT];
 
 int do_detect;
 int do_detect_content;
-u_int16_t event_id;
+uint16_t event_id;
 char check_tags_flag;
 
-void printRuleListOrder(RuleListNode * node);
-static int CheckTagging(Packet *p);
-static RuleListNode *addNodeToOrderedList(RuleListNode *ordered_list, 
-        RuleListNode *node, int evalIndex);
+static int CheckTagging(Packet *);
 
 #ifdef PERF_PROFILING
 PreprocStats eventqPerfStats;
@@ -122,11 +97,17 @@ PreprocStats eventqPerfStats;
 int Preprocess(Packet * p)
 {
     int retval = 0;
+    tSfPolicyId policy_id = getRuntimePolicy();
+    SnortPolicy *policy = snort_conf->targeted_policies[policy_id];
+#ifdef PPM_MGR
+    uint64_t pktcnt=0;
+#endif
     PROFILE_VARS;
 
-#ifdef PPM_MGR
-    UINT64 pktcnt=0;
+    if (policy == NULL)
+        return -1;
 
+#ifdef PPM_MGR
     /* Begin Packet Performance Monitoring  */
     if( PPM_PKTS_ENABLED() )
     {
@@ -169,12 +150,10 @@ int Preprocess(Packet * p)
          * avoiding iterating through each preprocessor */
         //if (p->proto_bits & preproc_proto_mask)
         {
-            PreprocessFuncNode *idx = PreprocessList;
+            PreprocEvalFuncNode *idx = policy->preproc_eval_funcs;
 
-            /*
-             **  Turn on all preprocessors
-             */
-            boSetAllBits(p->preprocessor_bits);
+            /* Turn on all preprocessors */
+            EnablePreprocessors(p);
 
             for (; (idx != NULL) && !(p->packet_flags & PKT_PASS_RULE); idx = idx->next)
             {
@@ -196,7 +175,7 @@ int Preprocess(Packet * p)
                 DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "Ignoring part of server "
                     "traffic -- only looking at %d of %d bytes!!!\n",
                     p->bytes_to_inspect, p->dsize););
-                p->dsize = (u_int16_t)p->bytes_to_inspect;
+                p->dsize = (uint16_t)p->bytes_to_inspect;
             }
 
             Detect(p);
@@ -220,14 +199,15 @@ int Preprocess(Packet * p)
         CheckTagging(p);
 
     PREPROC_PROFILE_START(eventqPerfStats);
-    retval = SnortEventqLog(p);
+    retval = SnortEventqLog(snort_conf->event_queue, p);
+    Replace_ModifyPacket(p);
     SnortEventqReset();
     PREPROC_PROFILE_END(eventqPerfStats);
 
     /* Simulate above behavior for preprocessor reassembled packets */
     if ((p->packet_flags & PKT_PREPROC_RPKT) && do_detect && (p->bytes_to_inspect != -1))
     {
-        PreprocGetReassemblyPktFuncNode *rpkt_idx = PreprocGetReassemblyPktList;
+        PreprocReassemblyPktFuncNode *rpkt_idx = policy->preproc_reassembly_pkt_funcs;
 
         /* Loop through the preprocessors that have registered a 
          * function to get a reassembled packet */
@@ -238,21 +218,24 @@ int Preprocess(Packet * p)
             assert(rpkt_idx->func != NULL);
 
             /* If the preprocessor bit is set, get the reassembled packet */
-            if (IsPreprocGetReassemblyPktBitSet(p, rpkt_idx->preproc_id))
+            if (IsPreprocReassemblyPktBitSet(p, rpkt_idx->preproc_id))
+            {
                 pp = (Packet *)rpkt_idx->func();
+            }
 
             if (pp != NULL)
             {
                 /* If the original packet's bytes to inspect is set,
                  * set it for the reassembled packet */
                 if (p->bytes_to_inspect > 0)
-                    pp->dsize = (u_int16_t)p->bytes_to_inspect;
+                    pp->dsize = (uint16_t)p->bytes_to_inspect;
 
                 if (Detect(pp))
                 {
                     PREPROC_PROFILE_START(eventqPerfStats);
 
-                    retval |= SnortEventqLog(pp);
+                    retval |= SnortEventqLog(snort_conf->event_queue, pp);
+                    Replace_ModifyPacket(p);
                     SnortEventqReset();
 
                     PREPROC_PROFILE_END(eventqPerfStats);
@@ -285,17 +268,16 @@ int Preprocess(Packet * p)
             PPM_PRINT_PKT_TIME("%g usecs\n");
             LogMessage("PPM: Process-EndPkt[%u]\n\n",(unsigned)pktcnt);
         }
+
         PPM_PKT_LOG();
      }
      if( PPM_RULES_ENABLED() )
      {
-        PPM_RULE_LOG(pktcnt,p);
+        PPM_RULE_LOG(pktcnt, p);
      }
      if( PPM_PKTS_ENABLED() )
      {
-        /* resets current packet time to ignore ip/tcp reassembly time */
         PPM_END_PKT_TIMER();
-        PPM_RESET_PKT_TIMER();
      }
 #endif
 
@@ -353,7 +335,7 @@ void CallLogFuncs(Packet *p, char *message, ListHead *head, Event *event)
     event->ref_time.tv_usec = p->pkth->ts.tv_usec;
 
     /* set the event number */
-    event->event_id = event_id | pv.event_log_id;
+    event->event_id = event_id | ScEventLogId();
 
 #ifndef SUP_IP6
     if(BsdPseudoPacket) 
@@ -368,11 +350,8 @@ void CallLogFuncs(Packet *p, char *message, ListHead *head, Event *event)
         return;
     }
 
-    if(p != NULL)
-    {
-        if(pv.obfuscation_flag)
-            ObfuscatePacket(p);
-    }
+    if ((p != NULL) && ScObfuscate())
+        ObfuscatePacket(p);
 
     pc.log_pkts++;
      
@@ -385,8 +364,6 @@ void CallLogFuncs(Packet *p, char *message, ListHead *head, Event *event)
         idx->func(p, message, idx->arg, event);
         idx = idx->next;
     }
-
-    return;
 }
 
 void CallLogPlugins(Packet * p, char *message, void *args, Event *event)
@@ -395,11 +372,8 @@ void CallLogPlugins(Packet * p, char *message, void *args, Event *event)
 
     idx = LogList;
 
-    if(p != NULL)
-    {
-        if(pv.obfuscation_flag)
-            ObfuscatePacket(p);
-    }
+    if ((p != NULL) && (snort_conf->output_flags & OUTPUT_FLAG__OBFUSCATE))
+        ObfuscatePacket(p);
 
     pc.log_pkts++;
 
@@ -408,8 +382,6 @@ void CallLogPlugins(Packet * p, char *message, void *args, Event *event)
         idx->func(p, message, idx->arg, event);
         idx = idx->next;
     }
-
-    return;
 }
 
 /* Call the output functions that are directly attached to the signature */
@@ -419,7 +391,7 @@ void CallSigOutputFuncs(Packet *p, OptTreeNode *otn, Event *event)
 
     idx = otn->outputFuncs;
 
-    if(p && pv.obfuscation_flag)
+    if ((p != NULL) && (snort_conf->output_flags & OUTPUT_FLAG__OBFUSCATE))
         ObfuscatePacket(p);
 
     while(idx)
@@ -442,7 +414,7 @@ void CallAlertFuncs(Packet * p, char *message, ListHead * head, Event *event)
     event->ref_time.tv_usec = p->pkth->ts.tv_usec;
 
     /* set the event number */
-    event->event_id = event_id | pv.event_log_id;
+    event->event_id = event_id | ScEventLogId();
     /* set the event reference info */
     event->event_reference = event->event_id;
 
@@ -459,7 +431,7 @@ void CallAlertFuncs(Packet * p, char *message, ListHead * head, Event *event)
         return;
     }
 
-    if(p && pv.obfuscation_flag)
+    if ((p != NULL) && (snort_conf->output_flags & OUTPUT_FLAG__OBFUSCATE))
         ObfuscatePacket(p);
 
     pc.alert_pkts++;
@@ -472,8 +444,6 @@ void CallAlertFuncs(Packet * p, char *message, ListHead * head, Event *event)
         idx->func(p, message, idx->arg, event);
         idx = idx->next;
     }
-
-    return;
 }
 
 
@@ -484,7 +454,7 @@ void CallAlertPlugins(Packet * p, char *message, void *args, Event *event)
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "Call Alert Plugins\n"););
     idx = AlertList;
 
-    if(p && pv.obfuscation_flag)
+    if ((p != NULL) && (snort_conf->output_flags & OUTPUT_FLAG__OBFUSCATE))
         ObfuscatePacket(p);
 
     pc.alert_pkts++;
@@ -493,8 +463,6 @@ void CallAlertPlugins(Packet * p, char *message, void *args, Event *event)
         idx->func(p, message, idx->arg, event);
         idx = idx->next;
     }
-
-    return;
 }
 
 
@@ -521,19 +489,19 @@ int Detect(Packet * p)
         return 0;
     }
 
-    if (!ip_proto_array[GET_IPH_PROTO(p)])
+    if (!snort_conf->ip_proto_array[GET_IPH_PROTO(p)])
     {
 #ifdef GRE
 # ifdef SUP_IP6
         switch (p->outer_family)
         {
             case AF_INET:
-                if (!ip_proto_array[p->outer_ip4h.ip_proto])
+                if (!snort_conf->ip_proto_array[p->outer_ip4h.ip_proto])
                     return 0;
                 break;
 
             case AF_INET6:
-                if (!ip_proto_array[p->outer_ip6h.next])
+                if (!snort_conf->ip_proto_array[p->outer_ip6h.next])
                     return 0;
                 break;
 
@@ -541,7 +509,7 @@ int Detect(Packet * p)
                 return 0;
         }
 # else
-        if ((p->outer_iph == NULL) || !ip_proto_array[p->outer_iph->ip_proto])
+        if ((p->outer_iph == NULL) || !snort_conf->ip_proto_array[p->outer_iph->ip_proto])
             return 0;
 # endif  /* SUP_IP6 */
 #else
@@ -594,7 +562,7 @@ void TriggerResponses(Packet * p, OptTreeNode * otn)
 
     while(idx != NULL)
     {
-        idx->ResponseFunc(p, idx);
+        idx->func(p, idx);
         idx = idx->next;
     }
 
@@ -609,10 +577,10 @@ int CheckAddrPort(
 #ifdef PORTLISTS
                 PortObject * po, 
 #else
-                u_int16_t hi_port, u_int16_t lo_port, 
+                uint16_t hi_port, uint16_t lo_port, 
 #endif 
                 Packet *p, 
-                u_int32_t flags, int mode)
+                uint32_t flags, int mode)
 {
     snort_ip_p pkt_addr;              /* packet IP address */
     u_short pkt_port;           /* packet port */
@@ -824,7 +792,6 @@ bail:
 
 }
 
-
 /****************************************************************************
  *
  * Function: DumpList(IpAddrNode*)
@@ -890,9 +857,6 @@ void DumpChain(RuleTreeNode * rtn_head, char *rulename, char *listname)
 #else
 
     RuleTreeNode *rtn_idx;
-#ifdef DEBUG
-    OptTreeNode *otn_idx;
-#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_RULES, "%s %s\n", rulename, listname););
 
@@ -903,142 +867,8 @@ void DumpChain(RuleTreeNode * rtn_head, char *rulename, char *listname)
         DEBUG_WRAP(DebugMessage(DEBUG_RULES, "    Empty!\n\n"););
     }
 
-    /* walk thru the RTN list */
-    while(rtn_idx != NULL)
-    {
-        DEBUG_WRAP(
-                DebugMessage(DEBUG_RULES, "Rule type: %d\n", rtn_idx->type);
-                DebugMessage(DEBUG_RULES, "SRC IP List:\n");
-                );
-
-        if(rtn_idx->sip) 
-        {
-            if(rtn_idx->sip->iplist)
-                DumpList(rtn_idx->sip->iplist, 0);
-            if(rtn_idx->sip->neg_iplist)
-                DumpList(rtn_idx->sip->neg_iplist, 1);
-        }
-
-        DEBUG_WRAP(DebugMessage(DEBUG_RULES, "DST IP List:\n"););
-
-        if(rtn_idx->dip) 
-        {
-            if(rtn_idx->dip->iplist)
-                DumpList(rtn_idx->dip->iplist, 0);
-            if(rtn_idx->dip->neg_iplist)
-                DumpList(rtn_idx->dip->neg_iplist, 1);
-        }
-
-#ifdef DEBUG
-        DebugMessage(DEBUG_RULES, "SRC PORT: %d - %d \n", rtn_idx->lsp, 
-                rtn_idx->hsp);
-        DebugMessage(DEBUG_RULES, "DST PORT: %d - %d \n", rtn_idx->ldp, 
-                rtn_idx->hdp);
-        DebugMessage(DEBUG_RULES, "Flags: ");
-
-        if(rtn_idx->flags & EXCEPT_SRC_IP)
-            DebugMessage(DEBUG_RULES, "EXCEPT_SRC_IP ");
-        if(rtn_idx->flags & EXCEPT_DST_IP)
-            DebugMessage(DEBUG_RULES, "EXCEPT_DST_IP ");
-        if(rtn_idx->flags & ANY_SRC_PORT)
-            DebugMessage(DEBUG_RULES, "ANY_SRC_PORT ");
-        if(rtn_idx->flags & ANY_DST_PORT)
-            DebugMessage(DEBUG_RULES, "ANY_DST_PORT ");
-        if(rtn_idx->flags & EXCEPT_SRC_PORT)
-            DebugMessage(DEBUG_RULES, "EXCEPT_SRC_PORT ");
-        if(rtn_idx->flags & EXCEPT_DST_PORT)
-            DebugMessage(DEBUG_RULES, "EXCEPT_DST_PORT ");
-        DebugMessage(DEBUG_RULES, "\n");
-
-        otn_idx = rtn_idx->down;
-
-        DEBUG_WRAP(
-            /* print the RTN header number */
-            DebugMessage(DEBUG_RULES,
-                "Head: %d (type: %d)\n",
-                rtn_idx->head_node_number, otn_idx->type);
-            DebugMessage(DEBUG_RULES, "      |\n");
-            DebugMessage(DEBUG_RULES, "       ->");
-            );
-
-        /* walk thru the OTN chain */
-        while(otn_idx != NULL)
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_RULES,
-                        " %d", otn_idx->chain_node_number););
-            otn_idx = otn_idx->next;
-        }
-
-        DEBUG_WRAP(DebugMessage(DEBUG_RULES, "|=-\n"););
-#endif
-        rtn_idx = rtn_idx->right;
-    }
 #endif
 }
-
-
-
-void IntegrityCheck(RuleTreeNode * rtn_head, char *rulename, char *listname)
-{
-    RuleTreeNode *rtn_idx = NULL;
-    OptTreeNode *otn_idx;
-    OptFpList *ofl_idx;
-    int opt_func_count;
-
-#ifdef DEBUG
-    char chainname[STD_BUF];
-
-    SnortSnprintf(chainname, STD_BUF, "%s %s", rulename, listname);
-
-    if(!pv.quiet_flag)
-        DebugMessage(DEBUG_DETECT, "%-20s: ", chainname);
-#endif
-
-    if(rtn_head == NULL)
-    {
-#ifdef DEBUG
-        if(!pv.quiet_flag)
-            DebugMessage(DEBUG_DETECT,"Empty list...\n");
-#endif
-        return;
-    }
-
-    rtn_idx = rtn_head;
-
-    while(rtn_idx != NULL)
-    {
-        otn_idx = rtn_idx->down;
-
-        while(otn_idx != NULL)
-        {
-            ofl_idx = otn_idx->opt_func;
-            opt_func_count = 0;
-
-            while(ofl_idx != NULL)
-            {
-                opt_func_count++;
-                DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "%p->",ofl_idx->OptTestFunc););
-                ofl_idx = ofl_idx->next;
-            }
-
-            if(opt_func_count == 0)
-            {
-                FatalError("Zero Length OTN List\n");
-            }
-            DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"\n"););
-            otn_idx = otn_idx->next;
-        }
-
-        rtn_idx = rtn_idx->right;
-    }
-
-#ifdef DEBUG
-    if(!pv.quiet_flag)
-        DebugMessage(DEBUG_DETECT, "OK\n");
-#endif
-
-}
-
 
 #ifdef PORTLISTS
 #define CHECK_ADDR_SRC_ARGS(x) (x)->src_portobject
@@ -1537,8 +1367,8 @@ int CheckDstPortNotEq(Packet *p, struct _RuleTreeNode *rtn_idx,
     return 0;
 }
 
-
-int RuleListEnd(Packet *p, struct _RuleTreeNode *rtn_idx, RuleFpList *fp_list, int check_ports)
+int RuleListEnd(Packet *p, struct _RuleTreeNode *rtn_idx,
+        RuleFpList *fp_list, int check_ports)
 {
     return 1;
 }
@@ -1549,253 +1379,8 @@ int OptListEnd(void *option_data, Packet *p)
     return DETECTION_OPTION_MATCH;
 }
 
-/*
- * sets the nonDefaultRules variable
- */
-void SetNonDefaultRules()
-{
-	RuleListNode *prev = NULL;
-	RuleListNode *node = RuleLists;
-	
-	if(!RuleLists)
-	{
-		nonDefaultRules = NULL;
-		return;
-	}
-	
-	while(node->next)
-	{
-		prev = node;
-		node = node->next;
-	}
-	nonDefaultRules = node;
-	
-	return;
-}
-
-void CreateDefaultRules()
-{
-    CreateRuleType("activation", RULE_ACTIVATE, 1, &Activation);
-    CreateRuleType("dynamic", RULE_DYNAMIC, 1, &Dynamic);
-    CreateRuleType("pass", RULE_PASS, 0, &Pass); /* changed on Jan 06 */
-    CreateRuleType("drop", RULE_DROP, 1, &Drop);
-#ifdef GIDS
-    CreateRuleType("sdrop", RULE_SDROP, 0, &SDrop);
-    CreateRuleType("reject", RULE_REJECT, 1, &Reject);
-#endif /* GIDS */
-    CreateRuleType("alert", RULE_ALERT, 1, &Alert);
-    CreateRuleType("log", RULE_LOG, 1, &Log);
-    SetNonDefaultRules(); /* set nonDefaultRules */
-}
-
-void printRuleOrder()
-{
-    printRuleListOrder(RuleLists);
-}
-/****************************************************************************
- *
- * Function: CreateRuleType
- *
- * Purpose: Creates a new type of rule and adds it to the end of the rule list
- *
- * Arguments: name = name of this rule type
- *                       mode = the mode for this rule type
- *                   rval = return value for this rule type (for detect events)
- *                       head = list head to use (or NULL to create a new one)
- *
- * Returns: the ListHead for the rule type
- *
- ***************************************************************************/
-ListHead *CreateRuleType(char *name, int mode, int rval, ListHead *head)
-{
-    RuleListNode *node;
-    int evalIndex = 0;
-
-    /* Using calloc() because code isn't initializing
-     * all of the structure fields before returning.  This is a non-
-     * time-critical function, and is only called a half dozen times
-     * on startup.
-     */
-
-    /*
-     * if this is the first rule list node, then we need to create a new
-     * list. we do not allow multiple rules with the same name.
-     */
-    if(!RuleLists)
-    {
-        RuleLists = (RuleListNode *)SnortAlloc(sizeof(RuleListNode));
-        node = RuleLists;
-    }
-    else
-    {
-        RuleListNode *prev = NULL;
-
-        node = RuleLists;
-
-        do
-        {
-            evalIndex++;
-            if (strcmp(node->name, name) == 0)
-                return NULL;
-
-            prev = node;
-            node = node->next;
-
-        } while (node != NULL);
-
-        prev->next = (RuleListNode *)SnortAlloc(sizeof(RuleListNode));
-        node = prev->next;
-    }
-
-    if(!head)
-    {
-        node->RuleList = (ListHead *)SnortAlloc(sizeof(ListHead));
-        node->RuleList->IpList = NULL;
-        node->RuleList->TcpList = NULL;
-        node->RuleList->UdpList = NULL;
-        node->RuleList->IcmpList = NULL;
-        node->RuleList->LogList = NULL;
-        node->RuleList->AlertList = NULL;
-    }
-    else
-    {
-        node->RuleList = head;
-    }
-
-    node->RuleList->ruleListNode = node;
-    node->mode = mode;
-    node->rval = rval;
-    node->name = SnortStrdup(name);
-    node->evalIndex = evalIndex;
-    node->next = NULL;
-    
-    pv.num_rule_types++;
-    
-    return node->RuleList;
-}
-
-
-
-/****************************************************************************
- *
- * Function: OrderRuleLists
- *
- * Purpose: Orders the rule lists into the specefied order.
- *
- * Returns: void function
- *
- ***************************************************************************/
-void OrderRuleLists(char *order)
-{
-    int i;
-    int evalIndex = 0;
-    RuleListNode *ordered_list = NULL;
-    RuleListNode *prev;
-    RuleListNode *node;
-    static int called = 0;
-    char **toks;
-    int num_toks;
-
-    if( called > 0 )
-        LogMessage("Warning: multiple rule order directives.\n");
-
-    toks = mSplit(order, " ", 10, &num_toks, 0);
-
-    for( i = 0; i < num_toks; i++ )
-    {
-        prev = NULL;
-        node = RuleLists;
-
-        while (node != NULL)
-        {
-            if (strcmp(toks[i], node->name) == 0)
-            {
-                if (prev == NULL)
-                    RuleLists = node->next;
-                else
-                    prev->next = node->next;
-
-                /* Add node to ordered list */
-                ordered_list = addNodeToOrderedList(ordered_list, node, evalIndex++);
-
-                break;
-            }
-            else
-            {
-                prev = node;
-                node = node->next;
-            }
-        }
-
-        if( node == NULL )
-        {
-            FatalError("ruletype %s does not exist or "
-                       "has already been ordered.\n", toks[i]);
-        }
-    }
-    mSplitFree(&toks, num_toks);
-
-    /* anything left in the rule lists needs to be moved to the ordered lists */
-    while( RuleLists != NULL )
-    {
-        node = RuleLists;
-        RuleLists = node->next;
-        /* Add node to ordered list */
-        ordered_list = addNodeToOrderedList(ordered_list, node, evalIndex++);
-    }
-
-    /* set the rulelists to the ordered list */
-    RuleLists = ordered_list;
-    called = 1;
-}
-
-static RuleListNode *addNodeToOrderedList(RuleListNode *ordered_list, 
-        RuleListNode *node, int evalIndex)
-{
-    RuleListNode *prev;
-
-    prev = ordered_list;
-    
-    /* set the eval order for this rule set */
-    node->evalIndex = evalIndex;
-    
-    if(!prev)
-    {
-        ordered_list = node;
-    }
-    else
-    {
-        while(prev->next)
-            prev = prev->next;
-        prev->next = node;
-    }
-
-    node->next = NULL;
-
-    return ordered_list;
-}
-
-
-void printRuleListOrder(RuleListNode * node)
-{
-    char buf[STD_BUF];
-    RuleListNode *first_node = node;
-
-    SnortSnprintf(buf, STD_BUF, "Rule application order: ");
-
-    while( node != NULL )
-    {
-        SnortSnprintfAppend(buf, STD_BUF, "%s%s",
-                      node == first_node ? "" : "->", node->name);
-
-        node = node->next;
-    }
-
-    LogMessage("%s\n", buf);
-}
-
 /* Rule Match Action Functions */
-int PassAction()
+int PassAction(void)
 {
     pc.pass_pkts++;
 
@@ -1803,14 +1388,14 @@ int PassAction()
     return 1;
 }
 
-
-
 int ActivateAction(Packet * p, OptTreeNode * otn, Event *event)
 {
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
+
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                    "        <!!> Activating and generating alert! \"%s\"\n",
                    otn->sigInfo.message););
-    CallAlertFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallAlertFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     if (otn->OTN_activation_ptr == NULL)
     {
@@ -1827,10 +1412,10 @@ int ActivateAction(Packet * p, OptTreeNode * otn, Event *event)
     otn->RTN_activation_ptr->countdown += 
         otn->OTN_activation_ptr->activation_counter;
 
-    active_dynamic_nodes++;
+    snort_conf->active_dynamic_nodes++;
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"   => Finishing activation packet!\n"););
     
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, 
                 "   => Activation packet finished, returning!\n"););
 
@@ -1839,21 +1424,24 @@ int ActivateAction(Packet * p, OptTreeNode * otn, Event *event)
 
 int AlertAction(Packet * p, OptTreeNode * otn, Event *event)
 {
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
+
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
-                "        <!!> Generating alert! \"%s\"\n", otn->sigInfo.message););
+                "        <!!> Generating alert! \"%s\", policyId %d\n", otn->sigInfo.message, getRuntimePolicy()););
 
     /* Call OptTreeNode specific output functions */
     if(otn->outputFuncs)
         CallSigOutputFuncs(p, otn, event);
     
 //PORTLISTS
-    if( pv.alert_packet_count )
+    if (ScAlertPacketCount())
         print_packet_count();
-    CallAlertFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+
+    CallAlertFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "   => Finishing alert packet!\n"););
 
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     /*
     if(p->ssnptr != NULL && stream_api)
@@ -1876,6 +1464,8 @@ int AlertAction(Packet * p, OptTreeNode * otn, Event *event)
 
 int DropAction(Packet * p, OptTreeNode * otn, Event *event)
 {
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
+
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                "        <!!> Generating Alert and dropping! \"%s\"\n",
                otn->sigInfo.message););
@@ -1899,9 +1489,9 @@ int DropAction(Packet * p, OptTreeNode * otn, Event *event)
     */
     InlineDrop(p);
 
-    CallAlertFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallAlertFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     return 1;
 }
@@ -1920,14 +1510,16 @@ int SDropAction(Packet * p, OptTreeNode * otn, Event *event)
 
 int RejectAction(Packet * p, OptTreeNode * otn, Event *event)
 {
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
+
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                "        <!!>Ignoring! \"%s\"\n",
                otn->sigInfo.message););
 
     // Let's log/alert, drop the packet, and mark it for reset.
-    CallAlertFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallAlertFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     /*
     if(p->ssnptr != NULL)
@@ -1955,20 +1547,20 @@ int RejectAction(Packet * p, OptTreeNode * otn, Event *event)
 
 int DynamicAction(Packet * p, OptTreeNode * otn, Event *event)
 {
-    RuleTreeNode *rtn = otn->rtn;
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "   => Logging packet data and"
                             " adjusting dynamic counts (%d/%d)...\n",
                             rtn->countdown, otn->countdown););
 
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
     otn->countdown--;
 
     if( otn->countdown <= 0 )
     {
         otn->active_flag = 0;
-        active_dynamic_nodes--;
+        snort_conf->active_dynamic_nodes--;
         DEBUG_WRAP(DebugMessage(DEBUG_DETECT, "   <!!> Shutting down dynamic OTN node\n"););
     }
     
@@ -1985,10 +1577,11 @@ int DynamicAction(Packet * p, OptTreeNode * otn, Event *event)
 
 int LogAction(Packet * p, OptTreeNode * otn, Event *event)
 {
+    RuleTreeNode *rtn = getRuntimeRtnFromOtn(otn);
 
     DEBUG_WRAP(DebugMessage(DEBUG_DETECT,"   => Logging packet data and returning...\n"););
 
-    CallLogFuncs(p, otn->sigInfo.message, otn->rtn->listhead, event);
+    CallLogFuncs(p, otn->sigInfo.message, rtn->listhead, event);
 
 #ifdef BENCHMARK
     printf("        <!!> Check count = %d\n", check_count);
@@ -2013,7 +1606,7 @@ void ObfuscatePacket(Packet *p)
         return;
 
 #ifdef SUP_IP6
-    if(!IS_SET(pv.obfuscation_net))
+    if(!IS_SET(snort_conf->obfuscation_net))
     {
         sfip_t *tmp = GET_SRC_IP(p);
 
@@ -2032,7 +1625,7 @@ void ObfuscatePacket(Packet *p)
         memset(tmp->ip8, 0, 16);
     }
 #else
-    if(pv.obfuscation_net == 0)
+    if(snort_conf->obfuscation_net == 0)
     {
         ((IPHdr *)p->iph)->ip_src.s_addr = 0x00000000;
         ((IPHdr *)p->iph)->ip_dst.s_addr = 0x00000000;
@@ -2047,43 +1640,43 @@ void ObfuscatePacket(Packet *p)
         src = GET_SRC_IP(p);
         dst = GET_DST_IP(p);
 
-        if(IS_SET(pv.homenet))
+        if(IS_SET(snort_conf->homenet))
         {
-            if(sfip_contains(&pv.homenet, src) == SFIP_CONTAINS)
+            if(sfip_contains(&snort_conf->homenet, src) == SFIP_CONTAINS)
             {
-                sfip_obfuscate(&pv.obfuscation_net, src);
+                sfip_obfuscate(&snort_conf->obfuscation_net, src);
             } 
 
-            if(sfip_contains(&pv.homenet, dst) == SFIP_CONTAINS)
+            if(sfip_contains(&snort_conf->homenet, dst) == SFIP_CONTAINS)
             {
-                sfip_obfuscate(&pv.obfuscation_net, dst);
+                sfip_obfuscate(&snort_conf->obfuscation_net, dst);
             }
         }
         else
         {
-            sfip_obfuscate(&pv.obfuscation_net, src);
-            sfip_obfuscate(&pv.obfuscation_net, dst);
+            sfip_obfuscate(&snort_conf->obfuscation_net, src);
+            sfip_obfuscate(&snort_conf->obfuscation_net, dst);
         }
 #else
-        if(pv.homenet != 0)
+        if(snort_conf->homenet != 0)
         {
-            if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
+            if((p->iph->ip_src.s_addr & snort_conf->netmask) == snort_conf->homenet)
             {
-                ((IPHdr *)p->iph)->ip_src.s_addr = pv.obfuscation_net |
-                    (p->iph->ip_src.s_addr & pv.obfuscation_mask);
+                ((IPHdr *)p->iph)->ip_src.s_addr = snort_conf->obfuscation_net |
+                    (p->iph->ip_src.s_addr & snort_conf->obfuscation_mask);
             }
-            if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
+            if((p->iph->ip_dst.s_addr & snort_conf->netmask) == snort_conf->homenet)
             {
-                ((IPHdr *)p->iph)->ip_dst.s_addr = pv.obfuscation_net |
-                    (p->iph->ip_dst.s_addr & pv.obfuscation_mask);
+                ((IPHdr *)p->iph)->ip_dst.s_addr = snort_conf->obfuscation_net |
+                    (p->iph->ip_dst.s_addr & snort_conf->obfuscation_mask);
             }
         }
         else
         {
-            ((IPHdr *)p->iph)->ip_src.s_addr = pv.obfuscation_net |
-                (p->iph->ip_src.s_addr & pv.obfuscation_mask);
-            ((IPHdr *)p->iph)->ip_dst.s_addr = pv.obfuscation_net |
-                (p->iph->ip_dst.s_addr & pv.obfuscation_mask);
+            ((IPHdr *)p->iph)->ip_src.s_addr = snort_conf->obfuscation_net |
+                (p->iph->ip_src.s_addr & snort_conf->obfuscation_mask);
+            ((IPHdr *)p->iph)->ip_dst.s_addr = snort_conf->obfuscation_net |
+                (p->iph->ip_dst.s_addr & snort_conf->obfuscation_mask);
         }
 #endif
     }

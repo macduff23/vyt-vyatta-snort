@@ -1,8 +1,9 @@
-#!/bin/sh
+#!/bin/sh -e
 
 # Preinst for snort-common-rules, currently only handles
 # migration from old /etc/snort to new /etc/snort setup
 #
+
 
 check_md5() {
 # if the MD5sum matches the user has not modified it, remove it

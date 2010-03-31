@@ -68,6 +68,8 @@
 #include "debug.h"
 #include "util.h"
 
+extern SnortConfig *snort_conf;
+
 static LPTSTR g_lpszServiceName        = "SnortSvc";
 static LPTSTR g_lpszServiceDisplayName = "Snort";
 static LPTSTR g_lpszServiceDescription = "The Open Source Network Intrusion Detection System";
@@ -564,21 +566,21 @@ VOID WINAPI SnortServiceCtrlHandler (DWORD dwOpcode)
     { 
         case SERVICE_CONTROL_PAUSE: 
             /* Do whatever it takes to pause here.  */
-            pv.pause_service_flag = 1;
+            snort_conf->run_flags |= RUN_FLAG__PAUSE_SERVICE;
 
             g_SnortServiceStatus.dwCurrentState = SERVICE_PAUSED; 
             break; 
  
         case SERVICE_CONTROL_CONTINUE: 
             /* Do whatever it takes to continue here.  */
-            pv.pause_service_flag = 0;
+            snort_conf->run_flags &= ~RUN_FLAG__PAUSE_SERVICE;
 
             g_SnortServiceStatus.dwCurrentState = SERVICE_RUNNING; 
             break; 
  
         case SERVICE_CONTROL_STOP: 
             /* Do whatever it takes to stop here. */
-            pv.terminate_service_flag = 1;
+            snort_conf->run_flags |= RUN_FLAG__TERMINATE_SERVICE;
 
             Sleep( READ_TIMEOUT * 2 );  /* wait for 2x the timeout, just to ensure that things
                                          * the service has processed any last packets
@@ -1032,7 +1034,7 @@ VOID UninstallSnortService()
 } 
 
 
-VOID  ShowSnortServiceParams()
+VOID  ShowSnortServiceParams(void)
 {
     int     argc;
     char ** argv;

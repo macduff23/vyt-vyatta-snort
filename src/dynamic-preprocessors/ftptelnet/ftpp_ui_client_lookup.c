@@ -317,6 +317,7 @@ static void clientConfFree(void *pData)
         clientConf->referenceCount--;
         if (clientConf->referenceCount == 0)
         {
+            FTPTelnetCleanupFTPClientConf((void *)clientConf);
             free(clientConf);
         }
     }

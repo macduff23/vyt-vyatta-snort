@@ -29,6 +29,8 @@
 #ifndef SPP_SSH_H
 #define SPP_SSH_H
 
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 #define MAX_PORTS 65536
 
@@ -36,11 +38,6 @@
  * Default SSH port
  */
 #define SSH_PORT	22
-
-/* 
- * Maximum length of a valid SSH proto version string, in bytes.
- */
-#define SSH_MAX_PROTOVERS_STRING	40
 
 /*
  * Boolean values.
@@ -59,6 +56,19 @@
  */
 #define SSH_DEFAULT_MAX_ENC_PKTS	25
 #define SSH_DEFAULT_MAX_CLIENT_BYTES	19600
+#define SSH_DEFAULT_MAX_SERVER_VERSION_LEN 80
+
+/*
+ * Min/Max values for each configurable parameter.
+ */
+#define MIN_MAX_ENC_PKTS 0
+#define MAX_MAX_ENC_PKTS 65535
+
+#define MIN_MAX_CLIENT_BYTES 0
+#define MAX_MAX_CLIENT_BYTES 65535
+
+#define MIN_MAX_SERVER_VERSION_LEN 0
+#define MAX_MAX_SERVER_VERSION_LEN 255
 
 /*
  * One of these structures is kept for each configured 
@@ -66,7 +76,7 @@
  */
 typedef struct _sshPortlistNode
 {
-	u_int16_t server_port;
+	uint16_t server_port;
 	struct _sshPortlistNode* nextp;
 } SSHPortNode;
 
@@ -79,18 +89,24 @@ typedef struct _sshPortlistNode
  *				session.
  * MaxClientBytes:	Maximum bytes of encrypted data that can be
  *				sent by client without a server response.
+ * MaxServerVersionLen: Maximum length of a server's version string.
+ *              Configurable threshold for Secure CRT-style overflow.
  * DisableRules: 	Disable rule processing for SSH traffic.
  * EnabledAlerts: 	Bit vector describing which alerts are enabled.
  */
 typedef struct _sshConfig
 {
-	u_int8_t  AutodetectEnabled;
-	u_int16_t MaxEncryptedPackets;
-	u_int16_t MaxClientBytes;
-	u_int16_t DisableRules;
-	u_int16_t EnabledAlerts;
+	uint8_t  AutodetectEnabled;
+	uint16_t MaxEncryptedPackets;
+	uint16_t MaxClientBytes;
+    uint16_t MaxServerVersionLen;
+//	uint16_t DisableRules;
+	uint16_t EnabledAlerts;
 //	SSHPortNode* PortList;
     char      ports[MAX_PORTS/8];
+
+    int ref_count;
+
 } SSHConfig;
 
 
@@ -107,10 +123,14 @@ typedef struct _sshConfig
  */
 typedef struct _sshData
 {
-	u_int8_t  version;
-	u_int16_t num_enc_pkts;
-	u_int16_t num_client_bytes;
-	u_int32_t state_flags;
+	uint8_t  version;
+	uint16_t num_enc_pkts;
+	uint16_t num_client_bytes;
+	uint32_t state_flags;
+
+    tSfPolicyId policy_id;
+    tSfPolicyUserContextId config;
+
 } SSHData;
 
 /*
@@ -131,8 +151,11 @@ typedef struct _sshData
 #define SSH_FLG_GEX_REPLY_SEEN		(0x800)
 #define SSH_FLG_NEWKEYS_SEEN		(0x1000)
 #define SSH_FLG_SESS_ENCRYPTED		(0x2000)
-#define SSH_FLG_GOBBLES_ALERTED		(0x4000)
+#define SSH_FLG_RESPOVERFLOW_ALERTED    (0x4000)
 #define SSH_FLG_CRC32_ALERTED		(0x8000)
+#define SSH_FLG_MISSED_PACKETS      (0x10000)
+#define SSH_FLG_REASSEMBLY_SET      (0x20000)
+#define SSH_FLG_AUTODETECTED        (0x40000)
 
 /*
  * Some convenient combinations of state flags.
@@ -178,8 +201,8 @@ typedef struct _sshData
  */
 typedef struct _ssh2Packet
 {
-	u_int32_t packet_length;
-	u_int8_t  padding_length;
+	uint32_t packet_length;
+	uint8_t  padding_length;
 	char 	  packet_data[1];
 } SSH2Packet;
 
@@ -215,20 +238,21 @@ typedef struct _ssh2Packet
 #define SSH_SERVERPORTS_KEYWORD			"server_ports"
 #define SSH_MAX_ENC_PKTS_KEYWORD		"max_encrypted_packets"
 #define SSH_MAX_CLIENT_BYTES_KEYWORD		"max_client_bytes"
+#define SSH_MAX_SERVER_VERSION_KEYWORD  "max_server_version_len"
 #define SSH_AUTODETECT_KEYWORD			"autodetect"
-#define SSH_DISABLE_GOBBLES_KEYWORD		"disable_gobbles"
-#define SSH_DISABLE_CRC32_KEYWORD		"disable_ssh1crc32"
-#define SSH_DISABLE_SECURECRT_KEYWORD		"disable_srvoverflow"
-#define SSH_DISABLE_PROTOMISMATCH_KEYWORD	"disable_protomismatch"
-#define SSH_DISABLE_WRONGDIR_KEYWORD 		"disable_badmsgdir"
-#define SSH_DISABLE_RULES_KEYWORD		"disable_rules"
-#define SSH_DISABLE_PAYLOAD_SIZE        "disable_paysize"
-#define SSH_DISABLE_UNRECOGNIZED_VER    "disable_recognition"
+#define SSH_ENABLE_RESPOVERFLOW_KEYWORD		"enable_respoverflow"
+#define SSH_ENABLE_CRC32_KEYWORD		"enable_ssh1crc32"
+#define SSH_ENABLE_SECURECRT_KEYWORD		"enable_srvoverflow"
+#define SSH_ENABLE_PROTOMISMATCH_KEYWORD	"enable_protomismatch"
+#define SSH_ENABLE_WRONGDIR_KEYWORD 		"enable_badmsgdir"
+#define SSH_DISABLE_RULES_KEYWORD       "disable_rules"
+#define SSH_ENABLE_PAYLOAD_SIZE         "enable_paysize"
+#define SSH_ENABLE_UNRECOGNIZED_VER     "enable_recognition"
 
 /*
  * SSH preprocessor alert types.
  */
-#define SSH_EVENT_GOBBLES		1
+#define SSH_EVENT_RESPOVERFLOW  1
 #define SSH_EVENT_CRC32			2
 #define SSH_EVENT_SECURECRT		3
 #define SSH_EVENT_PROTOMISMATCH	4
@@ -240,7 +264,7 @@ typedef struct _ssh2Packet
  * SSH alert flags
  */
 #define SSH_ALERT_NONE			(0x0)
-#define SSH_ALERT_GOBBLES		(0x1)
+#define SSH_ALERT_RESPOVERFLOW	(0x1)
 #define SSH_ALERT_CRC32			(0x2)
 #define SSH_ALERT_SECURECRT		(0x4)
 #define SSH_ALERT_PROTOMISMATCH	(0x8)
@@ -252,7 +276,7 @@ typedef struct _ssh2Packet
 /*
  * SSH preprocessor alert strings.
  */
-#define SSH_EVENT_GOBBLES_STR		"(spp_ssh) Gobbles exploit"
+#define SSH_EVENT_RESPOVERFLOW_STR		"(spp_ssh) Challenge-Response Overflow exploit"
 #define SSH_EVENT_CRC32_STR		"(spp_ssh) SSH1 CRC32 exploit"
 #define	SSH_EVENT_SECURECRT_STR		"(spp_ssh) Server version string overflow"
 #define SSH_EVENT_PROTOMISMATCH_STR	"(spp_ssh) Protocol mismatch"

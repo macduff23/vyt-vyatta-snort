@@ -77,9 +77,9 @@ void RpcCheckInit(char *, OptTreeNode *, int);
 void ParseRpc(char *, OptTreeNode *);
 int CheckRpc(void *option_data, Packet *p);
 
-u_int32_t RpcCheckHash(void *d)
+uint32_t RpcCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     RpcCheckData *data = (RpcCheckData *)d;
 
     a = data->program;
@@ -130,7 +130,7 @@ int RpcCheckCompare(void *l, void *r)
 void SetupRpcCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("rpc", RpcCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("rpc", RpcCheckInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("rpc", &rpcCheckPerfStats, 3, &ruleOTNEvalPerfStats);

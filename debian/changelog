@@ -1,3 +1,88 @@
+snort (2.8.5.2-2) unstable; urgency=low
+
+  * Remove the reverse_order debconf option since Snort no longer supports the
+    -o option. The default now in Snort is to have Pass|Alert|Log 
+    (Closes: 565567)
+  * Change error message in the init.d script to point to /var/log/daemon.log
+    for Snort log messages.
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Fri, 22 Jan 2010 00:12:52 +0100
+
+snort (2.8.5.2-1) unstable; urgency=low
+
+  * New upstream release 
+     - Fixes CVE-2009-3641: possible DoS due to crafted IPv6 packet when
+       then -v option is enabled
+  * Fix src/snort.c since it is not buildable, it seems that the distributed
+    source code has a bug.
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Mon, 11 Jan 2010 23:53:05 +0100
+
+snort (2.8.4.1-6) unstable; urgency=low
+
+  * Package rebuild to fix libmysql depedency (Closes: #548831)
+  * Remove use_static_footprint_sizes option from the stream5_tcp disassembler
+    in etc/snort.conf as the use in production systems is actually discouraged
+    [ see http://sourceforge.net/mailarchive/message.php?msg_name=d3a3e6ac0912080843i17a0302te36548e032b4b013%40mail.gmail.com ]
+  * Lintian fixes:
+     - Remove dh_undocumented from debian/rules
+     - Add ${misc:Depends} to all binary packages
+     - Use updated debhelper version (5)
+     - Update Standards-Version (3.8.3)
+
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Wed, 09 Dec 2009 02:05:57 +0100
+
+snort (2.8.4.1-5) unstable; urgency=low
+
+  * Fix snort-stat so that it can generate proper emails even if Classification
+    is missing from the alert log, use fix suggested by Pavel Mateja.
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Sun, 01 Nov 2009 00:43:02 +0100
+
+snort (2.8.4.1-4) unstable; urgency=low
+
+  * Fix init.d so that if 'restart' is executed when no instance is
+    running (no pidfile) it will try to start all of instances, just
+    if 'start' was executed. (Closes: #540450)
+  * Add information on how the init.d script works (Closes: #512810)
+  * Fix name of file in README-database.Debian, remove the database
+    information from the main README.Debian file.
+  * Fix bug in debian/clean-sources.sh script (Closes: #547316)
+  * Use a patch provided by Dave Walker <DaveWalker_AT_ubuntu.com>
+    to prevent starting snort-mysql|pgsql if the database is not configured 
+    yet. This bug cannot be really fixed until we use dbconfig-common
+    here to ask for all the database information to the user
+    through Debconf. (LP: #222091) (Closes: #545082)
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Wed, 23 Sep 2009 01:35:05 +0200
+
+snort (2.8.4.1-3) unstable; urgency=low
+
+  * Change the log message in debian/snort.init.d so people are not led to
+    believe they need a /etc/snort/snort.$iface.conf configuration file,
+    /etc/snort/snort.conf is usually just fine.
+  * Lintian fixes:
+   - Fix long lines in changelog
+   - Fix debconf priority in configuration scripts (error -> high)
+   - Do not install README.WIN32 in snort-doc's documentation
+   - Do not ignore errors on snort-rules-default.{postrm, preinst}
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Sun, 02 Aug 2009 18:27:04 +0200
+
+snort (2.8.4.1-2) unstable; urgency=low
+
+  * Rebuild and upload to unstable. (Closes: 528496)
+  * As acknowledged by upstream and confirmed by users, this release fixes a
+    segfault in snort-mysql (Closes: 536144)
+  * Updated Russian po-debconf translation provided by Yuri Kozlov 
+    (Closes: 528677)
+  * Change syslogd dependency in snort, snort-pgsql and snort-mysql to rsyslog 
+    since that is the default syslog daemon now. (Closes: 526916)
+  * Remove the syslog dependency from snort-common and snort-rules-default
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Sat, 01 Aug 2009 17:50:30 +0200
+
 snort (2.8.4.1-1) experimental; urgency=low
 
   * New upstream release. 

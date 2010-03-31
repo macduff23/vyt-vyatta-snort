@@ -247,7 +247,7 @@ int KMapAdd( KMAP *km, void * key, int n, void * userdata )
     if( n <= 0 )
     {
         n = strlen( (char*) key );
-        if( n > sizeof(xkey) )
+        if( n > (int)sizeof(xkey) )
             return -99;
     }
     
@@ -390,7 +390,7 @@ void *  KMapFind( KMAP * ks, void * key, int n )
     if( n <= 0 )
     {
         n = strlen( (char*)key );
-        if( n > sizeof(xkey) )
+        if( n > (int)sizeof(xkey) )
             return 0;
         
     }

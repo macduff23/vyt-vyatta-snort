@@ -150,8 +150,17 @@ struct routtablerec {
 };
 
 /* utilities */
-typedef unsigned char boolean;
-#define TRUE 1
-#define FALSE 0
+#ifndef boolean
+#ifndef HAVE_BOOLEAN
+ typedef unsigned char boolean;
+#endif
+#endif
+#ifndef TRUE
+# define TRUE 1
+#endif
+
+#ifndef FALSE
+# define FALSE 0
+#endif
 
 #endif

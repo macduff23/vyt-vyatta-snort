@@ -53,7 +53,7 @@
 #include "config.h"
 #endif
 
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
 
 #include <sys/types.h>
 #include <stdlib.h>
@@ -66,9 +66,9 @@
 #include "plugbase.h"
 #include "parser.h"
 #include "debug.h"
-#include "util.h"
 #include "plugin_enum.h"
 #include "sfhashfcn.h"
+#include "sp_react.h"
 
 #include "snort.h"
 #include "profiler.h"
@@ -94,20 +94,12 @@ typedef struct _ReactData
 
 } ReactData;
 
-void ReactInit(char *, OptTreeNode *, int);
-void ParseReact(char *, OptTreeNode *, ReactData *);
-int React(Packet *, RspFpList *);
-int SendTCP(u_long, u_long, u_short, u_short, int, int, u_char, const u_char *,
+static void ReactInit(char *, OptTreeNode *, int);
+static void ParseReact(char *, OptTreeNode *, ReactData *);
+static int React(Packet *, RspFpList *);
+static int SendTCP(u_long, u_long, u_short, u_short, int, int, u_char, const u_char *,
                     int);
-#if defined(ENABLE_REACT) && !defined(ENABLE_RESPONSE)
-void ReactRestart(int signal, void *data);
-#endif
-
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_REACT)
-extern int nd; /* raw socket */
-#elif defined(ENABLE_REACT) && !defined(ENABLE_RESPONSE)
-int nd = -1;   /* raw socket */
-#endif
+static void ReactCleanup(int signal, void *data);
 
 void ReactFree(void *d)
 {
@@ -117,9 +109,9 @@ void ReactFree(void *d)
     free(data);
 }
 
-u_int32_t ReactHash(void *d)
+uint32_t ReactHash(void *d)
 {
-    u_int32_t a,b,c,tmp;
+    uint32_t a,b,c,tmp;
     unsigned int i,j,k,l;
     ReactData *data = (ReactData *)d;
 
@@ -196,7 +188,36 @@ int ReactCompare(void *l, void *r)
 
     return DETECTION_OPTION_NOT_EQUAL;
 }
+#endif /* ENABLE_REACT */
 
+#if defined(ENABLE_REACT) || defined(ENABLE_RESPONSE)
+#include <libnet.h>
+#include "util.h"
+
+int nd = -1;             /* raw socket descriptor */
+static int nd_users = 0; /* reference count */
+
+void RawSocket_Open ()
+{
+    if ( ++nd_users == 1 ) /* need to open it only once */
+    {   
+        if((nd = libnet_open_raw_sock(IPPROTO_RAW)) < 0)
+        {
+            FatalError("cannot open raw socket for libnet, exiting...\n");
+        }
+    }   
+}
+
+void RawSocket_Close ()
+{
+    if ( nd_users > 0 && --nd_users == 0 ) 
+    {   
+        libnet_close_raw_sock(nd);
+    }   
+}
+#endif
+
+#ifdef ENABLE_REACT
 /****************************************************************************
  * 
  * Function: SetupReact()
@@ -214,7 +235,7 @@ void SetupReact(void)
 
 /* we need an empty plug otherwise. To avoid #ifdef in plugbase */
 
-    RegisterPlugin("react", ReactInit, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("react", ReactInit, NULL, OPT_TYPE_ACTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("react", &reactPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -236,29 +257,26 @@ void SetupReact(void)
  * Returns: void function
  *
  ****************************************************************************/
-void ReactInit(char *data, OptTreeNode *otn, int protocol)
+static void ReactInit(char *data, OptTreeNode *otn, int protocol)
 {
     ReactData *idx;
     void *idx_dup;
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"In ReactInit()\n"););
-#if defined(ENABLE_REACT) && !defined(ENABLE_RESPONSE)
-    AddFuncToRestartList(ReactRestart, NULL);
-#endif
 
     if(protocol != IPPROTO_TCP)
     {
         FatalError("Line %s(%d): TCP Options on non-TCP rule\n", file_name, file_line);
     }
 
-    /* need to check raw sock here too if it's not been opened already */
-    if(nd == -1) /* need to open it only once */
-    {
-        if((nd = libnet_open_raw_sock(IPPROTO_RAW)) < 0)
-        {
-            FatalError("cannot open raw socket for libnet, exiting...\n");
-        }
-    }
+    /* If it hasn't been opened yet, there are no rules currently using this
+     * rule option, so on a reload, setting this during parsing won't step
+     * on runtime evaluation */
+    RawSocket_Open();
+
+    // depending on reloads and ordering of inits/cleans, 
+    // opening module may not be same as closing module.
+    AddFuncToCleanExitList(ReactCleanup, NULL);
 
     if((idx = (ReactData *) calloc(sizeof(ReactData), sizeof(char))) == NULL)
     {
@@ -272,13 +290,11 @@ void ReactInit(char *data, OptTreeNode *otn, int protocol)
     {
         free(idx);
         idx = idx_dup;
-     }
+    }
 
     /* finally, attach the option's detection function to the rule's 
        detect function pointer list */
     AddRspFuncToList(React, otn, (void *)idx);
-
-    return;
 }
 
 
@@ -296,7 +312,7 @@ void ReactInit(char *data, OptTreeNode *otn, int protocol)
  * Returns: void function
  *
  ****************************************************************************/
-void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
+static void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
 {
     ReactData *idx;
     char *tok;      /* token buffer */
@@ -356,7 +372,7 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
             }
 
             /* make sure it's in bounds */
-            if((idx->proxy_port_nr < 0) || (idx->proxy_port_nr >= 65536))
+            if((idx->proxy_port_nr < 0) || (idx->proxy_port_nr >= MAXPORTS))
             {
                 FatalError("%s(%d): bad proxy port number: %d\n", file_name, file_line, idx->proxy_port_nr);
             }
@@ -483,7 +499,7 @@ void ParseReact(char *data, OptTreeNode *otn, ReactData *rd)
  *          it just closes the connection...)
  *
  ***************************************************************************/
-int React(Packet *p,  RspFpList *fp_list)
+static int React(Packet *p,  RspFpList *fp_list)
 {
     ReactData *idx;
     int i;
@@ -594,8 +610,8 @@ int React(Packet *p,  RspFpList *fp_list)
 
 
 
-int SendTCP(u_long saddr, u_long daddr, u_short sport, u_short dport, int seq,
-            int ack, u_char bits, const u_char *data_buf, int data_size)
+static int SendTCP(u_long saddr, u_long daddr, u_short sport, u_short dport, int seq,
+                   int ack, u_char bits, const u_char *data_buf, int data_size)
 {
     u_char *buf;
     int sz = data_size + IP_H + TCP_H;
@@ -650,15 +666,10 @@ int SendTCP(u_long saddr, u_long daddr, u_short sport, u_short dport, int seq,
 
 }
 
-#if defined(ENABLE_REACT) && !defined(ENABLE_RESPONSE)
-void ReactRestart(int signal, void *data)
+static void ReactCleanup(int signal, void *data)
 {
-    if (nd != -1)
-    {
-        libnet_close_raw_sock(nd);
-        nd = -1;
-    }
-    return;
+    RawSocket_Close();
 }
-#endif /* ENABLE_REACT && !ENABLE_RESPONSE */
-#endif /* ENABLE_RESPONSE || ENABLE_REACT */
+
+#endif /* ENABLE_REACT */
+

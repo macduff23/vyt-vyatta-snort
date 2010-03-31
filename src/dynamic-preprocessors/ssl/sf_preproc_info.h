@@ -21,7 +21,7 @@
 
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   1
-#define BUILD_VERSION   2
+#define BUILD_VERSION   3
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_SSLPP (IPV6)"
 #else
@@ -29,6 +29,6 @@
 #endif
 
 #define DYNAMIC_PREPROC_SETUP SetupSSLPP
-extern void SetupSSLPP();
+extern void SetupSSLPP(void);
 
 #endif /* SF_PREPROC_INFO_H */

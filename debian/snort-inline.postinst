@@ -38,13 +38,11 @@ case "$1" in
 	db_get snort-inline/startup || true; 		STARTUP=$RET
 	db_get snort-inline/interface || true; 	INTERFACE="$RET"
 	db_get snort-inline/address_range || true;	ADDRESS_RANGE="$RET"
-	db_get snort-inline/reverse_order || true;	REVERSE_ORDER=$RET
 	db_get snort-inline/send_stats || true;	STATS_SEND="$RET"
 	db_get snort-inline/stats_rcpt || true;	STATS_RCPT="$RET"
 	db_get snort-inline/stats_treshold || true;	STATS_THRESHOLD="$RET"
 	db_get snort-inline/options || true;		OPTIONS="$RET"
 
-	test "$REVERSE_ORDER" = "true" && OPTIONS="$OPTIONS -o"
 	# Failsafe in case the values above are blank (jfs)
 	[ -z "$STATS_RCPT" ] && STATS_RCPT=root
 	[ -z "$STATS_THRESHOLD" ] && STATS_THRESHOLD=1

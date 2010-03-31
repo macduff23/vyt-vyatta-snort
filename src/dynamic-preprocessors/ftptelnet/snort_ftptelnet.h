@@ -34,21 +34,50 @@
 #define __SNORT_FTPTELNET_H__
 
 #include "ftpp_ui_config.h"
-//#include "decode.h"
 #include "sf_snort_packet.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
-void FTPTelnetCleanupSnortConf(FTPTELNET_GLOBAL_CONF *GlobalConf);
-int FTPTelnetSnortConf(FTPTELNET_GLOBAL_CONF *GlobalConf, char *args,
-                         char *ErrorString, int ErrStrLen);
-int SnortFTPTelnet(FTPTELNET_GLOBAL_CONF *GlobalConf, SFSnortPacket *p);
+/*
+ * The definition of the configuration separators in the snort.conf
+ * configure line.
+ */
+#define CONF_SEPARATORS " \t\n\r"
+
+/*
+ * These are the definitions of the parser section delimiting 
+ * keywords to configure FtpTelnet.  When one of these keywords
+ * are seen, we begin a new section.
+ */
+#define GLOBAL        "global"
+#define TELNET        "telnet"
+#define FTP           "ftp"
+//#define GLOBAL_CLIENT "global_client"
+#define CLIENT        "client"
+#define SERVER        "server"
+
+
+void FTPTelnetFreeConfigs(tSfPolicyUserContextId GlobalConf);
+void FTPTelnetFreeConfig(FTPTELNET_GLOBAL_CONF *GlobalConf);
+int SnortFTPTelnet(SFSnortPacket *p);
 void FTPConfigCheck(void);
+int FtpTelnetInitGlobalConfig(FTPTELNET_GLOBAL_CONF *, char *, int);
+char *NextToken(char *delimiters);
 
 int FTPPBounceInit(char *name, char *parameters, void **dataPtr);
-int FTPPBounceEval(void *p, const u_int8_t **cursor, void *dataPtr);
+int FTPPBounceEval(void *p, const uint8_t **cursor, void *dataPtr);
 
 void FTPTelnetCleanupFTPServerConf(void *serverConf);
 void FTPTelnetCleanupFTPCMDConf(void *ftpCmd);
 void FTPTelnetCleanupFTPClientConf(void *clientConf);
 void FTPTelnetCleanupFTPBounceTo(void *ftpBounce);
+void FTPTelnetCheckFTPServerConfigs(FTPTELNET_GLOBAL_CONF *);
+void _FTPTelnetAddPortsOfInterest(FTPTELNET_GLOBAL_CONF *, tSfPolicyId);
 
+int ProcessGlobalConf(FTPTELNET_GLOBAL_CONF *, char *, int);
+int ProcessTelnetConf(FTPTELNET_GLOBAL_CONF *, char *, int);
+int ProcessFTPClientConf(FTPTELNET_GLOBAL_CONF *, char *, int);
+int ProcessFTPServerConf(FTPTELNET_GLOBAL_CONF *, char *, int);
+int PrintGlobalConf(FTPTELNET_GLOBAL_CONF *);
+int FTPTelnetCheckConfigs( void* , tSfPolicyId );
 #endif

@@ -31,7 +31,10 @@ libsfutil_a_SOURCES = \
     sf_ipvar.c sf_ipvar.h \
     sf_vartable.c sf_vartable.h \
     sf_iph.c sf_iph.h \
-    sf_textlog.c sf_textlog.h
+    sf_textlog.c sf_textlog.h \
+	sfPolicy.c sfPolicy.h \
+	sfPolicyUserData.c sfPolicyUserData.h \
+	sfActionQueue.c sfActionQueue.h \
+    sfrf.c sfrf.h
 
 INCLUDES = @INCLUDES@
-

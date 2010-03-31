@@ -22,6 +22,8 @@
 #ifndef __SP_ASN1_DETECT_H__
 #define __SP_ASN1_DETECT_H__
 
+#define ABS_OFFSET 1
+#define REL_OFFSET 2
 
 typedef struct s_ASN1_CTXT
 {
@@ -35,6 +37,6 @@ typedef struct s_ASN1_CTXT
 
 } ASN1_CTXT;
 
-int Asn1DoDetect(const u_int8_t *, u_int16_t, ASN1_CTXT *, const u_int8_t *);
+int Asn1DoDetect(const uint8_t *, uint16_t, ASN1_CTXT *, const uint8_t *);
 
 #endif

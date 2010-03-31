@@ -28,6 +28,7 @@
 
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 #include "plugbase.h"
 #include "mstring.h"
 #include "util.h"
@@ -36,19 +37,36 @@
 
 #include "snort.h"
 #include "perf.h"
+#include "perf-base.h"
 
 #include "profiler.h"
+
+extern SnortConfig *snort_conf_for_parsing;
+extern pcap_t *pcap_handle;
+extern SFBASE sfBase;
+extern SFFLOW sfFlow;
+
+SFPERF *perfmon_config = NULL;
 
 /*
 *  Protype these forward references, and don't clutter up the name space
 */
-static void PerfMonitorInit(char *args);
-static void ParsePerfMonitorArgs(char *args);
-static void ProcessPerfMonitor(Packet *p, void *);
-void PerfMonitorCleanExit(int, void *);
-void PerfMonitorRestart(int, void *);
+static void PerfMonitorInit(char *);
+static void ParsePerfMonitorArgs(SFPERF *, char *);
+static void ProcessPerfMonitor(Packet *, void *);
+static void PerfMonitorCleanExit(int, void *);
+static void PerfMonitorRestart(int, void *);
 static void PerfMonitorReset(int, void *);
 static void PerfMonitorResetStats(int, void *);
+static void PerfMonitorFreeConfig(SFPERF *);
+
+#ifdef SNORT_RELOAD
+SFPERF *perfmon_swap_config = NULL;
+static void PerfMonitorReload(char *);
+static int PerfmonReloadVerify(void);
+static void * PerfMonitorReloadSwap(void);
+static void PerfMonitorReloadSwapFree(void *);
+#endif
 
 #ifdef PERF_PROFILING
 PreprocStats perfmonStats;
@@ -66,11 +84,16 @@ PreprocStats perfmonStats;
  * Returns: void function
  *
  */
-void SetupPerfMonitor()
+void SetupPerfMonitor(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
+#ifndef SNORT_RELOAD
     RegisterPreprocessor("PerfMonitor", PerfMonitorInit);
+#else
+    RegisterPreprocessor("PerfMonitor", PerfMonitorInit, PerfMonitorReload,
+                         PerfMonitorReloadSwap, PerfMonitorReloadSwapFree);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Preprocessor: PerfMonitor is setup...\n"););
 }
@@ -89,28 +112,36 @@ void SetupPerfMonitor()
 static void PerfMonitorInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Preprocessor: PerfMonitor Initialized\n"););
+    
+    //not policy specific. Perf monitor configuration should be in the default
+    //configuration file.
+    if (getParserPolicy() != 0)
+        return;
+
+    if (perfmon_config != NULL)
+        ParseError("Permonitor can only be configured once.\n");
+
+    perfmon_config = (SFPERF *)SnortAlloc(sizeof(SFPERF));
 
     /* parse the argument list from the rules file */
-    ParsePerfMonitorArgs(args);
+    ParsePerfMonitorArgs(perfmon_config, args);
+
+    if (perfmon_config->file != NULL)
+    {
+        if (sfSetPerformanceStatisticsEx(perfmon_config, SFPERF_FILE, perfmon_config->file))
+            ParseError("Cannot open performance log file '%s'.", perfmon_config->file);
+    }
 
     /* Set the preprocessor function into the function list */
     AddFuncToPreprocList(ProcessPerfMonitor, PRIORITY_SCANNER, PP_PERFMONITOR, PROTO_BIT__ALL);
+    AddFuncToPreprocCleanExitList(PerfMonitorCleanExit, NULL, PRIORITY_LAST, PP_PERFMONITOR);
+    AddFuncToPreprocRestartList(PerfMonitorRestart, NULL, PRIORITY_LAST, PP_PERFMONITOR);
+    AddFuncToPreprocResetList(PerfMonitorReset, NULL, PRIORITY_LAST, PP_PERFMONITOR);
+    AddFuncToPreprocResetStatsList(PerfMonitorResetStats, NULL, PRIORITY_LAST, PP_PERFMONITOR);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("perfmon", &perfmonStats, 0, &totalPerfStats);
 #endif
-}
-
-/*
-   Perf file -  specified on the command line 
-*/
-static char perf_file[1025]={""};
-void SetPerfmonitorFile( char * s )
-{
-   if( strlen(s) < sizeof(perf_file)-1 )
-   {
-      SnortStrncpy(perf_file, s, sizeof(perf_file));
-   }
 }
 
 /*
@@ -129,41 +160,52 @@ void SetPerfmonitorFile( char * s )
  * Returns: void function
  *
  */
-static void ParsePerfMonitorArgs( char *args)
+static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
 {
     char **Tokens=NULL;
     int   iTokenNum=0;
     int   i, iTime=60, iFlow=0, iFlowMaxPort=1023, iEvents=0, iMaxPerfStats=0;
     int   iFile=0, iSnortFile=0, iConsole=0, iPkts=10000, iReset=1;
     int   iStatsExit=0;
-    char  file[1025];
-    char  snortfile[1025];
-    int   iRet;
+    uint32_t uiMaxFileSize=MAX_PERF_FILE_SIZE;
+    char  *file = NULL;
+    char  *snortfile = NULL;
     char  *pcEnd;
+
+    if (pconfig == NULL)
+        return;
+
+    if (snort_conf_for_parsing == NULL)
+    {
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
 
     if( args )
     {
-       Tokens = mSplit(args, " \t", 50, &iTokenNum, '\\');
+       Tokens = mSplit(args, " \t", 0, &iTokenNum, 0);
     }
     
     for( i = 0; i < iTokenNum; i++ )
     {
         /* Check for a 'time number' parameter */
-        if( strcmp( Tokens[i],"time")==0 )
+        if( strcasecmp( Tokens[i],"time")==0 )
         {
             /* make sure we have at least one more argument */
             if( i == (iTokenNum-1) )
             {
-                FatalError("%s(%d) => Missing Time.  The value must be a "
-                           "positive integer number.\n", file_name, file_line);
+                ParseError("Missing Time.  The value must be a "
+                           "positive integer number.");
             }
 
             iTime = strtol(Tokens[++i], &pcEnd, 10);
             if(iTime <= 0 || *pcEnd)
-                FatalError("%s(%d) => Invalid Time.  The value must be a "
-                           "positive integer number.\n", file_name, file_line);
+            {
+                ParseError("Invalid Time.  The value must be a "
+                           "positive integer number.");
+            }
         }
-        else if( strcmp( Tokens[i],"flow-ports")==0 )
+        else if( strcasecmp( Tokens[i],"flow-ports")==0 )
         {
               i++;
               if( (i< iTokenNum) && Tokens[i] )
@@ -174,7 +216,7 @@ static void ParsePerfMonitorArgs( char *args)
 
               iFlow=1;
         }
-        else if( strcmp( Tokens[i],"flow")==0 )
+        else if( strcasecmp( Tokens[i],"flow")==0 )
         {
             /*
             **  This parameter turns on the flow statistics.
@@ -184,15 +226,15 @@ static void ParsePerfMonitorArgs( char *args)
             */
             iFlow = 1;
         }       
-        else if( strcmp( Tokens[i],"accumulate")==0)
+        else if( strcasecmp( Tokens[i],"accumulate")==0)
         {
             iReset=0;
         }
-        else if( strcmp( Tokens[i],"reset")==0 )
+        else if( strcasecmp( Tokens[i],"reset")==0 )
         {
             iReset=1;
         }
-        else if( strcmp( Tokens[i],"events")==0 )
+        else if( strcasecmp( Tokens[i],"events")==0 )
         {
             /*
             **  The events paramenter gives the total number
@@ -203,170 +245,175 @@ static void ParsePerfMonitorArgs( char *args)
             */
             iEvents = 1;
         }
-        else if(!strcmp(Tokens[i], "max"))
+        else if(!strcasecmp(Tokens[i], "max"))
         {
             iMaxPerfStats = 1;
         }
-        else if(!strcmp(Tokens[i], "console"))
+        else if(!strcasecmp(Tokens[i], "console"))
         {
             iConsole = 1;
         }
-        else if(!strcmp(Tokens[i], "file"))
+        else if(!strcasecmp(Tokens[i], "file"))
         {
             if( i == (iTokenNum-1) )
             {
-                FatalError("%s(%d) => Missing 'file' argument.  This value "
-                           "is the file that save stats.\n", 
-                           file_name, file_line);
+                ParseError("Missing 'file' argument.  This value "
+                           "is the file that save stats.");
             }
 
             iFile = 1;
-            
-            strncpy( file, Tokens[++i], sizeof(file)-1 );
-            file[sizeof(file)-1] = 0x00;
+
+            file = SnortStrdup(Tokens[++i]);
         }
-        else if(!strcmp(Tokens[i], "snortfile"))
+        else if(!strcasecmp(Tokens[i], "snortfile"))
         {
             if( i == (iTokenNum-1) )
             {
-                FatalError("%s(%d) => Missing 'snortfile' argument.  This "
-                           "value is the file that save stats.\n", 
-                           file_name, file_line);
+                ParseError("Missing 'snortfile' argument.  This "
+                           "value is the file that save stats.");
             }
 
             iSnortFile = 1;
 
-            if(pv.log_dir[strlen(pv.log_dir)-1] == '/')
-            {
-                iRet = snprintf(snortfile, sizeof(snortfile),
-                                "%s%s", pv.log_dir, Tokens[++i]);
-            }
-            else
-            {
-                iRet = snprintf(snortfile, sizeof(snortfile),
-                                "%s/%s", pv.log_dir, Tokens[++i]);
-            }
-
-            if(iRet < 0)
-            {
-                FatalError("%s(%d) => 'snortfile' argument path is too long.\n",
-                           file_name, file_line);
-            }
+            snortfile = ProcessFileOption(snort_conf_for_parsing, Tokens[++i]);
         }
-        else if(!strcmp(Tokens[i], "pktcnt"))
+        else if(!strcasecmp(Tokens[i], "pktcnt"))
         {
             if( i == (iTokenNum-1) )
             {
-                FatalError("%s(%d) => Missing 'pktcnt' argument.  This value "
-                           "should be a positive integer or zero.\n", 
-                           file_name, file_line);
+                ParseError("Missing 'pktcnt' argument.  This value "
+                           "should be a positive integer or zero.");
             }
 
             iPkts = atoi(Tokens[++i]);
             if( iPkts < 0 )
                 iPkts = 1000;
         }
-        else if (!strcmp(Tokens[i], "atexitonly"))
+        else if (!strcmp(Tokens[i], "max_file_size"))
+        {
+            if (i == (iTokenNum-1) )
+            {
+                ParseError("Missing 'max_file_size' argument.  This "
+                           "value should be a positive integer.");
+            }
+
+            uiMaxFileSize = strtoul(Tokens[++i], &pcEnd, 10);
+
+            if (*pcEnd || (errno == ERANGE))
+            {
+                  ParseError("Invalid max_file_size.  The value must "
+                             "be a positive integer.");
+            }
+
+            if (uiMaxFileSize > MAX_PERF_FILE_SIZE)
+            {
+                ParseError("'max_file_size' specified as %u, but it cannot exceed %u",
+                           uiMaxFileSize, MAX_PERF_FILE_SIZE);
+            }
+
+            if (uiMaxFileSize < MIN_PERF_FILE_SIZE)
+            {
+                ParseError("'max_file_size' specified as %u, but it cannot be less than %u",
+                           uiMaxFileSize, MIN_PERF_FILE_SIZE);
+            }
+
+            /* Scale it back by the threshold. */
+            uiMaxFileSize -= ROLLOVER_THRESH;
+        }
+        else if (!strcasecmp(Tokens[i], "atexitonly"))
         {
             iStatsExit = 1;
         }
         else
         {
-            FatalError("%s(%d)=> Invalid parameter '%s' to preprocessor"
-                       " PerfMonitor.\n", file_name, file_line, Tokens[i]);
+            ParseError("Invalid parameter '%s' to preprocessor "
+                       "PerfMonitor.", Tokens[i]);
         }
     }
 
     mSplitFree(&Tokens, iTokenNum);
 
-    /*
-    *  Initialize the performance system and set flags
-    */
-    sfInitPerformanceStatistics(&sfPerf);
-     
-    sfSetPerformanceSampleTime( &sfPerf, iTime );
+    /* Initialize the performance system and set flags */
+    sfInitPerformanceStatistics(pconfig);
+    sfSetMaxFileSize(pconfig, uiMaxFileSize);
+    sfSetPerformanceSampleTime(pconfig, iTime);
+    sfSetPerformanceStatistics(pconfig, SFPERF_BASE);
+    sfSetPerformanceAccounting(pconfig, iReset);
 
-    sfSetPerformanceStatistics( &sfPerf, SFPERF_BASE );
-    
-    sfSetPerformanceAccounting( &sfPerf, iReset );
-    
-    if( iFlow  )
+    if (iFlow)
     {
-        sfSetPerformanceStatistics( &sfPerf, SFPERF_FLOW );
-        sfPerf.sfFlow.maxPortToTrack = iFlowMaxPort;
+        sfSetPerformanceStatistics(pconfig, SFPERF_FLOW);
+        pconfig->flow_max_port_to_track = iFlowMaxPort;
     }
-    
-    if( iEvents) sfSetPerformanceStatistics( &sfPerf, SFPERF_EVENT );
 
-    if( iMaxPerfStats ) sfSetPerformanceStatistics(&sfPerf, SFPERF_BASE_MAX);
+    if (iEvents)
+        sfSetPerformanceStatistics(pconfig, SFPERF_EVENT);
+
+    if (iMaxPerfStats)
+        sfSetPerformanceStatistics(pconfig, SFPERF_BASE_MAX);
      
-    if( iConsole ) sfSetPerformanceStatistics( &sfPerf, SFPERF_CONSOLE );
+    if (iConsole)
+        sfSetPerformanceStatistics(pconfig, SFPERF_CONSOLE);
 
-    if( iFile && iSnortFile )
+    if (iFile && iSnortFile)
     {
-        FatalError("%s(%d)=> Cannot log to both 'file' and 'snortfile'.\n",
-                   file_name, file_line);
+        if (file != NULL)
+            free(file);
+
+        if (snortfile != NULL)
+            free(snortfile);
+
+        ParseError("Cannot log to both 'file' and 'snortfile'.");
     }
-    
-    if( iFile || iSnortFile || strlen(perf_file) ) 
+
+    if (iFile || iSnortFile || (snort_conf_for_parsing->perf_file != NULL))
     {
         /* use command line override if applicable */
-        if( strlen(perf_file) )
+        if (snort_conf_for_parsing->perf_file != NULL)
         {
             iFile=1;
-            if( sfSetPerformanceStatisticsEx( &sfPerf, SFPERF_FILE, perf_file ) )
-            {
-                FatalError("Cannot open performance log file '%s'\n",perf_file);
-            }
+            pconfig->file = SnortStrdup(snort_conf_for_parsing->perf_file);
+            if (file != NULL)
+                free(file);
+            if (snortfile != NULL)
+                free(snortfile);
+
+            /* For printing below */
+            file = pconfig->file;
         }
         else
         {
-            if(iFile)
-            {
-                if( sfSetPerformanceStatisticsEx( &sfPerf, SFPERF_FILE, file ) )
-                {
-                    FatalError("Cannot open performance log file '%s'\n",file);
-                }
-            }
-            else if(iSnortFile)
-            {
-                if( sfSetPerformanceStatisticsEx(&sfPerf, SFPERF_FILE, snortfile) )
-                {
-                    FatalError("Cannot open performance log file '%s'\n",snortfile);
-                }
-            }
+            if (iFile)
+                pconfig->file = file;
+            else
+                pconfig->file = snortfile;
         }
     }
     
-    if( iPkts) sfSetPerformanceStatisticsEx( &sfPerf, SFPERF_PKTCNT, &iPkts );
-    if( iStatsExit) sfSetPerformanceStatisticsEx( &sfPerf, SFPERF_SUMMARY, &iStatsExit );
+    if (iPkts)
+        sfSetPerformanceStatisticsEx(pconfig, SFPERF_PKTCNT, &iPkts);
+
+    if (iStatsExit)
+        sfSetPerformanceStatisticsEx(pconfig, SFPERF_SUMMARY, &iStatsExit);
 
     LogMessage("PerfMonitor config:\n");
     LogMessage("    Time:           %d seconds\n", iTime);
     LogMessage("    Flow Stats:     %s\n", iFlow ? "ACTIVE" : "INACTIVE");
     LogMessage("    Event Stats:    %s\n", iEvents ? "ACTIVE" : "INACTIVE");
     LogMessage("    Max Perf Stats: %s\n", 
-            iMaxPerfStats ? "ACTIVE" : "INACTIVE");
+               iMaxPerfStats ? "ACTIVE" : "INACTIVE");
     LogMessage("    Console Mode:   %s\n", iConsole ? "ACTIVE" : "INACTIVE");
     LogMessage("    File Mode:      %s\n", 
-            iFile ? file : "INACTIVE");
+               iFile ? file : "INACTIVE");
     LogMessage("    SnortFile Mode: %s\n", 
-            iSnortFile ? snortfile : "INACTIVE");
+               iSnortFile ? snortfile : "INACTIVE");
     LogMessage("    Packet Count:   %d\n", iPkts);
-    LogMessage("    Dump Summary:   %s\n", sfPerf.iPerfFlags & SFPERF_SUMMARY ?
-        "Yes" : "No");
+    LogMessage("    Dump Summary:   %s\n", pconfig->perf_flags & SFPERF_SUMMARY ?
+               "Yes" : "No");
+    LogMessage("    Max file size:  %u\n", uiMaxFileSize);
 
-    AddFuncToPreprocCleanExitList(PerfMonitorCleanExit, NULL, PRIORITY_LAST, PP_PERFMONITOR);
-    AddFuncToPreprocRestartList(PerfMonitorRestart, NULL, PRIORITY_LAST, PP_PERFMONITOR);
-    AddFuncToPreprocResetList(PerfMonitorReset, NULL, PRIORITY_LAST, PP_PERFMONITOR);
-    AddFuncToPreprocResetStatsList(PerfMonitorResetStats, NULL, PRIORITY_LAST, PP_PERFMONITOR);
-
-    if (sfPerf.iPerfFlags & SFPERF_SUMMARY)
-    {
-        CheckSampleInterval(time(NULL), &sfPerf);
-    }
-   
-    return;
+    if (pconfig->perf_flags & SFPERF_SUMMARY)
+        CheckSampleInterval(NULL, pconfig);
 }
 
 
@@ -391,11 +438,9 @@ static void ProcessPerfMonitor(Packet *p, void *context)
     if( first )
     {
 #ifndef PCAP_CLOSE
-        extern pcap_t * pd;
-
-        if ((pd != NULL)
+        if ((pcap_handle != NULL)
 #ifdef WIN32
-            && (!pv.readmode_flag)
+            && (!ScReadMode())
 #endif
            )
         {
@@ -404,8 +449,8 @@ static void ProcessPerfMonitor(Packet *p, void *context)
             if (UpdatePcapPktStats(0) != -1)
 #endif
             {
-                sfPerf.sfBase.pkt_stats.pkts_recv = GetPcapPktStatsRecv();
-                sfPerf.sfBase.pkt_stats.pkts_drop = GetPcapPktStatsDrop();
+                sfBase.pkt_stats.pkts_recv = GetPcapPktStatsRecv();
+                sfBase.pkt_stats.pkts_drop = GetPcapPktStatsDrop();
             }
 #ifndef PCAP_CLOSE
         }
@@ -424,18 +469,17 @@ static void ProcessPerfMonitor(Packet *p, void *context)
     /*
     *  Performance Statistics  
     */
-    if (pv.rotate_perf_file)
+    if (IsSetRotatePerfFileFlag())
     {
-        sfRotatePerformanceStatisticsFile(&sfPerf);
-        pv.rotate_perf_file = 0;
+        sfRotatePerformanceStatisticsFile();
+        ClearRotatePerfFileFlag();
     }
 
-    if(sfPerf.sample_interval > 0)
+    if (perfmon_config->sample_interval > 0)
     {
         if(p->pkth)
         {
-            sfPerformanceStats(&sfPerf, p->pkt, p->pkth->caplen, 
-                               p->packet_flags & PKT_REBUILT_STREAM);
+            sfPerformanceStats(perfmon_config, p, p->packet_flags & PKT_REBUILT_STREAM);
         }
     }
     
@@ -444,38 +488,38 @@ static void ProcessPerfMonitor(Packet *p, void *context)
         if((p->tcph->th_flags & TH_SYN) && !(p->tcph->th_flags & TH_ACK))
         {
             /* changed to measure syns */
-            sfPerf.sfBase.iSyns++;
+            sfBase.iSyns++;
         }
         else if((p->tcph->th_flags & TH_SYN) && (p->tcph->th_flags & TH_ACK ))
         {
             /* this is a better approximation of connections */
-            sfPerf.sfBase.iSynAcks++;
+            sfBase.iSynAcks++;
         }
     }
 
     /*
     *  TCP Flow Perf
     */
-    if(p->pkth && (sfPerf.iPerfFlags & SFPERF_FLOW))
+    if(p->pkth && (perfmon_config->perf_flags & SFPERF_FLOW))
    {
         /*
         **  TCP Flow Stats
         */
-        if( p->tcph )
+        if( p->tcph && !(p->packet_flags & PKT_REBUILT_STREAM))
         {
-            UpdateTCPFlowStatsEx(p->sp, p->dp, p->pkth->caplen);
+            UpdateTCPFlowStatsEx(&sfFlow, p->sp, p->dp, p->pkth->caplen);
         }
         /*
         *  UDP Flow Stats
         */
         else if( p->udph )
-            UpdateUDPFlowStatsEx(p->sp, p->dp, p->pkth->caplen);
+            UpdateUDPFlowStatsEx(&sfFlow, p->sp, p->dp, p->pkth->caplen);
 
         /*
         *  Get stats for ICMP packets
         */
         else if( p->icmph )
-            UpdateICMPFlowStatsEx(p->icmph->type, p->pkth->caplen);
+            UpdateICMPFlowStatsEx(&sfFlow, p->icmph->type, p->pkth->caplen);
     }
 
     PREPROC_PROFILE_END(perfmonStats);
@@ -485,28 +529,42 @@ static void ProcessPerfMonitor(Packet *p, void *context)
 /**
  * CleanExit func required by preprocessors
  */
-void PerfMonitorCleanExit(int signal, void *foo)
+static void PerfMonitorCleanExit(int signal, void *foo)
 {
-    if (sfPerf.iPerfFlags & SFPERF_SUMMARY)
-    {
-        sfProcessPerfStats(&sfPerf);
-    }
+    if (perfmon_config->perf_flags & SFPERF_SUMMARY)
+        sfProcessPerfStats(perfmon_config);
 
     /* Close the performance stats file */
-    sfSetPerformanceStatisticsEx(&sfPerf, SFPERF_FILECLOSE, NULL);
+    sfSetPerformanceStatisticsEx(perfmon_config, SFPERF_FILECLOSE, NULL);
 
-    return;
+    PerfMonitorFreeConfig(perfmon_config);
+    perfmon_config = NULL;
+}
+
+static void PerfMonitorFreeConfig(SFPERF *config)
+{
+    if (config == NULL)
+        return;
+
+    if (config->file != NULL)
+        free(config->file);
+
+    free(config);
 }
 
 /**
  * Restart func required by preprocessors
  */
-void PerfMonitorRestart(int signal, void *foo)
+static void PerfMonitorRestart(int signal, void *foo)
 {
-    /* Close the performance stats file */
-    sfSetPerformanceStatisticsEx(&sfPerf, SFPERF_FILECLOSE, NULL);
+    if (perfmon_config == NULL)
+        return;
 
-    return;
+    /* Close the performance stats file */
+    sfSetPerformanceStatisticsEx(perfmon_config, SFPERF_FILECLOSE, NULL);
+
+    PerfMonitorFreeConfig(perfmon_config);
+    perfmon_config = NULL;
 }
 
 static void PerfMonitorReset(int signal, void *foo)
@@ -516,6 +574,88 @@ static void PerfMonitorReset(int signal, void *foo)
 
 static void PerfMonitorResetStats(int signal, void *foo)
 {
-    ResetPerfStats(&sfPerf);
+    if (perfmon_config == NULL)
+        return;
+
+    ResetPerfStats(perfmon_config);
 }
 
+#ifdef SNORT_RELOAD
+static void PerfMonitorReload(char *args)
+{
+    //not policy specific. Perf monitor configuration should be in the default
+    //configuration file.
+    if (getParserPolicy() != 0)
+        return;
+
+    if (perfmon_swap_config != NULL)
+        ParseError("Perfmonitor can only be configured once.\n");
+
+    perfmon_swap_config = (SFPERF *)SnortAlloc(sizeof(SFPERF));
+
+    /* parse the argument list from the rules file */
+    ParsePerfMonitorArgs(perfmon_swap_config, args);
+
+    /* Since the file isn't opened again, copy the file handle from the
+     * current configuration.  Verification will be done on file name to
+     * ensure it didn't change. */
+    if (perfmon_config->fh != NULL)
+    {
+        perfmon_swap_config->fh = perfmon_config->fh;
+        perfmon_swap_config->perf_flags |= perfmon_config->perf_flags & SFPERF_FILE;
+    }
+
+    AddFuncToPreprocList(ProcessPerfMonitor, PRIORITY_SCANNER, PP_PERFMONITOR, PROTO_BIT__ALL);
+    AddFuncToPreprocReloadVerifyList(PerfmonReloadVerify);
+}
+    
+static int PerfmonReloadVerify(void)
+{
+    if ((perfmon_config == NULL) || (perfmon_swap_config == NULL))
+        return 0;
+
+    if ((perfmon_config->file != NULL) && (perfmon_swap_config->file != NULL))
+    {
+        /* File - don't do case insensitive compare */
+        if (strcmp(perfmon_config->file, perfmon_swap_config->file) != 0)
+        {
+            ErrorMessage("Perfmonitor Reload: Changing the log file requires "
+                         "a restart.\n");
+            PerfMonitorFreeConfig(perfmon_swap_config);
+            perfmon_swap_config = NULL;
+            return -1;
+        }
+    }
+    else if (perfmon_config->file != perfmon_swap_config->file)
+    {
+        ErrorMessage("Perfmonitor Reload: Changing the log file requires "
+                     "a restart.\n");
+        PerfMonitorFreeConfig(perfmon_swap_config);
+        perfmon_swap_config = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+static void * PerfMonitorReloadSwap(void)
+{
+    SFPERF *old_config = perfmon_config;
+
+    if (perfmon_swap_config == NULL)
+        return NULL;
+
+    perfmon_config = perfmon_swap_config;
+    perfmon_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void PerfMonitorReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    PerfMonitorFreeConfig((SFPERF *)data);
+}
+#endif

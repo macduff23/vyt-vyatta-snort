@@ -34,10 +34,10 @@
 
 typedef enum _SFP_ret {
     SFP_SUCCESS,
-    SFP_ERROR,
+    SFP_ERROR
 } SFP_ret_t;
 
-typedef u_int8_t ports_tbl_t[MAXPORTS/8];
+typedef uint8_t ports_tbl_t[MAXPORTS/8];
 
 typedef char SFP_errstr_t[SFP_MIN_ERR_STR + 1];
 

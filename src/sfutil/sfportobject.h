@@ -68,11 +68,11 @@ typedef struct _PortObjectItem_s {
     int type;       /*  ANY, RANGE, PORT */
     int flags;       /* NOT */
     
-    u_int16_t hport;   /* hi port */
-    u_int16_t lport;   /* lo port */
+    uint16_t hport;   /* hi port */
+    uint16_t lport;   /* lo port */
 
-    u_int16_t cur_port; /* internal - first/next */
-    u_int16_t tmp;
+    uint16_t cur_port; /* internal - first/next */
+    uint16_t tmp;
 
 }PortObjectItem;
 
@@ -292,6 +292,12 @@ void PortObjectPrintEx(PortObject * po,
         void (*print_index_map)(int index, char *buf, int bufsize) );
 void PortObject2PrintEx(PortObject2 * po, 
         void (*print_index_map)(int index, char *buf, int bufsize) );
+void PortTableSortUniqRules( 
+        PortTable * p 
+        );
+void RuleListSortUniq( 
+        SF_LIST * rl 
+        );
 
 /* 
     PortVarTable 

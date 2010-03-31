@@ -4,20 +4,20 @@
 #
 # Yuriy Talakan' <yt@drsk.ru>, 2007.
 # Yuri Kozlov <kozlov.y@gmail.com>, 2008.
+# Yuri Kozlov <yuray@komyakino.ru>, 2009.
 msgid ""
 msgstr ""
-"Project-Id-Version: snort 2.7.0-10\n"
+"Project-Id-Version: snort 2.7.0-26\n"
 "Report-Msgid-Bugs-To: snort@packages.debian.org\n"
 "POT-Creation-Date: 2008-05-01 21:28+0200\n"
-"PO-Revision-Date: 2008-04-28 21:51+0400\n"
-"Last-Translator: Yuri Kozlov <kozlov.y@gmail.com>\n"
+"PO-Revision-Date: 2009-05-14 20:46+0400\n"
+"Last-Translator: Yuri Kozlov <yuray@komyakino.ru>\n"
 "Language-Team: Russian <debian-l10n-russian@lists.debian.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: KBabel 1.11.4\n"
-"Plural-Forms:  nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%"
-"10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms:  nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 #. Type: select
 #. Choices
@@ -280,8 +280,7 @@ msgstr ""
 #: ../snort.templates:10001 ../snort-mysql.templates:10001
 #: ../snort-pgsql.templates:10001
 msgid "Minimum occurrences before alerts are reported:"
-msgstr ""
-"Минимальное количество возникновения тревоги, чтобы она попала в отчёт:"
+msgstr "Минимальное количество возникновения тревоги, чтобы она попала в отчёт:"
 
 #. Type: string
 #. Description
@@ -465,8 +464,7 @@ msgstr "Имя пользователя базы данных:"
 #. Type: string
 #. Description
 #: ../snort-mysql.templates:17001 ../snort-pgsql.templates:17001
-msgid ""
-"Please specify a database server username with write access to the database."
+msgid "Please specify a database server username with write access to the database."
 msgstr ""
 "Укажите имя пользователя на сервере базы данных, имеющего доступ на запись в "
 "базу."
@@ -480,8 +478,7 @@ msgstr "Пароль для подключения к базе данных:"
 #. Type: password
 #. Description
 #: ../snort-mysql.templates:18001 ../snort-pgsql.templates:18001
-msgid ""
-"Please enter the password to use to connect to the Snort Alert database."
+msgid "Please enter the password to use to connect to the Snort Alert database."
 msgstr "Введите пароль для подключения к базе данных Snort Alert."
 
 #. Type: note
@@ -593,7 +590,6 @@ msgstr ""
 #. Type: note
 #. Description
 #: ../snort-common.templates:1001
-#, fuzzy
 #| msgid ""
 #| "The following deprecated options were found in the configuration file: "
 #| "${DEP_CONFIG}."
@@ -601,5 +597,6 @@ msgid ""
 "The following deprecated options were found in the configuration file: "
 "${DEP_CONFIG}"
 msgstr ""
-"В вашем файле настроек были найдены следующие устаревшие параметры: "
-"${DEP_CONFIG}."
+"В файле настроек были найдены следующие устаревшие параметры: "
+"${DEP_CONFIG}"
+

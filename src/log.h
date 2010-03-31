@@ -31,13 +31,8 @@
 #include "event.h"
 #include "decode.h"
 
-#if defined (SUNOS) || defined (SOLARIS) || defined (HPUX) || defined (IRIX) \
-|| defined (AIX) || defined (OSF1)
-    #define LOG_AUTHPRIV LOG_AUTH
-#endif
-
 #ifndef LOG_AUTHPRIV
-    #define LOG_AUTHPRIV LOG_AUTH
+# define LOG_AUTHPRIV LOG_AUTH
 #endif
 
 #define FRAME_SIZE        66
@@ -47,22 +42,14 @@
 
 
 void PrintIPPkt(FILE *, int,Packet*);
-void PrintEapolPkt(FILE *, Packet *);
-void PrintEapolKey(FILE *, Packet *);
 void PrintNetData(FILE *, const u_char *, const int);
-void ClearDumpBuf();
+void ClearDumpBuf(void);
 void Print2ndHeader(FILE *, Packet *);
-void PrintWifiPkt(FILE *, Packet *);
-void PrintTrHeader(FILE *, Packet *);
 void PrintEthHeader(FILE *, Packet *);
 #ifdef MPLS
 void PrintMPLSHeader(FILE *, Packet *);
 #endif
-void PrintWifiHeader(FILE *, Packet *);
-void PrintSLLHeader(FILE *, Packet *);
-void PrintArpHeader(FILE *, Packet *);
 void PrintIPHeader(FILE *, Packet *);
-void PrintEapolHeader(FILE *, Packet *);
 void PrintTCPHeader(FILE *, Packet *);
 void PrintTcpOptions(FILE *, Packet *);
 void PrintIpOptions(FILE *, Packet *);
@@ -70,10 +57,21 @@ void PrintICMPHeader(FILE *, Packet *);
 void PrintICMPEmbeddedIP(FILE *, Packet *);
 void PrintEmbeddedICMPHeader(FILE *, const ICMPHdr *);
 void PrintUDPHeader(FILE *, Packet *);
-void PrintEAPHeader(FILE *, Packet *);
 void PrintPriorityData(FILE *, int);
 void PrintXrefs(FILE *, int);
 void CreateTCPFlagString(Packet *, char *);
+
+#ifndef NO_NON_ETHER_DECODER
+void PrintEapolPkt(FILE *, Packet *);
+void PrintEapolKey(FILE *, Packet *);
+void PrintWifiPkt(FILE *, Packet *);
+void PrintTrHeader(FILE *, Packet *);
+void PrintWifiHeader(FILE *, Packet *);
+void PrintSLLHeader(FILE *, Packet *);
+void PrintArpHeader(FILE *, Packet *);
+void PrintEapolHeader(FILE *, Packet *);
+void PrintEAPHeader(FILE *, Packet *);
+#endif
 
 void NoLog(Packet *, char *, void *, Event *);
 void NoAlert(Packet *, char *, void *, Event *);
@@ -81,13 +79,13 @@ FILE *OpenAlertFile(const char *);
 int RollAlertFile(const char *);
 
 #ifndef WIN32
-void SetEvent(Event *, u_int32_t, u_int32_t, u_int32_t, u_int32_t, u_int32_t, 
-        u_int32_t); 
+void SetEvent(Event *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, 
+        uint32_t); 
 #else
 /* There is a naming conflict with a Win32 standard function, so compensate */
 #define SetEvent SnortSetEvent
-void SnortSetEvent(Event *, u_int32_t, u_int32_t, u_int32_t, u_int32_t, 
-        u_int32_t, u_int32_t); 
+void SnortSetEvent(Event *, uint32_t, uint32_t, uint32_t, uint32_t, 
+        uint32_t, uint32_t); 
 #endif
 
 #endif /* __LOG_H__ */

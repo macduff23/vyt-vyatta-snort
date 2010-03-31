@@ -52,7 +52,7 @@ typedef struct _IcmpCodeCheckData
     /* the icmp code number */
     int icmp_code;
     int icmp_code2;
-    u_int8_t operator;
+    uint8_t operator;
 } IcmpCodeCheckData;
 
 #define ICMP_CODE_TEST_EQ 1
@@ -65,9 +65,9 @@ void IcmpCodeCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpCode(char *, OptTreeNode *);
 int IcmpCodeCheck(void *option_data, Packet *);
 
-u_int32_t IcmpCodeCheckHash(void *d)
+uint32_t IcmpCodeCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IcmpCodeCheckData *data = (IcmpCodeCheckData *)d;
 
     a = data->icmp_code;
@@ -115,7 +115,7 @@ int IcmpCodeCheckCompare(void *l, void *r)
 void SetupIcmpCodeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icode", IcmpCodeCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("icode", IcmpCodeCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("icode", &icmpCodePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

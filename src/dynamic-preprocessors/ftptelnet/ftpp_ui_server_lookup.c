@@ -331,11 +331,7 @@ static void serverConfFree(void *pData)
         serverConf->referenceCount--;
         if (serverConf->referenceCount == 0)
         {
-            if (serverConf->serverAddr)
-            {
-                free (serverConf->serverAddr);
-            }
-
+            FTPTelnetCleanupFTPServerConf((void *)serverConf);
             free(serverConf);
         }
     }

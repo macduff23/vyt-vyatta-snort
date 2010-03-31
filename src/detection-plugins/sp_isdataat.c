@@ -58,6 +58,7 @@
 
 #include "snort.h"
 #include "profiler.h"
+#include "sp_isdataat.h"
 #ifdef PERF_PROFILING
 PreprocStats isDataAtPerfStats;
 extern PreprocStats ruleOTNEvalPerfStats;
@@ -72,27 +73,17 @@ extern char *file_name;  /* this is the file name from rules.c, generally used
 extern int file_line;    /* this is the file line number from rules.c that is
                             used to indicate file lines for error messages */
 
-extern const u_int8_t *doe_ptr;
+extern const uint8_t *doe_ptr;
 
-#define ISDATAAT_RELATIVE_FLAG 0x01
-#define ISDATAAT_RAWBYTES_FLAG 0x02
-
-typedef struct _IsDataAtData
-{
-    u_int32_t offset;        /* byte location into the packet */
-    u_int8_t  flags;         /* relative to the doe_ptr? */
-                             /* rawbytes buffer? */
-} IsDataAtData;
-
-extern u_int8_t DecodeBuffer[DECODE_BLEN];
+extern uint8_t DecodeBuffer[DECODE_BLEN];
 
 void IsDataAtInit(char *, OptTreeNode *, int);
 void IsDataAtParse(char *, IsDataAtData *, OptTreeNode *);
 int  IsDataAt(void *option_data, Packet *p);
 
-u_int32_t IsDataAtHash(void *d)
+uint32_t IsDataAtHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IsDataAtData *data = (IsDataAtData *)d;
 
     a = data->offset;
@@ -135,7 +126,7 @@ int IsDataAtCompare(void *l, void *r)
 void SetupIsDataAt(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("isdataat", IsDataAtInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("isdataat", IsDataAtInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("isdataat", &isDataAtPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -224,7 +215,7 @@ void IsDataAtParse(char *data, IsDataAtData *idx, OptTreeNode *otn)
     toks = mSplit(data, ",", 3, &num_toks, 0);
 
     if(num_toks > 3) 
-        FatalError("ERROR %s (%d): Bad arguments to IsDataAt: %s\n", file_name,
+        FatalError("%s (%d): Bad arguments to IsDataAt: %s\n", file_name,
                 file_line, data);
 
     /* set how many bytes to process from the packet */
@@ -289,7 +280,7 @@ int IsDataAt(void *option_data, Packet *p)
     IsDataAtData *isdata = (IsDataAtData *)option_data;
     int rval = DETECTION_OPTION_NO_MATCH;
     int dsize;
-    const u_int8_t *base_ptr, *end_ptr, *start_ptr;
+    const uint8_t *base_ptr, *end_ptr, *start_ptr;
     PROFILE_VARS;
 
     PREPROC_PROFILE_START(isDataAtPerfStats);
@@ -354,6 +345,11 @@ int IsDataAt(void *option_data, Packet *p)
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                     "[*] IsDataAt succeeded!  there is data...\n"););
         rval = DETECTION_OPTION_MATCH;
+    }
+
+    if (isdata->flags & ISDATAAT_NOT_FLAG)
+    {
+        rval = !rval;
     }
 
 

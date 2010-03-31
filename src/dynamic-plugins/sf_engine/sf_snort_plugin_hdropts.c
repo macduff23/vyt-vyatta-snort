@@ -209,7 +209,7 @@ ENGINE_LINKAGE int checkHdrOpt(void *p, HdrOptCheck *optData)
     {
     /* IP Header Checks */
     case IP_HDR_ID:
-        value = ntohs(GET_IPH_ID(pkt));
+        value = IS_IP6(pkt) ? ntohl(GET_IPH_ID(pkt)) : ntohs((u_int16_t)GET_IPH_ID(pkt));
         break;
     case IP_HDR_PROTO:
         value = pkt->ip4_header->proto;

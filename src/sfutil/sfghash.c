@@ -42,7 +42,7 @@
 *  6/10/03 - man - Upgraded the hash function to a Hardened hash function,
 *      it has no predictable cycles, and each hash table gets a different
 *      randomized hashing function. So even with the source code, you cannot predict 
-*      anything with this function.  If an  attacker can can setup a feedback
+*      anything with this function.  If an attacker can setup a feedback
 *      loop he might gain some knowledge of how to muck with us, but even in that case
 *      his odds are astronomically skinny.  This is actually the same problem as solved
 *      early on with hashing functions where degenerate data with close keys could
@@ -243,6 +243,9 @@ int sfghash_add( SFGHASH * t, void * key, void * data )
     int         index;
     SFGHASH_NODE  *hnode;
 
+    if (t == NULL)
+        return SFGHASH_ERR;
+
     /*
     *   Get proper Key Size
     */  
@@ -408,11 +411,36 @@ void * sfghash_find( SFGHASH * t, void * key)
 {
     SFGHASH_NODE * hnode;
 
+    if (t == NULL)
+        return NULL;
+
     hnode = sfghash_find_node( t, key );
 
     if( hnode ) return hnode->data;
 
     return NULL;
+}
+
+/* Returns whether or not the there is an entry in the table with key
+ * Sets argument data to data in hash node which could be NULL.
+ * This function is used to both make sure there is an entry in the
+ * table and get potential data associated with entry */ 
+int sfghash_find2(SFGHASH *t, void *key, void **data)
+{
+    SFGHASH_NODE * hnode;
+
+    if (t == NULL)
+        return 0;
+
+    hnode = sfghash_find_node(t, key);
+
+    if (hnode != NULL)
+    {
+        *data = hnode->data;
+        return 1;
+    }
+
+    return 0;
 }
 
 /*

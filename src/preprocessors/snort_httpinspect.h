@@ -22,12 +22,26 @@
 #ifndef __SNORT_HTTPINSPECT_H__
 #define __SNORT_HTTPINSPECT_H__
 
+/**
+**  The definition of the configuration separators in the snort.conf
+**  configure line.
+*/
+#define CONF_SEPARATORS " \t\n\r"
 
-int HttpInspectSnortConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf, char *args,
-                         int iGlobal, char *ErrorString, int ErrStrLen);
+/*
+**  These are the definitions of the parser section delimiting 
+**  keywords to configure HttpInspect.  When one of these keywords
+**  are seen, we begin a new section.
+*/
+#define GLOBAL        "global"
+#define GLOBAL_SERVER "global_server"
+#define SERVER        "server"
+
+
 int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p);
-void HttpInspectCheckConfig(void);
-void HttpInspectAddPortsOfInterest();
-void HttpInspectAddServicesOfInterest();
+int ProcessGlobalConf(HTTPINSPECT_GLOBAL_CONF *, char *, int);
+int PrintGlobalConf(HTTPINSPECT_GLOBAL_CONF *);
+int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *, char *, int);
+int HttpInspectInitializeGlobalConfig(HTTPINSPECT_GLOBAL_CONF *, char *, int);
 
 #endif

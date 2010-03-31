@@ -56,9 +56,9 @@ void IpSameCheckInit(char *, OptTreeNode *, int);
 void ParseIpSame(char *, OptTreeNode *);
 int IpSameCheck(void *option_data, Packet *p);
 
-u_int32_t IpSameCheckHash(void *d)
+uint32_t IpSameCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
 
     /* NO data stored for the option */
 
@@ -92,7 +92,7 @@ int IpSameCheckCompare(void *l, void *r)
 void SetupIpSameCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("sameip", IpSameCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("sameip", IpSameCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("sameip", &ipSamePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

@@ -55,9 +55,9 @@ void TcpAckCheckInit(char *, OptTreeNode *, int);
 void ParseTcpAck(char *, OptTreeNode *);
 int CheckTcpAckEq(void *option_data, Packet *p);
 
-u_int32_t TcpAckCheckHash(void *d)
+uint32_t TcpAckCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     TcpAckCheckData *data = (TcpAckCheckData *)d;
 
     a = data->tcp_ack;
@@ -99,7 +99,7 @@ int TcpAckCheckCompare(void *l, void *r)
 void SetupTcpAckCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ack", TcpAckCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ack", TcpAckCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ack", &tcpAckPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

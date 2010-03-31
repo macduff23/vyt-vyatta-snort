@@ -31,6 +31,7 @@
 #include "stream_api.h"
 #include "snort_stream5_session.h"
 #include "stream_ignore.h"
+#include "snort_stream5_udp.h"
 
 #include "plugin_enum.h"
 #include "rules.h"
@@ -42,6 +43,8 @@
 #include "dynamic-plugins/sp_dynamic.h"
 
 #include "profiler.h"
+#include "sfPolicy.h"
+
 #ifdef PERF_PROFILING
 PreprocStats s5UdpPerfStats;
 #endif
@@ -56,6 +59,15 @@ PreprocStats s5UdpPerfStats;
 #define udp_responder_ip lwSsn->server_ip
 #define udp_responder_port lwSsn->server_port
 
+extern SFBASE sfBase;
+extern Stream5UdpConfig *s5_udp_eval_config;
+extern tSfPolicyUserContextId s5_config;
+
+#ifdef SNORT_RELOAD
+extern tSfPolicyUserContextId s5_swap_config;
+#endif
+
+
 /*  D A T A  S T R U C T U R E S  ***********************************/
 typedef struct _UdpSession
 {
@@ -63,83 +75,86 @@ typedef struct _UdpSession
 
     struct timeval ssn_time;
 
-    //u_int8_t    c_ttl;
-    //u_int8_t    s_ttl;
+    //uint8_t    c_ttl;
+    //uint8_t    s_ttl;
 
 } UdpSession;
 
-typedef struct _Stream5UdpPolicy
-{
-    u_int32_t   session_timeout;
-    u_int16_t   flags;
-    IpAddrSet   *bound_addrs;
-} Stream5UdpPolicy;
-
-static u_int8_t udp_ports[MAX_PORTS+1];
 
 /*  G L O B A L S  **************************************************/
-static Stream5SessionCache *udp_lws_cache;
-static Stream5UdpPolicy **udpPolicyList = NULL; /* List of Policies configured */
-static u_int8_t numUdpPolicies = 0;
+Stream5SessionCache *udp_lws_cache = NULL;
 static MemPool udp_session_mempool;
 
 /*  P R O T O T Y P E S  ********************************************/
-static void Stream5ParseUdpArgs(char *, Stream5UdpPolicy *);
+static void Stream5ParseUdpArgs(Stream5UdpConfig *, char *, Stream5UdpPolicy *);
 static void Stream5PrintUdpConfig(Stream5UdpPolicy *);
 void UdpSessionCleanup(Stream5LWSession *lwssn);
 static int ProcessUdp(Stream5LWSession *, Packet *, Stream5UdpPolicy *);
 
-void Stream5InitUdp(void)
+void Stream5InitUdp(Stream5GlobalConfig *gconfig)
 {
+    if (gconfig == NULL)
+        return;
+
     /* Now UDP */ 
-    if((udp_lws_cache == NULL) && s5_global_config.track_udp_sessions)
+    if ((udp_lws_cache == NULL) && (gconfig->track_udp_sessions))
     {
-        udp_lws_cache = InitLWSessionCache(s5_global_config.max_udp_sessions,
-                30, 5, 0, &UdpSessionCleanup);
+        udp_lws_cache = InitLWSessionCache(gconfig->max_udp_sessions,
+                                           30, 5, 0, &UdpSessionCleanup);
 
         if(!udp_lws_cache)
         {
             FatalError("Unable to init stream5 UDP session cache, no UDP "
                        "stream inspection!\n");
         }
-        mempool_init(&udp_session_mempool, s5_global_config.max_udp_sessions, sizeof(UdpSession));
+
+        if (mempool_init(&udp_session_mempool,
+                    gconfig->max_udp_sessions, sizeof(UdpSession)) != 0)
+        {
+            FatalError("%s(%d) Could not initialize udp session memory pool.\n",
+                    __FILE__, __LINE__);
+        }
     }
 }
 
-void Stream5UdpPolicyInit(char *args)
+void Stream5UdpPolicyInit(Stream5UdpConfig *config, char *args)
 {
     Stream5UdpPolicy *s5UdpPolicy;
-    s5UdpPolicy = (Stream5UdpPolicy *) SnortAlloc(sizeof(Stream5UdpPolicy));
-    s5UdpPolicy->bound_addrs = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
 
-    Stream5ParseUdpArgs(args, s5UdpPolicy);
+    if (config == NULL)
+        return;
+
+    s5UdpPolicy = (Stream5UdpPolicy *)SnortAlloc(sizeof(Stream5UdpPolicy));
+
+    Stream5ParseUdpArgs(config, args, s5UdpPolicy);
+
+    config->num_policies++;
 
     /* Now add this context to the internal list */
-    if (udpPolicyList == NULL)
+    if (config->policy_list == NULL)
     {
-        numUdpPolicies = 1;
-        udpPolicyList = (Stream5UdpPolicy **)SnortAlloc(sizeof (Stream5UdpPolicy *)
-            * numUdpPolicies);
+        config->policy_list =
+            (Stream5UdpPolicy **)SnortAlloc(sizeof(Stream5UdpPolicy *));
     }
     else
     {
         Stream5UdpPolicy **tmpPolicyList =
-            (Stream5UdpPolicy **)SnortAlloc(sizeof (Stream5UdpPolicy *)
-            * (++numUdpPolicies));
-        memcpy(tmpPolicyList, udpPolicyList,
-            sizeof(Stream5UdpPolicy *) * (numUdpPolicies-1));
-        free(udpPolicyList);
+            (Stream5UdpPolicy **)SnortAlloc(sizeof(Stream5UdpPolicy *) * config->num_policies);
+
+        memcpy(tmpPolicyList, config->policy_list,
+               sizeof(Stream5UdpPolicy *) * (config->num_policies - 1));
+
+        free(config->policy_list);
         
-        udpPolicyList = tmpPolicyList;
+        config->policy_list = tmpPolicyList;
     }
-    udpPolicyList[numUdpPolicies-1] = s5UdpPolicy;
+
+    config->policy_list[config->num_policies - 1] = s5UdpPolicy;
 
     Stream5PrintUdpConfig(s5UdpPolicy);
-
-    return;
 }
 
-static void Stream5ParseUdpArgs(char *args, Stream5UdpPolicy *s5UdpPolicy)
+static void Stream5ParseUdpArgs(Stream5UdpConfig *config, char *args, Stream5UdpPolicy *s5UdpPolicy)
 {
     char **toks;
     int num_toks;
@@ -148,6 +163,9 @@ static void Stream5ParseUdpArgs(char *args, Stream5UdpPolicy *s5UdpPolicy)
     char **stoks = NULL;
     int s_toks;
     char *endPtr = NULL;
+
+    if (s5UdpPolicy == NULL)
+        return;
 
     s5UdpPolicy->session_timeout = S5_DEFAULT_SSN_TIMEOUT;
     s5UdpPolicy->flags = 0;
@@ -221,17 +239,27 @@ static void Stream5ParseUdpArgs(char *args, Stream5UdpPolicy *s5UdpPolicy)
         }
 
         mSplitFree(&toks, num_toks);
+    }
 
-        if(s5UdpPolicy->bound_addrs == NULL)
+    if (s5UdpPolicy->bound_addrs == NULL)
+    {
+        if (config->default_policy != NULL)
         {
-            /* allocate and initializes the
-             * IpAddrSet at the same time
-             * set to "any"
-             */
-            s5UdpPolicy->bound_addrs = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
+            FatalError("%s(%d) => Default Stream5 UDP Policy already set. "
+                       "This policy must be bound to a specific host or "
+                       "network.\n", file_name, file_line);
+        }
+
+        config->default_policy = s5UdpPolicy;
+    }
+    else
+    {
+        if (s5UdpPolicy->flags & STREAM5_CONFIG_IGNORE_ANY)
+        {
+            FatalError("%s(%d) => \"ignore_any_rules\" option can be used only"
+                       " with Default Stream5 UDP Policy\n", file_name, file_line);
         }
     }
-    return;
 }
 
 static void Stream5PrintUdpConfig(Stream5UdpPolicy *s5UdpPolicy)
@@ -250,21 +278,23 @@ static void Stream5PrintUdpConfig(Stream5UdpPolicy *s5UdpPolicy)
 }
 
 
-int Stream5VerifyUdpConfig(void)
+int Stream5VerifyUdpConfig(Stream5UdpConfig *config, tSfPolicyId policyId)
 {
+    if (config == NULL)
+        return -1;
+
     if (!udp_lws_cache)
         return -1;
 
-    if (numUdpPolicies < 1)
+    if (config->num_policies == 0)
         return -1;
 
     /* Post-process UDP rules to establish UDP ports to inspect. */
-    setPortFilterList(udp_ports, IPPROTO_UDP,
-            (udpPolicyList[0]->flags & STREAM5_CONFIG_IGNORE_ANY));
-
+    setPortFilterList(config->port_filter, IPPROTO_UDP,
+            (config->default_policy->flags & STREAM5_CONFIG_IGNORE_ANY), policyId);
 
     //printf ("UDP Ports with Inspection/Monitoring\n");
-    //s5PrintPortFilter(udp_ports);
+    //s5PrintPortFilter(config->port_filter);
     return 0;
 }
 
@@ -310,7 +340,7 @@ void UdpSessionCleanup(Stream5LWSession *lwssn)
 
     s5stats.udp_sessions_released++;
 
-    RemoveUDPSession(&sfPerf.sfBase);
+    RemoveUDPSession(&sfBase);
 }
 
 void Stream5ResetUdp(void)
@@ -363,7 +393,7 @@ static int NewUdpSession(Packet *p,
 
     s5stats.udp_sessions_created++;
 
-    AddUDPSession(&sfPerf.sfBase);
+    AddUDPSession(&sfBase);
     return 0;
 }
 
@@ -371,13 +401,9 @@ static int NewUdpSession(Packet *p,
 /*
  * Main entry point for UDP
  */
-int Stream5ProcessUdp(Packet *p)
+int Stream5ProcessUdp(Packet *p, Stream5LWSession *lwssn,
+                      Stream5UdpPolicy *s5UdpPolicy, SessionKey *skey)
 {
-    Stream5UdpPolicy *s5UdpPolicy = NULL;
-    SessionKey skey;
-    Stream5LWSession *lwssn = NULL;
-    int policyIndex;
-
 #ifdef SUP_IP6
 // XXX-IPv6 Stream5ProcessUDP debugging
 #else
@@ -395,47 +421,58 @@ int Stream5ProcessUdp(Packet *p)
             );
 #endif
 
-    /* Find an Udp policy for this packet */
-    for (policyIndex = 0; policyIndex < numUdpPolicies; policyIndex++)
+    if (s5UdpPolicy == NULL)
     {
-        s5UdpPolicy = udpPolicyList[policyIndex];
+        int policyIndex;
+
+        /* Find an Udp policy for this packet */
+        for (policyIndex = 0; policyIndex < s5_udp_eval_config->num_policies; policyIndex++)
+        {
+            s5UdpPolicy = s5_udp_eval_config->policy_list[policyIndex];
+
+            if (s5UdpPolicy->bound_addrs == NULL)
+                continue;
+
+            /*
+             * Does this policy handle packets to this IP address?
+             */
+#ifdef SUP_IP6
+            if(sfvar_ip_in(s5UdpPolicy->bound_addrs, GET_DST_IP(p)))
+#else
+            if(IpAddrSetContains(s5UdpPolicy->bound_addrs, GET_DST_ADDR(p)))
+#endif
+            {
+                DEBUG_WRAP(DebugMessage(DEBUG_STREAM, 
+                                        "[Stream5] Found udp policy in IpAddrSet\n"););
+                break;
+            }
+        }
         
-        /*
-         * Does this policy handle packets to this IP address?
-         */
-        if(IpAddrSetContains(s5UdpPolicy->bound_addrs, GET_DST_ADDR(p)))
+        if (policyIndex == s5_udp_eval_config->num_policies)
+            s5UdpPolicy = s5_udp_eval_config->default_policy;
+
+        if (!s5UdpPolicy)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_STREAM, 
-                        "[Stream5] Found udp policy in IpAddrSet\n"););
-            break;
+                                    "[Stream5] Could not find Udp Policy context "
+                                    "for IP %s\n", inet_ntoa(GET_DST_ADDR(p))););
+            return 0;
         }
-        else
-        {
-            s5UdpPolicy = NULL;
-        }
-    }
-
-    if (!s5UdpPolicy)
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_STREAM, 
-                    "[Stream5] Could not find Udp Policy context "
-                    "for IP %s\n", inet_ntoa(GET_DST_ADDR(p))););
-        return 0;
     }
 
     if (isPacketFilterDiscard(p, s5UdpPolicy->flags & STREAM5_CONFIG_IGNORE_ANY)
             == PORT_MONITOR_PACKET_DISCARD)
     {
         //ignore the packet
-        UpdateFilteredPacketStats(&sfPerf.sfBase, IPPROTO_UDP);
+        UpdateFilteredPacketStats(&sfBase, IPPROTO_UDP);
         return 0;
     }
 
     /* UDP Sessions required */
-    if ((lwssn = GetLWSession(udp_lws_cache, p, &skey)) == NULL)
+    if (lwssn == NULL)
     {
         /* Create a new session, mark SENDER seen */
-        lwssn = NewLWSession(udp_lws_cache, p, &skey);
+        lwssn = NewLWSession(udp_lws_cache, p, skey, (void *)s5UdpPolicy);
         s5stats.total_udp_sessions++;
     }
     else
@@ -616,11 +653,11 @@ static int ProcessUdp(Stream5LWSession *lwssn, Packet *p,
 }
 
 void UdpUpdateDirection(Stream5LWSession *ssn, char dir,
-                        snort_ip_p ip, u_int16_t port)
+                        snort_ip_p ip, uint16_t port)
 {
     UdpSession *udpssn = (UdpSession *)ssn->proto_specific_data->data;
     snort_ip tmpIp;
-    u_int16_t tmpPort;
+    uint16_t tmpPort;
 
 #ifdef SUP_IP6
     if (IP_EQUALITY(&udpssn->udp_sender_ip, ip) && (udpssn->udp_sender_port == port))
@@ -667,18 +704,75 @@ void UdpUpdateDirection(Stream5LWSession *ssn, char dir,
     udpssn->udp_responder_port = tmpPort;
 }
 
-void s5UdpSetPortFilterStatus(
-        unsigned short port, 
-        int status
-        )
+void s5UdpSetPortFilterStatus(unsigned short port, int status, tSfPolicyId policyId, int parsing)
 {
-    udp_ports[port] |= status;
+    Stream5Config *config;
+    Stream5UdpConfig *udp_config;
+
+#ifdef SNORT_RELOAD
+    if (parsing && (s5_swap_config != NULL))
+        config = (Stream5Config *)sfPolicyUserDataGet(s5_swap_config, policyId);
+    else
+#endif
+    config = (Stream5Config *)sfPolicyUserDataGet(s5_config, policyId);
+
+    if (config == NULL)
+        return;
+
+    udp_config = config->udp_config;
+    if (udp_config == NULL)
+        return;
+
+    udp_config->port_filter[port] |= status;
 }
 
-int s5UdpGetPortFilterStatus(
-        unsigned short port 
-        )
+int s5UdpGetPortFilterStatus(unsigned short port, tSfPolicyId policyId, int parsing)
 {
-    return udp_ports[port];
+    Stream5Config *config;
+    Stream5UdpConfig *udp_config;
+
+#ifdef SNORT_RELOAD
+    if (parsing && (s5_swap_config != NULL))
+        config = (Stream5Config *)sfPolicyUserDataGet(s5_swap_config, policyId);
+    else
+#endif
+    config = (Stream5Config *)sfPolicyUserDataGet(s5_config, policyId);
+
+    if (config == NULL)
+        return PORT_MONITOR_NONE;
+
+    udp_config = config->udp_config;
+    if (udp_config == NULL)
+        return PORT_MONITOR_NONE;
+
+    return udp_config->port_filter[port];
+}
+
+void Stream5UdpConfigFree(Stream5UdpConfig *config)
+{
+    int i;
+
+    if (config == NULL)
+        return;
+
+    /* Cleanup TCP Policies and the list */
+    for (i = 0; i < config->num_policies; i++)
+    {
+        Stream5UdpPolicy *policy = config->policy_list[i];
+
+        if (policy->bound_addrs != NULL)
+#ifdef SUP_IP6
+            sfvar_free(policy->bound_addrs);
+#else
+        {
+            IpAddrSetDestroy(policy->bound_addrs);
+            free(policy->bound_addrs);
+        }
+#endif
+        free(policy);
+    }
+
+    free(config->policy_list);
+    free(config);
 }
 

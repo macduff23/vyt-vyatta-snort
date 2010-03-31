@@ -57,14 +57,6 @@ _Description: Invalid interface
  Either it is defaulting inappropriately to 'eth0', or you specified
  one which is invalid.
 
-Template: snort{PACKAGE}/reverse_order
-Type: boolean
-Default: false
-_Description: Should Snort's testing order be changed to Pass|Alert|Log?
- Snort's default testing order is Alert|Pass|Log; if you accept this
- option, the order will be changed to Pass|Alert|Log, which can make it
- simpler to use Snort with some packet-filtering tools.
-
 Template: snort{PACKAGE}/send_stats
 Type: boolean
 Default: true

@@ -26,5 +26,9 @@
 **
 */
 
-void SetupPerfMonitor();
-void SetPerfmonitorFile(char*);
+#ifndef _SPP_PERFMONITOR_H_
+#define _SPP_PERFMONITOR_H_
+
+void SetupPerfMonitor(void);
+
+#endif

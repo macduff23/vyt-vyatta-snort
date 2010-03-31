@@ -25,8 +25,8 @@
 #ifndef SFTARGET_PROTOCOL_REFERENCE_TABLE_H_
 #define SFTARGET_PROTOCOL_REFERENCE_TABLE_H_
 
-#include "snort.h"
 #include "decode.h"
+#include "util.h"
 
 #define MAX_PROTOCOL_ORDINAL 8192 
 
@@ -36,8 +36,8 @@ typedef struct _SFTargetProtocolReference
     int16_t ordinal;
 } SFTargetProtocolReference;
 
-void InitializeProtocolReferenceTable();
-void FreeProtoocolReferenceTable();
+void InitializeProtocolReferenceTable(void);
+void FreeProtoocolReferenceTable(void);
 int16_t AddProtocolReference(char *protocol);
 int16_t FindProtocolReference(char *protocol);
 

@@ -35,6 +35,10 @@
 #include "config.h"
 #endif  /* HAVE_CONFIG_H */
 
+#ifdef HAVE_STRINGS_H
+#include <strings.h>
+#endif
+
 #include "sf_snort_packet.h"
 #include "sf_dynamic_preprocessor.h"
 #include "sf_snort_plugin_api.h"
@@ -58,6 +62,8 @@ PreprocStats dnsPerfStats;
 #endif
 
 #include "sf_types.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 #ifdef TARGET_BASED
 int16_t dns_app_id = SFTARGET_UNKNOWN_PROTOCOL;
@@ -72,44 +78,48 @@ int16_t dns_app_id = SFTARGET_UNKNOWN_PROTOCOL;
 /*
  * Function prototype(s)
  */
-DNSSessionData* GetDNSSessionData( SFSnortPacket* );
+DNSSessionData * GetDNSSessionData(SFSnortPacket *, DNSConfig *);
 static void DNSInit( char* );
-static void PrintDNSConfig();
+static void PrintDNSConfig(DNSConfig *);
 static void FreeDNSSessionData( void* );
-static void  ParseDNSArgs( u_char* );
+static void  ParseDNSArgs(DNSConfig *, u_char*);
 static void ProcessDNS( void*, void* );
-static void DNSConfigCheck( void );
-static inline int CheckDNSPort( u_int16_t );
+static INLINE int CheckDNSPort(DNSConfig *, uint16_t);
 static void DNSReset(int, void *);
 static void DNSResetStats(int, void *);
-static void _addPortsToStream5Filter();
+static void _addPortsToStream5Filter(DNSConfig *, tSfPolicyId);
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter();
+static void _addServicesToStream5Filter(tSfPolicyId);
 #endif
+static void DNSFreeConfig(tSfPolicyUserContextId config);
+static void DNSCheckConfig(void);
+static void DNSCleanExit(int, void *);
 
 /* Ultimately calls SnortEventqAdd */
 /* Arguments are: gid, sid, rev, classification, priority, message, rule_info */
 #define DNS_ALERT(x,y) { _dpd.alertAdd(GENERATOR_SPP_DNS, x, 1, 0, 3, y, 0 ); }
 
-/* Convert port value into an index for the dns_config.ports array */
+/* Convert port value into an index for the dns_config ports array */
 #define PORT_INDEX(port) port/8
 
 /* Convert port value into a value for bitwise operations */
 #define CONV_PORT(port) 1<<(port%8)
 
 #define DNS_RR_PTR 0xC0
-/*
- * DNS preprocessor global configuration structure.
- */
-static DNSConfig dns_config =
-{
-#if 0
-    0,                              /* Autodetection */
-#endif
-    DNS_ALERT_NONE,                  /* Enabled alerts */
-};
 
 extern DynamicPreprocessorData _dpd;
+
+static tSfPolicyUserContextId dns_config = NULL;
+DNSConfig *dns_eval_config = NULL;
+
+#ifdef SNORT_RELOAD
+static tSfPolicyUserContextId dns_swap_config = NULL;
+static void DNSReload(char *);
+static int DNSReloadVerify(void);
+static void * DNSReloadSwap(void);
+static void DNSReloadSwapFree(void *);
+#endif
+
 
 /* Called at preprocessor setup time. Links preprocessor keyword
  * to corresponding preprocessor initialization function.
@@ -119,14 +129,16 @@ extern DynamicPreprocessorData _dpd;
  * RETURNS: Nothing.
  *
  */
-void SetupDNS()
+void SetupDNS(void)
 {
     /* Link preprocessor keyword to initialization function 
-     * in the preprocessor list.
-     */
+     * in the preprocessor list. */
+#ifndef SNORT_RELOAD
     _dpd.registerPreproc( "dns", DNSInit );
-
-    memset(dns_config.ports, 0, sizeof(char) * (MAX_PORTS/8));
+#else
+    _dpd.registerPreproc("dns", DNSInit, DNSReload,
+                         DNSReloadSwap, DNSReloadSwapFree);
+#endif
 }
 
 /* Initializes the DNS preprocessor module and registers
@@ -141,50 +153,68 @@ void SetupDNS()
  */
 static void DNSInit( char* argp )
 {
-#if 0
-#ifdef SUP_IP6
-    DynamicPreprocessorFatalMessage("DNS is not currently supported when IPv6 support is enabled.\n");
-#endif
-#endif
+    int policy_id = _dpd.getParserPolicy();
 
-    _dpd.addPreproc( ProcessDNS, PRIORITY_APPLICATION, PP_DNS,
-                     PROTO_BIT__TCP | PROTO_BIT__UDP );
-    _dpd.addPreprocConfCheck( DNSConfigCheck );
-    _dpd.addPreprocReset(DNSReset, NULL, PRIORITY_LAST, PP_DNS);
-	_dpd.addPreprocResetStats(DNSResetStats, NULL, PRIORITY_LAST, PP_DNS);
-
-    ParseDNSArgs( (u_char *)argp );
-    
-#ifdef PERF_PROFILING
-    _dpd.addPreprocProfileFunc("dns", (void *)&dnsPerfStats, 0, _dpd.totalPerfStats);
-#endif
-#ifdef TARGET_BASED
-    if (_dpd.streamAPI)
+    DNSConfig *pPolicyConfig = NULL;
+    if (dns_config == NULL)
     {
+        //create a context
+        dns_config = sfPolicyConfigCreate();
+        if (dns_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                            "DNS configuration.\n");
+        }
+
+        if (_dpd.streamAPI == NULL)
+        {
+            DynamicPreprocessorFatalMessage("%s(%d) Dns preprocessor requires the "
+                "stream5 preprocessor to be enabled.\n",
+                *(_dpd.config_file), *(_dpd.config_line));
+        }
+
+        _dpd.addPreprocReset(DNSReset, NULL, PRIORITY_LAST, PP_DNS);
+        _dpd.addPreprocResetStats(DNSResetStats, NULL, PRIORITY_LAST, PP_DNS);
+        _dpd.addPreprocConfCheck(DNSCheckConfig);
+        _dpd.addPreprocExit(DNSCleanExit, NULL, PRIORITY_LAST, PP_DNS);
+
+#ifdef PERF_PROFILING
+        _dpd.addPreprocProfileFunc("dns", (void *)&dnsPerfStats, 0, _dpd.totalPerfStats);
+#endif
+
+#ifdef TARGET_BASED
         dns_app_id = _dpd.findProtocolReference("dns");
         if (dns_app_id == SFTARGET_UNKNOWN_PROTOCOL)
         {
             dns_app_id = _dpd.addProtocolReference("dns");
         }
-    }
-
-    _addServicesToStream5Filter();
 #endif
-    _addPortsToStream5Filter();
-}
-
-/* Verify configuration and that Stream API is available.
- *
- * PARAMETERS:  None
- *
- * RETURNS:     Nothing.
- */
-static void DNSConfigCheck( void )
-{
-    if ((!_dpd.streamAPI) || (_dpd.streamAPI->version < STREAM_API_VERSION4))
-    {
-        DynamicPreprocessorFatalMessage("DNSConfigCheck() Streaming & reassembly must be enabled\n");
     }
+
+    sfPolicyUserPolicySet (dns_config, policy_id);
+    pPolicyConfig = (DNSConfig *)sfPolicyUserDataGetCurrent(dns_config);
+    if (pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("%s(%d) Dns preprocessor can only "
+            "be configured once.\n", *(_dpd.config_file), *(_dpd.config_line));
+    }
+
+    pPolicyConfig = (DNSConfig *)calloc(1, sizeof(DNSConfig));
+    if (!pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                        "DNS configuration.\n");
+    }
+ 
+    sfPolicyUserDataSetCurrent(dns_config, pPolicyConfig);
+
+    ParseDNSArgs(pPolicyConfig, (u_char *)argp);
+
+    _dpd.addPreproc(ProcessDNS, PRIORITY_APPLICATION, PP_DNS, PROTO_BIT__TCP | PROTO_BIT__UDP);
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+#ifdef TARGET_BASED
+    _addServicesToStream5Filter(policy_id);
+#endif
 }
 
 /* Parses and processes the configuration arguments 
@@ -196,19 +226,22 @@ static void DNSConfigCheck( void )
  * 
  * RETURNS:     Nothing.
  */
-static void ParseDNSArgs( u_char* argp )
+static void ParseDNSArgs(DNSConfig *config, u_char* argp)
 {
     char* cur_tokenp = NULL;
     char* argcpyp = NULL;
     int port;
+
+    if (config == NULL)
+        return;
     
     /* Set up default port to listen on */
-    dns_config.ports[ PORT_INDEX( DNS_PORT ) ] |= CONV_PORT(DNS_PORT);
+    config->ports[ PORT_INDEX( DNS_PORT ) ] |= CONV_PORT(DNS_PORT);
     
     /* Sanity check(s) */
     if ( !argp )
     {
-        PrintDNSConfig();
+        PrintDNSConfig(config);
         return;
     }
     
@@ -228,7 +261,7 @@ static void ParseDNSArgs( u_char* argp )
         {
             /* If the user specified ports, remove 'DNS_PORT' for now since 
              * it now needs to be set explicitely. */
-            dns_config.ports[ PORT_INDEX( DNS_PORT ) ] = 0;
+            config->ports[ PORT_INDEX( DNS_PORT ) ] = 0;
             
             /* Eat the open brace. */
             cur_tokenp = strtok( NULL, " ");
@@ -264,7 +297,7 @@ static void ParseDNSArgs( u_char* argp )
                         //return;
                     }
                     
-                    dns_config.ports[ PORT_INDEX( port ) ] |= CONV_PORT(port);
+                    config->ports[ PORT_INDEX( port ) ] |= CONV_PORT(port);
                 }
                 
                 cur_tokenp = strtok( NULL, " ");
@@ -272,20 +305,20 @@ static void ParseDNSArgs( u_char* argp )
         }
         else if ( !strcmp( cur_tokenp, DNS_ENABLE_RDATA_OVERFLOW_KEYWORD ))
         {
-            dns_config.enabled_alerts |= DNS_ALERT_RDATA_OVERFLOW;
+            config->enabled_alerts |= DNS_ALERT_RDATA_OVERFLOW;
         }
         else if ( !strcmp( cur_tokenp, DNS_ENABLE_OBSOLETE_TYPES_KEYWORD ))
         {
-            dns_config.enabled_alerts |= DNS_ALERT_OBSOLETE_TYPES;
+            config->enabled_alerts |= DNS_ALERT_OBSOLETE_TYPES;
         }
         else if ( !strcmp( cur_tokenp, DNS_ENABLE_EXPERIMENTAL_TYPES_KEYWORD ))
         {
-            dns_config.enabled_alerts |= DNS_ALERT_EXPERIMENTAL_TYPES;
+            config->enabled_alerts |= DNS_ALERT_EXPERIMENTAL_TYPES;
         }
 #if 0
         else if ( !strcmp( cur_tokenp, DNS_AUTODETECT_KEYWORD ))
         {
-            dns_config.autodetect++;
+            config->autodetect++;
         }
 #endif
         else
@@ -297,7 +330,7 @@ static void ParseDNSArgs( u_char* argp )
         cur_tokenp = strtok( NULL, " " );
     }
     
-    PrintDNSConfig();
+    PrintDNSConfig(config);
     free(argcpyp);
 }
 
@@ -307,31 +340,34 @@ static void ParseDNSArgs( u_char* argp )
  *
  * RETURNS: Nothing.
  */
-static void PrintDNSConfig()
+static void PrintDNSConfig(DNSConfig *config)
 {
     int index;
+
+    if (config == NULL)
+        return;
     
     _dpd.logMsg("DNS config: \n");
 #if 0
     _dpd.logMsg("    Autodetection: %s\n", 
-        dns_config.autodetect ? 
+        config->autodetect ? 
         "ENABLED":"DISABLED");
 #endif
     _dpd.logMsg("    DNS Client rdata txt Overflow Alert: %s\n",
-        dns_config.enabled_alerts & DNS_ALERT_RDATA_OVERFLOW ?
+        config->enabled_alerts & DNS_ALERT_RDATA_OVERFLOW ?
         "ACTIVE" : "INACTIVE" );
     _dpd.logMsg("    Obsolete DNS RR Types Alert: %s\n",
-        dns_config.enabled_alerts & DNS_ALERT_OBSOLETE_TYPES ?
+        config->enabled_alerts & DNS_ALERT_OBSOLETE_TYPES ?
         "ACTIVE" : "INACTIVE" );
     _dpd.logMsg("    Experimental DNS RR Types Alert: %s\n",
-        dns_config.enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES ?
+        config->enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES ?
         "ACTIVE" : "INACTIVE" );
     
     /* Printing ports */
     _dpd.logMsg("    Ports:"); 
     for(index = 0; index < MAX_PORTS; index++) 
     {
-        if( dns_config.ports[ PORT_INDEX(index) ] & CONV_PORT(index) )
+        if( config->ports[ PORT_INDEX(index) ] & CONV_PORT(index) )
         {
             _dpd.logMsg(" %d", index);
         }
@@ -353,26 +389,19 @@ static void PrintDNSConfig()
  */
 static DNSSessionData udpSessionData;
 #define MIN_UDP_PAYLOAD 0x1FFF
-DNSSessionData* GetDNSSessionData( SFSnortPacket* p )
+DNSSessionData * GetDNSSessionData(SFSnortPacket *p, DNSConfig *config)
 {
     DNSSessionData* dnsSessionData = NULL;
 
-    /* This is done in the calling function, don't need to
-     * do it again here.
-     *
-     * Sanity check 
-    if (!p)
-    {
+    if (config == NULL)
         return NULL;
-    }
-     */
 
     if (p->udp_header)
     {
-        if (!(dns_config.enabled_alerts & DNS_ALERT_OBSOLETE_TYPES) &&
-            !(dns_config.enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES))
+        if (!(config->enabled_alerts & DNS_ALERT_OBSOLETE_TYPES) &&
+            !(config->enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES))
         {
-            if (dns_config.enabled_alerts & DNS_ALERT_RDATA_OVERFLOW)
+            if (config->enabled_alerts & DNS_ALERT_RDATA_OVERFLOW)
             {
                 /* Checking RData Overflow... */
                 if (p->payload_size <
@@ -401,25 +430,16 @@ DNSSessionData* GetDNSSessionData( SFSnortPacket* p )
         return NULL;
     }
     
-    /* Attempt to get a previously allocated DNS block. If none exists,
-     * allocate and register one with the stream layer.
-     */
-    dnsSessionData = _dpd.streamAPI->get_application_data( 
-        p->stream_session_ptr, PP_DNS );
+    dnsSessionData = calloc( 1, sizeof( DNSSessionData ));
     
     if ( !dnsSessionData )
-    {
-        dnsSessionData = calloc( 1, sizeof( DNSSessionData ));
-        
-        if ( !dnsSessionData )
-            return NULL;
-        
-        /*Register the new DNS data block in the stream session. */
-        _dpd.streamAPI->set_application_data( 
-            p->stream_session_ptr, 
-            PP_DNS, dnsSessionData, FreeDNSSessionData );
-    }
+        return NULL;
     
+    /*Register the new DNS data block in the stream session. */
+    _dpd.streamAPI->set_application_data( 
+        p->stream_session_ptr, 
+        PP_DNS, dnsSessionData, FreeDNSSessionData );
+
     return dnsSessionData;
 }
 
@@ -451,18 +471,13 @@ static void FreeDNSSessionData( void* application_data )
  * RETURNS: DNS_TRUE, if the port is indeed an DNS server port.
  *      DNS_FALSE, otherwise.
  */
-static inline int CheckDNSPort( u_int16_t port )
+static INLINE int CheckDNSPort(DNSConfig *config, uint16_t port)
 {
-    if ( dns_config.ports[ PORT_INDEX(port) ] & CONV_PORT( port ) )
-    {
-        return 1;
-    }
-    
-    return 0;
+    return config->ports[PORT_INDEX(port)] & CONV_PORT(port);
 }
 
-static u_int16_t ParseDNSHeader(const unsigned char *data,
-                                u_int16_t bytes_unused,
+static uint16_t ParseDNSHeader(const unsigned char *data,
+                                uint16_t bytes_unused,
                                 DNSSessionData *dnsSessionData)
 {
     if (bytes_unused == 0)
@@ -474,7 +489,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
     {
     case DNS_RESP_STATE_LENGTH:
         /* First two bytes are length in TCP */
-        dnsSessionData->length = ((u_int8_t)*data) << 8;
+        dnsSessionData->length = ((uint8_t)*data) << 8;
         dnsSessionData->state = DNS_RESP_STATE_LENGTH_PART;
         data++;
         bytes_unused--;
@@ -484,7 +499,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_LENGTH_PART:
-        dnsSessionData->length |= ((u_int8_t)*data);
+        dnsSessionData->length |= ((uint8_t)*data);
         dnsSessionData->state = DNS_RESP_STATE_HDR_ID;
         data++;
         bytes_unused--;
@@ -494,7 +509,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ID:
-        dnsSessionData->hdr.id = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.id = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_ID_PART;
@@ -504,7 +519,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ID_PART:
-        dnsSessionData->hdr.id |= (u_int8_t)*data;
+        dnsSessionData->hdr.id |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_FLAGS;
@@ -514,7 +529,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_FLAGS:
-        dnsSessionData->hdr.flags = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.flags = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_FLAGS_PART;
@@ -524,7 +539,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_FLAGS_PART:
-        dnsSessionData->hdr.flags |= (u_int8_t)*data;
+        dnsSessionData->hdr.flags |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_QS;
@@ -534,7 +549,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_QS:
-        dnsSessionData->hdr.questions = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.questions = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_QS_PART;
@@ -544,7 +559,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_QS_PART:
-        dnsSessionData->hdr.questions |= (u_int8_t)*data;
+        dnsSessionData->hdr.questions |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_ANSS;
@@ -554,7 +569,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ANSS:
-        dnsSessionData->hdr.answers = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.answers = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_ANSS_PART;
@@ -564,7 +579,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ANSS_PART:
-        dnsSessionData->hdr.answers |= (u_int8_t)*data;
+        dnsSessionData->hdr.answers |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_AUTHS;
@@ -574,7 +589,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_AUTHS:
-        dnsSessionData->hdr.authorities = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.authorities = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_AUTHS_PART;
@@ -584,7 +599,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_AUTHS_PART:
-        dnsSessionData->hdr.authorities |= (u_int8_t)*data;
+        dnsSessionData->hdr.authorities |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_ADDS;
@@ -594,7 +609,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ADDS:
-        dnsSessionData->hdr.additionals = (u_int8_t)*data << 8;
+        dnsSessionData->hdr.additionals = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_HDR_ADDS_PART;
@@ -604,7 +619,7 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_HDR_ADDS_PART:
-        dnsSessionData->hdr.additionals |= (u_int8_t)*data;
+        dnsSessionData->hdr.additionals |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->state = DNS_RESP_STATE_QUESTION;
@@ -622,11 +637,11 @@ static u_int16_t ParseDNSHeader(const unsigned char *data,
 }
 
 
-u_int16_t ParseDNSName(const unsigned char *data,
-                       u_int16_t bytes_unused,
+uint16_t ParseDNSName(const unsigned char *data,
+                       uint16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_required = dnsSessionData->curr_txt.txt_len - dnsSessionData->curr_txt.txt_bytes_seen;
+    uint16_t bytes_required = dnsSessionData->curr_txt.txt_len - dnsSessionData->curr_txt.txt_bytes_seen;
 
     while (dnsSessionData->curr_txt.name_state != DNS_RESP_STATE_NAME_COMPLETE)
     {
@@ -638,7 +653,7 @@ u_int16_t ParseDNSName(const unsigned char *data,
         switch (dnsSessionData->curr_txt.name_state)
         {
         case DNS_RESP_STATE_NAME_SIZE:
-            dnsSessionData->curr_txt.txt_len = (u_int8_t)*data;
+            dnsSessionData->curr_txt.txt_len = (uint8_t)*data;
             data++;
             bytes_unused--;
             dnsSessionData->bytes_seen_curr_rec++;
@@ -713,13 +728,13 @@ u_int16_t ParseDNSName(const unsigned char *data,
     return bytes_unused;
 }
 
-static u_int16_t ParseDNSQuestion(const unsigned char *data,
-                                  u_int16_t data_size,
-                                  u_int16_t bytes_unused,
+static uint16_t ParseDNSQuestion(const unsigned char *data,
+                                  uint16_t data_size,
+                                  uint16_t bytes_unused,
                                   DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_used = 0;
-    u_int16_t new_bytes_unused = 0;
+    uint16_t bytes_used = 0;
+    uint16_t new_bytes_unused = 0;
 
     if (bytes_unused == 0)
     {
@@ -754,7 +769,7 @@ static u_int16_t ParseDNSQuestion(const unsigned char *data,
     switch (dnsSessionData->curr_rec_state)
     {
     case DNS_RESP_STATE_Q_TYPE:
-        dnsSessionData->curr_q.type = (u_int8_t)*data << 8;
+        dnsSessionData->curr_q.type = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_Q_TYPE_PART;
@@ -764,7 +779,7 @@ static u_int16_t ParseDNSQuestion(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_Q_TYPE_PART:
-        dnsSessionData->curr_q.type |= (u_int8_t)*data;
+        dnsSessionData->curr_q.type |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_Q_CLASS;
@@ -774,7 +789,7 @@ static u_int16_t ParseDNSQuestion(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_Q_CLASS:
-        dnsSessionData->curr_q.dns_class = (u_int8_t)*data << 8;
+        dnsSessionData->curr_q.dns_class = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_Q_CLASS_PART;
@@ -784,7 +799,7 @@ static u_int16_t ParseDNSQuestion(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_Q_CLASS_PART:
-        dnsSessionData->curr_q.dns_class |= (u_int8_t)*data;
+        dnsSessionData->curr_q.dns_class |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_Q_COMPLETE;
@@ -801,13 +816,13 @@ static u_int16_t ParseDNSQuestion(const unsigned char *data,
     return bytes_unused;
 }
 
-u_int16_t ParseDNSAnswer(const unsigned char *data,
-                         u_int16_t data_size,
-                         u_int16_t bytes_unused,
+uint16_t ParseDNSAnswer(const unsigned char *data,
+                         uint16_t data_size,
+                         uint16_t bytes_unused,
                          DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_used = 0;
-    u_int16_t new_bytes_unused = 0;
+    uint16_t bytes_used = 0;
+    uint16_t new_bytes_unused = 0;
 
     if (bytes_unused == 0)
     {
@@ -837,7 +852,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
     switch (dnsSessionData->curr_rec_state)
     {
     case DNS_RESP_STATE_RR_TYPE:
-        dnsSessionData->curr_rr.type = (u_int8_t)*data << 8;
+        dnsSessionData->curr_rr.type = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_TYPE_PART;
@@ -847,7 +862,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_RR_TYPE_PART:
-        dnsSessionData->curr_rr.type |= (u_int8_t)*data;
+        dnsSessionData->curr_rr.type |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_CLASS;
@@ -857,7 +872,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_RR_CLASS:
-        dnsSessionData->curr_rr.dns_class = (u_int8_t)*data << 8;
+        dnsSessionData->curr_rr.dns_class = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_CLASS_PART;
@@ -867,7 +882,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_RR_CLASS_PART:
-        dnsSessionData->curr_rr.dns_class |= (u_int8_t)*data;
+        dnsSessionData->curr_rr.dns_class |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_TTL;
@@ -877,7 +892,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_RR_TTL:
-        dnsSessionData->curr_rr.ttl = (u_int8_t)*data << 24;
+        dnsSessionData->curr_rr.ttl = (uint8_t)*data << 24;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_TTL_PART;
@@ -892,7 +907,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         {
             dnsSessionData->bytes_seen_curr_rec++;
             dnsSessionData->curr_rr.ttl |= 
-                (u_int8_t)*data << (4-dnsSessionData->bytes_seen_curr_rec)*8;
+                (uint8_t)*data << (4-dnsSessionData->bytes_seen_curr_rec)*8;
             data++;
             bytes_unused--;
             if (bytes_unused == 0)
@@ -906,7 +921,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
             return bytes_unused;
         }
     case DNS_RESP_STATE_RR_RDLENGTH:
-        dnsSessionData->curr_rr.length = (u_int8_t)*data << 8;
+        dnsSessionData->curr_rr.length = (uint8_t)*data << 8;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_RDLENGTH_PART;
@@ -916,7 +931,7 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
         }
         /* Fall through */
     case DNS_RESP_STATE_RR_RDLENGTH_PART:
-        dnsSessionData->curr_rr.length |= (u_int8_t)*data;
+        dnsSessionData->curr_rr.length |= (uint8_t)*data;
         data++;
         bytes_unused--;
         dnsSessionData->curr_rec_state = DNS_RESP_STATE_RR_RDATA_START;
@@ -943,11 +958,11 @@ u_int16_t ParseDNSAnswer(const unsigned char *data,
  * Vulnerability Research by Lurene Grenier, Judy Novak,
  * and Brian Caswell.
  */
-u_int16_t CheckRRTypeTXTVuln(const unsigned char *data,
-                       u_int16_t bytes_unused,
+uint16_t CheckRRTypeTXTVuln(const unsigned char *data,
+                       uint16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_required = dnsSessionData->curr_txt.txt_len - dnsSessionData->curr_txt.txt_bytes_seen;
+    uint16_t bytes_required = dnsSessionData->curr_txt.txt_len - dnsSessionData->curr_txt.txt_bytes_seen;
 
     while (dnsSessionData->curr_txt.name_state != DNS_RESP_STATE_RR_NAME_COMPLETE)
     {
@@ -968,18 +983,18 @@ u_int16_t CheckRRTypeTXTVuln(const unsigned char *data,
         switch (dnsSessionData->curr_txt.name_state)
         {
         case DNS_RESP_STATE_RR_NAME_SIZE:
-            dnsSessionData->curr_txt.txt_len = (u_int8_t)*data;
+            dnsSessionData->curr_txt.txt_len = (uint8_t)*data;
             dnsSessionData->curr_txt.txt_count++;
             dnsSessionData->curr_txt.total_txt_len += dnsSessionData->curr_txt.txt_len + 1; /* include the NULL */
 
             if (!dnsSessionData->curr_txt.alerted)
             {
-                u_int32_t overflow_check = (dnsSessionData->curr_txt.txt_count * 4) +
+                uint32_t overflow_check = (dnsSessionData->curr_txt.txt_count * 4) +
                                            (dnsSessionData->curr_txt.total_txt_len * 2) + 4;
                 /* if txt_count * 4 + total_txt_len * 2 + 4 > FFFF, vulnerability! */
                 if (overflow_check > 0xFFFF)
                 {
-                    if (dns_config.enabled_alerts & DNS_ALERT_RDATA_OVERFLOW)
+                    if (dns_eval_config->enabled_alerts & DNS_ALERT_RDATA_OVERFLOW)
                     {
                         /* Alert on obsolete DNS RR types */
                         DNS_ALERT(DNS_EVENT_RDATA_OVERFLOW, DNS_EVENT_RDATA_OVERFLOW_STR);
@@ -1035,11 +1050,11 @@ u_int16_t CheckRRTypeTXTVuln(const unsigned char *data,
     return bytes_unused;
 }
 
-u_int16_t SkipDNSRData(const unsigned char *data,
-                       u_int16_t bytes_unused,
+uint16_t SkipDNSRData(const unsigned char *data,
+                       uint16_t bytes_unused,
                        DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_required = dnsSessionData->curr_rr.length - dnsSessionData->bytes_seen_curr_rec;
+    uint16_t bytes_required = dnsSessionData->curr_rr.length - dnsSessionData->bytes_seen_curr_rec;
 
     if (bytes_required <= bytes_unused)
     {
@@ -1058,9 +1073,9 @@ u_int16_t SkipDNSRData(const unsigned char *data,
     return bytes_unused;
 }
 
-u_int16_t ParseDNSRData(SFSnortPacket *p,
+uint16_t ParseDNSRData(SFSnortPacket *p,
                         const unsigned char *data,
-                        u_int16_t bytes_unused,
+                        uint16_t bytes_unused,
                         DNSSessionData *dnsSessionData)
 {
     if (bytes_unused == 0)
@@ -1077,7 +1092,7 @@ u_int16_t ParseDNSRData(SFSnortPacket *p,
 
     case DNS_RR_TYPE_MD:
     case DNS_RR_TYPE_MF:
-        if (dns_config.enabled_alerts & DNS_ALERT_OBSOLETE_TYPES)
+        if (dns_eval_config->enabled_alerts & DNS_ALERT_OBSOLETE_TYPES)
         {
             /* Alert on obsolete DNS RR types */
             DNS_ALERT(DNS_EVENT_OBSOLETE_TYPES, DNS_EVENT_OBSOLETE_TYPES_STR);
@@ -1090,7 +1105,7 @@ u_int16_t ParseDNSRData(SFSnortPacket *p,
     case DNS_RR_TYPE_MR:
     case DNS_RR_TYPE_NULL:
     case DNS_RR_TYPE_MINFO:
-        if (dns_config.enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES)
+        if (dns_eval_config->enabled_alerts & DNS_ALERT_EXPERIMENTAL_TYPES)
         {
             /* Alert on experimental DNS RR types */
             DNS_ALERT(DNS_EVENT_EXPERIMENTAL_TYPES, DNS_EVENT_EXPERIMENTAL_TYPES_STR);
@@ -1119,7 +1134,7 @@ u_int16_t ParseDNSRData(SFSnortPacket *p,
 
 void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
 {
-    u_int16_t bytes_unused = p->payload_size;
+    uint16_t bytes_unused = p->payload_size;
     int i;
     const unsigned char *data = p->payload;
 
@@ -1398,15 +1413,24 @@ void ParseDNSResponseMessage(SFSnortPacket *p, DNSSessionData *dnsSessionData)
 static void ProcessDNS( void* packetPtr, void* context )
 {
     DNSSessionData* dnsSessionData = NULL;
-    u_int8_t src = 0;
-    u_int8_t dst = 0;
-    u_int8_t known_port = 0;
-    u_int8_t direction = 0; 
+    uint8_t src = 0;
+    uint8_t dst = 0;
+    uint8_t known_port = 0;
+    uint8_t direction = 0; 
     SFSnortPacket* p;
 #ifdef TARGET_BASED
     int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
 #endif
+    DNSConfig *config = NULL;
     PROFILE_VARS;
+
+    sfPolicyUserPolicySet (dns_config, _dpd.getRuntimePolicy());
+    config = (DNSConfig *)sfPolicyUserDataGetCurrent(dns_config);
+
+    if (config == NULL)
+        return;
+
+    dns_eval_config = config;
     
     p = (SFSnortPacket*) packetPtr;
 
@@ -1414,45 +1438,53 @@ static void ProcessDNS( void* packetPtr, void* context )
     if ((p->payload_size == 0) || (!IsTCP(p) && !IsUDP(p)) || (p->payload == NULL))
         return;
 
-    /* Check the ports to make sure this is a DNS port.
-     * Otherwise no need to examine the traffic.
-     */
+    /* Attempt to get a previously allocated DNS block. If none exists,
+     * allocate and register one with the stream layer. */
+    dnsSessionData = _dpd.streamAPI->get_application_data( 
+        p->stream_session_ptr, PP_DNS );
+
+    if (dnsSessionData == NULL)
+    {
+        /* Check the ports to make sure this is a DNS port.
+         * Otherwise no need to examine the traffic.
+         */
 #ifdef TARGET_BASED
-    app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
-    if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
-    {
-        return;
-    }
-    if (app_id && app_id != dns_app_id)
-    {
-        return;
-    }
-    if (!app_id) {
+        app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+
+        if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
+            return;
+
+        if (app_id && (app_id != dns_app_id))
+            return;
+
+        if (!app_id)
+        {
 #endif
-    src = CheckDNSPort( p->src_port );
-    dst = CheckDNSPort( p->dst_port );
+            src = CheckDNSPort(config, p->src_port);
+            dst = CheckDNSPort(config, p->dst_port);
 #ifdef TARGET_BASED
-    }
+        }
 #endif
 
-    /* See if a known server port is involved. */
-    known_port = ( src || dst ? 1 : 0 );
-      
+        /* See if a known server port is involved. */
+        known_port = ( src || dst ? 1 : 0 );
+
 #if 0
-    if ( !dns_config.autodetect && !src && !dst )
-    {
-        /* Not one of the ports we care about. */
-        return;
-    }
+        if ( !dns_config->autodetect && !src && !dst )
+        {
+            /* Not one of the ports we care about. */
+            return;
+        }
 #endif
 #ifdef TARGET_BASED
-    if (!app_id && !known_port)
+        if (!app_id && !known_port)
 #else
-    if (!known_port)
+        if (!known_port)
 #endif
-    {
-        /* Not one of the ports we care about. */
-        return;
+        {
+            /* Not one of the ports we care about. */
+            return;
+        }
     }
     
     /* For TCP, do a few extra checks... */
@@ -1518,7 +1550,8 @@ static void ProcessDNS( void* packetPtr, void* context )
     /* Check the stream session. If it does not currently
      * have our DNS data-block attached, create one.
      */
-    dnsSessionData = GetDNSSessionData( p );
+    if (dnsSessionData == NULL)
+        dnsSessionData = GetDNSSessionData(p, config);
     
     if ( !dnsSessionData )
     {
@@ -1552,23 +1585,169 @@ static void DNSResetStats(int signal, void *data)
     return;
 }
 
-static void _addPortsToStream5Filter()
+static void _addPortsToStream5Filter(DNSConfig *config, tSfPolicyId policy_id)
 {
     unsigned int portNum;
 
+    if (config == NULL)
+        return;
+
     for (portNum = 0; portNum < MAXPORTS; portNum++)
     {
-        if(dns_config.ports[(portNum/8)] & (1<<(portNum%8)))
+        if(config->ports[(portNum/8)] & (1<<(portNum%8)))
         {
             //Add port the port
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_UDP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_TCP, (uint16_t)portNum, PORT_MONITOR_SESSION, policy_id, 1);
+
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_UDP, (uint16_t)portNum, PORT_MONITOR_SESSION, policy_id, 1);
         }
     }
 }
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter()
+static void _addServicesToStream5Filter(tSfPolicyId policy_id)
 {
-    _dpd.streamAPI->set_service_filter_status(dns_app_id, PORT_MONITOR_SESSION);
+    _dpd.streamAPI->set_service_filter_status
+        (dns_app_id, PORT_MONITOR_SESSION, policy_id, 1);
+}
+#endif
+
+static int DnsFreeConfigPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DNSConfig *pPolicyConfig = (DNSConfig *)pData;
+
+    //do any housekeeping before freeing DnsConfig
+
+    sfPolicyUserDataClear (config, policyId);
+    free(pPolicyConfig);
+    return 0;
+}
+
+static void DNSFreeConfig(tSfPolicyUserContextId config)
+{
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, DnsFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
+}
+
+static int DNSCheckPolicyConfig(
+            tSfPolicyUserContextId config,
+            tSfPolicyId policyId,
+            void* pData
+            )
+{
+    _dpd.setParserPolicy(policyId);
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
+                                        "for DNS preprocessor\n");
+    }
+
+    return 0;
+}
+
+static void DNSCheckConfig(void)
+{
+    sfPolicyUserDataIterate (dns_config, DNSCheckPolicyConfig);
+}
+
+static void DNSCleanExit(int signal, void *data)
+{
+    DNSFreeConfig(dns_config);
+    dns_config = NULL;
+}
+
+#ifdef SNORT_RELOAD
+static void DNSReload(char *argp)
+{
+    int policy_id = _dpd.getParserPolicy();
+    DNSConfig *pPolicyConfig = NULL;
+
+    if (dns_swap_config == NULL)
+    {
+        //create a context
+        dns_swap_config = sfPolicyConfigCreate();
+        if (dns_swap_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                            "DNS configuration.\n");
+        }
+
+        if (_dpd.streamAPI == NULL)
+        {
+            DynamicPreprocessorFatalMessage("%s(%d) Dns preprocessor requires the "
+                "stream5 preprocessor to be enabled.\n",
+                *(_dpd.config_file), *(_dpd.config_line));
+        }
+
+        _dpd.addPreprocReloadVerify(DNSReloadVerify);
+    }
+
+    sfPolicyUserPolicySet (dns_swap_config, policy_id);
+    pPolicyConfig = (DNSConfig *)sfPolicyUserDataGetCurrent(dns_swap_config);
+    if (pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("%s(%d) Dns preprocessor can only "
+            "be configured once.\n", *(_dpd.config_file), *(_dpd.config_line));
+    }
+
+    pPolicyConfig = (DNSConfig *)calloc(1,sizeof(DNSConfig));
+    if (!pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                        "DNS configuration.\n");
+    }
+ 
+    sfPolicyUserDataSetCurrent(dns_swap_config, pPolicyConfig);
+
+    ParseDNSArgs(pPolicyConfig, (u_char *)argp);
+
+    _dpd.addPreproc(ProcessDNS, PRIORITY_APPLICATION, PP_DNS, PROTO_BIT__TCP | PROTO_BIT__UDP);
+
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+
+#ifdef TARGET_BASED
+    _addServicesToStream5Filter(policy_id);
+#endif
+}
+
+static int DNSReloadVerify(void)
+{
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
+                                        "for DNS preprocessor\n");
+    }
+
+    return 0;
+}
+
+static void * DNSReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = dns_config;
+
+    if (dns_swap_config == NULL)
+        return NULL;
+
+    dns_config = dns_swap_config;
+    dns_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void DNSReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    DNSFreeConfig((tSfPolicyUserContextId)data);
 }
 #endif

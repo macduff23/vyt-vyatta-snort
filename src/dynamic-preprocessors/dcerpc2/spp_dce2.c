@@ -35,6 +35,8 @@
 #include "sf_snort_packet.h"
 #include "sf_dynamic_preprocessor.h"
 #include "stream_api.h"
+#include <sfPolicy.h>
+#include <sfPolicyUserData.h>
 
 /********************************************************************
  * Global variables
@@ -42,6 +44,8 @@
 #ifdef PERF_PROFILING
 PreprocStats dce2_pstat_main;
 PreprocStats dce2_pstat_session;
+PreprocStats dce2_pstat_new_session;
+PreprocStats dce2_pstat_session_state;
 PreprocStats dce2_pstat_detect;
 PreprocStats dce2_pstat_log;
 PreprocStats dce2_pstat_smb_seg;
@@ -61,8 +65,13 @@ PreprocStats dce2_pstat_cl_reass;
 /********************************************************************
  * Extern variables
  ********************************************************************/
-extern DCE2_ServerConfig *dconfig;
-extern table_t *dce2_sconfigs;      /* Routing table with server configurations */
+extern tSfPolicyUserContextId dce2_config;
+extern DCE2_Config *dce2_eval_config;
+
+#ifdef SNORT_RELOAD
+extern tSfPolicyUserContextId dce2_swap_config;
+#endif
+
 extern DCE2_Stats dce2_stats;
 extern DCE2_Memory dce2_memory;
 extern char **dce2_trans_strs;
@@ -74,22 +83,24 @@ extern DCE2_ProtoIds dce2_proto_ids;
  * Macros
  ********************************************************************/
 #ifdef PERF_PROFILING
-#define DCE2_PSTAT__MAIN       "DceRpcMain"
-#define DCE2_PSTAT__SESSION    "DceRpcSession"
-#define DCE2_PSTAT__DETECT     "DceRpcDetect"
-#define DCE2_PSTAT__LOG        "DceRpcLog"
-#define DCE2_PSTAT__SMB_SEG    "DceRpcSmbSeg"
-#define DCE2_PSTAT__SMB_TRANS  "DceRpcSmbTrans"
-#define DCE2_PSTAT__SMB_UID    "DceRpcSmbUid"
-#define DCE2_PSTAT__SMB_TID    "DceRpcSmbTid"
-#define DCE2_PSTAT__SMB_FID    "DceRpcSmbFid"
-#define DCE2_PSTAT__CO_SEG     "DceRpcCoSeg"
-#define DCE2_PSTAT__CO_FRAG    "DceRpcCoFrag"
-#define DCE2_PSTAT__CO_REASS   "DceRpcCoReass"
-#define DCE2_PSTAT__CO_CTX     "DceRpcCoCtx"
-#define DCE2_PSTAT__CL_ACTS    "DceRpcClActs"
-#define DCE2_PSTAT__CL_FRAG    "DceRpcClFrag"
-#define DCE2_PSTAT__CL_REASS   "DceRpcClReass"
+#define DCE2_PSTAT__MAIN         "DceRpcMain"
+#define DCE2_PSTAT__SESSION      "DceRpcSession"
+#define DCE2_PSTAT__NEW_SESSION  "DceRpcNewSession"
+#define DCE2_PSTAT__SSN_STATE    "DceRpcSessionState"
+#define DCE2_PSTAT__DETECT       "DceRpcDetect"
+#define DCE2_PSTAT__LOG          "DceRpcLog"
+#define DCE2_PSTAT__SMB_SEG      "DceRpcSmbSeg"
+#define DCE2_PSTAT__SMB_TRANS    "DceRpcSmbTrans"
+#define DCE2_PSTAT__SMB_UID      "DceRpcSmbUid"
+#define DCE2_PSTAT__SMB_TID      "DceRpcSmbTid"
+#define DCE2_PSTAT__SMB_FID      "DceRpcSmbFid"
+#define DCE2_PSTAT__CO_SEG       "DceRpcCoSeg"
+#define DCE2_PSTAT__CO_FRAG      "DceRpcCoFrag"
+#define DCE2_PSTAT__CO_REASS     "DceRpcCoReass"
+#define DCE2_PSTAT__CO_CTX       "DceRpcCoCtx"
+#define DCE2_PSTAT__CL_ACTS      "DceRpcClActs"
+#define DCE2_PSTAT__CL_FRAG      "DceRpcClFrag"
+#define DCE2_PSTAT__CL_REASS     "DceRpcClReass"
 #endif  /* PERF_PROFILING */
 
 /********************************************************************
@@ -104,6 +115,14 @@ static void DCE2_Reset(int, void *);
 static void DCE2_ResetStats(int, void *);
 static void DCE2_CleanExit(int, void *);
 
+#ifdef SNORT_RELOAD
+static void DCE2_ReloadGlobal(char *);
+static void DCE2_ReloadServer(char *);
+static int DCE2_ReloadVerify(void);
+static void * DCE2_ReloadSwap(void);
+static void DCE2_ReloadSwapFree(void *);
+#endif
+
 /********************************************************************
  * Function: DCE2_RegisterPreprocessor()
  *
@@ -116,8 +135,15 @@ static void DCE2_CleanExit(int, void *);
  ********************************************************************/
 void DCE2_RegisterPreprocessor(void)
 {
+#ifndef SNORT_RELOAD
     _dpd.registerPreproc(DCE2_GNAME, DCE2_InitGlobal);
     _dpd.registerPreproc(DCE2_SNAME, DCE2_InitServer);
+#else
+    _dpd.registerPreproc(DCE2_GNAME, DCE2_InitGlobal, DCE2_ReloadGlobal,
+                         DCE2_ReloadSwap, DCE2_ReloadSwapFree);
+    _dpd.registerPreproc(DCE2_SNAME, DCE2_InitServer,
+                         DCE2_ReloadServer, NULL, NULL);
+#endif
 }
 
 /*********************************************************************
@@ -132,72 +158,112 @@ void DCE2_RegisterPreprocessor(void)
  *********************************************************************/
 static void DCE2_InitGlobal(char *args)
 {
-    if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    DCE2_Config *pDefaultPolicyConfig = NULL;
+    DCE2_Config *pCurrentPolicyConfig = NULL;
+
+    if (dce2_config == NULL)
     {
-        DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
-                 "TCP and UDP tracking.",
+        dce2_config = sfPolicyConfigCreate();
+        if (dce2_config == NULL)
+        {
+            DCE2_Die("%s(%d) \"%s\" configuration: Could not allocate memory "
+                     "configuration.\n",
+                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        }
+
+        DCE2_MemInit();
+        DCE2_StatsInit();
+        DCE2_EventsInit();
+
+        if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
+        {
+            DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
+                     "TCP and UDP tracking.",
+                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        }
+        
+        /* Initialize reassembly packet */
+        DCE2_InitRpkts();   
+
+        _dpd.addPreprocConfCheck(DCE2_CheckConfig);
+        _dpd.registerPreprocStats(DCE2_GNAME, DCE2_PrintStats);
+        _dpd.addPreprocReset(DCE2_Reset, NULL, PRIORITY_LAST, PP_DCE2);
+        _dpd.addPreprocResetStats(DCE2_ResetStats, NULL, PRIORITY_LAST, PP_DCE2);
+        _dpd.addPreprocExit(DCE2_CleanExit, NULL, PRIORITY_LAST, PP_DCE2);
+
+#ifdef PERF_PROFILING
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__MAIN, &dce2_pstat_main, 0, _dpd.totalPerfStats);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SESSION, &dce2_pstat_session, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__NEW_SESSION, &dce2_pstat_new_session, 2, &dce2_pstat_session);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SSN_STATE, &dce2_pstat_session_state, 2, &dce2_pstat_session);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__LOG, &dce2_pstat_log, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__DETECT, &dce2_pstat_detect, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_SEG, &dce2_pstat_smb_seg, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_TRANS, &dce2_pstat_smb_trans, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_UID, &dce2_pstat_smb_uid, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_TID, &dce2_pstat_smb_tid, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_FID, &dce2_pstat_smb_fid, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_SEG, &dce2_pstat_co_seg, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_FRAG, &dce2_pstat_co_frag, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_REASS, &dce2_pstat_co_reass, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_CTX, &dce2_pstat_co_ctx, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_ACTS, &dce2_pstat_cl_acts, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_FRAG, &dce2_pstat_cl_frag, 1, &dce2_pstat_main);
+        _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_REASS, &dce2_pstat_cl_reass, 1, &dce2_pstat_main);
+#endif
+
+#ifdef TARGET_BASED
+        dce2_proto_ids.dcerpc = _dpd.findProtocolReference(DCE2_PROTO_REF_STR__DCERPC);
+        if (dce2_proto_ids.dcerpc == SFTARGET_UNKNOWN_PROTOCOL)
+            dce2_proto_ids.dcerpc = _dpd.addProtocolReference(DCE2_PROTO_REF_STR__DCERPC);
+
+        /* smb and netbios-ssn refer to the same thing */
+        dce2_proto_ids.nbss = _dpd.findProtocolReference(DCE2_PROTO_REF_STR__NBSS);
+        if (dce2_proto_ids.nbss == SFTARGET_UNKNOWN_PROTOCOL)
+            dce2_proto_ids.nbss = _dpd.addProtocolReference(DCE2_PROTO_REF_STR__NBSS);
+#endif
+    }
+
+    sfPolicyUserPolicySet(dce2_config, policy_id);
+    pDefaultPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetDefault(dce2_config);
+    pCurrentPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetCurrent(dce2_config);
+
+    if ((policy_id != 0) && (pDefaultPolicyConfig == NULL))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Must configure default policy "
+                 "if other policies are to be configured.\n",
                  *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
     }
 
-    if (_dpd.isPreprocEnabled(PP_DCERPC))
+    /* Can only do one global configuration */
+    if (pCurrentPolicyConfig != NULL)
     {
-        DCE2_Die("%s(%d) \"%s\" configuration: Only one DCE/RPC preprocessor "
-                 "can be configured.",
+        DCE2_Die("%s(%d) \"%s\" configuration: Only one global configuration can be specified.",
                  *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
     }
 
     DCE2_RegRuleOptions();
 
-    DCE2_MemInit();
-    DCE2_StatsInit();
-    DCE2_EventsInit();
+    pCurrentPolicyConfig = (DCE2_Config *)DCE2_Alloc(sizeof(DCE2_Config), DCE2_MEM_TYPE__CONFIG);
+    sfPolicyUserDataSetCurrent(dce2_config, pCurrentPolicyConfig);
 
     /* Parse configuration args */
-    DCE2_GlobalConfigure(args);
-
-    /* Initialize reassembly packet */
-    DCE2_InitRpkts();
+    DCE2_GlobalConfigure(pCurrentPolicyConfig, args);
 
     /* Register callbacks */
-    _dpd.addPreprocConfCheck(DCE2_CheckConfig);
-	_dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
-    _dpd.registerPreprocStats(DCE2_GNAME, DCE2_PrintStats);
-	_dpd.addPreprocReset(DCE2_Reset, NULL, PRIORITY_LAST, PP_DCE2);
-	_dpd.addPreprocResetStats(DCE2_ResetStats, NULL, PRIORITY_LAST, PP_DCE2);
-	_dpd.addPreprocExit(DCE2_CleanExit, NULL, PRIORITY_LAST, PP_DCE2);
-
-#ifdef PERF_PROFILING
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__MAIN, &dce2_pstat_main, 0, _dpd.totalPerfStats);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SESSION, &dce2_pstat_session, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__LOG, &dce2_pstat_log, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__DETECT, &dce2_pstat_detect, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_SEG, &dce2_pstat_smb_seg, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_TRANS, &dce2_pstat_smb_trans, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_UID, &dce2_pstat_smb_uid, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_TID, &dce2_pstat_smb_tid, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__SMB_FID, &dce2_pstat_smb_fid, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_SEG, &dce2_pstat_co_seg, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_FRAG, &dce2_pstat_co_frag, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_REASS, &dce2_pstat_co_reass, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CO_CTX, &dce2_pstat_co_ctx, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_ACTS, &dce2_pstat_cl_acts, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_FRAG, &dce2_pstat_cl_frag, 1, &dce2_pstat_main);
-    _dpd.addPreprocProfileFunc(DCE2_PSTAT__CL_REASS, &dce2_pstat_cl_reass, 1, &dce2_pstat_main);
-#endif
+    _dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
 
 #ifdef TARGET_BASED
-    dce2_proto_ids.dcerpc = _dpd.findProtocolReference(DCE2_PROTO_REF_STR__DCERPC);
-    if (dce2_proto_ids.dcerpc == SFTARGET_UNKNOWN_PROTOCOL)
-        dce2_proto_ids.dcerpc = _dpd.addProtocolReference(DCE2_PROTO_REF_STR__DCERPC);
+    _dpd.streamAPI->set_service_filter_status
+        (dce2_proto_ids.dcerpc, PORT_MONITOR_SESSION, policy_id, 1);
 
-    /* smb and netbios-ssn refer to the same thing */
-    dce2_proto_ids.nbss = _dpd.findProtocolReference(DCE2_PROTO_REF_STR__NBSS);
-    if (dce2_proto_ids.nbss == SFTARGET_UNKNOWN_PROTOCOL)
-        dce2_proto_ids.nbss = _dpd.addProtocolReference(DCE2_PROTO_REF_STR__NBSS);
-
-    _dpd.streamAPI->set_service_filter_status(dce2_proto_ids.dcerpc, PORT_MONITOR_SESSION);
-    _dpd.streamAPI->set_service_filter_status(dce2_proto_ids.nbss, PORT_MONITOR_SESSION);
+    _dpd.streamAPI->set_service_filter_status
+        (dce2_proto_ids.nbss, PORT_MONITOR_SESSION, policy_id, 1);
 #endif
+
+    if (policy_id != 0)
+        pCurrentPolicyConfig->gconfig->memcap = pDefaultPolicyConfig->gconfig->memcap;
 }
 
 /*********************************************************************
@@ -212,8 +278,65 @@ static void DCE2_InitGlobal(char *args)
  *********************************************************************/
 static void DCE2_InitServer(char *args)
 {
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    DCE2_Config *pPolicyConfig = NULL;
+
+    sfPolicyUserPolicySet (dce2_config, policy_id);
+
+    pPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetCurrent(dce2_config);
+
+    if ((pPolicyConfig == NULL) || (pPolicyConfig->gconfig == NULL))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: \"%s\" must be configured "
+                 "before \"%s\".", *_dpd.config_file, *_dpd.config_line,
+                 DCE2_SNAME, DCE2_GNAME, DCE2_SNAME);
+    }
+
     /* Parse configuration args */
-    DCE2_ServerConfigure(args);
+    DCE2_ServerConfigure(pPolicyConfig, args);
+}
+
+static int DCE2_CheckConfigPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DCE2_Config *pPolicyConfig = (DCE2_Config *)pData;
+    DCE2_ServerConfig *dconfig;
+
+    _dpd.setParserPolicy(policyId);
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
+                "TCP and UDP tracking.",
+                *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    if (_dpd.isPreprocEnabled(PP_DCERPC))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Only one DCE/RPC preprocessor "
+                "can be configured.",
+                *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    dconfig = pPolicyConfig->dconfig;
+
+    if (dconfig == NULL)
+        DCE2_CreateDefaultServerConfig(pPolicyConfig, policyId);
+
+#ifdef TARGET_BASED
+    if (!_dpd.isAdaptiveConfigured(policyId, 1))
+#endif
+    {
+        DCE2_ScCheckTransports(pPolicyConfig);
+    }
+
+    /* Register routing table memory */
+    if (pPolicyConfig->sconfigs != NULL)
+        DCE2_RegMem(sfrt_usage(pPolicyConfig->sconfigs), DCE2_MEM_TYPE__RT);
+
+    return 0;
 }
 
 /*********************************************************************
@@ -228,19 +351,7 @@ static void DCE2_InitServer(char *args)
  *********************************************************************/
 static void DCE2_CheckConfig(void)
 {
-    if (dce2_dconfig == NULL)
-        DCE2_CreateDefaultServerConfig();
-
-    /* Register routing table memory */
-    if (dce2_sconfigs != NULL)
-        DCE2_RegMem(sfrt_usage(dce2_sconfigs), DCE2_MEM_TYPE__RT);
-
-#ifdef TARGET_BASED
-    if (!_dpd.isAdaptiveConfigured())
-#endif
-    {
-        DCE2_ScCheckTransports();
-    }
+    sfPolicyUserDataIterate (dce2_config, DCE2_CheckConfigPolicy);
 }
 
 /*********************************************************************
@@ -260,36 +371,38 @@ static void DCE2_Main(void *pkt, void *context)
 	SFSnortPacket *p = (SFSnortPacket *)pkt;
     PROFILE_VARS;
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__START_MSG);
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__START_MSG));
+
+    sfPolicyUserPolicySet (dce2_config, _dpd.getRuntimePolicy());
 
 #ifdef DEBUG
     if (DCE2_SsnFromServer(p))
     {
-        DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Packet from server.\n");
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Packet from server.\n"));
     }
     else
     {
-        DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Packet from client.\n");
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Packet from client.\n"));
     }
 #endif
 
     /* No inspection to do */
     if ((p->payload_size == 0) || (p->payload == NULL))
     {
-        DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "No payload - not inspecting.\n");
-        DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "No payload - not inspecting.\n"));
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
         return;
     }
     else if (p->stream_session_ptr == NULL)
     {
-        DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "No session pointer - not inspecting.\n");
-        DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "No session pointer - not inspecting.\n"));
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
         return;
     }
     else if (!IsTCP(p) && !IsUDP(p))
     {
-        DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Not UDP or TCP - not inspecting.\n");
-        DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Not UDP or TCP - not inspecting.\n"));
+        DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
         return;
     }
 
@@ -297,14 +410,14 @@ static void DCE2_Main(void *pkt, void *context)
     {
         if (DCE2_SsnIsMidstream(p))
         {
-            DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Midstream - not inspecting.\n");
-            DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+            DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Midstream - not inspecting.\n"));
+            DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
             return;
         }
         else if (!DCE2_SsnIsEstablished(p))
         {
-            DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Not established - not inspecting.\n");
-            DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+            DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Not established - not inspecting.\n"));
+            DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
             return;
         }
     }
@@ -316,7 +429,7 @@ static void DCE2_Main(void *pkt, void *context)
 
     PREPROC_PROFILE_END(dce2_pstat_main);
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG);
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__END_MSG));
 }
 
 /******************************************************************
@@ -344,6 +457,8 @@ static void DCE2_PrintStats(int exiting)
             _dpd.logMsg("  Total sessions autodetected: "STDu64"\n", dce2_stats.sessions_autodetected);
         if (dce2_stats.bad_autodetects > 0)
             _dpd.logMsg("  Bad autodetects: "STDu64"\n", dce2_stats.bad_autodetects);
+        if (dce2_stats.events > 0)
+            _dpd.logMsg("  Preprocessor events: "STDu64"\n", dce2_stats.events);
 #ifdef DEBUG
         {
             unsigned int port;
@@ -387,6 +502,9 @@ static void DCE2_PrintStats(int exiting)
                 _dpd.logMsg("        Not IPC packets (after tree connect): "STDu64"\n", dce2_stats.smb_non_ipc_packets);
             if (dce2_stats.smb_nbss_not_message > 0)
                 _dpd.logMsg("        Not NBSS Session Message: "STDu64"\n", dce2_stats.smb_nbss_not_message);
+
+            if (dce2_stats.smb_seg_reassembled > 0)
+                _dpd.logMsg("        Seg reassembled: "STDu64"\n", dce2_stats.smb_seg_reassembled);
 
             if ((dce2_stats.smb_ssx_req > 0) || (dce2_stats.smb_ssx_resp > 0))
             {
@@ -492,27 +610,27 @@ static void DCE2_PrintStats(int exiting)
                 if (dce2_stats.smb_tcx_chained > 0)
                 {
                     _dpd.logMsg("        Tree Connect AndX chained requests\n");
-                    if (dce2_stats.smb_tcx_resp_chained_ssx > 0)
+                    if (dce2_stats.smb_tcx_req_chained_ssx > 0)
                         _dpd.logMsg("          Session Setup AndX: "STDu64"\n", dce2_stats.smb_tcx_req_chained_ssx);
-                    if (dce2_stats.smb_tcx_resp_chained_loffx > 0)
+                    if (dce2_stats.smb_tcx_req_chained_loffx > 0)
                         _dpd.logMsg("          Logoff AndX: "STDu64"\n", dce2_stats.smb_tcx_req_chained_loffx);
-                    if (dce2_stats.smb_tcx_resp_chained_tdis > 0)
+                    if (dce2_stats.smb_tcx_req_chained_tdis > 0)
                         _dpd.logMsg("          Tree Disconnect: "STDu64"\n", dce2_stats.smb_tcx_req_chained_tdis);
-                    if (dce2_stats.smb_tcx_resp_chained_open > 0)
+                    if (dce2_stats.smb_tcx_req_chained_open > 0)
                         _dpd.logMsg("          Open: "STDu64"\n", dce2_stats.smb_tcx_req_chained_open);
-                    if (dce2_stats.smb_tcx_resp_chained_openx > 0)
+                    if (dce2_stats.smb_tcx_req_chained_openx > 0)
                         _dpd.logMsg("          Open AndX: "STDu64"\n", dce2_stats.smb_tcx_req_chained_openx);
-                    if (dce2_stats.smb_tcx_resp_chained_ntcx > 0)
+                    if (dce2_stats.smb_tcx_req_chained_ntcx > 0)
                         _dpd.logMsg("          Nt Create AndX: "STDu64"\n", dce2_stats.smb_tcx_req_chained_ntcx);
-                    if (dce2_stats.smb_tcx_resp_chained_close > 0)
+                    if (dce2_stats.smb_tcx_req_chained_close > 0)
                         _dpd.logMsg("          Close: "STDu64"\n", dce2_stats.smb_tcx_req_chained_close);
-                    if (dce2_stats.smb_tcx_resp_chained_trans > 0)
+                    if (dce2_stats.smb_tcx_req_chained_trans > 0)
                         _dpd.logMsg("          Transact: "STDu64"\n", dce2_stats.smb_tcx_req_chained_trans);
-                    if (dce2_stats.smb_tcx_resp_chained_write > 0)
+                    if (dce2_stats.smb_tcx_req_chained_write > 0)
                         _dpd.logMsg("          Write: "STDu64"\n", dce2_stats.smb_tcx_req_chained_write);
-                    if (dce2_stats.smb_tcx_resp_chained_readx > 0)
+                    if (dce2_stats.smb_tcx_req_chained_readx > 0)
                         _dpd.logMsg("          Read AndX: "STDu64"\n", dce2_stats.smb_tcx_req_chained_readx);
-                    if (dce2_stats.smb_tcx_resp_chained_other > 0)
+                    if (dce2_stats.smb_tcx_req_chained_other > 0)
                         _dpd.logMsg("          Other: "STDu64"\n", dce2_stats.smb_tcx_req_chained_other);
                 }
                 _dpd.logMsg("        Tree Connect AndX responses: "STDu64"\n", dce2_stats.smb_tcx_resp);
@@ -807,8 +925,8 @@ static void DCE2_PrintStats(int exiting)
                         _dpd.logMsg("          Tree Disconnect: "STDu64"\n", dce2_stats.smb_readx_req_chained_tdis);
                     if (dce2_stats.smb_readx_req_chained_openx > 0)
                         _dpd.logMsg("          Open AndX: "STDu64"\n", dce2_stats.smb_readx_req_chained_openx);
-                    if (dce2_stats.smb_readx_req_chained_readx > 0)
-                        _dpd.logMsg("          Nt Create AndX: "STDu64"\n", dce2_stats.smb_readx_req_chained_readx);
+                    if (dce2_stats.smb_readx_req_chained_ntcx > 0)
+                        _dpd.logMsg("          Nt Create AndX: "STDu64"\n", dce2_stats.smb_readx_req_chained_ntcx);
                     if (dce2_stats.smb_readx_req_chained_close > 0)
                         _dpd.logMsg("          Close: "STDu64"\n", dce2_stats.smb_readx_req_chained_close);
                     if (dce2_stats.smb_readx_req_chained_write > 0)
@@ -834,8 +952,8 @@ static void DCE2_PrintStats(int exiting)
                         _dpd.logMsg("          Tree Disconnect: "STDu64"\n", dce2_stats.smb_readx_resp_chained_tdis);
                     if (dce2_stats.smb_readx_resp_chained_openx > 0)
                         _dpd.logMsg("          Open AndX: "STDu64"\n", dce2_stats.smb_readx_resp_chained_openx);
-                    if (dce2_stats.smb_readx_resp_chained_readx > 0)
-                        _dpd.logMsg("          Nt Create AndX: "STDu64"\n", dce2_stats.smb_readx_resp_chained_readx);
+                    if (dce2_stats.smb_readx_resp_chained_ntcx > 0)
+                        _dpd.logMsg("          Nt Create AndX: "STDu64"\n", dce2_stats.smb_readx_resp_chained_ntcx);
                     if (dce2_stats.smb_readx_resp_chained_close > 0)
                         _dpd.logMsg("          Close: "STDu64"\n", dce2_stats.smb_readx_resp_chained_close);
                     if (dce2_stats.smb_readx_resp_chained_write > 0)
@@ -931,15 +1049,15 @@ static void DCE2_PrintStats(int exiting)
 #endif
         }
 
-        if ((dce2_stats.co_pkts > 0) || (dce2_stats.cl_pkts > 0))
+        if ((dce2_stats.co_pdus > 0) || (dce2_stats.cl_pkts > 0))
         {
             _dpd.logMsg("\n");
             _dpd.logMsg("  DCE/RPC\n");
-            if (dce2_stats.co_pkts > 0)
+            if (dce2_stats.co_pdus > 0)
             {
                 _dpd.logMsg("    Connection oriented\n");
                 _dpd.logMsg("      Packet stats\n");
-                _dpd.logMsg("        Packets: "STDu64"\n", dce2_stats.co_pkts);
+                _dpd.logMsg("        PDUs: "STDu64"\n", dce2_stats.co_pdus);
                 if ((dce2_stats.co_bind > 0) || (dce2_stats.co_bind_ack > 0))
                 {
                     _dpd.logMsg("        Bind: "STDu64"\n", dce2_stats.co_bind);
@@ -975,9 +1093,22 @@ static void DCE2_PrintStats(int exiting)
                     _dpd.logMsg("        Other request type: "STDu64"\n", dce2_stats.co_other_req);
                 if (dce2_stats.co_other_resp > 0)
                     _dpd.logMsg("        Other response type: "STDu64"\n", dce2_stats.co_other_resp);
-                _dpd.logMsg("        Fragments: "STDu64"\n", dce2_stats.co_fragments);
-                _dpd.logMsg("        Max fragment size: "STDu64"\n", dce2_stats.co_max_frag_size);
-                _dpd.logMsg("        Reassembled: "STDu64"\n", dce2_stats.co_reassembled);
+                _dpd.logMsg("        Request fragments: "STDu64"\n", dce2_stats.co_req_fragments);
+                if (dce2_stats.co_req_fragments > 0)
+                {
+                    _dpd.logMsg("          Min fragment size: "STDu64"\n", dce2_stats.co_cli_min_frag_size);
+                    _dpd.logMsg("          Max fragment size: "STDu64"\n", dce2_stats.co_cli_max_frag_size);
+                    _dpd.logMsg("          Frag reassembled: "STDu64"\n", dce2_stats.co_cli_frag_reassembled);
+                }
+                _dpd.logMsg("        Response fragments: "STDu64"\n", dce2_stats.co_resp_fragments);
+                if (dce2_stats.co_resp_fragments > 0)
+                {
+                    _dpd.logMsg("          Min fragment size: "STDu64"\n", dce2_stats.co_srv_min_frag_size);
+                    _dpd.logMsg("          Max fragment size: "STDu64"\n", dce2_stats.co_srv_max_frag_size);
+                    _dpd.logMsg("          Frag reassembled: "STDu64"\n", dce2_stats.co_srv_frag_reassembled);
+                }
+                _dpd.logMsg("        Client seg reassembled: "STDu64"\n", dce2_stats.co_cli_seg_reassembled);
+                _dpd.logMsg("        Server seg reassembled: "STDu64"\n", dce2_stats.co_srv_seg_reassembled);
 #ifdef DEBUG
                 _dpd.logMsg("      Memory stats (bytes)\n");
                 _dpd.logMsg("        Current segmentation buffering: %u\n", dce2_memory.co_seg);
@@ -1025,7 +1156,7 @@ static void DCE2_PrintStats(int exiting)
                     _dpd.logMsg("        Other response type: "STDu64"\n", dce2_stats.cl_other_resp);
                 _dpd.logMsg("        Fragments: "STDu64"\n", dce2_stats.cl_fragments);
                 _dpd.logMsg("        Max fragment size: "STDu64"\n", dce2_stats.cl_max_frag_size);
-                _dpd.logMsg("        Reassembled: "STDu64"\n", dce2_stats.cl_reassembled);
+                _dpd.logMsg("        Reassembled: "STDu64"\n", dce2_stats.cl_frag_reassembled);
                 if (dce2_stats.cl_max_seqnum > 0)
                     _dpd.logMsg("        Max seq num: "STDu64"\n", dce2_stats.cl_max_seqnum);
 #ifdef DEBUG
@@ -1117,7 +1248,254 @@ static void DCE2_ResetStats(int signal, void *data)
  ******************************************************************/ 
 static void DCE2_CleanExit(int signal, void *data)
 {    
+    DCE2_FreeConfigs(dce2_config);
+    dce2_config = NULL;
+
     DCE2_FreeGlobals();
 }
 
+#ifdef SNORT_RELOAD
+/*********************************************************************
+ * Function: DCE2_ReloadGlobal()
+ *
+ * Purpose: Creates a new global DCE/RPC preprocessor config.
+ *
+ * Arguments: snort.conf argument line for the DCE/RPC preprocessor.
+ *
+ * Returns: None
+ *
+ *********************************************************************/
+static void DCE2_ReloadGlobal(char *args)
+{
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    DCE2_Config *pDefaultPolicyConfig = NULL;
+    DCE2_Config *pCurrentPolicyConfig = NULL;
+
+    if (dce2_swap_config == NULL)
+    {
+        //create a context
+        dce2_swap_config = sfPolicyConfigCreate();
+        
+        if (dce2_swap_config == NULL)
+        {
+            DCE2_Die("%s(%d) \"%s\" configuration: Could not allocate memory "
+                     "configuration.\n",
+                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        }
+
+        if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
+        {
+            DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
+                     "TCP and UDP tracking.",
+                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        }
+
+        _dpd.addPreprocReloadVerify(DCE2_ReloadVerify);
+    }
+
+    sfPolicyUserPolicySet(dce2_swap_config, policy_id);
+    pDefaultPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetDefault(dce2_swap_config);
+    pCurrentPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetCurrent(dce2_swap_config);
+
+    if ((policy_id != 0) && (pDefaultPolicyConfig == NULL))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Must configure default policy "
+                 "if other policies are to be configured.\n",
+                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    /* Can only do one global configuration */
+    if (pCurrentPolicyConfig != NULL)
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Only one global configuration can be specified.",
+                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    DCE2_RegRuleOptions();
+
+    pCurrentPolicyConfig = (DCE2_Config *)DCE2_Alloc(sizeof(DCE2_Config), DCE2_MEM_TYPE__CONFIG);
+    sfPolicyUserDataSetCurrent(dce2_swap_config, pCurrentPolicyConfig);
+
+    /* Parse configuration args */
+    DCE2_GlobalConfigure(pCurrentPolicyConfig, args);
+
+	_dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
+
+#ifdef TARGET_BASED
+    _dpd.streamAPI->set_service_filter_status
+        (dce2_proto_ids.dcerpc, PORT_MONITOR_SESSION, policy_id, 1);
+
+    _dpd.streamAPI->set_service_filter_status
+        (dce2_proto_ids.nbss, PORT_MONITOR_SESSION, policy_id, 1);
+#endif
+
+    if (policy_id != 0)
+        pCurrentPolicyConfig->gconfig->memcap = pDefaultPolicyConfig->gconfig->memcap;
+}
+
+/*********************************************************************
+ * Function: DCE2_ReloadServer()
+ *
+ * Purpose: Creates a new DCE/RPC server configuration
+ *
+ * Arguments: snort.conf argument line for the DCE/RPC preprocessor.
+ *
+ * Returns: None
+ *
+ *********************************************************************/
+static void DCE2_ReloadServer(char *args)
+{
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    DCE2_Config *pPolicyConfig = NULL;
+
+    sfPolicyUserPolicySet (dce2_swap_config, policy_id);
+
+    pPolicyConfig = (DCE2_Config *)sfPolicyUserDataGetCurrent(dce2_swap_config);
+
+    if ((pPolicyConfig == NULL) || (pPolicyConfig->gconfig == NULL))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: \"%s\" must be configured "
+                 "before \"%s\".", *_dpd.config_file, *_dpd.config_line,
+                 DCE2_SNAME, DCE2_GNAME, DCE2_SNAME);
+    }
+
+    /* Parse configuration args */
+    DCE2_ServerConfigure(pPolicyConfig, args);
+}
+
+static int DCE2_ReloadVerifyPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DCE2_Config *swap_config = (DCE2_Config *)pData;
+    DCE2_Config *current_config = (DCE2_Config *)sfPolicyUserDataGet(dce2_config, policyId);
+    DCE2_ServerConfig *dconfig;
+
+    //do any housekeeping before freeing DCE2_Config
+
+    if (swap_config == NULL)
+        return 0;
+
+    dconfig = swap_config->dconfig;
+
+    if (dconfig == NULL)
+        DCE2_CreateDefaultServerConfig(swap_config, policyId);
+
+#ifdef TARGET_BASED
+    if (!_dpd.isAdaptiveConfigured(policyId, 1))
+#endif
+    {
+        DCE2_ScCheckTransports(swap_config);
+    }
+
+    /* Register routing table memory */
+    if (swap_config->sconfigs != NULL)
+        DCE2_RegMem(sfrt_usage(swap_config->sconfigs), DCE2_MEM_TYPE__RT);
+
+    if (current_config == NULL)
+        return 0;
+
+    if (swap_config->gconfig->memcap != current_config->gconfig->memcap)
+    {
+        _dpd.errMsg("dcerpc2 reload:  Changing the memcap requires a restart.\n");
+        DCE2_FreeConfigs(dce2_swap_config);
+        dce2_swap_config = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+/*********************************************************************
+ * Function: DCE2_ReloadVerify()
+ *
+ * Purpose: Verifies a reloaded DCE/RPC preprocessor configuration
+ *
+ * Arguments: None
+ *
+ * Returns:
+ *  int
+ *      -1 if changed configuration value requires a restart
+ *       0 if configuration is ok
+ *
+ *********************************************************************/
+static int DCE2_ReloadVerify(void)
+{
+    if ((dce2_swap_config == NULL) || (dce2_config == NULL))
+        return 0;
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
+                 "TCP and UDP tracking.",
+                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    if (_dpd.isPreprocEnabled(PP_DCERPC))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: Only one DCE/RPC preprocessor "
+                 "can be configured.",
+                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
+    if (sfPolicyUserDataIterate(dce2_swap_config, DCE2_ReloadVerifyPolicy) != 0)
+        return -1;
+
+    return 0;
+}
+
+static int DCE2_ReloadSwapPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DCE2_Config *pPolicyConfig = (DCE2_Config *)pData;
+
+    //do any housekeeping before freeing config
+    if (pPolicyConfig->ref_count == 0)
+    {
+        sfPolicyUserDataClear (config, policyId);
+        DCE2_FreeConfig(pPolicyConfig);
+    }
+    return 0;
+}
+
+/*********************************************************************
+ * Function: DCE2_ReloadSwap()
+ *
+ * Purpose: Swaps a new config for the old one.
+ *
+ * Arguments: None
+ *
+ * Returns: None
+ *
+ *********************************************************************/
+static void * DCE2_ReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = dce2_config;
+
+    if (dce2_swap_config == NULL)
+        return NULL;
+
+    dce2_config = dce2_swap_config;
+    dce2_swap_config = NULL;
+
+    sfPolicyUserDataIterate (old_config, DCE2_ReloadSwapPolicy);
+
+    if (sfPolicyUserPolicyGetActive(old_config) == 0)
+        return (void *)old_config;
+
+    return NULL;
+}
+
+static void DCE2_ReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    DCE2_FreeConfigs((tSfPolicyUserContextId)data);
+}
+#endif
 

@@ -34,7 +34,10 @@ BUILT_SOURCES = \
 	include/sfrt.c \
 	include/sfrt_dir.h \
 	include/sfrt_dir.c \
-	include/sfrt_trie.h
+	include/sfrt_trie.h \
+	include/sfPolicyUserData.c \
+	include/sfPolicyUserData.h \
+	include/sfPolicy.h
 
 sed_ipv6_headers = \
 	sed -e "s/->iph->ip_src/->ip4_header->source/" \
@@ -110,6 +113,16 @@ copy_debug_header = \
 		echo "Updating " $$dst_header; \
 		cp $$src_header $$dst_header.new; \
 		$(sed_debug_header); \
+	fi
+
+replace_policy_globals = \
+	if test -f $$dst_header; then \
+		sed -e "/SharedObjectAddStarts/d" \
+		    -e "/SharedObjectAddEnds/d" \
+            -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" \
+		    -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" \
+		        $$dst_header > $$dst_header.new; \
+		mv $$dst_header.new $$dst_header; \
 	fi
     
 copy_headers = \
@@ -211,6 +224,15 @@ include/sfrt_dir.c: $(srcdir)/../sfutil/sfrt_dir.c
 include/sfrt_trie.h: $(srcdir)/../sfutil/sfrt_trie.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
+include/sfPolicyUserData.c: $(srcdir)/../sfutil/sfPolicyUserData.c
+	@src_header=$?; dst_header=$@; $(copy_headers); $(replace_policy_globals)
+	
+include/sfPolicyUserData.h: $(srcdir)/../sfutil/sfPolicyUserData.h
+	@src_header=$?; dst_header=$@; $(copy_headers); $(replace_policy_globals)
+	
+include/sfPolicy.h: $(srcdir)/../sfutil/sfPolicy.h
+	@src_header=$?; dst_header=$@; $(copy_headers); $(replace_policy_globals)
+	
 # From dynamic-plugins/sf_engine/examples
 include/sfsnort_dynamic_detection_lib.c: $(srcdir)/../dynamic-plugins/sf_engine/examples/sfsnort_dynamic_detection_lib.c
 	@src_header=$?; dst_header=$@; $(copy_headers)
@@ -250,12 +272,16 @@ srcinstdir = $(exec_prefix)/src/snort_dynamicsrc
 
 exported_files = \
 include/sf_dynamic_common.h \
+include/sf_dynamic_define.h \
+include/sf_dynamic_engine.h \
 include/sf_dynamic_meta.h \
 include/sf_dynamic_preprocessor.h \
 include/sf_dynamic_preproc_lib.h \
 include/sf_dynamic_preproc_lib.c \
+include/sf_ip.h \
 include/sf_snort_packet.h \
 include/sf_snort_plugin_api.h \
+include/sf_types.h \
 include/sfsnort_dynamic_detection_lib.h \
 include/sfsnort_dynamic_detection_lib.c \
 include/pcap_pkthdr32.h \
@@ -266,7 +292,9 @@ include/profiler.h \
 include/sfghash.h \
 include/sfhashfcn.h \
 include/bitop.h \
-include/preprocids.h
+include/preprocids.h \
+include/sfPolicyUserData.h \
+include/sfPolicyUserData.c 
 
 install-data-local:
 	@for f in $(exported_files); do \

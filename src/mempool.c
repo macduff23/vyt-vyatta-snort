@@ -19,6 +19,10 @@
 ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
+/*
+ * This is used to allocate a list of fixed size objects in a static
+ * memory pool aside from the concerns of alloc/free
+ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -32,14 +36,33 @@
 #include <strings.h>
 #endif
 
-
-/*
- * This is used to allocate a list of fixed size objects in a static
- * memory pool aside from the concerns of alloc/free
- */
-
-/* $Id$ */
 #include "mempool.h"
+#include "util.h"
+#include "debug.h"
+
+static INLINE void mempool_free_pools(MemPool *mempool)
+{
+    if (mempool == NULL)
+        return;
+
+    if (mempool->datapool != NULL)
+    {
+        free(mempool->datapool);
+        mempool->datapool = NULL;
+    }
+
+    if (mempool->listpool != NULL)
+    {
+        free(mempool->listpool);
+        mempool->listpool = NULL;
+    }
+
+    if (mempool->bucketpool != NULL)
+    {
+        free(mempool->bucketpool);
+        mempool->bucketpool = NULL;
+    }
+}
 
 /* Function: int mempool_init(MemPool *mempool,
  *                            PoolCount num_objects, size_t obj_size)
@@ -70,49 +93,42 @@ int mempool_init(MemPool *mempool, PoolCount num_objects, size_t obj_size)
     /* this is the basis pool that represents all the *data pointers
        in the list */
     mempool->datapool = calloc(num_objects, obj_size);
-    
-    
     if(mempool->datapool == NULL)
-    {
         return 1;
-    }
 
     mempool->listpool = calloc(num_objects, sizeof(SDListItem));
-
     if(mempool->listpool == NULL)
     {
         /* well, that sucked, lets clean up */
-        fprintf(stderr, "mempool: listpool is null\n");
-        free(mempool->datapool);
+        ErrorMessage("%s(%d) mempool_init(): listpool is null\n",
+                     __FILE__, __LINE__);
+        mempool_free_pools(mempool);
         return 1;
     }
 
     mempool->bucketpool = calloc(num_objects, sizeof(MemBucket));
-
     if(mempool->bucketpool == NULL)
     {
-        fprintf(stderr, "mempool: bucketpool is null\n");
-        free(mempool->datapool);
-        free(mempool->listpool);
+        ErrorMessage("%s(%d) mempool_init(): bucketpool is null\n",
+                     __FILE__, __LINE__);
+        mempool_free_pools(mempool);
         return 1;
     }
 
     /* sets up the 2 memory lists */
     if(sf_sdlist_init(&mempool->used_list, NULL))
     {
-        fprintf(stderr, "mempool: used_list failed\n");
-        free(mempool->datapool);
-        free(mempool->listpool);
-        free(mempool->bucketpool);
+        ErrorMessage("%s(%d) mempool_init(): Failed to initialize used list\n",
+                     __FILE__, __LINE__);
+        mempool_free_pools(mempool);
         return 1;
     }
 
     if(sf_sdlist_init(&mempool->free_list, NULL))
     {
-        fprintf(stderr, "mempool: free_list failed\n");
-        free(mempool->datapool);
-        free(mempool->listpool);
-        free(mempool->bucketpool);
+        ErrorMessage("%s(%d) mempool_init(): Failed to initialize free list\n",
+                     __FILE__, __LINE__);
+        mempool_free_pools(mempool);
         return 1;
     }
 
@@ -150,10 +166,9 @@ int mempool_init(MemPool *mempool, PoolCount num_objects, size_t obj_size)
                             &mempool->bucketpool[i],
                             &mempool->listpool[i]))
         {
-            fprintf(stderr, "mempool: free_list_append failed\n");
-            free(mempool->datapool);
-            free(mempool->listpool);
-            free(mempool->bucketpool);
+            ErrorMessage("%s(%d) mempool_init(): Failed to add to free list\n",
+                         __FILE__, __LINE__);
+            mempool_free_pools(mempool);
             return 1;
         }
 
@@ -219,12 +234,10 @@ int mempool_destroy(MemPool *mempool)
     if(mempool == NULL)
         return 1;
 
-    free(mempool->datapool);
-    free(mempool->listpool);
-    free(mempool->bucketpool);
+    mempool_free_pools(mempool);
 
     /* TBD - callback to free up every stray pointer */
-    bzero(mempool, sizeof(MemPool));
+    memset(mempool, 0, sizeof(MemPool));
     
     return 0;    
 }
@@ -279,7 +292,6 @@ MemBucket *mempool_alloc(MemPool *mempool)
     
     return b;
 }
-
 
 void mempool_free(MemPool *mempool, MemBucket *obj)
 {       

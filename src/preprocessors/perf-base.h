@@ -30,41 +30,45 @@
 #ifndef _PERFBASE_H
 #define _PERFBASE_H
 
-#include "config.h"
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include "sfprocpidstats.h"
 #include "debug.h"
 #include "sf_types.h"
 
 #include <time.h>
+#include <stdio.h>
 
 #define MAX_PERF_STATS 1
 
-typedef struct _PKTSTATS {
-
-    UINT64 pkts_recv;
-    UINT64 pkts_drop;
+typedef struct _PKTSTATS
+{
+    uint64_t pkts_recv;
+    uint64_t pkts_drop;
 
 }  PKTSTATS;
 
-typedef struct _SFBASE {
-
-    UINT64   total_wire_packets;
-    UINT64   total_ipfragmented_packets;
-    UINT64   total_ipreassembled_packets;
-    UINT64   total_packets;  /* Really, total packets of
+typedef struct _SFBASE
+{
+    uint64_t   total_wire_packets;
+    uint64_t   total_ipfragmented_packets;
+    uint64_t   total_ipreassembled_packets;
+    uint64_t   total_packets;  /* Really, total packets of
                               * unfragmented/stream rebuilt
                               */
-    UINT64   total_blocked_packets;
+    uint64_t   total_blocked_packets;
     
-    UINT64   total_rebuilt_packets;
-    UINT64   total_wire_bytes;
-    UINT64   total_ipfragmented_bytes;
-    UINT64   total_ipreassembled_bytes;
-    UINT64   total_bytes;    /* Total non-stream rebuilt (but
+    uint64_t   total_rebuilt_packets;
+    uint64_t   total_wire_bytes;
+    uint64_t   total_ipfragmented_bytes;
+    uint64_t   total_ipreassembled_bytes;
+    uint64_t   total_bytes;    /* Total non-stream rebuilt (but
                               * includes IP reassembled) bytes
                               */
-    UINT64   total_rebuilt_bytes;
-    UINT64   total_blocked_bytes;
+    uint64_t   total_rebuilt_bytes;
+    uint64_t   total_blocked_bytes;
 
     PKTSTATS pkt_stats;
 
@@ -74,63 +78,60 @@ typedef struct _SFBASE {
 
     time_t time;
 
-    UINT64   iAlerts;
-    UINT64   iSyns;      /* SYNS != Connections */
-    UINT64   iSynAcks;   /* better estimator  */
-    UINT64   iTotalSessions;
-    UINT64   iNewSessions;
-    UINT64   iDeletedSessions;
-    UINT64   iMaxSessions;
+    uint64_t   iAlerts;
+    uint64_t   iSyns;      /* SYNS != Connections */
+    uint64_t   iSynAcks;   /* better estimator  */
+    uint64_t   iTotalSessions;
+    uint64_t   iNewSessions;
+    uint64_t   iDeletedSessions;
+    uint64_t   iMaxSessions;
 
-    UINT64   iStreamFlushes;  /* # of fake packet is flushed */
-    UINT64   iStreamFaults;  /* # of times we run out of memory */
-    UINT64   iStreamTimeouts; /* # of timeouts we get in this quanta */
+    uint64_t   iStreamFlushes;  /* # of fake packet is flushed */
+    uint64_t   iStreamFaults;  /* # of times we run out of memory */
+    uint64_t   iStreamTimeouts; /* # of timeouts we get in this quanta */
     
-    UINT64   iFragCreates;    /* # of times we call Frag3NewTracker() */
-    UINT64   iFragCompletes;  /* # of times we call FragIsComplete() */
-    UINT64   iFragInserts;    /* # of fraginserts */
-    UINT64   iFragDeletes;    /* # of times we call Frag3RemoveTracker() */
-    UINT64   iFragAutoFrees;  /* # of times we auto free a FragTracker */
-    UINT64   iFragFlushes;    /* # of times we call Frag3Rebuild() */
-    UINT64   iMaxFrags;
-    UINT64   iCurrentFrags;
-    UINT64   iFragTimeouts;   /* # of times we've reached timeout */
-    UINT64   iFragFaults;     /* # of times we've run out of memory */    
-
-    int      iFlags;
-
-    int      iReset;
+    uint64_t   iFragCreates;    /* # of times we call Frag3NewTracker() */
+    uint64_t   iFragCompletes;  /* # of times we call FragIsComplete() */
+    uint64_t   iFragInserts;    /* # of fraginserts */
+    uint64_t   iFragDeletes;    /* # of times we call Frag3RemoveTracker() */
+    uint64_t   iFragAutoFrees;  /* # of times we auto free a FragTracker */
+    uint64_t   iFragFlushes;    /* # of times we call Frag3Rebuild() */
+    uint64_t   iMaxFrags;
+    uint64_t   iCurrentFrags;
+    uint64_t   iFragTimeouts;   /* # of times we've reached timeout */
+    uint64_t   iFragFaults;     /* # of times we've run out of memory */    
 
 #ifdef LINUX_SMP
     SFPROCPIDSTATS sfProcPidStats;
 #endif
 
-    UINT64   iTotalUDPSessions;
-    UINT64   iNewUDPSessions;
-    UINT64   iDeletedUDPSessions;
-    UINT64   iMaxUDPSessions;
+    uint64_t   iTotalUDPSessions;
+    uint64_t   iNewUDPSessions;
+    uint64_t   iDeletedUDPSessions;
+    uint64_t   iMaxUDPSessions;
 
-    UINT64   iMaxSessionsInterval;
-    UINT64   iMidStreamSessions;
-    UINT64   iClosedSessions;
-    UINT64   iPrunedSessions;
-    UINT64   iDroppedAsyncSessions;
-    UINT64   iSessionsInitializing;
-    UINT64   iSessionsEstablished;
-    UINT64   iSessionsClosing;
+    uint64_t   iMaxSessionsInterval;
+    uint64_t   iMidStreamSessions;
+    uint64_t   iClosedSessions;
+    uint64_t   iPrunedSessions;
+    uint64_t   iDroppedAsyncSessions;
+    uint64_t   iSessionsInitializing;
+    uint64_t   iSessionsEstablished;
+    uint64_t   iSessionsClosing;
 
-    UINT64   iAttributeHosts;
-    UINT64   iAttributeReloads;
+    uint64_t   iAttributeHosts;
+    uint64_t   iAttributeReloads;
 
-    UINT64   total_mpls_packets;
-    UINT64   total_mpls_bytes;
-    UINT64   total_blocked_mpls_packets;
-    UINT64   total_blocked_mpls_bytes;
+    uint64_t   total_mpls_packets;
+    uint64_t   total_mpls_bytes;
+    uint64_t   total_blocked_mpls_packets;
+    uint64_t   total_blocked_mpls_bytes;
 
     /**TCP packets ignored due to port/service filtering.*/
-    UINT64   total_tcp_filtered_packets;
+    uint64_t   total_tcp_filtered_packets;
     /**UDP packets ignored due to port/service filtering.*/
-    UINT64   total_udp_filtered_packets;
+    uint64_t   total_udp_filtered_packets;
+
 }  SFBASE;
 
 typedef struct _SYSTIMES {
@@ -144,9 +145,9 @@ typedef struct _SYSTIMES {
 
 typedef struct _SFBASE_STATS {
 
-    UINT64   total_packets;
-    UINT64   total_sessions;
-    UINT64   max_sessions;
+    uint64_t   total_packets;
+    uint64_t   total_sessions;
+    uint64_t   max_sessions;
     SYSTIMES kpackets_per_sec;
     SYSTIMES kpackets_wire_per_sec;
     SYSTIMES kpackets_ipfrag_per_sec;
@@ -175,8 +176,8 @@ typedef struct _SFBASE_STATS {
     double   new_sessions_per_second;
 
     double stream_flushes_per_second;
-    UINT64 stream_faults;
-    UINT64 stream_timeouts;
+    uint64_t stream_faults;
+    uint64_t stream_timeouts;
 
     double frag_creates_per_second;
     double frag_completes_per_second;
@@ -184,10 +185,10 @@ typedef struct _SFBASE_STATS {
     double frag_deletes_per_second;
     double frag_autofrees_per_second;
     double frag_flushes_per_second;
-    UINT64 frag_timeouts;
-    UINT64 frag_faults;
-    UINT64 current_frags;
-    UINT64 max_frags;
+    uint64_t frag_timeouts;
+    uint64_t frag_faults;
+    uint64_t current_frags;
+    uint64_t max_frags;
     
     double   patmatch_percent;
     time_t   time;
@@ -196,45 +197,45 @@ typedef struct _SFBASE_STATS {
     SFPROCPIDSTATS *sfProcPidStats;
 #endif
 
-    UINT64   total_blocked_packets;
-    UINT64   total_blocked_bytes;
+    uint64_t   total_blocked_packets;
+    uint64_t   total_blocked_bytes;
 
-    UINT64   total_udp_sessions;
-    UINT64   max_udp_sessions;
+    uint64_t   total_udp_sessions;
+    uint64_t   max_udp_sessions;
     double   deleted_udp_sessions_per_second;
     double   new_udp_sessions_per_second;
 
-    UINT64   max_tcp_sessions_interval;
-    UINT64   curr_tcp_sessions_initializing;
-    UINT64   curr_tcp_sessions_established;
-    UINT64   curr_tcp_sessions_closing;
+    uint64_t   max_tcp_sessions_interval;
+    uint64_t   curr_tcp_sessions_initializing;
+    uint64_t   curr_tcp_sessions_established;
+    uint64_t   curr_tcp_sessions_closing;
     double   tcp_sessions_midstream_per_second;
     double   tcp_sessions_closed_per_second;
     double   tcp_sessions_timedout_per_second;
     double   tcp_sessions_pruned_per_second;
     double   tcp_sessions_dropped_async_per_second;
 
-    UINT64   current_attribute_hosts;
-    UINT64   attribute_table_reloads;
-    UINT64   total_mpls_packets;
-    UINT64   total_mpls_bytes;
-    UINT64   total_blocked_mpls_packets;
-    UINT64   total_blocked_mpls_bytes;
+    uint64_t   current_attribute_hosts;
+    uint64_t   attribute_table_reloads;
+    uint64_t   total_mpls_packets;
+    uint64_t   total_mpls_bytes;
+    uint64_t   total_blocked_mpls_packets;
+    uint64_t   total_blocked_mpls_bytes;
     SYSTIMES kpackets_per_sec_mpls;
     SYSTIMES mpls_mbits_per_sec;
     int      avg_bytes_per_mpls_packet;
 
     /**TCP packets ignored due to port/service filtering.*/
-    UINT64   total_tcp_filtered_packets;
+    uint64_t   total_tcp_filtered_packets;
     /**UDP packets ignored due to port/service filtering.*/
-    UINT64   total_udp_filtered_packets;
+    uint64_t   total_udp_filtered_packets;
 }  SFBASE_STATS;
 
 
 int InitBaseStats(SFBASE *sfBase);
 int UpdateBaseStats(SFBASE *sfBase, int len, int iRebuiltPkt);
 int ProcessBaseStats(SFBASE *sfBase,int console, int file, FILE * fh);
-int AddStreamSession(SFBASE *sfBase, u_int32_t flags);
+int AddStreamSession(SFBASE *sfBase, uint32_t flags);
 #define SESSION_CLOSED_NORMALLY 0x01
 #define SESSION_CLOSED_TIMEDOUT 0x02
 #define SESSION_CLOSED_PRUNED   0x04

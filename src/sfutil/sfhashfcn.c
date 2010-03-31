@@ -32,47 +32,48 @@
 */
  
 #ifndef MODULUS_HASH
-#include "snort.h" 
+# include "snort.h" 
 #endif
+
 #include "sfhashfcn.h"
 #include "sfprimetable.h"
 
 
 SFHASHFCN * sfhashfcn_new( int m )
 {
-  SFHASHFCN * p;
-  static int one=1;
-  
-  if( one ) /* one time init */
-  {
-      srand( (unsigned) time(0) );
-      one = 0;
-  }
+    SFHASHFCN * p;
+    static int one=1;
 
-  // This can make all of the hashing static for testing.
-  //#define rand() 0
-   
-  p = (SFHASHFCN*) calloc( 1,sizeof(SFHASHFCN) );
-  if( !p )
-      return 0;
- 
+    if( one ) /* one time init */
+    {
+        srand( (unsigned) time(0) );
+        one = 0;
+    }
+
+    // This can make all of the hashing static for testing.
+    //#define rand() 0
+
+    p = (SFHASHFCN*) calloc( 1,sizeof(SFHASHFCN) );
+    if( !p )
+        return 0;
+
 #ifndef MODULUS_HASH
-  if(pv.static_hash)
-  {
-    sfhashfcn_static(p);
-  }
-  else
+    if (ScStaticHash())
+    {
+        sfhashfcn_static(p);
+    }
+    else
 #endif
-  {
-    p->seed     = sf_nearest_prime( (rand()%m)+3191 );
-    p->scale    = sf_nearest_prime( (rand()%m)+709 );
-    p->hardener = (rand()*rand()) + 133824503;
-  }
-   
-  p->hash_fcn   = &sfhashfcn_hash;
-  p->keycmp_fcn = &memcmp;
-       
-  return p;
+    {
+        p->seed     = sf_nearest_prime( (rand()%m)+3191 );
+        p->scale    = sf_nearest_prime( (rand()%m)+709 );
+        p->hardener = (rand()*rand()) + 133824503;
+    }
+
+    p->hash_fcn   = &sfhashfcn_hash;
+    p->keycmp_fcn = &memcmp;
+
+    return p;
 }
 
 void sfhashfcn_free( SFHASHFCN * p )

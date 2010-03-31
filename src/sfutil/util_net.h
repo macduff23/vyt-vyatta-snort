@@ -32,7 +32,9 @@
 #ifndef _UTIL_NET_H
 #define _UTIL_NET_H
 
-char *inet_ntoax(u_int32_t ip);
+#include "sf_types.h"
+
+char *inet_ntoax(uint32_t ip);
 char * mktcpflag_str(int flags);
 
 #endif /* _UTIL_NET_H */

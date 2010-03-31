@@ -26,9 +26,9 @@
 
 void SetupFragBits(void);
 void SetupFragOffset(void);
-u_int32_t IpFragBitsCheckHash(void *d);
+uint32_t IpFragBitsCheckHash(void *d);
 int IpFragBitsCheckCompare(void *l, void *r);
-u_int32_t IpFragOffsetCheckHash(void *d);
+uint32_t IpFragOffsetCheckHash(void *d);
 int IpFragOffsetCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_FRAGBITS_H__ */

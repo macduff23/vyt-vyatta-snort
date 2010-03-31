@@ -97,6 +97,7 @@ int       sfghash_add ( SFGHASH * h, void * key, void * data );
 int       sfghash_remove( SFGHASH * h, void * key);
 int       sfghash_count( SFGHASH * h);
 void    * sfghash_find( SFGHASH * h, void * key );
+int       sfghash_find2(SFGHASH *, void *, void **);
 SFGHASH_NODE * sfghash_findfirst( SFGHASH * h );
 SFGHASH_NODE * sfghash_findnext ( SFGHASH * h );
 void sfghash_splaymode( SFGHASH * t, int n );

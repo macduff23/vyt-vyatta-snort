@@ -36,6 +36,7 @@
 
 #include "sf_types.h"
 #include "decode.h"
+#include "sfutil/sfxhash.h"
 
 typedef enum _option_type_t
 {
@@ -63,14 +64,11 @@ typedef enum _option_type_t
     RULE_OPTION_TYPE_CONTENT,
     RULE_OPTION_TYPE_CONTENT_URI,
     RULE_OPTION_TYPE_PCRE,
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
     RULE_OPTION_TYPE_REACT,
 #endif
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#ifdef ENABLE_RESPOND
     RULE_OPTION_TYPE_RESPOND,
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-    RULE_OPTION_TYPE_RESPOND2,
 #endif
     RULE_OPTION_TYPE_RPC_CHECK,
     RULE_OPTION_TYPE_SESSION,
@@ -82,6 +80,7 @@ typedef enum _option_type_t
     RULE_OPTION_TYPE_URILEN
 #ifdef DYNAMIC_PLUGIN
     ,
+    RULE_OPTION_TYPE_HDR_OPT_CHECK,
     RULE_OPTION_TYPE_PREPROCESSOR,
     RULE_OPTION_TYPE_DYNAMIC
 #endif
@@ -110,23 +109,23 @@ typedef struct _detection_option_tree_node
     struct 
     {
         struct timeval ts;
-        UINT64 packet_number;
-        int pipeline_number;
-        u_int32_t rebuild_flag;
+        uint64_t packet_number;
+        uint32_t pipeline_number;
+        uint32_t rebuild_flag;
         char result;
         char is_relative;
         char flowbit_failed;
         char pad; /* Keep 4 byte alignment */
     } last_check;
 #ifdef PERF_PROFILING
-    UINT64 ticks;
-    UINT64 ticks_match;
-    UINT64 ticks_no_match;
-    UINT64 checks;
+    uint64_t ticks;
+    uint64_t ticks_match;
+    uint64_t ticks_no_match;
+    uint64_t checks;
 #endif
 #ifdef PPM_MGR
-    UINT64 ppm_disable_cnt; /*PPM */
-    UINT64 ppm_enable_cnt; /*PPM */
+    uint64_t ppm_disable_cnt; /*PPM */
+    uint64_t ppm_enable_cnt; /*PPM */
 #endif
 } detection_option_tree_node_t;
 
@@ -136,8 +135,8 @@ typedef struct _detection_option_tree_root
     detection_option_tree_node_t **children;
 
 #ifdef PPM_MGR
-    UINT64 ppm_suspend_time; /* PPM */
-    UINT64 ppm_disable_cnt; /*PPM */
+    uint64_t ppm_suspend_time; /* PPM */
+    uint64_t ppm_disable_cnt; /*PPM */
     int tree_state; 
 #endif
 } detection_option_tree_root_t;
@@ -155,13 +154,14 @@ typedef struct _detection_option_eval_data
 int add_detection_option(option_type_t type, void *option_data, void **existing_data);
 int add_detection_option_tree(detection_option_tree_node_t *option_tree, void **existing_data);
 int detection_option_node_evaluate(detection_option_tree_node_t *node, detection_option_eval_data_t *eval_data);
-void delete_detection_hash_table();
-void delete_detection_tree_hash_table();
+void DetectionHashTableFree(SFXHASH *);
+void DetectionTreeHashTableFree(SFXHASH *);
 #ifdef DEBUG_OPTION_TREE
 void print_option_tree(detection_option_tree_node_t *node, int level);
 #endif
 #ifdef PERF_PROFILING
-void detection_option_tree_update_otn_stats();
+void detection_option_tree_update_otn_stats(SFXHASH *);
 #endif
+
 #endif /* DETECTION_OPTIONS_H_ */
 

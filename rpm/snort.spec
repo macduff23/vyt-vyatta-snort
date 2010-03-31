@@ -91,14 +91,14 @@
 
 Name: %{realname}%{inlinetext}
 %{?_with_inline:%define Name: %{realname}-inline }
-Version: 2.8.4.1
+Version: 2.8.5.2
 Epoch: 1
 Release: %{release}
 Summary: An open source Network Intrusion Detection System (NIDS)
 Group: Applications/Internet
 License: GPL
 Url: http://www.snort.org/
-Source0: http://www.snort.org/dl/2.8.4.1/%{realname}-%{version}.tar.gz
+Source0: http://www.snort.org/dl/2.8.5.2/%{realname}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Packager: Official Snort.org %{for_distro}

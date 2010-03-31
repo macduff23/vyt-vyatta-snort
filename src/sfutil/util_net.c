@@ -93,7 +93,7 @@ char * mktcpflag_str(int flags)
  * 
  * @param ip ip in NETWORK BYTE ORDER
  */
-char *inet_ntoax(u_int32_t ip)
+char *inet_ntoax(uint32_t ip)
 {
     static char s_buf1[16];
     static char s_buf2[16];
@@ -123,8 +123,8 @@ char *inet_ntoax(u_int32_t ip)
 #ifdef TEST_UTIL_NET
 int main(void)
 {
-    u_int32_t ip1 = htonl(0xFF00FF00);
-    u_int32_t ip2 = htonl(0xFFAAFFAA);
+    uint32_t ip1 = htonl(0xFF00FF00);
+    uint32_t ip2 = htonl(0xFFAAFFAA);
         
     printf("%s -> %s\n", inet_ntoax(ip1), inet_ntoax(ip2));
 

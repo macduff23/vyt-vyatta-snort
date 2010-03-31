@@ -57,9 +57,9 @@ void IpOptionInit(char *, OptTreeNode *, int);
 void ParseIpOptionData(char *, OptTreeNode *);
 int CheckIpOptions(void *option_data, Packet *p);
 
-u_int32_t IpOptionCheckHash(void *d)
+uint32_t IpOptionCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IpOptionData *data = (IpOptionData *)d;
 
     a = data->ip_option;
@@ -103,7 +103,7 @@ int IpOptionCheckCompare(void *l, void *r)
 void SetupIpOptionCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ipopts", IpOptionInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ipopts", IpOptionInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ipopts", &ipOptionPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

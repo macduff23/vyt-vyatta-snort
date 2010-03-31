@@ -57,28 +57,25 @@
 /* Externs */
 extern DCERPC         *_dcerpc;
 extern SFSnortPacket  *_dcerpc_pkt;
-extern u_int8_t        _disable_smb_fragmentation;
-extern u_int16_t       _max_frag_size;
-extern u_int8_t *dce_reassembly_buf;
-extern u_int16_t dce_reassembly_buf_size;
+extern uint8_t *dce_reassembly_buf;
+extern uint16_t dce_reassembly_buf_size;
 extern SFSnortPacket *real_dce_mock_pkt;
-extern u_int8_t        _debug_print;
-extern int _reassemble_increment;
+extern DceRpcConfig *dcerpc_eval_config;
 
-static int GetSMBStringLength(u_int8_t *data, u_int16_t data_size, int unicode);
+static int GetSMBStringLength(uint8_t *data, uint16_t data_size, int unicode);
 
 #ifdef DEBUG_DCERPC_PRINT
-static void PrintSMBString(char *pre, u_int8_t *str, u_int16_t str_len, int unicode);
+static void PrintSMBString(char *pre, uint8_t *str, uint16_t str_len, int unicode);
 #endif
 
 /* smb_data is guaranteed to be at least an SMB_WRITEX_REQ length away from writeX
  * if it's farther it's because there was padding */
-void ReassembleSMBWriteX(u_int8_t *smb_hdr, u_int16_t smb_hdr_len)
+void ReassembleSMBWriteX(uint8_t *smb_hdr, uint16_t smb_hdr_len)
 {
     SMB_WRITEX_REQ *write_andx;
     int pkt_len;
     int status;
-    u_int16_t data_len = 0;
+    uint16_t data_len = 0;
     DCERPC_Buffer *buf = &_dcerpc->smb_seg_buf;
 
     pkt_len = sizeof(NBT_HDR) + smb_hdr_len + buf->len;
@@ -108,7 +105,7 @@ void ReassembleSMBWriteX(u_int8_t *smb_hdr, u_int16_t smb_hdr_len)
         return;
     }
 
-    write_andx = (SMB_WRITEX_REQ *)((u_int8_t *)dce_reassembly_buf + sizeof(NBT_HDR) + sizeof(SMB_HDR));
+    write_andx = (SMB_WRITEX_REQ *)((uint8_t *)dce_reassembly_buf + sizeof(NBT_HDR) + sizeof(SMB_HDR));
     write_andx->remaining = smb_htons(buf->len);
     write_andx->dataLength = smb_htons(buf->len);
     write_andx->dataOffset = smb_htons(smb_hdr_len);
@@ -139,20 +136,20 @@ void ReassembleSMBWriteX(u_int8_t *smb_hdr, u_int16_t smb_hdr_len)
         return;
     }
 
-    if (_debug_print)
+    if (dcerpc_eval_config->debug_print)
     {
         PrintBuffer("SMB desegmented",
-                    (u_int8_t *)dce_reassembly_buf, data_len);
+                    (uint8_t *)dce_reassembly_buf, data_len);
     }
 }
 
 /* IPC$ has to occur at the end of this path - path_len should include null termination */
-static int IsIPC(u_int8_t *path, int path_len, u_int32_t isUnicode)
+static int IsIPC(uint8_t *path, int path_len, uint32_t isUnicode)
 {
-    const u_int8_t ipc[] = {'I', 'P', 'C', '$', '\0'};
-    const u_int16_t ipc_len = 5;
-    const u_int8_t unicode_ipc[] = {'I', '\0', 'P', '\0', 'C', '\0', '$', '\0', '\0', '\0'};
-    const u_int16_t unicode_ipc_len = 10;
+    const uint8_t ipc[] = {'I', 'P', 'C', '$', '\0'};
+    const uint16_t ipc_len = 5;
+    const uint8_t unicode_ipc[] = {'I', '\0', 'P', '\0', 'C', '\0', '$', '\0', '\0', '\0'};
+    const uint16_t unicode_ipc_len = 10;
 
     if (isUnicode)
     {
@@ -187,9 +184,9 @@ static int IsIPC(u_int8_t *path, int path_len, u_int32_t isUnicode)
  * otherwise returns length of null terminated string
  * including null terminating bytes
  */
-static int GetSMBStringLength(u_int8_t *data, u_int16_t data_size, int unicode)
+static int GetSMBStringLength(uint8_t *data, uint16_t data_size, int unicode)
 {
-    u_int16_t size_left;
+    uint16_t size_left;
 
     if (data == NULL)
         return -2;
@@ -229,7 +226,7 @@ static int GetSMBStringLength(u_int8_t *data, u_int16_t data_size, int unicode)
 }
 
 #ifdef DEBUG_DCERPC_PRINT
-static void PrintSMBString(char *pre, u_int8_t *str, u_int16_t str_len, int unicode)
+static void PrintSMBString(char *pre, uint8_t *str, uint16_t str_len, int unicode)
 {
     if (pre == NULL || str == NULL || str_len == 0)
         return;
@@ -255,9 +252,9 @@ static void PrintSMBString(char *pre, u_int8_t *str, u_int16_t str_len, int unic
 }
 #endif
 
-int SkipBytes(u_int8_t *data, u_int16_t size)
+int SkipBytes(uint8_t *data, uint16_t size)
 {
-    u_int16_t i = 0;
+    uint16_t i = 0;
 
     while ( i < size && *data != 0 )
     {
@@ -268,9 +265,9 @@ int SkipBytes(u_int8_t *data, u_int16_t size)
     return i;
 }
 
-int SkipBytesWide(u_int8_t *data, u_int16_t size)
+int SkipBytesWide(uint8_t *data, uint16_t size)
 {
-    u_int16_t i = 0;
+    uint16_t i = 0;
 
     /* Check against size-1 in case someone is screwing with us and giving
          us an odd number of bytes for 2-byte Unicode.  */
@@ -284,17 +281,17 @@ int SkipBytesWide(u_int8_t *data, u_int16_t size)
 }
 
 
-int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_TREE_CONNECTX_REQ *treeConnX;
-    u_int16_t byteCount;
-    u_int8_t *tree_data;
-    u_int16_t tree_data_len;
-    u_int8_t *passwd_ptr;
-    u_int16_t passwd_len;
-    u_int8_t *path_ptr;
+    uint16_t byteCount;
+    uint8_t *tree_data;
+    uint16_t tree_data_len;
+    uint8_t *passwd_ptr;
+    uint16_t passwd_len;
+    uint8_t *path_ptr;
     int path_len;
-    u_int8_t *service_ptr;
+    uint8_t *service_ptr;
     int service_len;
     int is_ipc;
 
@@ -371,14 +368,14 @@ int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_in
     /* Handle next andX command in this packet */
     if (treeConnX->andXCommand != SMB_NONE)
     {
-        u_int16_t andXOffset = smb_ntohs(treeConnX->andXOffset);
-        u_int8_t *next_command;
-        u_int16_t data_left_len;
+        uint16_t andXOffset = smb_ntohs(treeConnX->andXOffset);
+        uint8_t *next_command;
+        uint16_t data_left_len;
 
         if ( andXOffset >= total_size )
             return 0;
 
-        next_command = (u_int8_t *)smbHdr + andXOffset;
+        next_command = (uint8_t *)smbHdr + andXOffset;
      
         /* Make sure we don't backtrack or look at the same data again */
         if (next_command < tree_data)
@@ -396,13 +393,13 @@ int ProcessSMBTreeConnXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_in
 }
 
 
-int ProcessSMBNTCreateX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBNTCreateX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_NTCREATEX_REQ *ntCreateX;
-    u_int16_t byteCount;
-    u_int8_t *nt_create_data;
-    u_int16_t nt_create_data_len;
-    u_int8_t *file_name_ptr;
+    uint16_t byteCount;
+    uint8_t *nt_create_data;
+    uint16_t nt_create_data_len;
+    uint8_t *file_name_ptr;
     int file_name_len;
 
     if ( size <= sizeof(SMB_NTCREATEX_REQ) )
@@ -457,14 +454,14 @@ int ProcessSMBNTCreateX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16
     /* Handle next andX command in this packet */
     if (ntCreateX->andXCommand != SMB_NONE)
     {
-        u_int16_t andXOffset = smb_ntohs(ntCreateX->andXOffset);
-        u_int8_t *next_command;
-        u_int16_t data_left_len;
+        uint16_t andXOffset = smb_ntohs(ntCreateX->andXOffset);
+        uint8_t *next_command;
+        uint16_t data_left_len;
 
         if ( andXOffset >= total_size )
             return 0;
        
-        next_command = (u_int8_t *)smbHdr + andXOffset;
+        next_command = (uint8_t *)smbHdr + andXOffset;
 
         /* Make sure we don't backtrack or look at the same data again */
         if (next_command < nt_create_data)
@@ -481,14 +478,14 @@ int ProcessSMBNTCreateX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16
     return 0;
 }
 
-int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBWriteX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_WRITEX_REQ *writeX;
-    u_int8_t *writeX_data;
-    u_int16_t writeX_data_len;
-    u_int16_t writeX_byte_count;
-    u_int16_t data_offset;
-    u_int16_t padding;
+    uint8_t *writeX_data;
+    uint16_t writeX_data_len;
+    uint16_t writeX_byte_count;
+    uint16_t data_offset;
+    uint16_t padding;
 
     /* Only process WriteAndX packet if it is part of a DCE/RPC session */
     if ( _dcerpc->smb_state != STATE_GOT_NTCREATE )
@@ -509,7 +506,7 @@ int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t 
         return 0;
     }
 
-    writeX_data = (u_int8_t *)smbHdr + data_offset;
+    writeX_data = (uint8_t *)smbHdr + data_offset;
     writeX_data_len = smb_ntohs(writeX->dataLength);
     writeX_byte_count = smb_ntohs(writeX->byteCount);
 
@@ -521,11 +518,11 @@ int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t 
     padding = writeX_byte_count - writeX_data_len;
 
     /* data_offset put us somewhere before the end of the header and padding */
-    if (writeX_data < (u_int8_t *)writeX + sizeof(SMB_WRITEX_REQ) + padding)
+    if (writeX_data < (uint8_t *)writeX + sizeof(SMB_WRITEX_REQ) + padding)
         return 0;
 
     /* data_offset + data_len will put us past end of packet */
-    if (writeX_data + writeX_data_len > (u_int8_t *)smbHdr + total_size)
+    if (writeX_data + writeX_data_len > (uint8_t *)smbHdr + total_size)
         return 0;
 
 #ifdef DEBUG_DCERPC_PRINT
@@ -535,25 +532,25 @@ int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t 
 
     if (writeX_data_len > 0)
     {
-        u_int16_t smb_hdr_len = writeX_data - (u_int8_t *)smbHdr;
+        uint16_t smb_hdr_len = writeX_data - (uint8_t *)smbHdr;
         DCERPC_Buffer *sbuf = &_dcerpc->smb_seg_buf;
-        int status = ProcessDCERPCMessage((u_int8_t *)smbHdr, smb_hdr_len, writeX_data, writeX_data_len);
+        int status = ProcessDCERPCMessage((uint8_t *)smbHdr, smb_hdr_len, writeX_data, writeX_data_len);
 
         if (status == -1)
             return -1;
 
         if ((status == DCERPC_FULL_FRAGMENT) && !DCERPC_BufferIsEmpty(sbuf))
         {
-            ReassembleSMBWriteX((u_int8_t *)smbHdr, smb_hdr_len);
+            ReassembleSMBWriteX((uint8_t *)smbHdr, smb_hdr_len);
             DCERPC_BufferFreeData(sbuf);
         }
-        else if ((status == DCERPC_SEGMENTED) && _reassemble_increment)
+        else if ((status == DCERPC_SEGMENTED) && dcerpc_eval_config->reassemble_increment)
         {
             _dcerpc->num_inc_reass++;
-            if (_reassemble_increment == _dcerpc->num_inc_reass)
+            if (dcerpc_eval_config->reassemble_increment == _dcerpc->num_inc_reass)
             {
                 _dcerpc->num_inc_reass = 0;
-                ReassembleSMBWriteX((u_int8_t *)smbHdr, smb_hdr_len);
+                ReassembleSMBWriteX((uint8_t *)smbHdr, smb_hdr_len);
             }
         }
     }
@@ -565,14 +562,14 @@ int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t 
     /* Handle next andX command in this packet */
     if (writeX->andXCommand != SMB_NONE)
     {
-        u_int16_t andXOffset = smb_ntohs(writeX->andXOffset);
-        u_int8_t *next_command;
-        u_int16_t data_left_len;
+        uint16_t andXOffset = smb_ntohs(writeX->andXOffset);
+        uint8_t *next_command;
+        uint16_t data_left_len;
 
         if ( andXOffset >= total_size )
             return 0;
 
-        next_command = (u_int8_t *)smbHdr + andXOffset;
+        next_command = (uint8_t *)smbHdr + andXOffset;
 
         /* Make sure we don't backtrack or look at the same data again */
         if (next_command < writeX_data)
@@ -589,12 +586,12 @@ int ProcessSMBWriteX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t 
     return 0;
 }
 
-int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBTransaction(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_TRANS_REQ  *trans;
-    u_int8_t  *dcerpc_data;
-    u_int16_t dcerpc_data_len;
-    u_int16_t data_offset;
+    uint8_t  *dcerpc_data;
+    uint16_t dcerpc_data_len;
+    uint16_t data_offset;
 
     /* Only process Trans packet if we think it is part of a DCE/RPC session 
        NTCREATE state is when we get the bind packet
@@ -616,7 +613,7 @@ int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int
 
     trans = (SMB_TRANS_REQ *)data;
     data_offset = smb_ntohs(trans->dataOffset);
-    dcerpc_data = (u_int8_t *)smbHdr + data_offset;
+    dcerpc_data = (uint8_t *)smbHdr + data_offset;
 
     if ( data_offset >= total_size )
         return 0;
@@ -625,18 +622,18 @@ int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int
      * TODO Account for transaction name length - seems like
      * for unicode strings there is an extra byte of padding
      * after byteCount before name starts */
-    if (dcerpc_data < (u_int8_t *)trans + sizeof(SMB_TRANS_REQ))
+    if (dcerpc_data < (uint8_t *)trans + sizeof(SMB_TRANS_REQ))
         return 0;
 
     dcerpc_data_len = smb_ntohs(trans->totalDataCount);
 
     /* make sure data length doesn't put us past end of packet */
-    if (dcerpc_data + dcerpc_data_len > (u_int8_t *)smbHdr + total_size)
+    if (dcerpc_data + dcerpc_data_len > (uint8_t *)smbHdr + total_size)
         return 0;
 
     if (dcerpc_data_len > 0)
-        ProcessDCERPCMessage((u_int8_t *)smbHdr,
-		                     (u_int16_t)(dcerpc_data - (u_int8_t *)smbHdr),
+        ProcessDCERPCMessage((uint8_t *)smbHdr,
+		                     (uint16_t)(dcerpc_data - (uint8_t *)smbHdr),
 		                     dcerpc_data, dcerpc_data_len);
 
 #ifdef DEBUG_DCERPC_PRINT
@@ -646,7 +643,7 @@ int ProcessSMBTransaction(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int
     return 0;
 }
 
-int ProcessSMBReadX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBReadX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_READX_REQ *readX;
 
@@ -661,14 +658,14 @@ int ProcessSMBReadX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t t
     /* Handle next andX command in this packet */
     if (readX->andXCommand != SMB_NONE)
     {
-        u_int16_t andXOffset = smb_ntohs(readX->andXOffset);
-        u_int8_t *next_command;
-        u_int16_t data_left_len;
+        uint16_t andXOffset = smb_ntohs(readX->andXOffset);
+        uint8_t *next_command;
+        uint16_t data_left_len;
 
         if ( andXOffset >= total_size )
             return 0;
        
-        next_command = (u_int8_t *)smbHdr + andXOffset;
+        next_command = (uint8_t *)smbHdr + andXOffset;
 
         /* Make sure we don't backtrack or look at the same data again */
         if (next_command < data)
@@ -688,7 +685,7 @@ int ProcessSMBReadX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t t
 
 #ifdef UNUSED_SMB_COMMAND
 
-int ProcessSMBSetupXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBSetupXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     int extraIndex = 0;
     SMB_SESS_SETUPX_REQ_HDR *sess_setupx_req_hdr;
@@ -898,14 +895,14 @@ int ProcessSMBSetupXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16
     /* Handle next andX command in this packet */
     if (sess_setupx_req_hdr->andXCommand != SMB_NONE)
     {
-        u_int16_t data_size;
-        u_int16_t andXOffset = smb_ntohs(sess_setupx_req_hdr->andXOffset);
+        uint16_t data_size;
+        uint16_t andXOffset = smb_ntohs(sess_setupx_req_hdr->andXOffset);
 
         if ( andXOffset >= total_size )
             return 0;
        
         /* Make sure we don't backtrack or look at the same data again */
-        if ( andXOffset <= (data - (u_int8_t *)smbHdr) )
+        if ( andXOffset <= (data - (uint8_t *)smbHdr) )
             return 0;
 
         /* Skip header, get size of remaining data */
@@ -913,14 +910,14 @@ int ProcessSMBSetupXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16
 
         /* Next block is at smbHdr + smb_ntohs(sess_setupx_req->andXOffset) */
         return ProcessNextSMBCommand(sess_setupx_req_hdr->andXCommand, smbHdr,
-            (u_int8_t *)smbHdr + smb_ntohs(sess_setupx_req_hdr->andXOffset), data_size, total_size);        
+            (uint8_t *)smbHdr + smb_ntohs(sess_setupx_req_hdr->andXOffset), data_size, total_size);        
     }
 
     return 0;
 }
 
 
-int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_LOGOFFX_REQ *logoffX;
     int              byteCount;
@@ -941,14 +938,14 @@ int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int1
     /* Handle next andX command in this packet */
     if (logoffX->andXCommand != SMB_NONE)
     {
-        u_int16_t data_size;
-        u_int16_t andXOffset = smb_ntohs(logoffX->andXOffset);
+        uint16_t data_size;
+        uint16_t andXOffset = smb_ntohs(logoffX->andXOffset);
 
         if ( andXOffset >= total_size )
             return 0;
        
         /* Make sure we don't backtrack or look at the same data again */
-        if ( andXOffset <= (data - (u_int8_t *)smbHdr) )
+        if ( andXOffset <= (data - (uint8_t *)smbHdr) )
             return 0;
 
         /* Skip header, get size of remaining data */
@@ -956,7 +953,7 @@ int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int1
 
         /* Next block is at smbHdr + smb_ntohs(sess_setupx_req->andXOffset) */
         return ProcessNextSMBCommand(logoffX->andXCommand, smbHdr,
-            (u_int8_t *)smbHdr + smb_ntohs(logoffX->andXOffset), data_size, total_size);        
+            (uint8_t *)smbHdr + smb_ntohs(logoffX->andXOffset), data_size, total_size);        
     }
 
     return 0;
@@ -965,12 +962,12 @@ int ProcessSMBLogoffXReq(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int1
 
 
 
-int ProcessSMBLockingX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessSMBLockingX(SMB_HDR *smbHdr, uint8_t *data, uint16_t size, uint16_t total_size)
 {
     SMB_LOCKINGX_REQ *lockingX;
     unsigned char *smb_data;
-    u_int16_t numUnlocks;
-    u_int16_t numLocks;
+    uint16_t numUnlocks;
+    uint16_t numLocks;
     int lockRangeSize;
 
     if ( size < sizeof(SMB_LOCKINGX_REQ) )
@@ -1053,14 +1050,14 @@ int ProcessSMBLockingX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_
     /* Handle next andX command in this packet */
     if (lockingX->andXCommand != SMB_NONE)
     {
-        u_int16_t data_size;
-        u_int16_t andXOffset = smb_ntohs(lockingX->andXOffset);
+        uint16_t data_size;
+        uint16_t andXOffset = smb_ntohs(lockingX->andXOffset);
 
         if ( andXOffset >= total_size )
             return 0;
        
         /* Make sure we don't backtrack or look at the same data again */
-        if ( andXOffset <= (data - (u_int8_t *)smbHdr) )
+        if ( andXOffset <= (data - (uint8_t *)smbHdr) )
             return 0;
 
         /* Skip header, get size of remaining data */
@@ -1068,7 +1065,7 @@ int ProcessSMBLockingX(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size, u_int16_
 
         /* Next block is at smbHdr + smb_ntohs(sess_setupx_req->andXOffset) */
         return ProcessNextSMBCommand(lockingX->andXCommand, smbHdr,
-            (u_int8_t *)smbHdr + smb_ntohs(lockingX->andXOffset), data_size, total_size);        
+            (uint8_t *)smbHdr + smb_ntohs(lockingX->andXOffset), data_size, total_size);        
     }
 
     return 0;

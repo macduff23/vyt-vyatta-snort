@@ -35,29 +35,29 @@
  * requires a rule be writen for each decoder event, and preprocssor event,
  * although preprocessors don't seem to use this much.
  */
-u_int32_t GenerateSnortEvent(Packet *p,
-                            u_int32_t gen_id,
-                            u_int32_t sig_id,
-                            u_int32_t sig_rev,
-                            u_int32_t classification,
-                            u_int32_t priority,
+uint32_t GenerateSnortEvent(Packet *p,
+                            uint32_t gen_id,
+                            uint32_t sig_id,
+                            uint32_t sig_rev,
+                            uint32_t classification,
+                            uint32_t priority,
                             char *msg);
 
 OptTreeNode * GenerateSnortEventOtn(
-                            u_int32_t gen_id,
-                            u_int32_t sig_id,
-                            u_int32_t sig_rev,
-                            u_int32_t classification,
-                            u_int32_t priority,
+                            uint32_t gen_id,
+                            uint32_t sig_id,
+                            uint32_t sig_rev,
+                            uint32_t classification,
+                            uint32_t priority,
                             char *msg );
 
 int LogTagData(Packet *p,
-               u_int32_t gen_id,
-               u_int32_t sig_id,
-               u_int32_t sig_rev,
-               u_int32_t classification,
-               u_int32_t priority,
-               u_int32_t event_ref,
+               uint32_t gen_id,
+               uint32_t sig_id,
+               uint32_t sig_rev,
+               uint32_t classification,
+               uint32_t priority,
+               uint32_t event_ref,
                time_t ref_sec,
                char *msg);
 

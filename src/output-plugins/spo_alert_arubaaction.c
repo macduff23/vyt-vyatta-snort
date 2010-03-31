@@ -179,8 +179,9 @@ void AlertArubaActionSetup(void)
 {
 	/* link the preprocessor keyword to the init function in 
 	   the preproc list */
-	RegisterOutputPlugin("alert_aruba_action", NT_OUTPUT_ALERT,
-			AlertArubaActionInit);
+    RegisterOutputPlugin("alert_aruba_action", OUTPUT_TYPE_FLAG__ALERT,
+                         AlertArubaActionInit);
+
 	DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: AlertArubaAction is "
 			"setup...\n"););
 }
@@ -204,8 +205,6 @@ void AlertArubaActionInit(char *args)
 	DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertArubaAction "
 			"Initialized\n"););
 
-	pv.alert_plugin_active = 1;
-
 	/* parse the argument list from the rules file */
 	data = ParseAlertArubaActionArgs(args);
 
@@ -213,7 +212,7 @@ void AlertArubaActionInit(char *args)
 			"to call lists...\n"););
 	
 	/* Set the preprocessor function into the function list */
-	AddFuncToOutputList(AlertArubaAction, NT_OUTPUT_ALERT, data);
+	AddFuncToOutputList(AlertArubaAction, OUTPUT_TYPE__ALERT, data);
 	AddFuncToCleanExitList(AlertArubaActionCleanExitFunc, data);
 	AddFuncToRestartList(AlertArubaActionRestartFunc, data);
 }
@@ -371,7 +370,7 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
         );
 	
 	/* Send the action command to the switch */
-	if (ArubaSwitchSend(data, (u_int8_t *)post, postlen) != postlen) {
+	if (ArubaSwitchSend(data, (uint8_t *)post, postlen) != postlen) {
 		ErrorMessage("aruba_action: Error sending data to Aruba "
 				"switch.\n");
 		close(data->fd);
@@ -379,7 +378,7 @@ void AlertArubaAction(Packet *p, char *msg, void *arg, Event *event)
 	}
 
 	/* Read the response from the switch */
-	if (ArubaSwitchRecv(data, (u_int8_t *)response, MAX_RESPONSE_LEN) < 0) {
+	if (ArubaSwitchRecv(data, (uint8_t *)response, MAX_RESPONSE_LEN) < 0) {
 		ErrorMessage("aruba_action: Error reading response from Aruba"
 				" switch\n");
 		close(data->fd);

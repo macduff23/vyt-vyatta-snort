@@ -85,27 +85,12 @@ extern PreprocStats hiDetectPerfStats;
 extern int hiDetectCalled;
 #endif
 
-extern PV pv;
+extern char *snort_conf_dir;
 
 /* Stats tracking for HTTP Inspect */
 HIStats hi_stats;
 
 #define MAX_FILENAME    1000
-
-/**
-**  The definition of the configuration separators in the snort.conf
-**  configure line.
-*/
-#define CONF_SEPARATORS " \t\n\r"
-
-/*
-**  These are the definitions of the parser section delimiting 
-**  keywords to configure HttpInspect.  When one of these keywords
-**  are seen, we begin a new section.
-*/
-#define GLOBAL        "global"
-#define GLOBAL_SERVER "global_server"
-#define SERVER        "server"
 
 /*
 **  GLOBAL subkeywords.
@@ -404,15 +389,15 @@ static int ProcessIISUnicodeMap(int **iis_unicode_map,
         /*
         **  Set up the file name directory
         */
-        if(pv.config_dir[strlen(pv.config_dir)-1] == '/')
+        if (snort_conf_dir[strlen(snort_conf_dir) - 1] == '/')
         {
             iRet = SnortSnprintf(filename, sizeof(filename), 
-                                 "%s%s", pv.config_dir, pcToken);
+                                 "%s%s", snort_conf_dir, pcToken);
         }
         else
         {
             iRet = SnortSnprintf(filename, sizeof(filename),
-                                 "%s/%s", pv.config_dir, pcToken);
+                                 "%s/%s", snort_conf_dir, pcToken);
         }
     }
 #else
@@ -425,16 +410,16 @@ static int ProcessIISUnicodeMap(int **iis_unicode_map,
         /*
         **  Set up the file name directory
         */
-        if(pv.config_dir[strlen(pv.config_dir)-1] == '\\' ||
-           pv.config_dir[strlen(pv.config_dir)-1] == '/' )
+        if (snort_conf_dir[strlen(snort_conf_dir) - 1] == '\\' ||
+            snort_conf_dir[strlen(snort_conf_dir) - 1] == '/' )
         {
             iRet = SnortSnprintf(filename, sizeof(filename), 
-                                 "%s%s", pv.config_dir, pcToken);
+                                 "%s%s", snort_conf_dir, pcToken);
         }
         else
         {
             iRet = SnortSnprintf(filename, sizeof(filename),
-                                 "%s\\%s", pv.config_dir, pcToken);
+                                 "%s\\%s", snort_conf_dir, pcToken);
         }
     }
 #endif
@@ -583,8 +568,8 @@ static int ProcessOversizeDir(HTTPINSPECT_CONF *ServerConf,
 **  @retval -1 generic fatal error
 **  @retval  1 generic non-fatal error
 */
-static int ProcessGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-                             char *ErrorString, int ErrStrLen)
+int ProcessGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
+                      char *ErrorString, int ErrStrLen)
 {
     int  iRet;
     char *pcToken;
@@ -684,8 +669,8 @@ static int ProcessGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
  **
  ** Called exclusively by ProcessProfile.
  */
-static inline int _ProcessProfileErr(int iRet, char* ErrorString, 
-                int ErrStrLen, char *token)
+static INLINE int _ProcessProfileErr(int iRet, char* ErrorString, 
+                                     int ErrStrLen, char *token)
 {
     if(iRet == HI_MEM_ALLOC_FAIL)
     {
@@ -848,7 +833,7 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
         return -1;
     }
     
-    memset(ServerConf->ports, 0, 65536);
+    memset(ServerConf->ports, 0, MAXPORTS_STORAGE);
 
     while ((pcToken = strtok(NULL, CONF_SEPARATORS)) != NULL)
     {
@@ -870,7 +855,7 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
             return -1;
         }
 
-        if(iPort < 0 || iPort > 65535)
+        if(iPort < 0 || iPort > MAXPORTS-1)
         {
             SnortSnprintf(ErrorString, ErrStrLen,
                           "Invalid port number.  Must be between 0 and 65535.");
@@ -878,9 +863,9 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
             return -1;
         }
 
-        ServerConf->ports[iPort] = 1;
+        ServerConf->ports[iPort/8] |= (1 << (iPort % 8) );
 
-        if(ServerConf->port_count < 65536)
+        if(ServerConf->port_count < MAXPORTS)
             ServerConf->port_count++;
     }
 
@@ -919,7 +904,7 @@ static int ProcessPorts(HTTPINSPECT_CONF *ServerConf,
 **  @retval  1 generic non-fatal error
 */
 static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf, int ServerOrClient,
-                            char *ErrorString, int ErrStrLen)
+                            char *ErrorString, int ErrStrLen, char *pToken)
 {
     char *pcToken;
     int  iFlowDepth;
@@ -929,7 +914,7 @@ static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf, int ServerOrClient,
     if(pcToken == NULL)
     {
         SnortSnprintf(ErrorString, ErrStrLen,
-                      "No argument to '%s' token.", FLOW_DEPTH);
+                      "No argument to '%s' token.", pToken);
 
         return -1;
     }
@@ -938,7 +923,7 @@ static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf, int ServerOrClient,
     if(*pcEnd)
     {
         SnortSnprintf(ErrorString, ErrStrLen,
-                      "Invalid argument to '%s'.", FLOW_DEPTH);
+                      "Invalid argument to '%s'.", pToken);
 
         return -1;
     }
@@ -947,8 +932,8 @@ static int ProcessFlowDepth(HTTPINSPECT_CONF *ServerConf, int ServerOrClient,
     if(iFlowDepth < -1 || iFlowDepth > 1460)
     {
         SnortSnprintf(ErrorString, ErrStrLen,
-                      "Invalid argument to '%s'.  Must be between 0 and 1460.",
-                      FLOW_DEPTH);
+                      "Invalid argument to '%s'.  Must be between -1 and 1460.",
+                      pToken);
 
         return -1;
     }
@@ -1008,11 +993,11 @@ static int ProcessPostDepth(HTTPINSPECT_CONF *ServerConf,
     }
 
     /* 0 means 'any depth' */
-    if(post_depth < 0 || post_depth > 65536)
+    if(post_depth < 0 || post_depth > ( IP_MAXPACKET - (IP_HEADER_LEN + TCP_HEADER_LEN) ) )
     {
         SnortSnprintf(ErrorString, ErrStrLen,
                 "Invalid argument to '%s'.  Must be between 0 and "
-                "65536.", POST_DEPTH);
+                "%d.", POST_DEPTH,( IP_MAXPACKET - (IP_HEADER_LEN + TCP_HEADER_LEN) ));
 
         return -1;
     }
@@ -1537,7 +1522,7 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             }
             else if(!strcmp(FLOW_DEPTH, pcToken) || !strcmp(SERVER_FLOW_DEPTH, pcToken))
             {
-                iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen);
+                iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen, pcToken);
                 if (iRet)
                 {
                     return iRet;
@@ -1545,7 +1530,7 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             }
             else if(!strcmp(CLIENT_FLOW_DEPTH, pcToken))
             {
-                iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen);
+                iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen, pcToken);
                 if (iRet)
                 {
                     return iRet;
@@ -1643,7 +1628,7 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         }
         else if(!strcmp(FLOW_DEPTH, pcToken) || !strcmp(SERVER_FLOW_DEPTH, pcToken))
         {
-            iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen);
+            iRet = ProcessFlowDepth(ServerConf, HI_SI_SERVER_MODE, ErrorString, ErrStrLen, pcToken);
             if (iRet)
             {
                 return iRet;
@@ -1651,7 +1636,7 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
         }
         else if(!strcmp(CLIENT_FLOW_DEPTH, pcToken))
         {
-            iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen);
+            iRet = ProcessFlowDepth(ServerConf, HI_SI_CLIENT_MODE, ErrorString, ErrStrLen, pcToken);
             if (iRet)
             {
                 return iRet;
@@ -1985,9 +1970,9 @@ static int PrintServerConf(HTTPINSPECT_CONF *ServerConf)
     /*
     **  Print out all the applicable ports.
     */
-    for(iCtr = 0; iCtr < 65536; iCtr++)
+    for(iCtr = 0; iCtr < MAXPORTS; iCtr++)
     {
-        if(ServerConf->ports[iCtr])
+        if(ServerConf->ports[iCtr/8] & (1 << (iCtr % 8) ))
         {
             sfsnprintfappend(buf, STD_BUF, "%d ", iCtr);
         }
@@ -2094,15 +2079,8 @@ static int PrintServerConf(HTTPINSPECT_CONF *ServerConf)
     return 0;
 }
 
-static int s_iDefaultServer = 0;
-
-int HttpInspect_isinitialized()
-{
-    return s_iDefaultServer;
-}
-
-static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
-                             char *ErrorString, int ErrStrLen)
+int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
+                            char *ErrorString, int ErrStrLen)
 {
     char *pcToken;
     char *pIpAddressList = NULL;
@@ -2127,9 +2105,9 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     /*
     **  Check for the default configuration first
     */
-    if(!strcmp(SERVER_DEFAULT, pcToken))
+    if (strcasecmp(SERVER_DEFAULT, pcToken) == 0)
     {
-        if(s_iDefaultServer)
+        if (GlobalConf->global_server != NULL)
         {
             SnortSnprintf(ErrorString, ErrStrLen,
                           "Cannot configure '%s' settings more than once.",
@@ -2138,9 +2116,18 @@ static int ProcessUniqueServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
             goto _return;
         }
 
-        s_iDefaultServer = 1;
+        GlobalConf->global_server =
+            (HTTPINSPECT_CONF *)SnortAlloc(sizeof(HTTPINSPECT_CONF));
 
-        ServerConf = &GlobalConf->global_server;
+        ServerConf = GlobalConf->global_server;
+
+        iRet = hi_ui_config_default(ServerConf);
+        if (iRet)
+        {
+            snprintf(ErrorString, ErrStrLen,
+                     "Error configuring default global configuration.");
+            return -1;
+        }
 
         iRet = ProcessServerConf(GlobalConf, ServerConf, ErrorString, ErrStrLen);
         if (iRet)
@@ -2301,7 +2288,7 @@ _return:
     return retVal;
 }
 
-static int PrintGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
+int PrintGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
 {
     LogMessage("HttpInspect Config:\n");
 
@@ -2318,177 +2305,6 @@ static int PrintGlobalConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
                GlobalConf->iis_unicode_codepage);
 
     return 0;
-}
-
-
-
-/*
-**  NAME
-**    HttpInspectSnortConf::
-*/
-/**
-**  This function takes the HttpInspect configuration line from the 
-**  snort.conf and creats an HttpInspect configuration.
-**
-**  This routine takes care of the snort specific configuration processing
-**  and calls the generic routines to add specific server configurations.
-**  It sets the configuration structure elements in this routine.
-**
-**  The ErrorString is passed in as a pointer, and the ErrStrLen tells
-**  us the length of the pointer.
-**
-**  @param GlobalConf  a pointer to the global configuration.
-**  @param args        a pointer to argument string.
-**  @param iGlobal     whether this is the global configuration or a server
-**  @param ErrorString a pointer for an error string.
-**  @param ErrStrLen   the length of the error string.
-**
-**  @return an error code integer 
-**          (0 = success, >0 = non-fatal error, <0 = fatal error)
-**
-**  @retval  0 success
-**  @retval  1 generic non-fatal error
-**  @retval -1 generic fatal error
-**  @retval -2 ErrorString is undefined
-*/
-static int  s_iGlobal = 0;
-int HttpInspectSnortConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf, char *args, int iGlobal,
-                         char *ErrorString, int ErrStrLen)
-{
-    char        *pcToken;
-    int         iRet;
-
-    /*
-    **  Check input variables
-    */
-    if(ErrorString == NULL)
-    {
-        return -2;
-    }
-    
-    if(GlobalConf == NULL)
-    {
-        SnortSnprintf(ErrorString, ErrStrLen, 
-                      "Global configuration variable undefined.");
-
-        return -1;
-    }
-
-    if(args == NULL)
-    {
-        SnortSnprintf(ErrorString, ErrStrLen, 
-                      "No arguments to HttpInspect configuration.");
-
-        return -1;
-    }
-
-    /*
-    **  Find out what is getting configured
-    */
-    pcToken = strtok(args, CONF_SEPARATORS);
-    if(pcToken == NULL)
-    {
-        SnortSnprintf(ErrorString, ErrStrLen, 
-                      "No arguments to HttpInspect configuration.");
-
-        return -1;
-    }
-
-    /*
-    **  Global Configuration Processing
-    **  We only process the global configuration once, but always check for
-    **  user mistakes, like configuring more than once.  That's why we
-    **  still check for the global token even if it's been checked.
-    */
-    if((s_iGlobal || iGlobal) && !strcmp(pcToken, GLOBAL)) 
-    {
-        /*
-        **  Don't allow user to configure twice
-        */
-        if(s_iGlobal)
-        {
-            SnortSnprintf(ErrorString, ErrStrLen,
-                          "Cannot configure '%s' settings more than once.",
-                          GLOBAL);
-
-            return -1;
-        }
-
-        iRet = ProcessGlobalConf(GlobalConf, ErrorString, ErrStrLen);
-        if (iRet)
-        {
-            return iRet;
-        }
-
-        s_iGlobal = 1;
-
-        /*
-        **  Let's print out the global config
-        */
-        PrintGlobalConf(GlobalConf);
-    }
-    /*
-    **  Server Configuration
-    */
-    else if(!iGlobal && !strcmp(pcToken, SERVER))
-    {
-        iRet = ProcessUniqueServerConf(GlobalConf, ErrorString, ErrStrLen);
-        if (iRet)
-        {
-            return iRet;
-        }
-    }
-    /*
-    **  Invalid configuration keyword
-    */
-    else
-    {
-        if(iGlobal)
-        {
-            SnortSnprintf(ErrorString, ErrStrLen,
-                          "Invalid configuration token '%s'.  " 
-                          "The first configuration must start with a '%s' "
-                          "configuration type.", pcToken, GLOBAL);
-        }
-        else
-        {
-            SnortSnprintf(ErrorString, ErrStrLen,
-                          "Invalid configuration token '%s'.  Must be a '%s' "
-                          "configuration.", pcToken, SERVER);
-        }
-
-        return -1;
-    }
-
-    return 0;
-}
-
-/*
-**  NAME
-**    HttpInspectCheckConfig::
-*/
-/**
-**  This function verifies the HttpInspect configuration is complete
-**
-**  @return none
-*/
-void HttpInspectCheckConfig(void)
-{
-    if (s_iGlobal && !s_iDefaultServer)
-        FatalError("HttpInspectConfigCheck() default server configuration "
-            "not specified\n");
-
-    /* So we don't have to check it every time we use it */
-    if (s_iGlobal)
-    {
-        if ((!stream_api) || (stream_api->version < STREAM_API_VERSION4))
-            FatalError("HttpInspectConfigCheck() Streaming & reassembly "
-                    "must be enabled\n");
-
-        HttpInspectAddPortsOfInterest();
-        HttpInspectAddServicesOfInterest();
-    }
-
 }
 
 /*
@@ -2527,17 +2343,17 @@ void HttpInspectCheckConfig(void)
 **  
 **  @retval 0 this function only return success
 */
-static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
+static INLINE int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
 {
     HI_GEN_EVENTS GenEvents;
     HI_EVENT      *OrigEvent;
     HI_EVENT      *HiEvent = NULL;
-    u_int32_t     uiMask = 0;
+    uint32_t     uiMask = 0;
     int           iGenerator;
     int           iStackCnt;
     int           iEvent;
     int           iCtr;
-    u_int32_t     httpflags = 0;
+    uint32_t     httpflags = 0;
 
     /*
     **  Set the session ptr, if applicable
@@ -2625,7 +2441,7 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
     */
     iEvent = HiEvent->event_info->alert_id + 1;
 
-    uiMask = (u_int32_t)(1 << (iEvent & 31));
+    uiMask = (uint32_t)(1 << (iEvent & 31));
 
     /*
     **  If we've already logged this event for this stream, then
@@ -2633,7 +2449,7 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
     */
     if(p->ssnptr)
     {
-        httpflags = (u_int32_t)(uintptr_t)stream_api->get_application_data(p->ssnptr,
+        httpflags = (uint32_t)(uintptr_t)stream_api->get_application_data(p->ssnptr,
                                                      PP_HTTPINSPECT);
     }
 
@@ -2664,7 +2480,7 @@ static inline int LogEvents(HI_SESSION *hi_ssn, Packet *p, int iInspectMode)
     return 0;
 }
 
-static inline int SetSiInput(HI_SI_INPUT *SiInput, Packet *p)
+static INLINE int SetSiInput(HI_SI_INPUT *SiInput, Packet *p)
 {
     IP_COPY_VALUE(SiInput->sip, GET_SRC_IP(p));
     IP_COPY_VALUE(SiInput->dip, GET_DST_IP(p));
@@ -3065,7 +2881,10 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
                 default:
                     /* Limit inspection of the client, even if there is normalized/extracted URI/Method/Header/Body data */
                     /* XXX: Potential performance hit here */
-                    p->alt_dsize = Session->server_conf->client_flow_depth;
+                    if (Session->server_conf->client_flow_depth < p->dsize)
+                        p->alt_dsize = Session->server_conf->client_flow_depth;
+                    else
+                        p->alt_dsize = p->dsize;
                     break;
             }
         }
@@ -3164,6 +2983,44 @@ int SnortHttpInspect(HTTPINSPECT_GLOBAL_CONF *GlobalConf, Packet *p)
         /* dcerpc2 preprocessor may need to look at this for
          * RPC over HTTP setup */
         SetPreprocBit(p, PP_DCE2);
+    }
+
+    return 0;
+}
+
+int HttpInspectInitializeGlobalConfig(HTTPINSPECT_GLOBAL_CONF *config,
+                                      char *ErrorString, int iErrStrLen)
+{
+    int iRet;
+
+    if (config == NULL)
+    {
+        snprintf(ErrorString, iErrStrLen, "Global configuration is NULL.");
+        return -1;
+    }
+
+    iRet = hi_ui_config_init_global_conf(config);
+    if (iRet)
+    {
+        snprintf(ErrorString, iErrStrLen,
+                 "Error initializing Global Configuration.");
+        return -1;
+    }
+
+    iRet = hi_client_init(config);
+    if (iRet)
+    {
+        snprintf(ErrorString, iErrStrLen,
+                 "Error initializing client module.");
+        return -1;
+    }
+
+    iRet = hi_norm_init(config);
+    if (iRet)
+    {
+        snprintf(ErrorString, iErrStrLen,
+                 "Error initializing normalization module.");
+        return -1;
     }
 
     return 0;

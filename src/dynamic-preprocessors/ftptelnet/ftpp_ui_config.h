@@ -60,6 +60,9 @@
 #define FTPP_UI_CONFIG_MAX_SERVERS  20
 #define FTPP_UI_CONFIG_MAX_CLIENTS  20
 
+#define MIN_CMD 3
+#define MAX_CMD 4
+
 /*
  * Defines a search type for the client configurations in the
  * global configuration.  We want this generic so we can change
@@ -159,7 +162,7 @@ typedef struct s_FTP_PARAM_FMT
      */
     union u_FORMAT
     {
-        u_int32_t chars_allowed;     /* For type == e_char */
+        uint32_t chars_allowed;     /* For type == e_char */
         FTP_DATE_FMT *date_fmt;      /* For type == e_date */
         char* literal;               /* For type == e_literal */
     } format;
@@ -178,8 +181,6 @@ typedef struct s_FTP_PARAM_FMT
 
 typedef struct s_FTP_CMD_CONF
 {
-    char cmd_name[5]; /* Commands are at most 4 chars */
-
     /* Maximum length for parameters for this cmd.
      * Default -1 is unlimited */
     unsigned int  max_param_len;
@@ -193,13 +194,14 @@ typedef struct s_FTP_CMD_CONF
     int  dir_response;
 
     FTP_PARAM_FMT *param_format;
+    char cmd_name[1];  // variable length array
 
 }  FTP_CMD_CONF;
 
 typedef struct s_PROTO_CONF
 {
-    unsigned int  port_count;
-    char ports[65536];
+    unsigned int port_count;
+    char ports[MAXPORTS];
 }  PROTO_CONF;
 
 /*
@@ -215,13 +217,15 @@ typedef struct s_FTP_SERVER_PROTO_CONF
 
     char *serverAddr;
     
-    unsigned int  def_max_param_len;
+    unsigned int def_max_param_len;
+    unsigned int max_cmd_len;
 
     int print_commands;
 
     CMD_LOOKUP    *cmd_lookup;
 
     FTPTELNET_CONF_OPT telnet_cmds;
+    FTPTELNET_CONF_OPT ignore_telnet_erase_cmds;
     int data_chan;
 
     /**Counts references to this allocated data structure. Each additional
@@ -255,6 +259,7 @@ typedef struct s_FTP_CLIENT_PROTO_CONF
 
     FTPTELNET_CONF_OPT bounce;
     FTPTELNET_CONF_OPT telnet_cmds;
+    FTPTELNET_CONF_OPT ignore_telnet_erase_cmds;
 
     /* allow_bounce to IP/mask port|port-range */
     /* TODO: change this to use a quick find of IP/mask */
@@ -299,17 +304,16 @@ typedef struct s_FTPTELNET_GLOBAL_CONF
     int check_encrypted_data;
     FTPTELNET_CONF_OPT encrypted;
 
-    FTP_CLIENT_PROTO_CONF   global_ftp_client;
-    FTP_SERVER_PROTO_CONF   global_ftp_server;
-    TELNET_PROTO_CONF   global_telnet;
+    FTP_CLIENT_PROTO_CONF *default_ftp_client;
+    FTP_SERVER_PROTO_CONF *default_ftp_server;
+    TELNET_PROTO_CONF *telnet_config;
     SERVER_LOOKUP    *server_lookup;
     CLIENT_LOOKUP    *client_lookup;
-#ifdef TARGET_BASED
-    int16_t ftp_app_id;
-    int16_t telnet_app_id;
-#endif
+
+    uint32_t ref_count;
 
 }  FTPTELNET_GLOBAL_CONF;    
+
 
 /*
  * Functions

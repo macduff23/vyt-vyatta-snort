@@ -45,11 +45,11 @@
 #include "snort_smtp.h"
 #include "sf_dynamic_preprocessor.h"
 
-extern SMTPConfig _smtp_config;
+extern SMTPConfig *smtp_eval_config;
 extern DynamicPreprocessorData _dpd;
-extern SMTP *_smtp;
+extern SMTP *smtp_ssn;
 
-char _smtp_event[SMTP_EVENT_MAX][EVENT_STR_LEN];
+char smtp_event[SMTP_EVENT_MAX][EVENT_STR_LEN];
 
 
 void SMTP_GenerateAlert(int event, char *format, ...)
@@ -57,29 +57,29 @@ void SMTP_GenerateAlert(int event, char *format, ...)
     va_list ap;
 
     /* Only log a specific alert once per session */
-    if (_smtp->alert_mask & (1 << event))
+    if (smtp_ssn->alert_mask & (1 << event))
     {
 #ifdef DEBUG
         DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Already alerted on: %s - "
-                                "ignoring event.\n", _smtp_event[event]););
+                                "ignoring event.\n", smtp_event[event]););
 #endif
         return;
     }
 
     /* set bit for this alert so we don't alert on again
      * in this session */
-    _smtp->alert_mask |= (1 << event);
+    smtp_ssn->alert_mask |= (1 << event);
 
-    if (_smtp_config.no_alerts)
+    if (smtp_eval_config->no_alerts)
     {
 #ifdef DEBUG
         va_start(ap, format);
 
-        _smtp_event[event][0] = '\0';
-        vsnprintf(&_smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
-        _smtp_event[event][EVENT_STR_LEN - 1] = '\0';
+        smtp_event[event][0] = '\0';
+        vsnprintf(&smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
+        smtp_event[event][EVENT_STR_LEN - 1] = '\0';
 
-        DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Ignoring alert: %s\n", _smtp_event[event]););
+        DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "Ignoring alert: %s\n", smtp_event[event]););
 
         va_end(ap);
 #endif
@@ -89,13 +89,13 @@ void SMTP_GenerateAlert(int event, char *format, ...)
 
     va_start(ap, format);
 
-    _smtp_event[event][0] = '\0';
-    vsnprintf(&_smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
-    _smtp_event[event][EVENT_STR_LEN - 1] = '\0';
+    smtp_event[event][0] = '\0';
+    vsnprintf(&smtp_event[event][0], EVENT_STR_LEN - 1, format, ap);
+    smtp_event[event][EVENT_STR_LEN - 1] = '\0';
 
-    _dpd.alertAdd(GENERATOR_SMTP, event, 1, 0, 3, &_smtp_event[event][0], 0);
+    _dpd.alertAdd(GENERATOR_SMTP, event, 1, 0, 3, &smtp_event[event][0], 0);
 
-    DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "SMTP Alert generated: %s\n", _smtp_event[event]););
+    DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "SMTP Alert generated: %s\n", smtp_event[event]););
 
     va_end(ap);
 }

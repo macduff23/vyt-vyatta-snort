@@ -88,9 +88,9 @@ void IpProtoInit(char *, OptTreeNode *, int);
 void IpProtoRuleParseFunction(char *, IpProtoData *);
 int IpProtoDetectorFunction(void *option_data, Packet *p);
 
-u_int32_t IpProtoCheckHash(void *d)
+uint32_t IpProtoCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IpProtoData *data = (IpProtoData *)d;
 
     a = data->protocol;
@@ -136,7 +136,7 @@ int IpProtoCheckCompare(void *l, void *r)
 void SetupIpProto(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ip_proto", IpProtoInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ip_proto", IpProtoInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ip_proto", &ipProtoPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

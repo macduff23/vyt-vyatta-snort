@@ -172,7 +172,7 @@ case "$1" in
                 CONFIGFILE=/etc/snort/snort.$interface.conf
 
                 # Defaults:
-		fail="failed (check /var/log/syslog and /var/log/snort)"
+		fail="failed (check /var/log/daemon.log, /var/log/syslog and /var/log/snort/)"
                 run="yes"
 
                 if [ -e "$PIDFILE" ] && running $PIDFILE; then
@@ -182,8 +182,10 @@ case "$1" in
 
                 if [ "$run" = "yes" ] ; then
                     if [ ! -e "$CONFIGFILE" ]; then
-                        log_progress_msg "no /etc/snort/snort.$interface.conf found, defaulting to snort.conf"
+                        log_progress_msg "using /etc/snort/snort.conf"
                         CONFIGFILE=/etc/snort/snort.conf
+                    else
+                        log_progress_msg "using /etc/snort/snort.$interface.conf"
                     fi
 
                     set +e
@@ -321,9 +323,9 @@ case "$1" in
 		$0 start $interface || true
 	done
 
+        # If we did not find any instance of Snort then we restart all
 	if [ "$got_instance" = 0 ]; then
-		log_failure_msg "No snort instance found to be stopped!" >&2
-                exit 6
+                $0 start
 	fi
 	;;
   status)

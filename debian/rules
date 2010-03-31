@@ -249,7 +249,6 @@ binary-indep: build-indep install-indep
 	cp -a doc/signatures/ $(TMP)/snort-doc/usr/share/doc/snort-doc/
 	rm -rf $(TMP)/snort-doc/usr/share/man
 	rm -rf $(TMP)/snort-rules-default/usr/share/man
-	dh_undocumented -i
 	rm -rf $(TMP)/snort-common/usr/share/man/man8/snort.*
 	dh_installchangelogs -i ChangeLog
 	dh_link -i
@@ -286,7 +285,6 @@ binary-arch: build-arch install-arch
 	mkdir -p $(TMP)/snort-pgsql/usr/share/doc/snort-pgsql/
 	install -m 644 -o root -g root schemas/create_postgresql $(TMP)/snort-pgsql/usr/share/doc/snort-pgsql/
 
-	dh_undocumented -a
 	dh_installchangelogs -a ChangeLog
 	dh_link -a
 	dh_strip -a

@@ -148,7 +148,7 @@ static int log_initialized = 0;
  * Returns: void
  *
  */
-void ftpp_eo_event_log_init()
+void ftpp_eo_event_log_init(void)
 {
     if (!log_initialized)
     {

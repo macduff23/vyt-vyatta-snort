@@ -42,14 +42,12 @@ case "$1" in
 	db_get snort-pgsql/interface || true; 	INTERFACE="$RET"
 	db_get snort-pgsql/address_range || true;	ADDRESS_RANGE="$RET"
 	db_get snort-pgsql/disable_promiscuous || true; DISABLE_PROMISCUOUS=$RET
-	db_get snort-pgsql/reverse_order || true;	REVERSE_ORDER=$RET
         db_get snort-pgsql/send_stats || true;        STATS_SEND="$RET"
 	db_get snort-pgsql/stats_rcpt || true;	STATS_RCPT="$RET"
 	db_get snort-pgsql/stats_treshold || true;	STATS_THRESHOLD="$RET"
 	db_get snort-pgsql/options || true;		OPTIONS="$RET"
 
 	test "$DISABLE_PROMISCUOUS" = "true" && OPTIONS="$OPTIONS -p"
-	test "$REVERSE_ORDER" = "true" && OPTIONS="$OPTIONS -o"
 	# Failsafe in case the values above are blank (jfs)
 	[ -z "$STATS_RCPT" ] && STATS_RCPT=root
 	[ -z "$STATS_THRESHOLD" ] && STATS_THRESHOLD=1
@@ -68,8 +66,18 @@ DEBIAN_SNORT_SEND_STATS="$STATS_SEND"
 DEBIAN_SNORT_STATS_RCPT="$STATS_RCPT"
 DEBIAN_SNORT_STATS_THRESHOLD="$STATS_THRESHOLD"
 EOF
+        if [ -e /etc/snort/db-pending-config ] ; then
+	  STARTUP="manual"
+	  echo
+	  echo "/etc/snort/db-pending-config file found"
+	  echo "Snort will not start as its database is not yet configured."
+	  echo "Please configure the database as described in"
+	  echo "/usr/share/doc/snort-pgsql/README-database.Debian"
+	  echo "and then remove /etc/snort/db-pending-config"
+	fi
 
-	if [ -f /etc/snort/snort.conf ]; then
+        if [ "$STARTUP" != "manual" ]; then
+	  if [ -f /etc/snort/snort.conf ]; then
 		# insert database config stuff in the configuration file,
 		# or configure it for syslog-logging.
 		db_get snort-pgsql/configure_db
@@ -133,8 +141,8 @@ EOF
 			chown root:snort /etc/snort/snort.conf
 			chmod 640 /etc/snort/snort.conf
 		fi
+	  fi
 	fi
-
 	db_stop
 
 	# Check for left-over files from woody packages.

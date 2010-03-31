@@ -80,6 +80,10 @@
  *  sfrt_free   - free table
 */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "sfrt.h"
 
 char *rt_error_messages[] =
@@ -104,7 +108,7 @@ char *rt_error_messages[] =
  * @param   data_size  Max number of unique data entries
  *
  * Returns the new table. */
-table_t *sfrt_new(char table_type, char ip_type, long data_size, u_int32_t mem_cap)
+table_t *sfrt_new(char table_type, char ip_type, long data_size, uint32_t mem_cap)
 {
     table_t *table = (table_t*)malloc(sizeof(table_t));
 
@@ -126,13 +130,13 @@ table_t *sfrt_new(char table_type, char ip_type, long data_size, u_int32_t mem_c
      * between pointers and indeces into the data table.  Only
      * applies to DIR-n-m. */
 #ifdef SUPPORT_LCTRIE
-#ifdef ULONGIS64BIT
+#if SIZEOF_LONG_INT == 8
     if(data_size >= 0x800000000000000 && table_type == LCT) 
 #else
     if(data_size >= 0x8000000 && table_type != LCT)
 #endif
 #else /* SUPPORT_LCTRIE */
-#ifdef ULONGIS64BIT
+#if SIZEOF_LONG_INT == 8
     if(data_size >= 0x800000000000000)
 #else
     if(data_size >= 0x8000000)
@@ -332,7 +336,7 @@ GENERIC sfrt_lookup(void *adr, table_t* table)
 #ifdef SUP_IP6
     sfip_t *ip;
 #else
-    u_int32_t ip;
+    uint32_t ip;
 #endif
     void *rt = NULL;
 
@@ -363,7 +367,7 @@ GENERIC sfrt_lookup(void *adr, table_t* table)
         return NULL;
     }
 
-    ip = *(u_int32_t*)adr;
+    ip = *(uint32_t*)adr;
     rt = table->rt;
 #endif
 
@@ -384,7 +388,7 @@ GENERIC sfrt_lookup(void *adr, table_t* table)
 
 void sfrt_iterate(table_t* table, sfrt_iterator_callback userfunc)
 {
-    u_int32_t index;
+    uint32_t index;
     if (!table)
         return;
 
@@ -397,9 +401,31 @@ void sfrt_iterate(table_t* table, sfrt_iterator_callback userfunc)
     return;
 }
 
+void sfrt_cleanup2(
+    table_t* table,
+    sfrt_iterator_callback2 cleanup_func,
+    void *data
+    )
+{
+    uint32_t index;
+    if (!table)
+        return;
+
+    for (index = 0; index < table->num_ent; index++)
+    {
+        if (table->data[index])
+            cleanup_func(table->data[index], data);
+
+        /* cleanup_func is supposed to free memory associated with this
+         * table->data[index].  Set that to NULL.
+         */
+        table->data[index] = NULL;
+    }
+}
+
 void sfrt_cleanup(table_t* table, sfrt_iterator_callback cleanup_func)
 {
-    u_int32_t index;
+    uint32_t index;
     if (!table)
         return;
 
@@ -422,7 +448,7 @@ GENERIC sfrt_search(void *adr, unsigned char len, table_t *table)
 #ifdef SUP_IP6
     sfip_t *ip;
 #else
-    u_int32_t ip;
+    uint32_t ip;
 #endif
     tuple_t tuple; 
     void *rt = NULL;
@@ -447,7 +473,7 @@ GENERIC sfrt_search(void *adr, unsigned char len, table_t *table)
         return NULL;
     }
 
-    ip = *(u_int32_t*)adr;
+    ip = *(uint32_t*)adr;
     rt = table->rt;
 #endif
     /* IPv6 not yet supported */
@@ -463,7 +489,7 @@ GENERIC sfrt_search(void *adr, unsigned char len, table_t *table)
 #ifdef SUP_IP6
     ip = adr;
 #else
-    ip = *(u_int32_t*)adr;
+    ip = *(uint32_t*)adr;
 #endif
 
     tuple = table->lookup(ip, rt);
@@ -484,7 +510,7 @@ int sfrt_insert(void *adr, unsigned char len, GENERIC ptr,
 #ifdef SUP_IP6
     sfip_t *ip;
 #else
-    u_int32_t ip;
+    uint32_t ip;
 #endif
     tuple_t tuple; 
     void *rt = NULL;
@@ -511,7 +537,7 @@ int sfrt_insert(void *adr, unsigned char len, GENERIC ptr,
 #ifdef SUP_IP6
     ip = adr;
 #else
-    ip = *(u_int32_t*)adr;
+    ip = *(uint32_t*)adr;
 #endif
 
     /* Check if we can reuse an existing data table entry by 
@@ -587,7 +613,7 @@ int sfrt_insert(void *adr, unsigned char len, GENERIC ptr,
     return res;
 }
 
-u_int32_t sfrt_num_entries(table_t *table)
+uint32_t sfrt_num_entries(table_t *table)
 {
     if(!table || !table->rt || !table->allocated)
     {
@@ -598,9 +624,9 @@ u_int32_t sfrt_num_entries(table_t *table)
     return table->num_ent - 1;
 }
 
-u_int32_t sfrt_usage(table_t *table)
+uint32_t sfrt_usage(table_t *table)
 {
-    u_int32_t usage;
+    uint32_t usage;
     if(!table || !table->rt || !table->allocated || !table->usage)
     {
         return 0;
@@ -626,13 +652,13 @@ u_int32_t sfrt_usage(table_t *table)
 int main()
 {
     table_t *dir;
-    u_int32_t ip_list[NUM_IPS];  /* entirely arbitrary */
+    uint32_t ip_list[NUM_IPS];  /* entirely arbitrary */
     char data[NUM_DATA];     /* also entirely arbitrary */
-    u_int32_t index, val;
+    uint32_t index, val;
 
     for(index=0; index<NUM_IPS; index++)
     {
-        ip_list[index] = (u_int32_t)rand()%NUM_IPS;
+        ip_list[index] = (uint32_t)rand()%NUM_IPS;
         data[index%NUM_DATA] = index%26 + 65;    /* Random letter */ 
     }
         
@@ -654,13 +680,13 @@ int main()
         }
 
         printf("%d\t %x: %c -> %c\n", index, ip_list[index], 
-              data[index%NUM_DATA], *(u_int32_t*)sfrt_lookup(&ip_list[index], dir));
+              data[index%NUM_DATA], *(uint32_t*)sfrt_lookup(&ip_list[index], dir));
 
     }   
 
     for(index=0; index < NUM_IPS; index++)
     {
-        val = *(u_int32_t*)sfrt_lookup(&ip_list[index], dir);
+        val = *(uint32_t*)sfrt_lookup(&ip_list[index], dir);
         printf("\t@%d\t%x: %c.  originally:\t%c\n", 
                             index, ip_list[index], val, data[index%NUM_DATA]);
     }   

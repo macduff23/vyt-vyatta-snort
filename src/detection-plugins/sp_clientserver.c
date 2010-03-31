@@ -65,6 +65,7 @@
 #include "snort.h"
 //#include "signature.h"
 #include "sfhashfcn.h"
+#include "sp_clientserver.h"
 
 #include "stream_api.h"
 
@@ -75,22 +76,6 @@ PreprocStats flowCheckPerfStats;
 extern PreprocStats ruleOTNEvalPerfStats;
 #endif
 
-#define ONLY_STREAM 0x01
-#define ONLY_FRAG 0x02
-#define IGNORE_STREAM 0x01
-#define IGNORE_FRAG 0x02
-
-typedef struct _ClientServerData
-{
-    u_int8_t from_server;
-    u_int8_t from_client;    
-    u_int8_t ignore_reassembled; /* ignore reassembled sessions */
-    u_int8_t only_reassembled; /* ignore reassembled sessions */
-    u_int8_t stateless;    
-    u_int8_t established;    
-    u_int8_t unestablished;    
-} ClientServerData;
-
 #include "sfhashfcn.h"
 #include "detection_options.h"
 
@@ -99,9 +84,9 @@ void ParseFlowArgs(char *, OptTreeNode *);
 void InitFlowData(OptTreeNode *);
 int CheckFlow(void *option_data, Packet *p);
 
-u_int32_t FlowHash(void *d)
+uint32_t FlowHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     ClientServerData *data = (ClientServerData *)d;
 
     a = data->from_server || data->from_client << 16;
@@ -201,7 +186,7 @@ int OtnFlowOnlyReassembled( OptTreeNode * otn )
 void SetupClientServer(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("flow", FlowInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("flow", FlowInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("flow", &flowCheckPerfStats, 3, &ruleOTNEvalPerfStats);
@@ -259,7 +244,7 @@ void FlowInit(char *data, OptTreeNode *otn, int protocol)
 }
 
 
-static void INLINE CheckStream(char *token)
+static INLINE void CheckStream(char *token)
 {
     if (!stream_api)
     {
@@ -468,7 +453,7 @@ int CheckFlow(void *option_data, Packet *p)
     PREPROC_PROFILE_START(flowCheckPerfStats);
 
     /* Check established/unestablished first */
-    if(snort_runtime.capabilities.stateful_inspection == 1)
+    if (ScStateful())
     {
         if ((csd->established == 1) && !(p->packet_flags & PKT_STREAM_EST))
         {
@@ -480,7 +465,7 @@ int CheckFlow(void *option_data, Packet *p)
             **  the stream4 session timed out.
             */
 #if 0
-            if(InlineMode())
+            if(ScInlineMode())
             {
                 switch(List->rtn->type)
                 {
@@ -523,7 +508,7 @@ int CheckFlow(void *option_data, Packet *p)
     /* Now check from client */
     if (csd->from_client)
     {
-        if(pv.stateful)
+        if (ScStateful())
         {
             if (!(p->packet_flags & PKT_FROM_CLIENT) && 
                 (p->packet_flags & PKT_FROM_SERVER))
@@ -538,7 +523,7 @@ int CheckFlow(void *option_data, Packet *p)
     /* And from server */
     if (csd->from_server)
     {
-        if(pv.stateful)
+        if (ScStateful())
         {
             if (!(p->packet_flags & PKT_FROM_SERVER) && 
                 (p->packet_flags & PKT_FROM_CLIENT))

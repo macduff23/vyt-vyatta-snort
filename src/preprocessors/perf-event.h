@@ -31,24 +31,23 @@
 #ifndef __PERF_EVENT__
 #define __PERF_EVENT__
 
-#include "perf.h"
 #include "sf_types.h"
 
 typedef struct _SFEVENT {
 
-    UINT64 NQEvents;
-    UINT64 QEvents;
+    uint64_t NQEvents;
+    uint64_t QEvents;
 
-    UINT64 TotalEvents;
+    uint64_t TotalEvents;
 
 } SFEVENT;
 
 typedef struct _SFEVENT_STATS {
 
-    UINT64 NQEvents;
-    UINT64 QEvents;
+    uint64_t NQEvents;
+    uint64_t QEvents;
 
-    UINT64 TotalEvents;
+    uint64_t TotalEvents;
 
     double NQPercent;
     double QPercent;
@@ -66,7 +65,7 @@ int ProcessEventStats(SFEVENT *sfEvent);
 **  These functions are external for updating the
 **  SFEVENT structure.
 */
-int UpdateNQEvents();
-int UpdateQEvents();
+int UpdateNQEvents(SFEVENT *);
+int UpdateQEvents(SFEVENT *);
 
 #endif

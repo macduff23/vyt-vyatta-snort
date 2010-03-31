@@ -92,9 +92,11 @@ case "$1" in
 
 		CONFIGFILE=/etc/snort/snort.$interface.conf
 		if [ ! -e "$CONFIGFILE" ]; then
-			echo "No /etc/snort/snort.$interface.conf, defaulting to snort.conf"
+			echo "using /etc/snort/snort.conf"
 			CONFIGFILE=/etc/snort/snort.conf
-		fi
+		else
+			echo "using /etc/snort/snort.$interface.conf"
+                fi
 
 		set +e
 		/sbin/start-stop-daemon --start --quiet --pidfile "$PIDFILE" \

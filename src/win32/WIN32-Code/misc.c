@@ -277,12 +277,12 @@ int init_winsock(void)
 
     if (WSAStartup(wVersionRequested, &wsaData))
     {
-        FatalError("[!] ERROR: Unable to find a usable Winsock.\n");
+        FatalError("[!]: Unable to find a usable Winsock.\n");
     }
 
     if (LOBYTE(wsaData.wVersion) < 1 || HIBYTE(wsaData.wVersion) < 1)
     {
-        FatalError("[!] ERROR: Unable to find Winsock version 1.1 or greater. You have version %d.%d.\n",
+        FatalError("[!]: Unable to find Winsock version 1.1 or greater. You have version %d.%d.\n",
 	               LOBYTE(wsaData.wVersion), HIBYTE(wsaData.wVersion));
         //WSACleanup();
         //return 0;

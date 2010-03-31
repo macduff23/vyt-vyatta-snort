@@ -113,11 +113,13 @@ int sf_sdlist_insert_next(sfSDList *list, SDListItem *item, void *data,
     return 0;
 }
 
-int sf_sdlist_append(sfSDList *list, void *data, SDListItem *container) {
+int sf_sdlist_append(sfSDList *list, void *data, SDListItem *container) 
+{
     return sf_sdlist_insert_next(list, list->tail, data, container);
 }
 
-int sf_sdlist_remove_next(sfSDList *list, SDListItem *item) {
+int sf_sdlist_remove_next(sfSDList *list, SDListItem *item) 
+{
     SDListItem *li = NULL;
     void *data;
 

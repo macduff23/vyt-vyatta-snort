@@ -40,6 +40,8 @@
 #include "detection_options.h"
 
 #ifdef PERF_PROFILING
+
+/* Data types *****************************************************************/
 typedef struct _OTN_WorstPerformer
 {
     OptTreeNode *otn;
@@ -48,15 +50,34 @@ typedef struct _OTN_WorstPerformer
     double ticks_per_check;
     double ticks_per_match;
     double ticks_per_nomatch;
+
 } OTN_WorstPerformer;
 
+typedef struct _Preproc_WorstPerformer
+{
+    PreprocStatsNode *node;
+    struct _Preproc_WorstPerformer *next;
+    struct _Preproc_WorstPerformer *prev;
+    struct _Preproc_WorstPerformer *children;
+    double ticks_per_check;
+    double pct_of_parent;
+    double pct_of_total;
+} Preproc_WorstPerformer;
+
+
+/* Globals ********************************************************************/
 double ticks_per_microsec = 0.0;
 OTN_WorstPerformer *worstPerformers = NULL;
 
-extern RuleListNode *RuleLists;
-extern PreprocStats mpsePerfStats, rulePerfStats, ncrulePerfStats;
+Preproc_WorstPerformer *worstPreprocPerformers = NULL;
+PreprocStats totalPerfStats;
+static PreprocStatsNode * PreprocStatsNodeList = NULL;
+int max_layers = 0;
 
-static void ResetRuleList(RuleTreeNode *list);
+
+/* Externs ********************************************************************/
+extern PreprocStats mpsePerfStats, rulePerfStats, ncrulePerfStats;
+extern SnortConfig *snort_conf;
 
 
 void getTicksPerMicrosec(void)
@@ -67,54 +88,46 @@ void getTicksPerMicrosec(void)
     }
 }
 
-
-static void ResetRuleList(RuleTreeNode *list)
-{
-    RuleTreeNode *rtn = NULL;
-    OptTreeNode *otn = NULL;
-
-    for (rtn = list; rtn != NULL; rtn = rtn->right)
-    {
-        for (otn = rtn->down; otn != NULL; otn = otn->next)
-        {
-            otn->ticks = 0;
-            otn->ticks_match = 0;
-            otn->ticks_no_match = 0;
-            otn->checks = 0;
-            otn->matches = 0;
-            otn->alerts = 0;
-            otn->noalerts = 0;
-#ifdef PPM_MGR
-            otn->ppm_disable_cnt = 0;
-#endif
-        }
-    }
-}
-
 void ResetRuleProfiling(void)
 {
     /* Cycle through all Rules, print ticks & check count for each */
-    RuleListNode *rule;
+    RuleTreeNode *rtn;
+    SFGHASH_NODE *hashNode;
+    OptTreeNode *otn  = NULL;
+    tSfPolicyId policyId = 0;
+    SnortConfig *sc = snort_conf;
 
-    if (!pv.profile_rules_flag)
+    if ((sc == NULL) || (sc->profile_rules.num == 0))
         return;
 
-    for (rule = RuleLists; rule != NULL; rule = rule->next)
+    for (hashNode = sfghash_findfirst(sc->otn_map);
+            hashNode;
+            hashNode = sfghash_findnext(sc->otn_map))
     {
-        if (!rule->RuleList)
-            continue;
+        otn = (OptTreeNode *)hashNode->data;
+        for ( policyId = 0; 
+              policyId < otn->proto_node_num; 
+              policyId++ )
+        {
+            rtn = getRtnFromOtn(otn, policyId);
+            //rtn = currHeadNodeOtn->proto_node[currHeadNodePolicy];
 
-        /* TCP list */
-        ResetRuleList(rule->RuleList->TcpList);
-
-        /* UDP list */
-        ResetRuleList(rule->RuleList->UdpList);
-
-        /* ICMP list */
-        ResetRuleList(rule->RuleList->IcmpList);
-
-        /* IP list */
-        ResetRuleList(rule->RuleList->IpList);
+            if ((rtn->proto == IPPROTO_TCP) || (rtn->proto == IPPROTO_UDP)
+                    || (rtn->proto == IPPROTO_ICMP) || (rtn->proto == ETHERNET_TYPE_IP)) 
+            { 
+                //do operation
+                otn->ticks = 0;
+                otn->ticks_match = 0;
+                otn->ticks_no_match = 0;
+                otn->checks = 0;
+                otn->matches = 0;
+                otn->alerts = 0;
+                otn->noalerts = 0;
+#ifdef PPM_MGR
+                otn->ppm_disable_cnt = 0;
+#endif
+            }
+        }
     }
 }
 
@@ -127,29 +140,31 @@ void PrintWorstRules(int numToPrint)
     time_t cur_time;
     char fullname[STD_BUF];
     int ret;
+    SnortConfig *sc = snort_conf;
+
+    if (sc == NULL)
+        return;
 
     getTicksPerMicrosec();
 
     cur_time = time(NULL);
 
-    if(pv.profile_rules_filename)
+    if (sc->profile_rules.filename != NULL)
     {
-        if(pv.profile_rules_append)
+        if (sc->profile_rules.append)
         {
-            log = TextLog_Init(pv.profile_rules_filename, 512*1024, 512*1024);
+            log = TextLog_Init(sc->profile_rules.filename, 512*1024, 512*1024);
+
+            if (log != NULL)
+                TextLog_Print(log, "\ntimestamp: %u\n", cur_time);
         }
         else
         {
-            ret = SnortSnprintf(fullname, STD_BUF, "%s.%u", pv.profile_rules_filename, (u_int32_t)cur_time);
+            ret = SnortSnprintf(fullname, STD_BUF, "%s.%u", sc->profile_rules.filename, (uint32_t)cur_time);
             if(ret != SNORT_SNPRINTF_SUCCESS)
                 FatalError("profiler: file path+name too long\n");
             log = TextLog_Init(fullname, 512*1024, 512*1024);
         }
-    }
-
-    if(log&&pv.profile_rules_append)
-    {
-        TextLog_Print(log, "\ntimestamp: %u\n", cur_time);
     }
 
     if (numToPrint != -1)
@@ -194,12 +209,12 @@ void PrintWorstRules(int numToPrint)
     {
         TextLog_Print(log,
 #ifdef PPM_MGR
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #else
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #endif
              6, "Num",
-             9, "SID", 4, "GID",
+             9, "SID", 4, "GID", 4, "Rev", 
             11, "Checks",
             10, "Matches",
             10, "Alerts",
@@ -216,12 +231,12 @@ void PrintWorstRules(int numToPrint)
     {
         LogMessage(
 #ifdef PPM_MGR
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #else
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #endif
              6, "Num",
-             9, "SID", 4, "GID",
+             9, "SID", 4, "GID", 4, "Rev", 
             11, "Checks",
             10, "Matches",
             10, "Alerts",
@@ -239,16 +254,16 @@ void PrintWorstRules(int numToPrint)
     {
         TextLog_Print(log,
 #ifdef PPM_MGR
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #else
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #endif
             6, "===",
-            9, "===", 4, "===",
+            9, "===", 4, "===", 4, "===",
             11, "======",
             10, "=======",
             10, "======",
-            20, "=====",
+            20, "=========",
             11, "=========",
             11, "=========",
             13, "============"
@@ -261,16 +276,16 @@ void PrintWorstRules(int numToPrint)
     {
         LogMessage(
 #ifdef PPM_MGR
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #else
-            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
+            "%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s%*s\n",
 #endif
             6, "===",
-            9, "===", 4, "===",
+            9, "===", 4, "===", 4, "===",
             11, "======",
             10, "=======",
             10, "======",
-            20, "=====",
+            20, "=========",
             11, "=========",
             11, "=========",
             13, "============"
@@ -292,15 +307,15 @@ void PrintWorstRules(int numToPrint)
         {
             TextLog_Print(log,
 #ifdef PPM_MGR
-                "%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" FMTu64("*") "\n",
+                "%*d%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" FMTu64("*") "\n",
 #else
-                "%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" "\n",
+                "%*d%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" "\n",
 #endif
-                6, num, 9, otn->sigInfo.id, 4, otn->sigInfo.generator,
+                6, num, 9, otn->sigInfo.id, 4, otn->sigInfo.generator, 4, otn->sigInfo.rev,
                 11, otn->checks,
                 10, otn->matches,
                 10, otn->alerts,
-                20, (UINT64)(otn->ticks/ticks_per_microsec),
+                20, (uint64_t)(otn->ticks/ticks_per_microsec),
                 11, node->ticks_per_check/ticks_per_microsec,
                 11, node->ticks_per_match/ticks_per_microsec,
                 13, node->ticks_per_nomatch/ticks_per_microsec
@@ -313,15 +328,15 @@ void PrintWorstRules(int numToPrint)
         {
             LogMessage(
 #ifdef PPM_MGR
-                "%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" FMTu64("*") "\n",
+                "%*d%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" FMTu64("*") "\n",
 #else
-                "%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" "\n",
+                "%*d%*d%*d%*d" FMTu64("*") FMTu64("*") FMTu64("*") FMTu64("*") "%*.1f%*.1f%*.1f" "\n",
 #endif
-                6, num, 9, otn->sigInfo.id, 4, otn->sigInfo.generator,
+                6, num, 9, otn->sigInfo.id, 4, otn->sigInfo.generator, 4, otn->sigInfo.rev,
                 11, otn->checks,
                 10, otn->matches,
                 10, otn->alerts,
-                20, (UINT64)(otn->ticks/ticks_per_microsec),
+                20, (uint64_t)(otn->ticks/ticks_per_microsec),
                 11, node->ticks_per_check/ticks_per_microsec,
                 11, node->ticks_per_match/ticks_per_microsec,
                 13, node->ticks_per_nomatch/ticks_per_microsec
@@ -345,17 +360,30 @@ void PrintWorstRules(int numToPrint)
     worstPerformers = NULL;
 }
 
-void CollectRTNProfile(RuleTreeNode *list)
+void CollectRTNProfile(void)
 {
     RuleTreeNode *rtn;
     OptTreeNode *otn;
     OTN_WorstPerformer *new, *node, *last = NULL;
     char got_position;
+    SFGHASH_NODE *hashNode;
+    tSfPolicyId policyId = 0;
+    SnortConfig *sc = snort_conf;
 
-    for (rtn = list; rtn; rtn = rtn->right)
+    if (sc == NULL)
+        return;
+
+    for (hashNode = sfghash_findfirst(sc->otn_map);
+            hashNode;
+            hashNode = sfghash_findnext(sc->otn_map))
     {
-        for (otn = rtn->down; otn; otn = otn->next)
+        otn = (OptTreeNode *)hashNode->data;
+        for ( policyId = 0; 
+              policyId < otn->proto_node_num; 
+              policyId++ )
         {
+            rtn = getRtnFromOtn(otn, policyId);
+
             /* Only log info if OTN has actually been eval'd */
             if (otn->checks > 0 && otn->ticks > 0)
             {
@@ -391,7 +419,7 @@ void CollectRTNProfile(RuleTreeNode *list)
                 for (node = worstPerformers; node && !got_position; node = node->next)
                 {
                     last = node;
-                    switch (pv.profile_rules_sort)
+                    switch (sc->profile_rules.sort)
                     {
                         case PROFILE_SORT_CHECKS:
                             if (otn->checks >= node->otn->checks)
@@ -474,109 +502,69 @@ void CollectRTNProfile(RuleTreeNode *list)
 void ShowRuleProfiles(void)
 {
     /* Cycle through all Rules, print ticks & check count for each */
-    RuleListNode *rule;
+    SnortConfig *sc = snort_conf;
 
-    if (!pv.profile_rules_flag)
+    if ((sc == NULL) || (sc->profile_rules.num == 0))
         return;
 
-    detection_option_tree_update_otn_stats();
+    detection_option_tree_update_otn_stats(sc->detection_option_tree_hash_table);
 
-    for (rule=RuleLists; rule; rule=rule->next)
-    {
-        if (!rule->RuleList)
-            continue;
-
-        /* TCP list */
-        CollectRTNProfile(rule->RuleList->TcpList);
-
-        /* UDP list */
-        CollectRTNProfile(rule->RuleList->UdpList);
-
-        /* ICMP list */
-        CollectRTNProfile(rule->RuleList->IcmpList);
-
-        /* IP list */
-        CollectRTNProfile(rule->RuleList->IpList);
-    }
+    CollectRTNProfile();
 
     /* Specifically call out a top xxx or something? */
-    PrintWorstRules(pv.profile_rules_flag);
+    PrintWorstRules(sc->profile_rules.num);
     return;
 }
 
-/* The global total for snort */
-PreprocStats totalPerfStats;
-
-PreprocStatsNode *PreprocStatsNodeList;
-
-int max_layers = 0;
-
+/* The preprocessor profile list is only accessed for printing stats when
+ * Snort shuts down, so adding new nodes during a reload shouldn't be a
+ * problem. */
 void RegisterPreprocessorProfile(char *keyword, PreprocStats *stats, int layer, PreprocStats *parent)
 {
     PreprocStatsNode *node;
 
-    if (!stats)
+    if (stats == NULL)
         return;
 
-    node = PreprocStatsNodeList;
+    node = (PreprocStatsNode *)SnortAlloc(sizeof(PreprocStatsNode));
 
-    if (node == NULL)
+    if (PreprocStatsNodeList == NULL)
     {
-        /* alloc the node */
-        PreprocStatsNodeList = (PreprocStatsNode *)SnortAlloc(sizeof(PreprocStatsNode));
-
-        PreprocStatsNodeList->name = (char *)SnortAlloc((strlen(keyword) + 1) * sizeof(char));
-
-        /* copy the keyword */
-        SnortStrncpy(PreprocStatsNodeList->name, keyword, strlen(keyword) +1);
-
-        /* Set the stats reference */
-        PreprocStatsNodeList->stats = stats;
-        PreprocStatsNodeList->parent = parent;
-        PreprocStatsNodeList->layer = layer;
+        PreprocStatsNodeList = node;
     }
     else
     {
-        while (node->next != NULL)
+        PreprocStatsNode *tmp = PreprocStatsNodeList;
+        PreprocStatsNode *last;
+
+        do
         {
-            if (!strcasecmp(node->name, keyword))
+            if (strcasecmp(tmp->name, keyword) == 0)
             {
-                FatalError("Duplicate Preprocessor Stats Name (%s)\n", keyword);
+                //FatalError("Duplicate Preprocessor Stats Name (%s)\n", keyword);
+                /* Don't fatal error here since during a reload there are
+                 * probably going to be dups - just return */
+                //multiple policy support
+                return;
             }
-            node = node->next;
-        }
 
-        node->next = (PreprocStatsNode *)SnortAlloc(sizeof(PreprocStatsNode));
+            last = tmp;
+            tmp = tmp->next;
 
-        node = node->next;
+        } while (tmp != NULL);
 
-        node->name = (char *)SnortAlloc((strlen(keyword) + 1) * sizeof(char));
-
-        /* copy the keyword */
-        SnortStrncpy(node->name, keyword, strlen(keyword) +1);
-
-        /* Set the stats reference */
-        node->stats = stats;
-        node->parent = parent;
-        node->layer = layer;
+        last->next = node;
     }
+
+    node->name = SnortStrdup(keyword);
+    node->stats = stats;  /* Set the stats reference */
+    node->parent = parent;
+    node->layer = layer;
 
     if (layer > max_layers)
         max_layers = layer;
 }
 
-typedef struct _Preproc_WorstPerformer
-{
-    PreprocStatsNode *node;
-    struct _Preproc_WorstPerformer *next;
-    struct _Preproc_WorstPerformer *prev;
-    struct _Preproc_WorstPerformer *children;
-    double ticks_per_check;
-    double pct_of_parent;
-    double pct_of_total;
-} Preproc_WorstPerformer;
-
-Preproc_WorstPerformer *worstPreprocPerformers = NULL;
 void FreePreprocPerformance(Preproc_WorstPerformer *idx)
 {
     Preproc_WorstPerformer *child, *tmp;
@@ -607,7 +595,7 @@ void PrintPreprocPerformance(TextLog *log, int num, Preproc_WorstPerformer *idx)
                    28 - indent, idx->node->name, 6, idx->node->layer,
                    11, idx->node->stats->checks,
                    11, idx->node->stats->exits,
-                   20, (UINT64)(idx->node->stats->ticks/ticks_per_microsec),
+                   20, (uint64_t)(idx->node->stats->ticks/ticks_per_microsec),
                    11, idx->ticks_per_check/ticks_per_microsec,
                    14, idx->pct_of_parent,
                    13, idx->pct_of_total);
@@ -619,7 +607,7 @@ void PrintPreprocPerformance(TextLog *log, int num, Preproc_WorstPerformer *idx)
         	                   28 - indent, idx->node->name, 6, idx->node->layer,
         	                   11, idx->node->stats->checks,
         	                   11, idx->node->stats->exits,
-        	                   20, (UINT64)(idx->node->stats->ticks/ticks_per_microsec),
+        	                   20, (uint64_t)(idx->node->stats->ticks/ticks_per_microsec),
         	                   11, idx->ticks_per_check/ticks_per_microsec,
         	                   14, idx->pct_of_parent,
         	                   13, idx->pct_of_total);
@@ -637,7 +625,7 @@ void PrintPreprocPerformance(TextLog *log, int num, Preproc_WorstPerformer *idx)
                    28 - indent, idx->node->name, 6, idx->node->layer,
                    11, idx->node->stats->checks,
                    11, idx->node->stats->exits,
-                   20, (UINT64)(idx->node->stats->ticks/ticks_per_microsec),
+                   20, (uint64_t)(idx->node->stats->ticks/ticks_per_microsec),
                    11, idx->ticks_per_check/ticks_per_microsec,
                    14, idx->pct_of_parent,
                    13, idx->pct_of_parent);
@@ -649,7 +637,7 @@ void PrintPreprocPerformance(TextLog *log, int num, Preproc_WorstPerformer *idx)
         	                   28 - indent, idx->node->name, 6, idx->node->layer,
         	                   11, idx->node->stats->checks,
         	                   11, idx->node->stats->exits,
-        	                   20, (UINT64)(idx->node->stats->ticks/ticks_per_microsec),
+        	                   20, (uint64_t)(idx->node->stats->ticks/ticks_per_microsec),
         	                   11, idx->ticks_per_check/ticks_per_microsec,
         	                   14, idx->pct_of_parent,
         	                   13, idx->pct_of_parent);
@@ -666,7 +654,7 @@ void PrintPreprocPerformance(TextLog *log, int num, Preproc_WorstPerformer *idx)
     }
 }
 
-void CleanupPreprocStatsNodeList()
+void CleanupPreprocStatsNodeList(void)
 {
     PreprocStatsNode *node, *nxt;
 
@@ -706,28 +694,27 @@ void PrintWorstPreprocs(int numToPrint)
     time_t cur_time;
     char fullname[STD_BUF];
     int ret;
+    SnortConfig *sc = snort_conf;
 
     getTicksPerMicrosec();
 
     cur_time = time(NULL);
-    if(pv.profile_preprocs_filename)
+    if (sc->profile_preprocs.filename != NULL)
     {
-        if(pv.profile_preprocs_append)
+        if (sc->profile_preprocs.append)
         {
-            log = TextLog_Init(pv.profile_preprocs_filename, 512*1024, 512*1024);
+            log = TextLog_Init(sc->profile_preprocs.filename, 512*1024, 512*1024);
+
+            if (log != NULL)
+                TextLog_Print(log, "\ntimestamp: %u\n", cur_time);
         }
         else
         {
-            ret = SnortSnprintf(fullname, STD_BUF, "%s.%u", pv.profile_preprocs_filename, (u_int32_t)cur_time);
+            ret = SnortSnprintf(fullname, STD_BUF, "%s.%u", sc->profile_preprocs.filename, (uint32_t)cur_time);
             if(ret != SNORT_SNPRINTF_SUCCESS)
                 FatalError("profiler: file path+name too long\n");
             log = TextLog_Init(fullname, 512*1024, 512*1024);
         }
-    }
-
-    if(log&&pv.profile_preprocs_append)
-    {
-        TextLog_Print(log, "\ntimestamp: %u\n", cur_time);
     }
 
     if (numToPrint != -1)
@@ -898,8 +885,9 @@ Preproc_WorstPerformer *findPerfParent(PreprocStatsNode *node,
 void ResetPreprocProfiling(void)
 {
     PreprocStatsNode *idx = NULL;
+    SnortConfig *sc = snort_conf;
 
-    if (!pv.profile_preprocs_flag)
+    if ((sc == NULL) || (sc->profile_preprocs.num == 0))
         return;
 
     for (idx = PreprocStatsNodeList; idx != NULL; idx = idx->next)
@@ -920,8 +908,9 @@ void ShowPreprocProfiles(void)
     char got_position;
     Preproc_WorstPerformer *listhead;
     double ticks_per_check;
+    SnortConfig *sc = snort_conf;
 
-    if (!pv.profile_preprocs_flag)
+    if ((sc == NULL) || (sc->profile_preprocs.num == 0))
         return;
 
     /* Adjust mpse stats to not include rule evaluation */
@@ -977,7 +966,7 @@ void ShowPreprocProfiles(void)
             for (this = listhead; this && !got_position; this = this->next)
             {
                 last = this;
-                switch (pv.profile_preprocs_sort)
+                switch (sc->profile_preprocs.sort)
                 {
                     case PROFILE_SORT_CHECKS:
                         if (new->node->stats->checks >= this->node->stats->checks)
@@ -1043,7 +1032,7 @@ void ShowPreprocProfiles(void)
             }
         }
     }
-    PrintWorstPreprocs(pv.profile_preprocs_flag);
+    PrintWorstPreprocs(sc->profile_preprocs.num);
     CleanupPreprocStatsNodeList();
 }
 

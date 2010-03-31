@@ -172,16 +172,18 @@ the specified commands.
 * cmd_validity cmd < fmt > *
 This specifies the valid format for parameters of a given command.
 fmt is as follows:
-    int            Param must be an integer
-    number         Param must be an integer between 1 and 255
-    char _chars    Param must be a single char, and one of _chars
-    date _datefmt  Param follows format specified where
-                   # = Number, C=Char, []=optional, |=OR, {}=choice,
-                   anything else=literal (ie, .+- )
-    string         Param is string (effectively unrestricted)
-    host_port      Param must a host port specifier, per RFC 959.
-    {}, |          One of, alternate values enclosed within
-    []             Optional value enclosed within
+    int            	Param must be an integer
+    number         	Param must be an integer between 1 and 255
+    char <chars>    	Param must be a single char, and one of <chars>
+    date <datefmt>  	Param follows format specified where
+                   	# = Number, C=Char, []=optional, |=OR, {}=choice,
+                   	anything else=literal (ie, .+- )
+    string         	Param is string (effectively unrestricted)
+    host_port      	Param must a host port specifier, per RFC 959.
+    long_host_port 	Parameter must be a long host port specified, per RFC 1639
+    extended_host_port 	Parameter must be an extended host port specified, per RFC 2428
+    {}, |          	One of, alternate values enclosed within
+    {}, []             	Optional value enclosed within {}, optional value enclose within []
 
 Examples of the cmd_validity option are shown below.  These examples
 are the default checks (per RFC 959 and others) performed by the
@@ -217,6 +219,12 @@ cmd_validity MDTM < [ date nnnnnnnnnnnnnn[{+|-}n[n]] ] string >
 
 * telnet_cmds yes/no *
 Detect and alert when telnet cmds are seen on the FTP command channel.
+
+* ignore_telnet_erase_cmds yes/no
+
+This option allows Snort to ignore telnet escape sequences for erase character
+(TNC EAC) and erase line (TNC EAL) when normalizing FTP command channel.  Some
+FTP servers do not process those telnet escape sequences.
 
 * data_chan *
 Causes the FTP preprocessor to force the rest of snort to ignore 
@@ -282,6 +290,12 @@ the use of PORT 192,168,1,1,78,xx, where xx is 52 through 72, inclusive.
 
 * telnet_cmds yes/no *
 Detect and alert when telnet cmds are seen on the FTP command channel.
+
+* ignore_telnet_erase_cmds yes/no
+
+This option allows Snort to ignore telnet escape sequences for erase character
+(TNC EAC) and erase line (TNC EAL) when normalizing FTP command channel.  Some
+FTP clients do not process those telnet escape sequences.
 
 -- Default Configuration --
 The following gives the default configurations:
