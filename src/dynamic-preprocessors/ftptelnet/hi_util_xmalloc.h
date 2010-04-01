@@ -35,7 +35,7 @@
 
 void *xmalloc(size_t byteSize);
 char *xstrdup(const char *str);
-void  xshowmem();
+void  xshowmem(void);
 void  xfree( void * );
 
 #endif

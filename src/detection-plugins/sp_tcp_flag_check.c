@@ -64,9 +64,9 @@ void TCPFlagCheckInit(char *, OptTreeNode *, int);
 void ParseTCPFlags(char *, OptTreeNode *);
 int CheckTcpFlags(void *option_data, Packet *p);
 
-u_int32_t TcpFlagCheckHash(void *d)
+uint32_t TcpFlagCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     TCPFlagCheckData *data = (TCPFlagCheckData *)d;
 
     a = data->mode;
@@ -99,7 +99,7 @@ int TcpFlagCheckCompare(void *l, void *r)
 
 void SetupTCPFlagCheck(void)
 {
-    RegisterPlugin("flags", TCPFlagCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("flags", TCPFlagCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("flags", &tcpFlagsPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -169,7 +169,7 @@ void ParseTCPFlags(char *rule, OptTreeNode *otn)
     /* make sure there is atleast a split pointer */
     if(fptr == NULL) 
     {
-        FatalError("[!] ERROR Line %s (%d): Flags missing in TCP flag rule\n", file_name, file_line);
+        FatalError("[!] Line %s (%d): Flags missing in TCP flag rule\n", file_name, file_line);
     }
 
     while(isspace((u_char) *fptr))
@@ -177,7 +177,7 @@ void ParseTCPFlags(char *rule, OptTreeNode *otn)
 
     if(strlen(fptr) == 0)
     {
-        FatalError("[!] ERROR Line %s (%d): Flags missing in TCP flag rule\n", file_name, file_line);
+        FatalError("[!] Line %s (%d): Flags missing in TCP flag rule\n", file_name, file_line);
     }
 
     /* find the end of the alert string */

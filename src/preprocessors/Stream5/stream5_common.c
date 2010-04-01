@@ -34,6 +34,13 @@
 #include "portscan.h"
 #include "sftarget_protocol_reference.h"
 #include "sp_dynamic.h" 
+#include "snort_stream5_tcp.h"
+#include "snort_stream5_udp.h"
+#include "snort_stream5_icmp.h"
+#include "parser.h" 
+
+extern SFBASE sfBase;
+extern SnortConfig *snort_conf_for_parsing;
 
 static void printIgnoredRules(
         IgnoredRuleList *pIgnoredRuleList,
@@ -44,11 +51,11 @@ static void addRuleToIgnoreList(
         OptTreeNode *otn);
 
 /*  M A C R O S  **************************************************/
-INLINE UINT64 CalcJiffies(Packet *p)
+static INLINE uint64_t CalcJiffies(Packet *p)
 {
-    UINT64 ret = 0;
-    UINT64 sec = (p->pkth->ts.tv_sec * TCP_HZ);
-    UINT64 usec = (p->pkth->ts.tv_usec / (1000000UL/TCP_HZ));
+    uint64_t ret = 0;
+    uint64_t sec = (p->pkth->ts.tv_sec * TCP_HZ);
+    uint64_t usec = (p->pkth->ts.tv_usec / (1000000UL/TCP_HZ));
 
     ret = sec + usec;
 
@@ -59,7 +66,7 @@ INLINE UINT64 CalcJiffies(Packet *p)
 
 int Stream5Expire(Packet *p, Stream5LWSession *lwssn)
 {
-    UINT64 pkttime = CalcJiffies(p);
+    uint64_t pkttime = CalcJiffies(p);
 
     if (lwssn->expire_time == 0)
     {
@@ -69,7 +76,7 @@ int Stream5Expire(Packet *p, Stream5LWSession *lwssn)
     
     if((int)(pkttime - lwssn->expire_time) > 0)
     {
-        sfPerf.sfBase.iStreamTimeouts++;
+        sfBase.iStreamTimeouts++;
         lwssn->session_flags |= SSNFLAG_TIMEDOUT;
         lwssn->session_state |= STREAM5_STATE_TIMEDOUT;
 
@@ -95,7 +102,7 @@ int Stream5Expire(Packet *p, Stream5LWSession *lwssn)
 }
 
 void Stream5SetExpire(Packet *p, 
-        Stream5LWSession *lwssn, u_int32_t timeout)
+        Stream5LWSession *lwssn, uint32_t timeout)
 {
     lwssn->expire_time = CalcJiffies(p) + (timeout * TCP_HZ);
     return;
@@ -128,13 +135,14 @@ void MarkupPacketFlags(Packet *p, Stream5LWSession *lwssn)
     }
 }
 
+#if 0
 /** Get rule list for a specific protocol
  *
  * @param rule  
  * @param ptocool protocol type 
  * @returns RuleTreeNode* rule list for specific protocol
  */
-inline RuleTreeNode * protocolRuleList(RuleListNode *rule, int protocol)
+static INLINE RuleTreeNode * protocolRuleList(RuleListNode *rule, int protocol)
 {
     switch (protocol)
     {
@@ -149,8 +157,8 @@ inline RuleTreeNode * protocolRuleList(RuleListNode *rule, int protocol)
     }
     return NULL;
 }
-
-static inline char * getProtocolName (int protocol)
+#endif
+static INLINE char * getProtocolName (int protocol)
 {
     static char *protocolName[] = {"TCP", "UDP", "ICMP"};
     switch (protocol)
@@ -187,15 +195,16 @@ int Stream5OtnHasFlowOrFlowbit(OptTreeNode *otn)
     return 0;
 }
 
-/**initialize given port list from the given ruleset.
- * @param portList pointer to array of MAX_PORTS+1 u_int8_t. This array content 
+/**initialize given port list from the given ruleset, for a given policy
+ * @param portList pointer to array of MAX_PORTS+1 uint8_t. This array content 
  * is changed by walking through the rulesets.
  * @param protocol - protocol type
  */
 void setPortFilterList(
-        u_int8_t *portList, 
+        uint8_t *portList, 
         int protocol,
-        int ignoreAnyAnyRules
+        int ignoreAnyAnyRules,
+        tSfPolicyId policyId
         )
 {
 #ifdef PORTLISTS
@@ -205,15 +214,21 @@ void setPortFilterList(
 #else
     int16_t sport, dport;
 #endif
-    RuleListNode *rule;
     RuleTreeNode *rtn;
     OptTreeNode *otn;
-    extern RuleListNode *RuleLists;
     int inspectSrc, inspectDst;
     char any_any_flow = 0;
-    RuleTreeNode *pProtocolRuleList;
     IgnoredRuleList *pIgnoredRuleList = NULL;     ///list of ignored rules
     char *protocolName;
+    SFGHASH_NODE *hashNode;
+    int flowBitIsSet = 0;
+    SnortConfig *sc = snort_conf_for_parsing;
+
+    if (sc == NULL)
+    {
+        FatalError("%s(%d) Snort conf for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
 
     if ((protocol == IPPROTO_TCP) && (ignoreAnyAnyRules == 0))
     {
@@ -228,166 +243,164 @@ void setPortFilterList(
     protocolName = getProtocolName(protocol);
 
     /* Post-process TCP rules to establish TCP ports to inspect. */
-    for (rule=RuleLists; rule; rule=rule->next)
+    for (hashNode = sfghash_findfirst(sc->otn_map);
+         hashNode;
+         hashNode = sfghash_findnext(sc->otn_map))
     {
-        if(!rule->RuleList)
-            continue;
+        otn = (OptTreeNode *)hashNode->data;
+        flowBitIsSet = Stream5OtnHasFlowOrFlowbit(otn);
 
-        /*
-        **  Get TCP rules
-        */
-        pProtocolRuleList = protocolRuleList(rule, protocol);
-        if(pProtocolRuleList)
+        rtn = getRtnFromOtn(otn, policyId);
+
+        if (!rtn)
         {
-            for(rtn = pProtocolRuleList; rtn != NULL; rtn = rtn->right)
-            {
-                inspectSrc = inspectDst = 0;
+            continue;
+        }
+
+        if (rtn->proto == protocol)
+        { 
+            //do operation
+            inspectSrc = inspectDst = 0;
 #ifdef PORTLISTS
-                if (PortObjectHasAny(rtn->src_portobject))
+            if (PortObjectHasAny(rtn->src_portobject))
+            {
+                inspectSrc = -1;
+            }
+            else
+            {
+                port_array = PortObjectCharPortArray(port_array, rtn->src_portobject, &num_ports);
+                if (port_array && num_ports != 0)
                 {
-                    inspectSrc = -1;
-                }
-                else
-                {
-                    port_array = PortObjectCharPortArray(port_array, rtn->src_portobject, &num_ports);
-                    if (port_array && num_ports != 0)
+                    inspectSrc = 1;
+                    for (i=0;i<SFPO_MAX_PORTS;i++)
                     {
-                        inspectSrc = 1;
-                        for (i=0;i<SFPO_MAX_PORTS;i++)
+                        if (port_array[i])
                         {
-                            if (port_array[i])
-                            {
-                                portList[i] |= PORT_MONITOR_INSPECT;
-                                /* port specific rule */
-                                for (otn = rtn->down; otn; otn = otn->next)
+                            portList[i] |= PORT_MONITOR_INSPECT;
+                            /* port specific rule */
+                                /* Look for an OTN with flow or flowbits keyword */
+                                if (flowBitIsSet)
                                 {
-                                    /* Look for an OTN with flow or flowbits keyword */
-                                    if (Stream5OtnHasFlowOrFlowbit(otn))
-                                    {
-                                        portList[i] |= PORT_MONITOR_SESSION;
-                                    }
+                                    portList[i] |= PORT_MONITOR_SESSION;
                                 }
-                            }
                         }
                     }
                 }
-                free(port_array);
-                port_array = NULL;
-                if (PortObjectHasAny(rtn->dst_portobject))
+                if ( port_array )
                 {
-                    inspectDst = -1;
+                    free(port_array);
+                    port_array = NULL;
                 }
-                else
-                {
-                    port_array = PortObjectCharPortArray(port_array, rtn->dst_portobject, &num_ports);
-                    if (port_array && num_ports != 0)
-                    {
-                        inspectDst = 1;
-                        for (i=0;i<SFPO_MAX_PORTS;i++)
-                        {
-                            if (port_array[i])
-                            {
-                                portList[i] |= PORT_MONITOR_INSPECT;
-                                /* port specific rule */
-                                for (otn = rtn->down; otn; otn = otn->next)
-                                {
-                                    /* Look for an OTN with flow or flowbits keyword */
-                                    if (Stream5OtnHasFlowOrFlowbit(otn))
-                                    {
-                                        portList[i] |= PORT_MONITOR_SESSION;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                free(port_array);
-                port_array = NULL;
-
-                if ((inspectSrc == -1) && (inspectDst == -1))
-                {
-                    /* any -> any rule */
-                    if (any_any_flow == 0)
-                    {
-                        any_any_flow = Stream5AnyAnyFlow(portList, rtn, any_any_flow,
-                                &pIgnoredRuleList, ignoreAnyAnyRules);
-                    }
-                }
-#else
-                sport = (int16_t)((rtn->hsp == rtn->lsp) ? rtn->hsp : -1);
-
-                if (rtn->flags & ANY_SRC_PORT)
-                {
-                    sport = -1;
-                }
-
-                if (sport > 0 &&  rtn->not_sp_flag > 0 )
-                {
-                    sport = -1;
-                }
-
-                /* Set the source port to inspect */
-                if (sport != -1)
-                {
-                    portList[sport] |= PORT_MONITOR_INSPECT;
-                }
-
-                dport = (int16_t)((rtn->hdp == rtn->ldp) ? rtn->hdp : -1);
-
-                if (rtn->flags & ANY_DST_PORT)
-                {
-                    dport = -1;
-                }
-
-                if (dport > 0 && rtn->not_dp_flag > 0 )
-                {
-                    dport = -1;
-                }
-
-                /* Set the dest port to inspect */
-                if (dport != -1)
+            }
+            if (PortObjectHasAny(rtn->dst_portobject))
+            {
+                inspectDst = -1;
+            }
+            else
+            {
+                port_array = PortObjectCharPortArray(port_array, rtn->dst_portobject, &num_ports);
+                if (port_array && num_ports != 0)
                 {
                     inspectDst = 1;
-                    portList[dport] |= PORT_MONITOR_INSPECT;
-                }
-
-                if (inspectSrc || inspectDst)
-                {
-                    /* port specific rule */
-                    for (otn = rtn->down; otn; otn = otn->next)
+                    for (i=0;i<SFPO_MAX_PORTS;i++)
                     {
-                        /* Look for an OTN with flow or flowbits keyword */
-                        if (Stream5OtnHasFlowOrFlowbit(otn))
+                        if (port_array[i])
                         {
-                            if (inspectSrc)
-                            {
-                                portList[sport] |= PORT_MONITOR_SESSION;
-                            }
-                            if (inspectDst)
-                            {
-                                portList[dport] |= PORT_MONITOR_SESSION;
-                            }
+                            portList[i] |= PORT_MONITOR_INSPECT;
+                            /* port specific rule */
+                                if (flowBitIsSet)
+                                {
+                                    portList[i] |= PORT_MONITOR_SESSION;
+                                }
                         }
                     }
                 }
-                else
+                if ( port_array )
                 {
-                    /* any -> any rule */
-                    if (any_any_flow == 0)
-                    {
-                        any_any_flow = Stream5AnyAnyFlow(portList, rtn, any_any_flow,
-                                &pIgnoredRuleList, ignoreAnyAnyRules);
-                    }
+                    free(port_array);
+                    port_array = NULL;
                 }
+            }
+            if ((inspectSrc == -1) && (inspectDst == -1))
+            {
+                /* any -> any rule */
+                if (any_any_flow == 0)
+                {
+                    any_any_flow = Stream5AnyAnyFlow(portList, otn, rtn, any_any_flow,
+                            &pIgnoredRuleList, ignoreAnyAnyRules);
+                }
+            }
+#else
+            sport = (int16_t)((rtn->hsp == rtn->lsp) ? rtn->hsp : -1);
+
+            if (rtn->flags & ANY_SRC_PORT)
+            {
+                sport = -1;
+            }
+
+            if (sport > 0 &&  rtn->not_sp_flag > 0 )
+            {
+                sport = -1;
+            }
+
+            /* Set the source port to inspect */
+            if (sport != -1)
+            {
+                portList[sport] |= PORT_MONITOR_INSPECT;
+            }
+
+            dport = (int16_t)((rtn->hdp == rtn->ldp) ? rtn->hdp : -1);
+
+            if (rtn->flags & ANY_DST_PORT)
+            {
+                dport = -1;
+            }
+
+            if (dport > 0 && rtn->not_dp_flag > 0 )
+            {
+                dport = -1;
+            }
+
+            /* Set the dest port to inspect */
+            if (dport != -1)
+            {
+                inspectDst = 1;
+                portList[dport] |= PORT_MONITOR_INSPECT;
+            }
+
+            if (inspectSrc || inspectDst)
+            {
+                /* port specific rule */
+                    /* Look for an OTN with flow or flowbits keyword */
+                    if (flowBitIsSet)
+                    {
+                        if (inspectSrc)
+                        {
+                            portList[sport] |= PORT_MONITOR_SESSION;
+                        }
+                        if (inspectDst)
+                        {
+                            portList[dport] |= PORT_MONITOR_SESSION;
+                        }
+                    }
+            }
+            else
+            {
+                /* any -> any rule */
+                if (any_any_flow == 0)
+                {
+                    any_any_flow = Stream5AnyAnyFlow(portList, otn, rtn, any_any_flow,
+                            &pIgnoredRuleList, ignoreAnyAnyRules);
+                }
+            }
 #endif /* PORTLISTS */
-            } /* for (rtn=...) */
         }
-    } /* for (rule=...) */
+    }
 
     /* If portscan is tracking TCP/UDP, need to create
      * sessions for all ports */
-    if (((protocol == IPPROTO_UDP) && (ps_get_protocols() & PS_PROTO_UDP))
-            || ((protocol == IPPROTO_TCP)  && (ps_get_protocols() & PS_PROTO_TCP)))
+    if (((protocol == IPPROTO_UDP) && (ps_get_protocols(policyId) & PS_PROTO_UDP))
+     || ((protocol == IPPROTO_TCP) && (ps_get_protocols(policyId) & PS_PROTO_TCP)))
     {
         int j;
         for (j=0; j<MAX_PORTS; j++)
@@ -402,12 +415,15 @@ void setPortFilterList(
             "disabled because of %s rule with flow or flowbits option\n", 
             protocolName, protocolName);
     }
+
     else if (pIgnoredRuleList)
     {
         LogMessage("Warning: Rules (GID:SID) effectively ignored because of "
             "'ignore_any_rules' option for Stream5 %s:\n", protocolName);
-        printIgnoredRules(pIgnoredRuleList, any_any_flow);
     }
+    // free list; print iff any_any_flow
+    printIgnoredRules(pIgnoredRuleList, any_any_flow);
+
 }
 
 /**Determines whether any_any_flow should be ignored or not.
@@ -422,46 +438,39 @@ void setPortFilterList(
  * @returns
  */
 int Stream5AnyAnyFlow(
-        u_int8_t *portList, 
+        uint8_t *portList, 
+        OptTreeNode *otn,
         RuleTreeNode *rtn, 
         int any_any_flow,
         IgnoredRuleList **ppIgnoredRuleList,
         int ignoreAnyAnyRules
         )
 {
-    OptTreeNode *otn;
-    int i;
-
     /**if any_any_flow is set then following code has no effect.*/
     if (any_any_flow)
     {
         return any_any_flow;
     }
 
-    for (otn = rtn->down; otn; otn = otn->next)
+    /* Look for an OTN with flow or flowbits keyword */
+    if (Stream5OtnHasFlowOrFlowbit(otn))
     {
-        /* Look for an OTN with flow or flowbits keyword */
-        if (Stream5OtnHasFlowOrFlowbit(otn))
-        {
-            for (i=1;i<=MAX_PORTS;i++)
-            {
-                /* track sessions for ALL ports becuase
-                 * of any -> any with flow/flowbits */
-                portList[i] |= PORT_MONITOR_SESSION;
-            }
-            any_any_flow = 1;
-            break;
-        }
-        else if (any_any_flow == 0)
-        {
-            if (!ignoreAnyAnyRules)
-            {
-                /* Not ignoring any any rules... */
-                break;
-            }
+        int i;
 
-            /* if not, then ignore the content/pcre/etc */
-            if (otn->ds_list[PLUGIN_PATTERN_MATCH] ||
+        for (i=1;i<=MAX_PORTS;i++)
+        {
+            /* track sessions for ALL ports becuase
+             * of any -> any with flow/flowbits */
+            portList[i] |= PORT_MONITOR_SESSION;
+        }
+        return 1;
+    }
+
+    if (ignoreAnyAnyRules)
+    {
+
+        /* if not, then ignore the content/pcre/etc */
+        if (otn->ds_list[PLUGIN_PATTERN_MATCH] ||
                 otn->ds_list[PLUGIN_PATTERN_MATCH_OR] ||
                 otn->ds_list[PLUGIN_PATTERN_MATCH_URI] ||
 #ifdef DYNAMIC_PLUGIN
@@ -471,14 +480,13 @@ int Stream5AnyAnyFlow(
 #endif
                 otn->ds_list[PLUGIN_BYTE_TEST] ||
                 otn->ds_list[PLUGIN_PCRE])
-            {
-                /* Ignoring this rule.... */
-                addRuleToIgnoreList(ppIgnoredRuleList, otn);
-            }
+        {
+            /* Ignoring this rule.... */
+            addRuleToIgnoreList(ppIgnoredRuleList, otn);
         }
-    } /* for (otn=...) */
+    }
 
-    return any_any_flow;
+    return 0;
 }
 
 /**add rule to the ignore rule list.
@@ -551,3 +559,61 @@ static void printIgnoredRules(
         LogMessage(buf);
     }
 }
+
+static int Stream5FreeConfigsPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    Stream5Config *pPolicyConfig = (Stream5Config *)pData;
+
+    //do any housekeeping before freeing Stream5Config
+    sfPolicyUserDataClear (config, policyId);
+    Stream5FreeConfig(pPolicyConfig);
+
+    return 0;
+}
+
+void Stream5FreeConfigs(tSfPolicyUserContextId config)
+{
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, Stream5FreeConfigsPolicy);
+
+    sfPolicyConfigDelete(config);
+}
+
+void Stream5FreeConfig(Stream5Config *config)
+{
+    if (config == NULL)
+        return;
+
+    if (config->global_config != NULL)
+    {
+        free(config->global_config);
+        config->global_config = NULL;
+    }
+
+    if (config->tcp_config != NULL)
+    {
+        Stream5TcpConfigFree(config->tcp_config);
+        config->tcp_config = NULL;
+    }
+
+    if (config->udp_config != NULL)
+    {
+        Stream5UdpConfigFree(config->udp_config);
+        config->udp_config = NULL;
+    }
+
+    if (config->icmp_config != NULL)
+    {
+        Stream5IcmpConfigFree(config->icmp_config);
+        config->icmp_config = NULL;
+    }
+
+    free(config);
+}
+

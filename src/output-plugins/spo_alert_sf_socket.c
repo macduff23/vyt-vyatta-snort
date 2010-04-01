@@ -34,11 +34,14 @@
 #include "rules.h"
 #include "debug.h"
 #include "util.h"
+#include "sfPolicy.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
 #include <stdlib.h>
 #include "generators.h"
+#include "snort.h"
+#include "parser.h"
 
 /* error result codes */
 #define SNORT_SUCCESS 0
@@ -46,24 +49,24 @@
 #define SNORT_ENOENT 2
 #define SNORT_ENOMEM 3
 
+extern SnortConfig *snort_conf;
+
 static int configured = 0;
 static int connected = 0;
 static int sock = -1;
 static struct sockaddr_un sockAddr;
 
-extern RuleListNode *RuleLists;
-
 typedef struct _SnortActionRequest
 {
-    u_int32_t event_id;
-    u_int32_t tv_sec;
-    u_int32_t generator;
-    u_int32_t sid;
+    uint32_t event_id;
+    uint32_t tv_sec;
+    uint32_t generator;
+    uint32_t sid;
     snort_ip      src_ip;
     snort_ip      dest_ip;
-    u_int16_t sport;
-    u_int16_t dport;
-    u_int8_t  protocol;
+    uint16_t sport;
+    uint16_t dport;
+    uint8_t  protocol;
 } SnortActionRequest;
 
 /* For the list of GID/SIDs that are used by the
@@ -71,8 +74,8 @@ typedef struct _SnortActionRequest
  */
 typedef struct _AlertSFSocketGidSid
 {
-    u_int32_t sidValue;
-    u_int32_t gidValue;
+    uint32_t sidValue;
+    uint32_t gidValue;
     struct _AlertSFSocketGidSid *next;
 } AlertSFSocketGidSid;
 static AlertSFSocketGidSid *sid_list = NULL;
@@ -83,20 +86,22 @@ void AlertSFSocketSid_InitFinalize(int unused, void *also_unused);
 void AlertSFSocket(Packet *packet, char *msg, void *arg, Event *event);
 
 static int AlertSFSocket_Connect(void);
-static OptTreeNode *OptTreeNode_Search(u_int32_t gid, u_int32_t sid);
-static int SignatureAddOutputFunc(u_int32_t gid, u_int32_t sid, 
+static OptTreeNode *OptTreeNode_Search(uint32_t gid, uint32_t sid);
+static int SignatureAddOutputFunc(uint32_t gid, uint32_t sid, 
         void (*outputFunc)(Packet *, char *, void *, Event *),
         void *args);
 int String2ULong(char *string, unsigned long *result);
 
 void AlertSFSocket_Setup(void)
 {
-    RegisterOutputPlugin("alert_sf_socket", NT_OUTPUT_ALERT, 
-            AlertSFSocket_Init);
-    RegisterOutputPlugin("alert_sf_socket_sid", NT_OUTPUT_ALERT,
-            AlertSFSocketSid_Init);
+    RegisterOutputPlugin("alert_sf_socket", OUTPUT_TYPE_FLAG__ALERT,
+                         AlertSFSocket_Init);
+
+    RegisterOutputPlugin("alert_sf_socket_sid", OUTPUT_TYPE_FLAG__ALERT,
+                         AlertSFSocketSid_Init);
+
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: AlertSFSocket "
-                "registered\n"););
+                            "registered\n"););
 }
 
 /* this is defined in linux/un.h (see aldo sys/un.h) */
@@ -110,21 +115,21 @@ static void AlertSFSocket_Init(char *args)
     char *sockname;
 
     if(!args)
-        FatalError("ERROR: AlertSFSocket: must specify a socket name\n");
+        FatalError("AlertSFSocket: must specify a socket name\n");
 
     sockname = (char*)args;
 
     if(strlen(sockname) == 0)
-        FatalError("ERROR: AlertSFSocket: must specify a socket name\n");
+        FatalError("AlertSFSocket: must specify a socket name\n");
     
     if(strlen(sockname) > UNIX_PATH_MAX - 1)
-        FatalError("ERROR: AlertSFSocket: socket name must be less than %i "
+        FatalError("AlertSFSocket: socket name must be less than %i "
                 "characters\n", UNIX_PATH_MAX - 1);
     
     /* create socket */
     if((sock = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
     {
-        FatalError("ERROR: Unable to create socket: %s\n", strerror(errno));
+        FatalError("Unable to create socket: %s\n", strerror(errno));
     }
 
     memset(&sockAddr, 0, sizeof(sockAddr));
@@ -135,14 +140,12 @@ static void AlertSFSocket_Init(char *args)
         connected = 1;
 
     configured = 1;
-
-    return;
 }
 
 /*
  * Parse 'sidValue' or 'gidValue:sidValue'
  */
-int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
+int GidSid2UInt(char * args, uint32_t * sidValue, uint32_t * gidValue)
 {
     char gbuff[80];
     char sbuff[80];
@@ -176,7 +179,7 @@ int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
         {
             return SNORT_EINVAL;
         }
-        *gidValue = (u_int32_t)glong;
+        *gidValue = (uint32_t)glong;
 
         args++;
         i=0;
@@ -197,7 +200,7 @@ int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
         {
             return SNORT_EINVAL;
         }
-        *sidValue = (u_int32_t)slong;
+        *sidValue = (uint32_t)slong;
     }
     else
     {
@@ -205,7 +208,7 @@ int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
         {
             return SNORT_EINVAL;
         }
-        *sidValue=(u_int32_t)slong;
+        *sidValue=(uint32_t)slong;
     }
     
     return SNORT_SUCCESS;
@@ -213,8 +216,8 @@ int GidSid2UInt(char * args, u_int32_t * sidValue, u_int32_t * gidValue)
 
 static void AlertSFSocketSid_Init(char *args)
 {
-    u_int32_t sidValue;
-    u_int32_t gidValue;
+    uint32_t sidValue;
+    uint32_t gidValue;
     AlertSFSocketGidSid *new_sid = NULL;
     
     /* check configured value */
@@ -246,8 +249,8 @@ void AlertSFSocketSid_InitFinalize(int unused, void *also_unused)
 {
     AlertSFSocketGidSid *new_sid = sid_list;
     AlertSFSocketGidSid *next_sid;
-    u_int32_t sidValue;
-    u_int32_t gidValue;
+    uint32_t sidValue;
+    uint32_t gidValue;
     int rval = 0;
 
     while (new_sid)
@@ -255,7 +258,7 @@ void AlertSFSocketSid_InitFinalize(int unused, void *also_unused)
         sidValue = new_sid->sidValue;
         gidValue = new_sid->gidValue;
 
-        rval = SignatureAddOutputFunc( (u_int32_t)gidValue, (u_int32_t)sidValue, AlertSFSocket, NULL );
+        rval = SignatureAddOutputFunc( (uint32_t)gidValue, (uint32_t)sidValue, AlertSFSocket, NULL );
 
         switch(rval)
         {
@@ -290,7 +293,7 @@ static int AlertSFSocket_Connect(void)
 {
     /* check sock value */
     if(sock == -1)
-        FatalError("ERROR: AlertSFSocket: Invalid socket\n");
+        FatalError("AlertSFSocket: Invalid socket\n");
 
     if(connect(sock, (struct sockaddr *)&sockAddr, sizeof(sockAddr)) == -1)
     {
@@ -302,7 +305,7 @@ static int AlertSFSocket_Connect(void)
         }
         else
         {
-            FatalError("ERROR: AlertSFSocket: Unable to connect to socket "
+            FatalError("AlertSFSocket: Unable to connect to socket "
                     "(%i): %s\n", errno, strerror(errno));
         }
     }
@@ -399,7 +402,7 @@ void AlertSFSocket(Packet *packet, char *msg, void *arg, Event *event)
     return;
 }
 
-static int SignatureAddOutputFunc( u_int32_t gid, u_int32_t sid, 
+static int SignatureAddOutputFunc( uint32_t gid, uint32_t sid, 
         void (*outputFunc)(Packet *, char *, void *, Event *),
         void *args)
 {
@@ -432,85 +435,33 @@ static int SignatureAddOutputFunc( u_int32_t gid, u_int32_t sid,
 }
 
 
-/* search for an OptTreeNode by sid */
-static OptTreeNode *OptTreeNode_Search(u_int32_t gid, u_int32_t sid)
+/* search for an OptTreeNode by sid in specific policy*/
+static OptTreeNode *OptTreeNode_Search(uint32_t gid, uint32_t sid)
 {
-    RuleListNode *ruleListNode = RuleLists;
-    
+    SFGHASH_NODE *hashNode;
+    OptTreeNode *otn = NULL;
+    RuleTreeNode *rtn = NULL;
+
     if(sid == 0)
         return NULL;
     
-    while(ruleListNode)
+    for (hashNode = sfghash_findfirst(snort_conf->otn_map);
+            hashNode;
+            hashNode = sfghash_findnext(snort_conf->otn_map))
     {
-        RuleTreeNode *ruleTreeNode;
-        ListHead *listHead = ruleListNode->RuleList;
-        
-        ruleTreeNode = listHead->IpList;
-        while(ruleTreeNode)
+        otn = (OptTreeNode *)hashNode->data;
+        rtn = getRuntimeRtnFromOtn(otn);
+        if (rtn)
         {
-            OptTreeNode *optTreeNode;
-
-            optTreeNode = ruleTreeNode->down;
-            while(optTreeNode)
-            {
-                if(optTreeNode->sigInfo.generator == gid && 
-                   optTreeNode->sigInfo.id == sid)
-                    return optTreeNode;
-                    
-                optTreeNode = optTreeNode->next;
-            }   
-            ruleTreeNode = ruleTreeNode->right;
+            if ((rtn->proto == IPPROTO_TCP) || (rtn->proto == IPPROTO_UDP)
+                    || (rtn->proto == IPPROTO_ICMP) || (rtn->proto == ETHERNET_TYPE_IP)) 
+            { 
+                if (otn->sigInfo.id == sid)
+                {
+                    return otn;
+                }
+            }
         }
-    
-        ruleTreeNode = listHead->TcpList;
-        while(ruleTreeNode)
-        {
-            OptTreeNode *optTreeNode;
-
-            optTreeNode = ruleTreeNode->down;
-            while(optTreeNode)
-            {
-                if(optTreeNode->sigInfo.id == sid)
-                    return optTreeNode;
-                    
-                optTreeNode = optTreeNode->next;
-            }   
-            ruleTreeNode = ruleTreeNode->right;
-        }
-       
-        ruleTreeNode = listHead->UdpList;
-        while(ruleTreeNode)
-        {
-            OptTreeNode *optTreeNode;
-
-            optTreeNode = ruleTreeNode->down;
-            while(optTreeNode)
-            {
-                if(optTreeNode->sigInfo.id == sid)
-                    return optTreeNode;
-                    
-                optTreeNode = optTreeNode->next;
-            }   
-            ruleTreeNode = ruleTreeNode->right;
-        }
-
-        ruleTreeNode = listHead->IcmpList;
-        while(ruleTreeNode)
-        {
-            OptTreeNode *optTreeNode;
-
-            optTreeNode = ruleTreeNode->down;
-            while(optTreeNode)
-            {
-                if(optTreeNode->sigInfo.id == sid)
-                    return optTreeNode;
-                    
-                optTreeNode = optTreeNode->next;
-            }   
-            ruleTreeNode = ruleTreeNode->right;
-        }
-        
-        ruleListNode = ruleListNode->next;
     }
 
     return NULL;

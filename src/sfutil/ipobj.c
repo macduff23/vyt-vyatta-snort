@@ -280,7 +280,7 @@ int ip_eq( IPADDRESS * ia, IPADDRESS * ib )
 
 */
 #ifdef SUP_IP6
-IPSET * ipset_new( )
+IPSET * ipset_new(void)
 {
     IPSET * p = (IPSET *)SnortAlloc( sizeof(IPSET));
     sflist_init(&p->ip_list);
@@ -310,10 +310,10 @@ void ipset_free( IPSET * ipc )
         IP_PORT *p = (IP_PORT *) sflist_first(&ipc->ip_list);       
         while ( p )
         {
-            sflist_free(&p->portset.port_list);
+            sflist_static_free_all(&p->portset.port_list, free);
             p = (IP_PORT *) sflist_next(&ipc->ip_list);
         }
-        sflist_free( &ipc->ip_list );
+        sflist_static_free_all(&ipc->ip_list, free);
         free( ipc );
     }
 }
@@ -493,7 +493,7 @@ void ipset_free( IPSET * ipc )
             CIDRBLOCK *p = (CIDRBLOCK *) sflist_first(&ipc->cidr_list);       
             while ( p )
             {
-                sflist_free(&p->portset.port_list);
+                sflist_static_free_all(&p->portset.port_list, free);
                 p = (CIDRBLOCK *) sflist_next(&ipc->cidr_list);
             }
         }
@@ -502,11 +502,11 @@ void ipset_free( IPSET * ipc )
             CIDRBLOCK6 *p = (CIDRBLOCK6 *) sflist_first(&ipc->cidr_list);       
             while ( p )
             {
-                sflist_free(&p->portset.port_list);
+                sflist_static_free_all(&p->portset.port_list, free);
                 p = (CIDRBLOCK6 *) sflist_next(&ipc->cidr_list);
             }
         }
-        sflist_free( &ipc->cidr_list );
+        sflist_static_free_all(&ipc->cidr_list, free);
         free( ipc );
     }
 }
@@ -807,7 +807,7 @@ static int port_parse(char *portstr, PORTSET *portset)
         }
 
         /* check to see if port is out of range */
-        if ( port_hi > 65535 || port_lo > 65535)
+        if ( port_hi > MAXPORTS-1 || port_lo > MAXPORTS-1)
         {
             free(port_begin);
             return -4;
@@ -1069,7 +1069,7 @@ static int port_parse(char *portstr, PORTSET *portset)
         }
 
         /* check to see if port is out of range */
-        if ( port_hi > 65535 || port_lo > 65535)
+        if ( port_hi > MAXPORTS-1 || port_lo > MAXPORTS-1)
             return -3;
 
         /* swap ports if necessary */
@@ -1235,7 +1235,7 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
         {
             *host = 0;
         }
-        else if((addrstuff.s_addr = inet_addr(s_copy)) == -1)
+        else if((addrstuff.s_addr = inet_addr(s_copy)) == INADDR_NONE)
         {
             if(!strncmp(s_copy, "255.255.255.255", 15))
             {
@@ -1290,7 +1290,7 @@ static int ip4_parse(char *ipstr, int network_order, int *not_flag, unsigned *ho
                 {
                     *mask = 0;
                 }
-                else if((addrstuff.s_addr = inet_addr(maskptr)) == -1)
+                else if((addrstuff.s_addr = inet_addr(maskptr)) == INADDR_NONE)
                 {
                     if(strncmp(maskptr, "255.255.255.255", 15) == 0)
                     {
@@ -1545,7 +1545,7 @@ void test_ip4set_parsing(void)
 }
 
 //  -----------------------------
-void test_ip()
+void test_ip(void)
 {
     int            i,k;
     IPADDRESS    * ipa[MAXIP];
@@ -1602,7 +1602,7 @@ void test_ip()
 
 
 //  -----------------------------
-void test_ipset()
+void test_ipset(void)
 {
     int      i,k;
     IPSET  * ipset, * ipset6;

@@ -56,11 +56,11 @@ void LogNull(Packet *, char *, void *, Event *);
 void LogNullCleanExitFunc(int, void *);
 void LogNullRestartFunc(int, void *);
 
-void LogNullSetup()
+void LogNullSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("log_null", NT_OUTPUT_LOG, LogNullInit);
+    RegisterOutputPlugin("log_null", OUTPUT_TYPE_FLAG__LOG, LogNullInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output plugin: LogNull is setup...\n"););
 }
@@ -70,10 +70,8 @@ void LogNullInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogNull Initialized\n"););
 
-    pv.log_plugin_active = 1;
-
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(LogNull, NT_OUTPUT_LOG, NULL);
+    AddFuncToOutputList(LogNull, OUTPUT_TYPE__LOG, NULL);
     AddFuncToCleanExitList(LogNullCleanExitFunc, NULL);
     AddFuncToRestartList(LogNullRestartFunc, NULL);
 }

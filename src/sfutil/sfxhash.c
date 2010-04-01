@@ -130,7 +130,7 @@ void   sfxhash_free( SFXHASH * t, void * p )
 
 int sfxhash_nearest_powerof2(int nrows) 
 {
-    int i;
+    unsigned i;
 
     nrows -= 1;
     for(i=1; i<sizeof(nrows) * 8; i <<= 1)          
@@ -706,7 +706,7 @@ SFXHASH_NODE * sfxhash_newnode( SFXHASH * t )
  *
  */
 
-#define hashsize(n) ((u_int32_t)1<<(n))
+#define hashsize(n) ((uint32_t)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
 static 

@@ -26,24 +26,33 @@
 #define __SP_PREPROCOPT_H_
 
 #include "sf_dynamic_engine.h"
+#include "sfghash.h"
 
-void PreprocessorRuleOptionsInit(void);
-void PreprocessorRuleOptionsFree(void);
-int RegisterPreprocessorRuleOption(char *optionName,
-                                   PreprocOptionInit initFunc,
-                                   PreprocOptionEval evalFunc,
-                                   PreprocOptionCleanup cleanupFunc,
-                                   PreprocOptionHash hashFunc,
-                                   PreprocOptionKeyCompare keyCompareFunc
-                                  );
-void RegisterPreprocessorRuleOptionOverride(char *keyword, char *option,
-                                            PreprocOptionInit initFunc,
-                                            PreprocOptionEval evalFunc,
-                                            PreprocOptionCleanup cleanupFunc,
-                                            PreprocOptionHash hashFunc,
-                                            PreprocOptionKeyCompare keyCompareFunc
-                                           );
-int GetPreprocessorRuleOptionFuncs(char *optionName, void **initFunc, void **evalFunc);
+SFGHASH * PreprocessorRuleOptionsNew(void);
+void PreprocessorRuleOptionsFree(SFGHASH *);
+
+int RegisterPreprocessorRuleOption(
+    char *optionName,
+    PreprocOptionInit initFunc,
+    PreprocOptionEval evalFunc,
+    PreprocOptionCleanup cleanupFunc,
+    PreprocOptionHash hashFunc,
+    PreprocOptionKeyCompare keyCompareFunc
+);
+void RegisterPreprocessorRuleOptionOverride(
+    char *keyword, char *option,
+    PreprocOptionInit initFunc,
+    PreprocOptionEval evalFunc,
+    PreprocOptionCleanup cleanupFunc,
+    PreprocOptionHash hashFunc,
+    PreprocOptionKeyCompare keyCompareFunc
+);
+int GetPreprocessorRuleOptionFuncs(
+    char *optionName,
+    PreprocOptionInit* initFunc,
+    PreprocOptionEval* evalFunc
+);
+
 int AddPreprocessorRuleOption(char *, OptTreeNode *, void *, PreprocOptionEval);
 
 u_int32_t PreprocessorRuleOptionHash(void *d);

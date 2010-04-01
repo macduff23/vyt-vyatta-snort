@@ -77,7 +77,7 @@ typedef struct _TextLog
 TextLog* TextLog_Init (
     const char* name, unsigned int maxBuf, size_t maxFile
 );
-void TextLog_Term();
+void TextLog_Term (TextLog* this);
 
 bool TextLog_Putc(TextLog*, char);
 bool TextLog_Quote(TextLog*, const char*);

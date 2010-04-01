@@ -205,6 +205,7 @@
 #include <string.h>
 
 #include "pcrm.h"
+#include "util.h"
 
 /*
 ** 
@@ -221,7 +222,7 @@
 **    PORT_RULE_MAP * - NULL if failed, ptr otherwise.
 **
 */
-PORT_RULE_MAP * prmNewMap( )
+PORT_RULE_MAP * prmNewMap(void)
 {
     PORT_RULE_MAP * p;
 
@@ -245,7 +246,7 @@ PORT_RULE_MAP * prmNewMap( )
 **    BYTE_RULE_MAP * - NULL if failed, ptr otherwise.
 **
 */
-BYTE_RULE_MAP * prmNewByteMap( )
+BYTE_RULE_MAP * prmNewByteMap(void)
 {
     BYTE_RULE_MAP * p;
 
@@ -1419,66 +1420,66 @@ int prmShowStats( PORT_RULE_MAP * p )
    int i;
    PORT_GROUP * pg;
 
-   printf("Packet Classification Rule Manager Stats ----\n");
-   printf("NumDstGroups   : %d\n",p->prmNumDstGroups);
-   printf("NumSrcGroups   : %d\n",p->prmNumSrcGroups);
-   printf("\n");
-   printf("NumDstRules    : %d\n",p->prmNumDstRules);
-   printf("NumSrcRules    : %d\n",p->prmNumSrcRules);
-   printf("NumGenericRules: %d\n",p->prmNumGenericRules);
-   printf("\n");
+   LogMessage("Packet Classification Rule Manager Stats ----\n");
+   LogMessage("NumDstGroups   : %d\n",p->prmNumDstGroups);
+   LogMessage("NumSrcGroups   : %d\n",p->prmNumSrcGroups);
+   LogMessage("\n");
+   LogMessage("NumDstRules    : %d\n",p->prmNumDstRules);
+   LogMessage("NumSrcRules    : %d\n",p->prmNumSrcRules);
+   LogMessage("NumGenericRules: %d\n",p->prmNumGenericRules);
+   LogMessage("\n");
 
-   printf("%d Dst Groups In Use, %d Unique Rules, includes generic\n",p->prmNumDstGroups,p->prmNumDstRules);
+   LogMessage("%d Dst Groups In Use, %d Unique Rules, includes generic\n",p->prmNumDstGroups,p->prmNumDstRules);
    for(i=0;i<MAX_PORTS;i++)
    {
      pg = prmFindDstRuleGroup( p, i );
      if(pg)
      {
-       printf("  Dst Port %5d : %d uricontent, %d content, %d nocontent \n",i, 
+       LogMessage("  Dst Port %5d : %d uricontent, %d content, %d nocontent \n",i, 
                  pg->pgUriContentCount,pg->pgContentCount,pg->pgNoContentCount);
        if( pg->avgLen )
        {
-         printf("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
-         if(pg->c1)printf(" [1]=%d",pg->c1);   
-         if(pg->c2)printf(" [2]=%d",pg->c2);   
-         if(pg->c3)printf(" [3]=%d",pg->c3);   
-         if(pg->c4)printf(" [4]=%d",pg->c4);   
-         printf("\n");
+         LogMessage("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
+         if(pg->c1)LogMessage(" [1]=%d",pg->c1);   
+         if(pg->c2)LogMessage(" [2]=%d",pg->c2);   
+         if(pg->c3)LogMessage(" [3]=%d",pg->c3);   
+         if(pg->c4)LogMessage(" [4]=%d",pg->c4);   
+         LogMessage("\n");
        }
      }
    }
 
-   printf("%d Src Groups In Use, %d Unique Rules, includes generic\n",p->prmNumSrcGroups,p->prmNumSrcRules);
+   LogMessage("%d Src Groups In Use, %d Unique Rules, includes generic\n",p->prmNumSrcGroups,p->prmNumSrcRules);
    for(i=0;i<MAX_PORTS;i++)
    {
      pg = prmFindSrcRuleGroup( p, i );
      if(pg){
-        printf("  Src Port %5d : %d uricontent, %d content, %d nocontent \n",i, 
+        LogMessage("  Src Port %5d : %d uricontent, %d content, %d nocontent \n",i, 
                  pg->pgUriContentCount,pg->pgContentCount,pg->pgNoContentCount);
         if( pg->avgLen )
 	{  
-	   printf("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
-          if(pg->c1)printf(" [1]=%d",pg->c1);   
-          if(pg->c2)printf(" [2]=%d",pg->c2);   
-          if(pg->c3)printf(" [3]=%d",pg->c3);   
-          if(pg->c4)printf(" [4]=%d",pg->c4);   
-          printf("\n");
+	   LogMessage("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
+          if(pg->c1)LogMessage(" [1]=%d",pg->c1);   
+          if(pg->c2)LogMessage(" [2]=%d",pg->c2);   
+          if(pg->c3)LogMessage(" [3]=%d",pg->c3);   
+          if(pg->c4)LogMessage(" [4]=%d",pg->c4);   
+          LogMessage("\n");
 	}
      }
    }
 
    pg = p->prmGeneric;
      if(pg){
-        printf("   Generic Rules : %d uricontent, %d content, %d nocontent \n",
+        LogMessage("   Generic Rules : %d uricontent, %d content, %d nocontent \n",
                  pg->pgUriContentCount,pg->pgContentCount,pg->pgNoContentCount);
         if( pg->avgLen )
 	{
-	  printf("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
-          if(pg->c1)printf(" [1]=%d",pg->c1);   
-          if(pg->c2)printf(" [2]=%d",pg->c2);   
-          if(pg->c3)printf(" [3]=%d",pg->c3);   
-          if(pg->c4)printf(" [4]=%d",pg->c4);   
-          printf("\n");
+	  LogMessage("MinLen=%d MaxLen=%d AvgLen=%d",pg->minLen,pg->maxLen,pg->avgLen);
+          if(pg->c1)LogMessage(" [1]=%d",pg->c1);   
+          if(pg->c2)LogMessage(" [2]=%d",pg->c2);   
+          if(pg->c3)LogMessage(" [3]=%d",pg->c3);   
+          if(pg->c4)LogMessage(" [4]=%d",pg->c4);   
+          LogMessage("\n");
 	}
      }
 
@@ -1525,16 +1526,16 @@ int prmShowEventStats( PORT_RULE_MAP * p )
    int NQEvents = 0;
    int QEvents = 0;
 
-   printf("Packet Classification Rule Manager Stats ----\n");
-   printf("NumDstGroups   : %d\n",p->prmNumDstGroups);
-   printf("NumSrcGroups   : %d\n",p->prmNumSrcGroups);
-   printf("\n");
-   printf("NumDstRules    : %d\n",p->prmNumDstRules);
-   printf("NumSrcRules    : %d\n",p->prmNumSrcRules);
-   printf("NumGenericRules: %d\n",p->prmNumGenericRules);
-   printf("\n");
+   LogMessage("Packet Classification Rule Manager Stats ----\n");
+   LogMessage("NumDstGroups   : %d\n",p->prmNumDstGroups);
+   LogMessage("NumSrcGroups   : %d\n",p->prmNumSrcGroups);
+   LogMessage("\n");
+   LogMessage("NumDstRules    : %d\n",p->prmNumDstRules);
+   LogMessage("NumSrcRules    : %d\n",p->prmNumSrcRules);
+   LogMessage("NumGenericRules: %d\n",p->prmNumGenericRules);
+   LogMessage("\n");
 
-   printf("%d Dst Groups In Use, %d Unique Rules, includes generic\n",p->prmNumDstGroups,p->prmNumDstRules);
+   LogMessage("%d Dst Groups In Use, %d Unique Rules, includes generic\n",p->prmNumDstGroups,p->prmNumDstRules);
    for(i=0;i<MAX_PORTS;i++)
    {
      pg = prmFindDstRuleGroup( p, i );
@@ -1545,14 +1546,14 @@ int prmShowEventStats( PORT_RULE_MAP * p )
 
        if( pg->pgNQEvents + pg->pgQEvents )
        {
-          printf("  Dst Port %5d : %d group entries \n",i, pg->pgCount);
-          printf("    NQ Events  : %d\n", pg->pgNQEvents);
-          printf("     Q Events  : %d\n", pg->pgQEvents);
+          LogMessage("  Dst Port %5d : %d group entries \n",i, pg->pgCount);
+          LogMessage("    NQ Events  : %d\n", pg->pgNQEvents);
+          LogMessage("     Q Events  : %d\n", pg->pgQEvents);
        }
      }
    }
 
-   printf("%d Src Groups In Use, %d Unique Rules, includes generic\n",p->prmNumSrcGroups,p->prmNumSrcRules);
+   LogMessage("%d Src Groups In Use, %d Unique Rules, includes generic\n",p->prmNumSrcGroups,p->prmNumSrcRules);
    for(i=0;i<MAX_PORTS;i++)
    {
      pg = prmFindSrcRuleGroup( p, i );
@@ -1564,9 +1565,9 @@ int prmShowEventStats( PORT_RULE_MAP * p )
     
         if( pg->pgNQEvents + pg->pgQEvents )
         {
-          printf("  Src Port %5d : %d group entries \n",i, pg->pgCount);
-          printf("    NQ Events  : %d\n", pg->pgNQEvents);
-          printf("     Q Events  : %d\n", pg->pgQEvents);
+          LogMessage("  Src Port %5d : %d group entries \n",i, pg->pgCount);
+          LogMessage("    NQ Events  : %d\n", pg->pgNQEvents);
+          LogMessage("     Q Events  : %d\n", pg->pgQEvents);
         }
      }
    }
@@ -1579,14 +1580,14 @@ int prmShowEventStats( PORT_RULE_MAP * p )
 
       if( pg->pgNQEvents + pg->pgQEvents )
       {
-        printf("  Generic Rules : %d group entries\n", pg->pgCount);
-        printf("    NQ Events   : %d\n", pg->pgNQEvents);
-        printf("     Q Events   : %d\n", pg->pgQEvents);
+        LogMessage("  Generic Rules : %d group entries\n", pg->pgCount);
+        LogMessage("    NQ Events   : %d\n", pg->pgNQEvents);
+        LogMessage("     Q Events   : %d\n", pg->pgQEvents);
       }
    }
 
-   printf("Total NQ Events : %d\n", NQEvents);
-   printf("Total  Q Events  : %d\n", QEvents);
+   LogMessage("Total NQ Events : %d\n", NQEvents);
+   LogMessage("Total  Q Events  : %d\n", QEvents);
 
    return 0;
 }

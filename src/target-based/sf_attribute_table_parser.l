@@ -54,8 +54,6 @@ static char* sfat_filename;
 void sfat_error(char *err);
 int sfat_parse();
 
-#define YY_NO_UNPUT
-
 /* Change flex buffer size from default 8K to STD_BUF bytes */
 #ifdef YY_BUF_SIZE
 #undef  YY_BUF_SIZE
@@ -66,8 +64,11 @@ int sfat_parse();
 
 %}
 
-/* At end-of-file return assuming no more files to scan*/
+/* At end-of-file return assuming no more files to scan */
 %option noyywrap
+
+/* Not using this functionality */
+%option nounput
 
 /* Optimise lexer for interactive use */
 %option never-interactive
@@ -191,7 +192,7 @@ char parse_error = 0;
 char sfat_error_message[STD_BUF];
 int ParseTargetMap(char *filename)
 {
-    int done = 0;
+    int error;
     int ret = SFAT_ERROR;
     parse_error = 0;
     sfat_grammar_error_printed = 0;
@@ -220,8 +221,8 @@ int ParseTargetMap(char *filename)
         return ret;
     }
 
-    done = sfat_parse();
-    if (!done)
+    error = sfat_parse();
+    if (error)
     {
         sfat_error("");
         fclose(yyin);

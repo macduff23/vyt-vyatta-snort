@@ -88,7 +88,7 @@ void xfree( void * p )
    
 }
 
-void xshowmem()
+void xshowmem(void)
 {
 #ifdef MDEBUG
 	  printf("xmalloc-mem: %u bytes\n",msize);

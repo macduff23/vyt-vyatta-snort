@@ -40,16 +40,16 @@
 
 typedef struct _Event
 {
-    u_int32_t sig_generator;   /* which part of snort generated the alert? */
-    u_int32_t sig_id;          /* sig id for this generator */
-    u_int32_t sig_rev;         /* sig revision for this id */
-    u_int32_t classification;  /* event classification */
-    u_int32_t priority;        /* event priority */
-    u_int32_t event_id;        /* event ID */
-    u_int32_t event_reference; /* reference to other events that have gone off,
+    uint32_t sig_generator;   /* which part of snort generated the alert? */
+    uint32_t sig_id;          /* sig id for this generator */
+    uint32_t sig_rev;         /* sig revision for this id */
+    uint32_t classification;  /* event classification */
+    uint32_t priority;        /* event priority */
+    uint32_t event_id;        /* event ID */
+    uint32_t event_reference; /* reference to other events that have gone off,
                                 * such as in the case of tagged packets...
                                 */
-    struct timeval32 ref_time;   /* reference time for the event reference */
+    struct sf_timeval32 ref_time;   /* reference time for the event reference */
 
     /* Don't add to this structure because this is the serialized data
      * struct for unified logging.
@@ -59,14 +59,14 @@ typedef struct _Event
 #if 0
 typedef struct _EventID
 {
-    u_int32_t sequence;
-    u_int32_t seconds;
+    uint32_t sequence;
+    uint32_t seconds;
 } EventID;
 
 typedef struct _Event
 {
     EventID id;
-    u_int32_t uSeconds;
+    uint32_t uSeconds;
     SigInfo sigInfo;
 } Event;
 

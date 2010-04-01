@@ -23,17 +23,12 @@
 #ifndef __MSTRING_H__
 #define __MSTRING_H__
 
-/*  I N C L U D E S  ******************************************************/
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-
-
+/*  D E F I N E S  *******************************************************/
+#define TOKS_BUF_SIZE   100
 
 
 /*  P R O T O T Y P E S  *************************************************/
-char **mSplit(char *, const char *, int, int *, char);
+char ** mSplit(const char *, const char *, const int, int *, const char);
 void mSplitFree(char ***toks, int numtoks);
 int mContainsSubstr(const char *, int, const char *, int);
 int mSearch(const char *, int, const char *, int, int *, int *);
@@ -41,8 +36,5 @@ int mSearchCI(const char *, int, const char *, int, int *, int *);
 int mSearchREG(const char *, int, const char *, int, int *, int *);
 int *make_skip(char *, int);
 int *make_shift(char *, int);
-
-
-
 
 #endif  /* __MSTRING_H__ */

@@ -63,11 +63,31 @@
 #include "event_wrapper.h"
 #include "event_queue.h"
 #include "sfthreshold.h"
+#include "sfPolicy.h"
 
 /*
 **  Set default values
 */
-SNORT_EVENT_QUEUE g_event_queue = {8,3,SNORT_EVENTQ_CONTENT_LEN,0};
+EventQueueConfig * EventQueueConfigNew(void)
+{
+    EventQueueConfig *eq =
+        (EventQueueConfig *)SnortAlloc(sizeof(EventQueueConfig));
+
+    eq->max_events = 8;
+    eq->log_events = 3;
+    eq->order = SNORT_EVENTQ_CONTENT_LEN;
+    eq->process_all_events = 0;
+
+    return eq;
+}
+
+void EventQueueConfigFree(EventQueueConfig *eq)
+{
+    if (eq == NULL)
+        return;
+
+    free(eq);
+}
 
 /*
  *  Changed so events are inserted in action config order 'drop alert ...',
@@ -87,7 +107,7 @@ int SnortEventqAdd(unsigned int gid,
 {
     EventNode *en;
     
-    en = (EventNode *)sfeventq_event_alloc();
+    en = (EventNode *)sfeventq_event_alloc(snort_conf->event_queue);
     if(!en)
         return -1;
 
@@ -113,31 +133,30 @@ int SnortEventqAdd(unsigned int gid,
         struct _OptTreeNode * potn;
 
         /* every event should have a rule/otn  */
-        potn = otn_lookup( gid, sid );
+        potn = OtnLookup(snort_conf->otn_map, gid, sid);
         /* 
          * if no rule otn exists for this event, than it was 
          * not enabled via rules 
          */
 
-        if( !potn )
+        if (potn == NULL)
         {
-            if (pv.generate_preprocessor_decoder_otn)
+            if (ScAutoGenPreprocDecoderOtns())
             {
                 /* Generate an OTN if configured to do so.... */
-                potn = GenerateSnortEventOtn(
-                                en->gid,
-                                en->sid,
-                                en->rev,
-                                en->classification,
-                                en->priority,
-                                en->msg);
+                potn = GenerateSnortEventOtn(en->gid,
+                                             en->sid,
+                                             en->rev,
+                                             en->classification,
+                                             en->priority,
+                                             en->msg);
 
                 if (potn != NULL)  
-                    otn_lookup_add(potn);
+                    OtnLookupAdd(snort_conf->otn_map, potn);
             }
         }
 
-        if( !potn ) 
+        if (potn == NULL) 
         {
             /* no otn found/created - do not add it to the queue */
             return 0;
@@ -145,7 +164,7 @@ int SnortEventqAdd(unsigned int gid,
     }
 #endif
      
-    if(sfeventq_add((void *)en))
+    if (sfeventq_add(snort_conf->event_queue, (void *)en))
     {
         return -1;
     }
@@ -223,15 +242,18 @@ static int OrderContentLength(void *event1, void *event2)
 }
 #endif
 
-int SnortEventqInit(void)
+
+SF_EVENTQ * SnortEventqNew(EventQueueConfig *eq_config)
 {
+    SF_EVENTQ *eq;
     int (*sort)(void *, void*) = NULL;
+
 #ifdef OLD_RULE_ORDER
-    if(g_event_queue.order == SNORT_EVENTQ_PRIORITY)
+    if (eq_config->order == SNORT_EVENTQ_PRIORITY)
     {
         sort = OrderPriority;
     }
-    else if(g_event_queue.order == SNORT_EVENTQ_CONTENT_LEN)
+    else if (eq_config->order == SNORT_EVENTQ_CONTENT_LEN)
     {
         sort = OrderContentLength;
     }
@@ -239,16 +261,15 @@ int SnortEventqInit(void)
     {
         FatalError("Order function for event queue is invalid.\n");
     }
-#else
-    sort = 0;
 #endif
-    if(sfeventq_init(g_event_queue.max_events, g_event_queue.log_events,
-                    sizeof(EventNode), sort))
-    {
-        FatalError("Failed to initialize Snort event queue.\n");
-    }
 
-    return 0;
+    eq = sfeventq_new(eq_config->max_events, eq_config->log_events,
+                      sizeof(EventNode), sort);
+
+    if (eq == NULL)
+        FatalError("Failed to initialize Snort event queue.\n");
+
+    return eq;
 }
 
 static int LogSnortEvents(void *event, void *user)
@@ -272,44 +293,42 @@ static int LogSnortEvents(void *event, void *user)
     if(en->rule_info)
     {
         otnx = (OTNX *)en->rule_info;
-        if(!otnx->rtn || !otnx->otn)
+        if(!otnx->otn || !getRuntimeRtnFromOtn(otnx->otn))
             return 0;
 
         snort_user->rule_alert = otnx->otn->sigInfo.rule_flushing;
-        fpLogEvent(otnx->rtn, otnx->otn, p);
+        fpLogEvent(getRuntimeRtnFromOtn(otnx->otn), otnx->otn, p);
     }
     else
     {
         /* Look up possible decoder and preprocessor event otn */
-        potn = otn_lookup( en->gid, en->sid );
+        potn = OtnLookup(snort_conf->otn_map, en->gid, en->sid);
 
-        if (!potn)
+        if (potn == NULL)
         {
 #ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
-            if (pv.generate_preprocessor_decoder_otn)
+            if (ScAutoGenPreprocDecoderOtns())
             {
                 /* Generate an OTN if configured to do so.... */
-                potn = GenerateSnortEventOtn(
-                                en->gid,
-                                en->sid,
-                                en->rev,
-                                en->classification,
-                                en->priority,
-                                en->msg);
+                potn = GenerateSnortEventOtn(en->gid,
+                                             en->sid,
+                                             en->rev,
+                                             en->classification,
+                                             en->priority,
+                                             en->msg);
             }
 #else
             /* Always generate an OTN.... */
-            potn = GenerateSnortEventOtn(
-                            en->gid,
-                            en->sid,
-                            en->rev,
-                            en->classification,
-                            en->priority,
-                            en->msg);
+            potn = GenerateSnortEventOtn(en->gid,
+                                         en->sid,
+                                         en->rev,
+                                         en->classification,
+                                         en->priority,
+                                         en->msg);
 #endif        
-            if (potn)
+            if (potn != NULL)
             {
-                otn_lookup_add(potn);
+                OtnLookupAdd(snort_conf->otn_map, potn);
             }
         }
 
@@ -319,7 +338,7 @@ static int LogSnortEvents(void *event, void *user)
             snort_user->rule_alert = potn->sigInfo.rule_flushing;
             potn->sigInfo.message = en->msg;
 
-            fpLogEvent( potn->rtn, potn, p );
+            fpLogEvent( getRuntimeRtnFromOtn(potn), potn, p );
             potn->sigInfo.message = tmp;
         }
     }
@@ -335,7 +354,7 @@ static int LogSnortEvents(void *event, void *user)
 */
 /**
 **  We return whether we logged events or not.  We've add a eventq user
-**  structure so we can track whether the events logged we're rule events
+**  structure so we can track whether the events logged were rule events
 **  or preprocessor/decoder events.  The reason being that we don't want
 **  to flush a TCP stream for preprocessor/decoder events, and cause
 **  early flushing of the stream.
@@ -343,16 +362,16 @@ static int LogSnortEvents(void *event, void *user)
 **  @return 1 logged events
 **  @return 0 did not log events or logged only decoder/preprocessor events
 */
-int SnortEventqLog(Packet *p)
+int SnortEventqLog(SF_EVENTQ *eq, Packet *p)
 {
     static SNORT_EVENTQ_USER user;
 
     user.rule_alert = 0x00;
     user.pkt = (void *)p;
 
-    if(sfeventq_action(LogSnortEvents, (void *)&user) > 0)
+    if (sfeventq_action(eq, LogSnortEvents, (void *)&user) > 0)
     {
-        if(user.rule_alert)
+        if (user.rule_alert)
             return 1;
     }
 
@@ -361,12 +380,10 @@ int SnortEventqLog(Packet *p)
 
 void SnortEventqReset(void)
 {
-    sfeventq_reset();
-    return;
+    sfeventq_reset(snort_conf->event_queue);
 }
 
-void SnortEventqFree(void)
+void SnortEventqFree(SF_EVENTQ *eq)
 {
-    sfeventq_free();
-    return;
+    sfeventq_free(eq);
 }

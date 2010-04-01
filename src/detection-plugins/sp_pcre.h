@@ -27,6 +27,17 @@
 #ifndef __SNORT_PCRE_H__
 #define __SNORT_PCRE_H__
 
+#define SNORT_PCRE_RELATIVE     0x01  /* relative to the end of the last match */
+#define SNORT_PCRE_INVERT       0x02  /* invert detect */
+#define SNORT_PCRE_HTTP_URI     0x04  /* check URI buffers */
+#define SNORT_PCRE_RAWBYTES     0x08  /* Don't use decoded buffer (if available) */
+#define SNORT_PCRE_HTTP_BODY    0x10 /* Check HTTP body buffer */
+#define SNORT_OVERRIDE_MATCH_LIMIT  0x20 /* Override default limits on match & match recursion */
+#define SNORT_PCRE_HTTP_HEADER  0x40 /* Check HTTP header buffer */
+#define SNORT_PCRE_HTTP_METHOD 0x80 /* Check HTTP method buffer */
+#define SNORT_PCRE_HTTP_COOKIE 0x100 /* Check HTTP cookie buffer */
+#define SNORT_PCRE_ANCHORED 0x200
+
 void SetupPcre(void);
 
 #include <pcre.h>
@@ -36,13 +47,14 @@ typedef struct _PcreData
     pcre_extra *pe;     /* studied regex foo */
     int options;        /* sp_pcre specfic options (relative & inverse) */
     char *expression;
-    u_int32_t search_offset;
+    uint32_t search_offset;
 } PcreData;
 
 void PcreFree(void *d);
-u_int32_t PcreHash(void *d);
+uint32_t PcreHash(void *d);
 int PcreCompare(void *l, void *r);
 void PcreDuplicatePcreData(void *src, PcreData *pcre_dup);
-int PcreAdjustRelativeOffsets(PcreData *pcre, u_int32_t search_offset);
+int PcreAdjustRelativeOffsets(PcreData *pcre, uint32_t search_offset);
+void PcreCheckAnchored(PcreData *);
 
 #endif /* __SNORT_PCRE_H__ */

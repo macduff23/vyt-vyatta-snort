@@ -22,12 +22,18 @@
 
 #ifndef __SP_REACT_H__
 #define __SP_REACT_H__
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
 
+#ifdef ENABLE_REACT
 void SetupReact(void);
 void ReactFree(void *d);
-u_int32_t ReactHash(void *d);
+uint32_t ReactHash(void *d);
 int ReactCompare(void *l, void *r);
+#endif  /* ENABLE_REACT */
 
-#endif  /* ENABLE_RESPONSE || ENABLE_REACT */
+#if defined(ENABLE_REACT) || defined(ENABLE_RESPONSE)
+extern int nd;  /* libnet raw socket descriptor */
+void RawSocket_Open();
+void RawSocket_Close();
+#endif
+
 #endif  /* __SP_REACT_H__ */

@@ -58,7 +58,7 @@ am_libsf_dce2_preproc_la_OBJECTS = dce2_debug.lo dce2_utils.lo \
 	dce2_smb.lo dce2_tcp.lo dce2_co.lo dce2_udp.lo dce2_cl.lo \
 	dce2_http.lo
 nodist_libsf_dce2_preproc_la_OBJECTS = sf_dynamic_preproc_lib.lo \
-	sf_ip.lo sfrt.lo sfrt_dir.lo
+	sf_ip.lo sfrt.lo sfrt_dir.lo sfPolicyUserData.lo
 libsf_dce2_preproc_la_OBJECTS = $(am_libsf_dce2_preproc_la_OBJECTS) \
 	$(nodist_libsf_dce2_preproc_la_OBJECTS)
 libsf_dce2_preproc_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
@@ -204,18 +204,20 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 lib_LTLIBRARIES = libsf_dce2_preproc.la
-libsf_dce2_preproc_la_LDFLAGS = -export-dynamic
+libsf_dce2_preproc_la_LDFLAGS = -module
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 nodist_libsf_dce2_preproc_la_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 libsf_dce2_preproc_la_SOURCES = \
 includes/dcerpc.h \
@@ -536,11 +538,14 @@ sfrt.c: ../include/sfrt.c
 sfrt_dir.c: ../include/sfrt_dir.c
 	cp $? $@
 
+sfPolicyUserData.c: ../include/sfPolicyUserData.c
+	cp $? $@
+
 all-local:
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
-	rm -f *~ sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c
+	rm -f *~ sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c sfPolicyUserData.c
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

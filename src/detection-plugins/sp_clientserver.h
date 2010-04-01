@@ -24,12 +24,28 @@
 #ifndef __SP_CLIENTSERVER_H__
 #define __SP_CLIENTSERVER_H__
 
+#define ONLY_STREAM 0x01                                                                                                   
+#define ONLY_FRAG 0x02                                                                                                     
+#define IGNORE_STREAM 0x01                                                                                                 
+#define IGNORE_FRAG 0x02                                                                                                   
+                                                                                                                           
+typedef struct _ClientServerData                                                                                           
+{                                                                                                                          
+    uint8_t from_server;                                                                                                  
+    uint8_t from_client;                                                                                                  
+    uint8_t ignore_reassembled; /* ignore reassembled sessions */                                                         
+    uint8_t only_reassembled; /* ignore reassembled sessions */                                                           
+    uint8_t stateless;                                                                                                    
+    uint8_t established;                                                                                                  
+    uint8_t unestablished;                                                                                                
+} ClientServerData;        
+
 void SetupClientServer(void);
 int OtnFlowFromServer( OptTreeNode * otn );
 int OtnFlowFromClient( OptTreeNode * otn );
 int OtnFlowIgnoreReassembled( OptTreeNode * otn );
 int OtnFlowOnlyReassembled( OptTreeNode * otn );
-u_int32_t FlowHash(void *d);
+uint32_t FlowHash(void *d);
 int FlowCompare(void *l, void *r);
 
 #endif  /* __SP_CLIENTSERVER_H__ */

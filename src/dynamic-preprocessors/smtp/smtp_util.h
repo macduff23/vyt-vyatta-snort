@@ -33,8 +33,8 @@
 
 #include "sf_snort_packet.h"
 
-void SMTP_GetEOL(const u_int8_t *, const u_int8_t *, const u_int8_t **, const u_int8_t **);
-int SMTP_CopyToAltBuffer(SFSnortPacket *, const u_int8_t *, int);
+void SMTP_GetEOL(const uint8_t *, const uint8_t *, const uint8_t **, const uint8_t **);
+int SMTP_CopyToAltBuffer(SFSnortPacket *, const uint8_t *, int);
 
 #ifdef DEBUG
 const char * SMTP_PrintBuffer(SFSnortPacket *);

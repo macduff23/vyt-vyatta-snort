@@ -30,7 +30,7 @@
 
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   1
-#define BUILD_VERSION   4
+#define BUILD_VERSION   5
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_DCERPC (IPV6)"
 #else
@@ -38,6 +38,6 @@
 #endif
 
 #define DYNAMIC_PREPROC_SETUP SetupDCERPC
-extern void SetupDCERPC();
+extern void SetupDCERPC(void);
 
 #endif /* SF_PREPROC_INFO_H */

@@ -18,108 +18,96 @@
 ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
-
 #ifndef __STDINT_H__
 #define __STDINT_H__
 
+#include <limits.h>
 
-/*
- * Microsoft Visual C++ 6.0 doesn't support conversion from
- * "unsigned __uint64" to "signed __uint64", as is necessary
- * in the performance code (perf*.c/h).  So, we'll use
- * signed values instead.
- */
-
-#if defined(__GNUC__) && !defined(__int64)
-#define __int64 long long
-#endif
-
-typedef __int8             int8_t;
-typedef __int16            int16_t;
-typedef __int32            int32_t;
-typedef __int64            int64_t;
+typedef __int8    int8_t;
+typedef __int16   int16_t;
+typedef __int32   int32_t;
 
 typedef unsigned __int8    uint8_t;
 typedef unsigned __int16   uint16_t;
 typedef unsigned __int32   uint32_t;
 
+#ifdef _MSC_VER
+# if _MSC_VER <= 1200  /* Visual C++ 6.0 */
+/* Visual C++ 6.0 and before can't convert an unsigned __int64
+ * to a double, but can convert a signed __int64 to a double.
+ * Alot of the code converts the UINT64 to a double for percent
+ * calculations so we have to make this check */
+typedef __int64   uint64_t;
+typedef __int64    int64_t;
+# else
+typedef unsigned __int64   uint64_t;
+typedef          __int64    int64_t;
+# endif  /* _MSC_VER <= 1200 */
+#endif  /* _MSC_VER */
 
 /* win32 is ILP32 so a long will hold a ptr */
 #ifdef _MSC_VER
 /* Visual C++ 6.0 - only 32 bit
  * Later Visual Studio versions define these */
-#if _MSC_VER <= 1200
+# if _MSC_VER <= 1200
 typedef long int           intptr_t;
 typedef unsigned long int  uintptr_t;
-#endif  /* #if _MSC_VER <= 1200 */
+# endif  /* #if _MSC_VER <= 1200 */
 #else
 typedef long int           intptr_t;
 typedef unsigned long int  uintptr_t;
 #endif  /* #ifdef _MSC_VER */
 
-#ifdef _MSC_VER
-#if _MSC_VER <= 1200  /* Visual C++ 6.0 */
-typedef   signed __int64   uint64_t;
-#else
-typedef unsigned __int64   uint64_t;
-#endif  /* _MSC_VER <= 1200 */
-#endif  /* _MSC_VER */
-
-#ifndef UINT64
-#ifdef _MSC_VER
-/* Visual C++ 6.0 and before can't convert an unsigned __int64
- * to a double, but can convert a signed __int64 to a double.
- * Alot of the code converts the UINT64 to a double for percent
- * calculations so we have to make this check */
-#if _MSC_VER <= 1200  /* Visual C++ 6.0 */
-#define UINT64 signed __int64
-#else
-#define UINT64 unsigned __int64
-#endif  /* _MSC_VER <= 1200 */
-#else
-#define UINT64 signed __int64
-#endif  /* _MSC_VER */
-#endif  /* UINT64 */
-
-#ifndef INT64
-#define INT64 signed __int64
-#endif  /* INT64 */
-
 #ifndef HAVE_U_INT8_T
-typedef uint8_t            u_int8_t;
+typedef uint8_t   u_int8_t;
 #define HAVE_U_INT8_T
 #endif
 #ifndef HAVE_U_INT16_T
-typedef uint16_t           u_int16_t;
+typedef uint16_t  u_int16_t;
 #define HAVE_U_INT16_T
 #endif
 #ifndef HAVE_U_INT32_T
-typedef uint32_t           u_int32_t;
+typedef uint32_t  u_int32_t;
 #define HAVE_U_INT32_T
 #endif
-
-typedef uint64_t              uint64;
-
-#ifndef USHRT_MAX
-#define USHRT_MAX  0xffff
+#ifndef HAVE_U_INT64_T
+typedef uint64_t  u_int64_t;
+#define HAVE_U_INT64_T
 #endif
 
+#ifndef INT8_MAX
+# define INT8_MAX     _I8_MAX
+#endif
+#ifndef INT16_MAX
+# define INT16_MAX    _I16_MAX
+#endif
+#ifndef INT32_MAX
+# define INT32_MAX    _I32_MAX
+#endif
+#ifndef INT64_MAX
+# define INT64_MAX    _I64_MAX
+#endif
+#ifndef UINT8_MAX
+# define UINT8_MAX    _UI8_MAX
+#endif
+#ifndef UINT16_MAX
+# define UINT16_MAX   _UI16_MAX
+#endif
 #ifndef UINT32_MAX
-#define UINT32_MAX (4294967295U)
+# define UINT32_MAX   _UI32_MAX
 #endif
 
 #ifndef UINT64_MAX
 # ifdef _MSC_VER
 #  if _MSC_VER <= 1200  /* Visual C++ 6.0 */
-    /* doesn't have an unsigned 64 bit data type and we use a signed 64 bit
-     * type for our unsigned 64 bit data type */
-#   define UINT64_MAX (9223372036854775807UL)
+    /* because we have to use a signed 64 bit type for double conversion */
+#   define UINT64_MAX _I64_MAX
 #  else
-#   define UINT64_MAX (18446744073709551615UL)
+#   define UINT64_MAX _UI64_MAX
 #  endif
 # else
-   /* No MSC_VER, assume it doesn't support unsigned 64 bit types */
-#  define UINT64_MAX (9223372036854775807UL)
+   /* No MSC_VER, make it signed */
+#  define UINT64_MAX _I64_MAX
 # endif
 #endif
 

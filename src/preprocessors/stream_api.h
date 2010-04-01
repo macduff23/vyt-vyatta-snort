@@ -45,6 +45,7 @@
 #include "preprocids.h" /* IDs are used when setting preproc specific data */
 #include "bitop.h"
 #include "decode.h"
+#include "sfPolicy.h"
 
 #define IGNORE_FLAG_ALWAYS 0x01
 
@@ -104,12 +105,11 @@
 
 #define UNKNOWN_PORT 0
 
-#define STREAM_API_VERSION4 4
 #define STREAM_API_VERSION5 5
 
 typedef void (*StreamAppDataFree)(void *);
 typedef int (*PacketIterator)(struct pcap_pkthdr *,
-                              u_int8_t *,
+                              uint8_t *,
                               void *); /* user-defined data pointer */
 
 typedef struct _StreamFlowData
@@ -131,7 +131,7 @@ typedef struct _stream_api
      *     0 if not alerting
      *     !0 if alerting
      */
-    int (*alert_inline_midstream_drops)();
+    int (*alert_inline_midstream_drops)(void);
 
     /* Set direction of session
      *
@@ -141,14 +141,14 @@ typedef struct _stream_api
      *     IP
      *     Port
      */
-    void (*update_direction)(void *, char, snort_ip_p, u_int16_t );
+    void (*update_direction)(void *, char, snort_ip_p, uint16_t );
 
     /* Get direction of packet
      *
      * Parameters:
      *     Packet
      */
-    u_int32_t (*get_packet_direction)(Packet *);
+    uint32_t (*get_packet_direction)(Packet *);
 
     /* Stop inspection for session, up to count bytes (-1 to ignore
      * for life or until resume).
@@ -184,7 +184,7 @@ typedef struct _stream_api
      *     0 on success
      *     -1 on failure
      */
-    int (*ignore_session)(snort_ip_p, u_int16_t, snort_ip_p, u_int16_t,
+    int (*ignore_session)(snort_ip_p, uint16_t, snort_ip_p, uint16_t,
                           char, char, char);
 
     /* Resume inspection for session.
@@ -218,7 +218,7 @@ typedef struct _stream_api
      *     Application Data reference (pointer)
      *     Application Data free function
      */
-    void (*set_application_data)(void *, u_int32_t, void *, StreamAppDataFree);
+    void (*set_application_data)(void *, uint32_t, void *, StreamAppDataFree);
 
     /* Set a reference to application data for a session
      *
@@ -229,7 +229,7 @@ typedef struct _stream_api
      * Returns
      *     Application Data reference (pointer)
      */
-    void *(*get_application_data)(void *, u_int32_t);
+    void *(*get_application_data)(void *, uint32_t);
 
     /* Sets the flags for a session
      * This ORs the supplied flags with the previous values
@@ -241,14 +241,14 @@ typedef struct _stream_api
      * Returns
      *     New Flags
      */
-    u_int32_t (*set_session_flags)(void *, u_int32_t);
+    uint32_t (*set_session_flags)(void *, uint32_t);
 
     /* Gets the flags for a session
      *
      * Parameters
      *     Session Ptr
      */
-    u_int32_t (*get_session_flags)(void *);
+    uint32_t (*get_session_flags)(void *);
 
     /* Flushes the stream on an alert
      * Side that is flushed is the same as the packet.
@@ -292,7 +292,7 @@ typedef struct _stream_api
      *     -1 failure (max alerts reached)
      *
      */
-    int (*add_session_alert)(void *, Packet *p, u_int32_t, u_int32_t);
+    int (*add_session_alert)(void *, Packet *p, uint32_t, uint32_t);
 
     /* Check session alert
      *
@@ -306,7 +306,7 @@ typedef struct _stream_api
      *     0 if not previously alerted
      *     !0 if previously alerted
      */
-    int (*check_session_alerted)(void *, Packet *p, u_int32_t, u_int32_t);
+    int (*check_session_alerted)(void *, Packet *p, uint32_t, uint32_t);
 
     /* Get Flowbits data
      *
@@ -329,7 +329,7 @@ typedef struct _stream_api
      * Returns
      *     direction(s) of reassembly for session
      */
-    char (*set_reassembly)(void *, u_int8_t, char, char);
+    char (*set_reassembly)(void *, uint8_t, char, char);
 
     /* Get reassembly direction for given session
      *
@@ -414,14 +414,37 @@ typedef struct _stream_api
     int16_t (*set_application_protocol_id)(void *, int16_t);
 
     /** Set service to either ignore, inspect or maintain session state.
+     *  If this is called during parsing a preprocessor configuration, make
+     *  sure to set the parsing argument to 1.
      */
-    void (*set_service_filter_status)(int service, int status);
+    void (*set_service_filter_status)(int service, int status, tSfPolicyId policyId, int parsing);
 #endif
 
     /** Set port to either ignore, inspect or maintain session state. 
+     *  If this is called during parsing a preprocessor configuration, make
+     *  sure to set the parsing argument to 1.
      */
-    void (*set_port_filter_status)(int protocol, u_int16_t port, int status);
+    void (*set_port_filter_status)(int protocol, uint16_t port, int status, tSfPolicyId policyId, int parsing);
 
+    /* Get the current flush point
+     *
+     * Arguments
+     *  void * - session pointer
+     *  char - direction
+     *
+     * Returns
+     *  Current flush point for session
+     */
+    uint32_t (*get_flush_point)(void *, char);
+
+    /* Set the next flush point
+     *
+     * Arguments
+     *  void * - session pointer
+     *  char - direction
+     *  uint32_t - flush point size
+     */
+    void (*set_flush_point)(void *, char, uint32_t);
 
 } StreamAPI;
 

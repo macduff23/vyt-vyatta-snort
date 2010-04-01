@@ -56,13 +56,9 @@
 #include "util.h"
 #include "sf_types.h" 
 
-int DisplayFlowStats(SFFLOW_STATS *sfFlowStats);
+extern SFPERF *perfmon_config;
 
-/*
-**  Quick function to return the correct
-**  FlowStats ptr for us
-*/
-SFFLOW *sfGetFlowPtr() { return &sfPerf.sfFlow; }
+static int DisplayFlowStats(SFFLOW_STATS *sfFlowStats);
 
 /*
 *  Allocate Memory, initialize arrays, etc...
@@ -73,23 +69,23 @@ int InitFlowStats(SFFLOW *sfFlow)
 
     if (first)
     {
-        sfFlow->pktLenCnt = (UINT64*)SnortAlloc(sizeof(UINT64) * (SF_MAX_PKT_LEN + 1));
-        sfFlow->portTcpSrc = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
-        sfFlow->portTcpDst = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
-        sfFlow->portUdpSrc = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
-        sfFlow->portUdpDst = (UINT64*)SnortAlloc(sizeof(UINT64) * SF_MAX_PORT);
-        sfFlow->typeIcmp = (UINT64 *)SnortAlloc(sizeof(UINT64) * 256);
+        sfFlow->pktLenCnt = (uint64_t*)SnortAlloc(sizeof(uint64_t) * (SF_MAX_PKT_LEN + 1));
+        sfFlow->portTcpSrc = (uint64_t*)SnortAlloc(sizeof(uint64_t) * SF_MAX_PORT);
+        sfFlow->portTcpDst = (uint64_t*)SnortAlloc(sizeof(uint64_t) * SF_MAX_PORT);
+        sfFlow->portUdpSrc = (uint64_t*)SnortAlloc(sizeof(uint64_t) * SF_MAX_PORT);
+        sfFlow->portUdpDst = (uint64_t*)SnortAlloc(sizeof(uint64_t) * SF_MAX_PORT);
+        sfFlow->typeIcmp = (uint64_t *)SnortAlloc(sizeof(uint64_t) * 256);
 
         first = 0;
     }
     else
     {
-        memset(sfFlow->pktLenCnt, 0, sizeof(UINT64) * (SF_MAX_PKT_LEN + 1));
-        memset(sfFlow->portTcpSrc, 0, sizeof(UINT64) * SF_MAX_PORT);
-        memset(sfFlow->portTcpDst, 0, sizeof(UINT64) * SF_MAX_PORT);
-        memset(sfFlow->portUdpSrc, 0, sizeof(UINT64) * SF_MAX_PORT);
-        memset(sfFlow->portUdpDst, 0, sizeof(UINT64) * SF_MAX_PORT);
-        memset(sfFlow->typeIcmp, 0, sizeof(UINT64) * 256);
+        memset(sfFlow->pktLenCnt, 0, sizeof(uint64_t) * (SF_MAX_PKT_LEN + 1));
+        memset(sfFlow->portTcpSrc, 0, sizeof(uint64_t) * SF_MAX_PORT);
+        memset(sfFlow->portTcpDst, 0, sizeof(uint64_t) * SF_MAX_PORT);
+        memset(sfFlow->portUdpSrc, 0, sizeof(uint64_t) * SF_MAX_PORT);
+        memset(sfFlow->portUdpDst, 0, sizeof(uint64_t) * SF_MAX_PORT);
+        memset(sfFlow->typeIcmp, 0, sizeof(uint64_t) * 256);
     }
 
     sfFlow->pktTotal = 0;
@@ -154,12 +150,15 @@ int UpdateTCPFlowStats(SFFLOW *sfFlow, int sport, int dport, int len )
     return 0;
 }
 
-int UpdateTCPFlowStatsEx(int sport, int dport, int len )
+int UpdateTCPFlowStatsEx(SFFLOW *sfFlow, int sport, int dport, int len )
 {
-    if(!(sfPerf.iPerfFlags & SFPERF_FLOW))
+    if(!(perfmon_config->perf_flags & SFPERF_FLOW))
        return 1;
 
-    return UpdateTCPFlowStats( sfGetFlowPtr(), sport, dport, len );
+    if (sfFlow == NULL)
+        return 1;
+
+    return UpdateTCPFlowStats( sfFlow, sport, dport, len );
 }
 
 int UpdateUDPFlowStats(SFFLOW *sfFlow, int sport, int dport, int len )
@@ -193,12 +192,15 @@ int UpdateUDPFlowStats(SFFLOW *sfFlow, int sport, int dport, int len )
     return 0;
 }
 
-int UpdateUDPFlowStatsEx(int sport, int dport, int len )
+int UpdateUDPFlowStatsEx(SFFLOW *sfFlow, int sport, int dport, int len )
 {
-    if(!(sfPerf.iPerfFlags & SFPERF_FLOW))
+    if(!(perfmon_config->perf_flags & SFPERF_FLOW))
        return 1;
 
-    return UpdateUDPFlowStats( sfGetFlowPtr(), sport, dport, len );
+    if (sfFlow == NULL)
+        return 1;
+
+    return UpdateUDPFlowStats( sfFlow, sport, dport, len );
 }
 
 int UpdateICMPFlowStats(SFFLOW *sfFlow, int type, int len)
@@ -213,12 +215,15 @@ int UpdateICMPFlowStats(SFFLOW *sfFlow, int type, int len)
     return 0;
 }
 
-int UpdateICMPFlowStatsEx(int type, int len)
+int UpdateICMPFlowStatsEx(SFFLOW *sfFlow, int type, int len)
 {
-    if(!(sfPerf.iPerfFlags & SFPERF_FLOW))
+    if(!(perfmon_config->perf_flags & SFPERF_FLOW))
         return 1;
 
-    return UpdateICMPFlowStats(sfGetFlowPtr(), type, len);
+    if (sfFlow == NULL)
+        return 1;
+
+    return UpdateICMPFlowStats(sfFlow, type, len);
 }
 
 /*
@@ -250,7 +255,7 @@ int ProcessFlowStats(SFFLOW *sfFlow)
     static SFFLOW_STATS sfFlowStats;
     int i;
     double rate, srate, drate, totperc;
-    UINT64 tot;
+    uint64_t tot;
 
     memset(&sfFlowStats, 0x00, sizeof(sfFlowStats));
 
@@ -298,7 +303,7 @@ int ProcessFlowStats(SFFLOW *sfFlow)
     **  Calculate TCP port distribution by src, dst and
     **  total percentage.
     */
-    for(i=0;i<sfFlow->maxPortToTrack;i++)
+    for (i = 0; i < perfmon_config->flow_max_port_to_track; i++)
     {
         tot = sfFlow->portTcpSrc[i]+sfFlow->portTcpDst[i];
         if(!tot)
@@ -339,7 +344,7 @@ int ProcessFlowStats(SFFLOW *sfFlow)
     **  Calculate UDP port processing based on src, dst and
     **  total distributions.
     */
-    for(i=0;i<sfFlow->maxPortToTrack;i++)
+    for (i = 0; i < perfmon_config->flow_max_port_to_track; i++)
     {
         tot = sfFlow->portUdpSrc[i]+sfFlow->portUdpDst[i];
         if(!tot)
@@ -413,18 +418,22 @@ int ProcessFlowStats(SFFLOW *sfFlow)
     return 0;
 }
                                                 
-int DisplayFlowStats(SFFLOW_STATS *sfFlowStats)
+static int DisplayFlowStats(SFFLOW_STATS *sfFlowStats)
 {
     int i;
   
-    LogMessage("\n\nProtocol Byte Flows - %%Total Flow\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("Protocol Byte Flows - %%Total Flow\n");
     LogMessage(    "--------------------------------------\n");
     LogMessage("TCP:   %.2f%%\n", sfFlowStats->trafficTCP);
     LogMessage("UDP:   %.2f%%\n", sfFlowStats->trafficUDP);
     LogMessage("ICMP:  %.2f%%\n", sfFlowStats->trafficICMP);
     LogMessage("OTHER: %.2f%%\n", sfFlowStats->trafficOTHER);
 
-    LogMessage("\n\nPacketLen - %%TotalPackets\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("PacketLen - %%TotalPackets\n");
     LogMessage(    "-------------------------\n"); 
     for(i=1;i<SF_MAX_PKT_LEN;i++)
     {
@@ -433,7 +442,9 @@ int DisplayFlowStats(SFFLOW_STATS *sfFlowStats)
         LogMessage("Bytes[%d] %.2f%%\n", i, sfFlowStats->pktLenPercent[i]);
     }
 
-    LogMessage("\n\nTCP Port Flows\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("TCP Port Flows\n");
     LogMessage(    "--------------\n"); 
     for(i=0;i<SF_MAX_PORT;i++)
     {
@@ -453,7 +464,9 @@ int DisplayFlowStats(SFFLOW_STATS *sfFlowStats)
                 sfFlowStats->portflowHighTCP);
     }
 
-    LogMessage("\n\nUDP Port Flows\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("UDP Port Flows\n");
     LogMessage(    "--------------\n"); 
     for(i=0;i<SF_MAX_PORT;i++)
     {
@@ -473,7 +486,9 @@ int DisplayFlowStats(SFFLOW_STATS *sfFlowStats)
                 sfFlowStats->portflowHighUDP);
     }
 
-    LogMessage("\n\nICMP Type Flows\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("ICMP Type Flows\n");
     LogMessage(    "---------------\n");
     for(i=0;i<256;i++)
     {

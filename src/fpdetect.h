@@ -42,17 +42,6 @@
 
 #define REBUILD_FLAGS (PKT_REBUILT_FRAG | PKT_REBUILT_STREAM)
 
-extern SF_LIST **ip_proto_only_lists;
-
-int OtnXMatchDataInitialize();
-void OtnxMatchDataCleanup();
-
-/*
-**  Function for fpcreate to use to pass detection options to
-**  fpdetect.
-*/
-int fpSetDetectionOptions(FPDETECT *fpDetect);
-
 /*
 **  This is the only function that is needed to do an
 **  inspection on a packet.
@@ -62,9 +51,13 @@ int fpEvalPacket(Packet *p);
 int fpLogEvent(RuleTreeNode *rtn, OptTreeNode *otn, Packet *p);
 int fpEvalRTN(RuleTreeNode *rtn, Packet *p, int check_ports);
 
-static INLINE void fpEvalIpProtoOnlyRules(Packet *);
-
+/*
+**  This define is for the number of unique events
+**  to match before choosing which event to log.
+**  (Since we can only log one.) This define is the limit.
+*/
 #define MAX_EVENT_MATCH 100 
+
 /*              
 **  MATCH_INFO
 **  The events that are matched get held in this structure,
@@ -99,36 +92,14 @@ typedef struct
     int iMatchInfoArraySize;
 } OTNX_MATCH_DATA;
 
+OTNX_MATCH_DATA * OtnXMatchDataNew(int);
+void OtnxMatchDataFree(OTNX_MATCH_DATA *);
+
 int fpAddMatch( OTNX_MATCH_DATA *omd_local, OTNX *otnx, int pLen,
                 OptTreeNode *otn);
+void fpEvalIpProtoOnlyRules(SF_LIST **, Packet *);
 
 #define TO_SERVER 1
 #define TO_CLIENT 0
-
-static INLINE void fpEvalIpProtoOnlyRules(Packet *p)
-{
-    if ((p != NULL) && IPH_IS_VALID(p))
-    {
-        SF_LIST *l = ip_proto_only_lists[GET_IPH_PROTO(p)];
-        OptTreeNode *otn;
-
-        /* If list is NULL, sflist_first returns NULL */
-        for (otn = (OptTreeNode *)sflist_first(l);
-             otn != NULL;
-             otn = (OptTreeNode *)sflist_next(l))
-        {
-            if (fpEvalRTN(otn->rtn, p, 0))
-            {
-                SnortEventqAdd(otn->sigInfo.generator, 
-                               otn->sigInfo.id,
-                               otn->sigInfo.rev,
-                               otn->sigInfo.class_id,
-                               otn->sigInfo.priority,
-                               otn->sigInfo.message,
-                               (void *)NULL);
-            }
-        }
-    }
-}
 
 #endif

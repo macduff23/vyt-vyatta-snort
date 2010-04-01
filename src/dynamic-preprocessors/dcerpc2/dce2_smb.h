@@ -35,7 +35,8 @@
 /********************************************************************
  * Macros
  ********************************************************************/
-#define DCE2_MOCK_HDR_LEN__SMB  (sizeof(NbssHdr) + sizeof(SmbNtHdr) + sizeof(SmbLm10_WriteAndXReq))
+#define DCE2_MOCK_HDR_LEN__SMB_CLI  (sizeof(NbssHdr) + sizeof(SmbNtHdr) + sizeof(SmbLm10_WriteAndXReq))
+#define DCE2_MOCK_HDR_LEN__SMB_SRV  (sizeof(NbssHdr) + sizeof(SmbNtHdr) + sizeof(SmbLm10_ReadAndXResp))
 
 #define DCE2_SMB_ID   0xff534d42  /* \xffSMB */
 #define DCE2_SMB2_ID  0xfe534d42  /* \xfeSMB */
@@ -181,7 +182,7 @@ static INLINE DCE2_TransType DCE2_SmbAutodetect(const SFSnortPacket *);
 /********************************************************************
  * Public function prototypes
  ********************************************************************/
-void DCE2_SmbInitRdata(uint8_t *);
+void DCE2_SmbInitRdata(uint8_t *, int);
 void DCE2_SmbSetRdata(DCE2_SmbSsnData *, uint8_t *, uint16_t);
 DCE2_SmbSsnData * DCE2_SmbSsnInit(void);
 void DCE2_SmbProcess(DCE2_SmbSsnData *);

@@ -22,35 +22,49 @@
 #ifndef STREAM5_TCP_H_
 #define STREAM5_TCP_H_
 
+#include "stream5_common.h"
+#include "sfPolicy.h"
+
 void Stream5CleanTcp(void);
 void Stream5ResetTcp(void);
-void Stream5InitTcp(void);
-int Stream5VerifyTcpConfig(void);
-void Stream5TcpPolicyInit(char *);
-int Stream5ProcessTcp(Packet *p);
+void Stream5InitTcp(Stream5GlobalConfig *);
+void Stream5TcpRegisterPreprocProfiles(void);
+void Stream5TcpRegisterRuleOptions(void);
+void Stream5TcpInitFlushPoints(void);
+int Stream5VerifyTcpConfig(Stream5TcpConfig *, tSfPolicyId);
+void Stream5TcpPolicyInit(Stream5TcpConfig *, char *);
+int Stream5ProcessTcp(Packet *, Stream5LWSession *,
+                      Stream5TcpPolicy *, SessionKey *);
 int Stream5FlushListener(Packet *p, Stream5LWSession *lwssn);
 int Stream5FlushTalker(Packet *p, Stream5LWSession *lwssn);
 int Stream5FlushClient(Packet *p, Stream5LWSession *lwssn);
 int Stream5FlushServer(Packet *p, Stream5LWSession *lwssn);
 void TcpUpdateDirection(Stream5LWSession *ssn, char dir,
-                        snort_ip_p ip, u_int16_t port);
+                        snort_ip_p ip, uint16_t port);
 void Stream5TcpBlockPacket(Packet *p);
 Stream5LWSession *GetLWTcpSession(SessionKey *key);
 int GetTcpRebuiltPackets(Packet *p, Stream5LWSession *ssn,
         PacketIterator callback, void *userdata);
-int Stream5AddSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, u_int32_t gid, u_int32_t sid);
-int Stream5CheckSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, u_int32_t gid, u_int32_t sid);
+int Stream5AddSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, uint32_t gid, uint32_t sid);
+int Stream5CheckSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, uint32_t gid, uint32_t sid);
 char Stream5GetReassemblyDirectionTcp(Stream5LWSession *lwssn);
-char Stream5SetReassemblyTcp(Stream5LWSession *lwssn, u_int8_t flush_policy, char dir, char flags);
+uint32_t Stream5GetFlushPointTcp(Stream5LWSession *lwssn, char dir);
+void Stream5SetFlushPointTcp(Stream5LWSession *lwssn, char dir, uint32_t flush_point);
+char Stream5SetReassemblyTcp(Stream5LWSession *lwssn, uint8_t flush_policy, char dir, char flags);
 char Stream5GetReassemblyFlushPolicyTcp(Stream5LWSession *lwssn, char dir);
 char Stream5IsStreamSequencedTcp(Stream5LWSession *lwssn, char dir);
 int Stream5MissingInReassembledTcp(Stream5LWSession *lwssn, char dir);
 char Stream5PacketsMissingTcp(Stream5LWSession *lwssn, char dir);
 void s5TcpSetPortFilterStatus(
         unsigned short port, 
-        int status
+        int status,
+        tSfPolicyId policyId,
+        int parsing
         );
 int s5TcpGetPortFilterStatus(
-        unsigned short port 
+        unsigned short port,
+        tSfPolicyId policyId,
+        int parsing
         );
+void Stream5TcpConfigFree(Stream5TcpConfig *);
 #endif /* STREAM5_TCP_H_ */

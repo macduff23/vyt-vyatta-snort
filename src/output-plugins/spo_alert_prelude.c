@@ -56,8 +56,8 @@
 #define DEFAULT_ANALYZER_NAME "snort"
 
 
-extern PV pv;
 extern OptTreeNode *otn_tmp;
+extern char *pcap_interface;
 
 static char *init_args = NULL;
 static unsigned int info_priority = 4;
@@ -141,11 +141,12 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( ret < 0 )
                 return ret;
 
-        if ( pv.interface ) {
-                ret = idmef_source_new_interface(source, &string);
-                if ( ret < 0 )
-                        return ret;
-                prelude_string_set_ref(string, pv.interface);
+        if (pcap_interface != NULL)
+        {
+            ret = idmef_source_new_interface(source, &string);
+            if ( ret < 0 )
+                return ret;
+            prelude_string_set_ref(string, pcap_interface);
         }
         
         ret = idmef_source_new_service(source, &service);
@@ -177,13 +178,14 @@ static int event_to_source_target(Packet *p, idmef_alert_t *alert)
         if ( ret < 0 )
                 return ret;
 
-        if ( pv.interface ) {
-                ret = idmef_target_new_interface(target, &string);
-                if ( ret < 0 )
-                        return ret;
-                prelude_string_set_ref(string, pv.interface);
+        if (pcap_interface != NULL)
+        {
+            ret = idmef_target_new_interface(target, &string);
+            if ( ret < 0 )
+                return ret;
+            prelude_string_set_ref(string, pcap_interface);
         }
-        
+
         ret = idmef_target_new_service(target, &service);
         if ( ! ret < 0 )
                 return ret;
@@ -412,7 +414,15 @@ static int packet_to_data(Packet *p, Event *event, idmef_alert_t *alert)
                         break;
                 
                 case ICMP_REDIRECT:
+#ifndef SUP_IP6
                         add_string_data(alert, "icmp_gwaddr", inet_ntoa(p->icmph->s_icmp_gwaddr));
+#else
+                        {
+                            sfip_t gwaddr;
+                            sfip_set_raw(&gwaddr, (void *)&p->icmph->s_icmp_gwaddr.s_addr, AF_INET);
+                            add_string_data(alert, "icmp_gwaddr", inet_ntoa(&gwaddr));
+                        }
+#endif
                         break;
                 
                 case ICMP_ROUTER_ADVERTISE:
@@ -604,6 +614,7 @@ void snort_alert_prelude(Packet *p, char *msg, void *data, Event *event)
         idmef_message_t *idmef;
         idmef_classification_t *class;
         prelude_client_t *client = data;
+        struct timeval tv;
 
         if ( !p )
             return;
@@ -645,7 +656,10 @@ void snort_alert_prelude(Packet *p, char *msg, void *data, Event *event)
         ret = idmef_alert_new_detect_time(alert, &time);
         if ( ret < 0 )
                 goto err;
-        idmef_time_set_from_timeval(time, &p->pkth->ts);
+
+        tv.tv_sec = p->pkth->ts.tv_sec;
+        tv.tv_usec = p->pkth->ts.tv_usec;
+        idmef_time_set_from_timeval(time, &tv);
         
         ret = idmef_time_new_from_gettimeofday(&time);
         if ( ret < 0 )
@@ -683,7 +697,7 @@ static void parse_args(char *args, char **profile)
         int i, tokens, ret;
         char **args_table, *value, *key;
                 
-        args_table = mSplit(args, " ", 4, &tokens, '\\');
+        args_table = mSplit(args, " \t", 0, &tokens, '\\');
         for ( i = 0; i < tokens; i++ ) {
                 
                 key = args_table[i];
@@ -778,13 +792,13 @@ void AlertPreludeSetupAfterSetuid(void)
                            prelude_strsource(ret), prelude_strerror(ret));
         }
                 
-        AddFuncToOutputList(snort_alert_prelude, NT_OUTPUT_ALERT, client);
+        AddFuncToOutputList(snort_alert_prelude, OUTPUT_TYPE__ALERT, client);
         AddFuncToCleanExitList(snort_alert_prelude_clean_exit, client);
         AddFuncToRestartList(snort_alert_prelude_clean_exit, client);
 }
 
 
-void snort_alert_prelude_init(unsigned char *args)
+static void snort_alert_prelude_init(char *args)
 {
         /*
          * Do nothing here. Wait until AlertPreludeSetupAfterSetuid is called.
@@ -798,7 +812,7 @@ void snort_alert_prelude_init(unsigned char *args)
 
 void AlertPreludeSetup(void)
 {
-        RegisterOutputPlugin("alert_prelude", NT_OUTPUT_ALERT, snort_alert_prelude_init);
+    RegisterOutputPlugin("alert_prelude", OUTPUT_TYPE_FLAG__ALERT, snort_alert_prelude_init);
 }
 
 

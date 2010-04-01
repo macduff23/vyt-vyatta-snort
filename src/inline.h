@@ -29,22 +29,21 @@ struct ipq_handle *ipqh;
 #endif
 IV iv;
 
-int InitInline();
+int InitInline(void);
 void InitInlinePostConfig(void);
 #ifndef IPFW
-void IpqLoop();
+void IpqLoop(void);
 #else
-void IpfwLoop();
+void IpfwLoop(void);
 #endif /* IPFW */
 int InlineReject(Packet *); /* call to reject current packet */
-int InlineAccept();
-int InlineReplace();
+int InlineAccept(void);
+int InlineReplace(void);
 
 #endif
 
-int InlineMode();
-int InlineModeSetPrivsAllowed();
+int InlineModeSetPrivsAllowed(void);
 int InlineDrop(Packet *p);  /* call to drop current packet */
-int InlineWasPacketDropped();
+int InlineWasPacketDropped(void);
 
 #endif /* __INLINE_H__ */

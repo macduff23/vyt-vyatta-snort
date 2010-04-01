@@ -73,6 +73,8 @@
 #define DEFAULT_LIMIT (128*M_BYTES)
 #define LOG_BUFFER    (4*K_BYTES)
 
+extern SnortConfig *snort_conf_for_parsing;
+
 typedef struct _AlertCSVConfig
 {
     char *type;
@@ -115,7 +117,7 @@ void AlertCSVSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_CSV", NT_OUTPUT_ALERT, AlertCSVInit);
+    RegisterOutputPlugin("alert_CSV", OUTPUT_TYPE_FLAG__ALERT, AlertCSVInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output plugin: alert_CSV is setup...\n"););
 }
@@ -137,15 +139,13 @@ static void AlertCSVInit(char *args)
     AlertCSVData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: CSV Initialized\n"););
 
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     data = AlertCSVParseArgs(args);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Linking CSV functions to call lists...\n"););
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertCSV, NT_OUTPUT_ALERT, data);
+    AddFuncToOutputList(AlertCSV, OUTPUT_TYPE__ALERT, data);
     AddFuncToCleanExitList(AlertCSVCleanExit, data);
     AddFuncToRestartList(AlertCSVRestart, data);
 }
@@ -180,7 +180,7 @@ static AlertCSVData *AlertCSVParseArgs(char *args)
         FatalError("alert_csv: unable to allocate memory!\n");
     }
     if ( !args ) args = "";
-    toks = mSplit((char *)args, " ", 4, &num_toks, '\\');
+    toks = mSplit((char *)args, " \t", 4, &num_toks, '\\');
 
     for (i = 0; i < num_toks; i++)
     {
@@ -194,7 +194,7 @@ static AlertCSVData *AlertCSVParseArgs(char *args)
                     filename = SnortStrdup(tok);
 
                 else
-                    filename = ProcessFileOption(tok);
+                    filename = ProcessFileOption(snort_conf_for_parsing, tok);
                 break;
 
             case 1:
@@ -232,7 +232,7 @@ static AlertCSVData *AlertCSVParseArgs(char *args)
         }
     }
     if ( !data->csvargs ) data->csvargs = strdup(DEFAULT_CSV);
-    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
+    if ( !filename ) filename = ProcessFileOption(snort_conf_for_parsing, DEFAULT_FILE);
 
     mSplitFree(&toks, num_toks);
     toks = mSplit(data->csvargs, ",", 128, &num_toks, 0);
@@ -399,11 +399,13 @@ static void RealAlertCSV(Packet * p, char *msg, char **args,
 	    if(p->eh)
             TextLog_Print(log, "0x%X",p->pkth->len);
 	}
+#ifndef NO_NON_ETHER_DECODER
 	else if(!strncasecmp("trheader", type, 8))
 	{
 	    if(p->trh)
             LogTrHeader(log, p);
 	}
+#endif
 	else if(!strncasecmp("srcport", type, 7))
 	{
         if(IPH_IS_VALID(p))
@@ -477,7 +479,7 @@ static void RealAlertCSV(Packet * p, char *msg, char **args,
 	else if(!strncasecmp("id",type,2))
 	{
 	    if(IPH_IS_VALID(p))
-            TextLog_Print(log, "%u", IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((u_int16_t)GET_IPH_ID(p)));
+            TextLog_Print(log, "%u", IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((uint16_t)GET_IPH_ID(p)));
 	}
 	else if(!strncasecmp("iplen",type,5))
 	{

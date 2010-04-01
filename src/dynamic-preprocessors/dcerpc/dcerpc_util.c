@@ -38,9 +38,9 @@ void DCERPC_GenerateAlert(dcerpc_event_e event, char *msg)
 }
 
 /* Print out given buffer in hex and ascii, for debugging */
-void PrintBuffer(const char * title, const u_int8_t *buf, u_int16_t buf_len)
+void PrintBuffer(const char * title, const uint8_t *buf, uint16_t buf_len)
 {
-    u_int16_t i, j = 0;
+    uint16_t i, j = 0;
 
     printf("%s\n", title);
 

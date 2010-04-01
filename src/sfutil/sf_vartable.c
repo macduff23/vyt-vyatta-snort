@@ -31,9 +31,9 @@
 #include "sf_vartable.h"
 #include "util.h"
 
-vartable_t *sfvt_alloc_table()
+vartable_t * sfvt_alloc_table(void)
 {
-    return (vartable_t*)SnortAlloc(sizeof(vartable_t));
+    return (vartable_t *)SnortAlloc(sizeof(vartable_t));
 }
 
 // XXX this implementation is just used to support
@@ -174,7 +174,7 @@ sfip_var_t *sfvt_lookup_var(vartable_t *table, char *name)
     for(p=table->head; len && p; p=p->next)
     {
         int name_len = strlen(p->name);
-        if((name_len == len) && !strncmp(p->name, name, len)) return p;
+        if((len == name_len) && !strncmp(p->name, name, len)) return p;
     }
 
     return NULL;
@@ -226,7 +226,7 @@ int main()
      
     puts("********************************************************************");
     puts("Testing variable table parsing:");
-    table = sfvt_alloc_table(); 
+    table = sfvt_alloc_table();
     /* These are all valid */
     TEST(sfvt_add_str(table, "foo [ 1.2.0.0/16, ffff:dead:beef::0 ] ") == SFIP_SUCCESS);
     TEST(sfvt_add_str(table, " goo [ ffff:dead:beef::0 ] ") == SFIP_SUCCESS);

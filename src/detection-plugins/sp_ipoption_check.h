@@ -23,7 +23,7 @@
 #define __SP_IPOPTION_CHECK_H__
 
 void SetupIpOptionCheck(void);
-u_int32_t IpOptionCheckHash(void *d);
+uint32_t IpOptionCheckHash(void *d);
 int IpOptionCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IPOPTION_CHECK_H__ */

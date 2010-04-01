@@ -30,7 +30,7 @@
  * are used as args to the hasFunc()
  * which replaces the prior has*Func()s.
  */
-enum DynamicOptionType {
+typedef enum {
      OPTION_TYPE_PREPROCESSOR,
      OPTION_TYPE_CONTENT,
      OPTION_TYPE_PCRE,
@@ -45,7 +45,7 @@ enum DynamicOptionType {
      OPTION_TYPE_SET_CURSOR,
      OPTION_TYPE_LOOP,
      OPTION_TYPE_MAX
-};
+} DynamicOptionType;
 
 #define FLOW_ESTABLISHED         0x0010
 #define FLOW_FR_SERVER           0x0040
@@ -57,6 +57,31 @@ enum DynamicOptionType {
 #define FLOW_ONLY_REASSMBLED     FLOW_ONLY_REASSEMBLED
 
 #define SNORT_PCRE_OVERRIDE_MATCH_LIMIT 0x8000000
+
+#if defined _WIN32 || defined __CYGWIN__
+#  if defined SF_SNORT_ENGINE_DLL || defined SF_SNORT_DETECTION_DLL || defined SF_SNORT_PREPROC_DLL
+#    ifdef __GNUC__
+#      define SO_PUBLIC __attribute__((dllexport))
+#    else
+#      define SO_PUBLIC __declspec(dllexport)
+#    endif
+#  else
+#    ifdef __GNUC__
+#      define SO_PUBLIC __attribute__((dllimport))
+#    else
+#      define SO_PUBLIC __declspec(dllimport)
+#    endif
+#  endif
+#  define DLL_LOCAL
+#else
+#  ifdef HAVE_VISIBILITY
+#    define SO_PUBLIC  __attribute__ ((visibility("default")))
+#    define SO_PRIVATE __attribute__ ((visibility("hidden")))
+#  else
+#    define SO_PUBLIC
+#    define SO_PRIVATE
+#  endif
+#endif
 
 #endif /* _SF_DYNAMIC_DEFINE_H_ */
 

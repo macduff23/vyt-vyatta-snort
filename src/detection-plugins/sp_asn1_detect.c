@@ -67,25 +67,10 @@
 #define DEBUG_WRAP(x)
 #endif
 
-#include "../sfutil/asn1.h"
+#include "sf_types.h"
+#include "sfutil/asn1.h"
 #include "sp_asn1_detect.h"
-
-#define BITSTRING_OPT  "bitstring_overflow"
-#define DOUBLE_OPT     "double_overflow"
-#define LENGTH_OPT     "oversize_length"
-#define DBL_FREE_OPT   "double_free"
-
-#define ABS_OFFSET_OPT "absolute_offset"
-#define REL_OFFSET_OPT "relative_offset"
-#define PRINT_OPT      "print"
-
-#define ABS_OFFSET 1
-#define REL_OFFSET 2
-
-#define DELIMITERS " ,\t\n"
-
-extern const u_int8_t *doe_ptr;
-
+#include "snort.h"
 
 /*
  * Check to make sure that p is less than or equal to the ptr range
@@ -93,7 +78,8 @@ extern const u_int8_t *doe_ptr;
  *
  * 1 means it's in bounds, 0 means it's not
  */
-static int inBounds(const u_int8_t *start, const u_int8_t *end, const u_int8_t *p)
+static INLINE int inBounds(
+    const uint8_t *start, const uint8_t *end, const uint8_t *p)
 {
     if(p >= start && p < end)
     {
@@ -347,23 +333,23 @@ static int Asn1DetectFuncs(ASN1_TYPE *asn1, ASN1_CTXT *ctxt, int dec_ret_val)
 **  @retval 0 failed
 **  @retval 1 detected
 */
-int Asn1DoDetect(const u_int8_t *data, u_int16_t dsize, ASN1_CTXT *ctxt, const u_int8_t *rel_ptr)
+int Asn1DoDetect(const uint8_t *data, uint16_t dsize, ASN1_CTXT *ctxt, const uint8_t *rel_ptr)
 {
     ASN1_TYPE *asn1;
     int iRet;
     unsigned int size;
-    const u_int8_t *start;
-    const u_int8_t *end;
-    const u_int8_t *offset = NULL;
+    const uint8_t *start;
+    const uint8_t *end;
+    const uint8_t *offset = NULL;
 
     /*
     **  Failed if there is no data to decode.
     */
-    if(!data)
+    if (data == NULL)
         return 0;
 
     start = data;
-    end   = start + dsize;
+    end = start + dsize;
 
     switch(ctxt->offset_type)
     {
@@ -385,41 +371,33 @@ int Asn1DoDetect(const u_int8_t *data, u_int16_t dsize, ASN1_CTXT *ctxt, const u
                 return 0;
             }
 
-            if(!inBounds(start, end, rel_ptr+ctxt->offset))
+            offset = rel_ptr+ctxt->offset;
+
+            if(!inBounds(start, end, offset))
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_ASN1, "[*] ASN.1 bounds "
                            "check failed rel_ptr+offset.\n"););
                 return 0;
             }
 
-            offset = rel_ptr+ctxt->offset;
             break;
 
         case ABS_OFFSET:
         default:
-            if(!inBounds(start, end, start+ctxt->offset))
+            offset = start+ctxt->offset;
+
+            if(!inBounds(start, end, offset))
             {
                 DEBUG_WRAP(DebugMessage(DEBUG_ASN1, "[*] ASN.1 bounds "
                            "check failed.\n"););
                 return 0;
             }
 
-            offset = start+ctxt->offset;
             break;
     }
 
     /*
-    **  Final Check.  We are good to go now.
-    */
-    if(!inBounds(start,end,offset))
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_ASN1, "[*] ASN.1 bounds "
-                   "check failed.\n"););
-        return 0;
-    }
-
-    /*
-    **  Set size for asn1_decode().  This should never be -1 since
+    **  Set size for asn1_decode().  This should never be <0 since
     **  we do the previous in bounds check.
     */
     size = end - offset;

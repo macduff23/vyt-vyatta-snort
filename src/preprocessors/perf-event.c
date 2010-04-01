@@ -31,9 +31,9 @@
 #include "snort.h"
 #include "util.h"
 
-int DisplayEventPerfStats(SFEVENT_STATS *sfEventStats);
+extern SFPERF *perfmon_config;
 
-SFEVENT *GetEventPtr() { return &sfPerf.sfEvent; }
+int DisplayEventPerfStats(SFEVENT_STATS *sfEventStats);
 
 int InitEventStats(SFEVENT *sfEvent)
 {
@@ -43,11 +43,13 @@ int InitEventStats(SFEVENT *sfEvent)
     return 0;
 }
 
-int UpdateNQEvents()
+int UpdateNQEvents(SFEVENT *sfEvent)
 {
-    SFEVENT *sfEvent = GetEventPtr();
+    if (sfEvent == NULL)
+        return -1;
 
-    if(!(sfPerf.iPerfFlags & SFPERF_EVENT))
+    if ((perfmon_config == NULL) ||
+        !(perfmon_config->perf_flags & SFPERF_EVENT))
     {
         return 0;
     }
@@ -58,11 +60,13 @@ int UpdateNQEvents()
     return 0;
 }
 
-int UpdateQEvents()
+int UpdateQEvents(SFEVENT *sfEvent)
 {
-    SFEVENT *sfEvent = GetEventPtr();
+    if (sfEvent == NULL)
+        return -1;
 
-    if(!(sfPerf.iPerfFlags & SFPERF_EVENT))
+    if ((perfmon_config == NULL) ||
+        !(perfmon_config->perf_flags & SFPERF_EVENT))
     {
         return 0;
     }
@@ -105,8 +109,10 @@ int ProcessEventStats(SFEVENT *sfEvent)
 
 int DisplayEventPerfStats(SFEVENT_STATS *sfEventStats)
 {
-    LogMessage("\n\nSnort Setwise Event Stats\n");
-    LogMessage(    "-------------------------\n");
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("Snort Setwise Event Stats\n");
+    LogMessage("-------------------------\n");
 
     LogMessage( "Total Events:           " STDu64 "\n", sfEventStats->TotalEvents);
     LogMessage( "Qualified Events:       " STDu64 "\n", sfEventStats->QEvents);

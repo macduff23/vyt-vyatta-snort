@@ -48,9 +48,7 @@
 #include "util.h"
 #include "log.h"
 #include "mstring.h"
-
 #include "snort.h"
-
 #include "sfutil/sf_textlog.h"
 #include "log_text.h"
 
@@ -61,6 +59,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+extern char *pcap_interface;
+extern SnortConfig *snort_conf_for_parsing;
 
 typedef struct _SpoAlertFullData
 {
@@ -97,7 +97,7 @@ void AlertFullSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_full", NT_OUTPUT_ALERT, AlertFullInit);
+    RegisterOutputPlugin("alert_full", OUTPUT_TYPE_FLAG__ALERT, AlertFullInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: AlertFull is setup...\n"););
 }
@@ -119,14 +119,12 @@ static void AlertFullInit(char *args)
     SpoAlertFullData *data;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: AlertFull Initialized\n"););
     
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     data = ParseAlertFullArgs(args);
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Linking AlertFull functions to call lists...\n"););
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertFull, NT_OUTPUT_ALERT, data);
+    AddFuncToOutputList(AlertFull, OUTPUT_TYPE__ALERT, data);
     AddFuncToCleanExitList(AlertFullCleanExit, data);
     AddFuncToRestartList(AlertFullRestart, data);
 }
@@ -147,9 +145,9 @@ static void AlertFull(Packet *p, char *msg, void *arg, Event *event)
                         (unsigned long) event->sig_rev);
         }
 
-        if(pv.alert_interface_flag)
+        if (ScAlertInterface())
         {
-            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pv.interface));
+            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pcap_interface));
             TextLog_Puts(data->log, msg);
             TextLog_Puts(data->log, " [**]\n");
         }
@@ -177,7 +175,7 @@ static void AlertFull(Packet *p, char *msg, void *arg, Event *event)
     {
         /* print the packet header to the alert file */
 
-        if(pv.show2hdr_flag)
+        if (ScOutputDataLink())
         {
             Log2ndHeader(data->log, p);
         }
@@ -245,7 +243,7 @@ static SpoAlertFullData *ParseAlertFullArgs(char *args)
         FatalError("alert_full: unable to allocate memory!\n");
     }
     if ( !args ) args = "";
-    toks = mSplit((char *)args, " ", 3, &num_toks, '\\');
+    toks = mSplit((char *)args, " \t", 0, &num_toks, '\\');
 
     for (i = 0; i < num_toks; i++)
     {
@@ -259,7 +257,7 @@ static SpoAlertFullData *ParseAlertFullArgs(char *args)
                     filename = SnortStrdup(tok);
 
                 else
-                    filename = ProcessFileOption(tok);
+                    filename = ProcessFileOption(snort_conf_for_parsing, tok);
                 break;
 
             case 1:
@@ -288,7 +286,7 @@ static SpoAlertFullData *ParseAlertFullArgs(char *args)
     mSplitFree(&toks, num_toks);
 
 #ifdef DEFAULT_FILE
-    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
+    if ( !filename ) filename = ProcessFileOption(snort_conf_for_parsing, DEFAULT_FILE);
 #endif
 
     DEBUG_WRAP(DebugMessage(

@@ -77,25 +77,11 @@
 
 #define PORT_STR_LEN	        512
 
-char SMBPorts[MAX_PORT_INDEX];
-char DCERPCPorts[MAX_PORT_INDEX];
-
-u_int16_t   _max_frag_size = DEFAULT_MAX_FRAG_SIZE;
-u_int32_t   _memcap = DEFAULT_MEMCAP*1024;
-u_int8_t    _debug_print = 0;
-u_int8_t    _alert_memcap = 0;
-
 enum e_transport_type
 {
     TRANS_SMB = 1,
     TRANS_RPC = 2
 };
-
-u_int8_t _autodetect = 0;
-u_int8_t _disable_smb_fragmentation = 0;
-u_int8_t _disable_dcerpc_fragmentation = 0;
-
-int _reassemble_increment = 0;
 
 /*
  * Function: InitializeDefaultSMBConfig()
@@ -107,15 +93,20 @@ int _reassemble_increment = 0;
  * Returns: void
  *
  */
-void InitializeDefaultSMBConfig()
+static void InitializeDefaultSMBConfig(DceRpcConfig *config)
 {
-    memset(&SMBPorts[0], 0, sizeof(SMBPorts));
-    memset(&DCERPCPorts[0], 0, sizeof(DCERPCPorts));
+    if (config == NULL)
+        return;
 
-    SMBPorts[PORT_INDEX(139)] |= CONV_PORT(139);
-    SMBPorts[PORT_INDEX(445)] |= CONV_PORT(445);
-    DCERPCPorts[PORT_INDEX(135)] |= CONV_PORT(135);
+    config->max_frag_size = DEFAULT_MAX_FRAG_SIZE;
+    config->memcap = DEFAULT_MEMCAP * 1024;
 
+    memset(config->SMBPorts, 0, sizeof(config->SMBPorts));
+    memset(config->DCERPCPorts, 0, sizeof(config->DCERPCPorts));
+
+    config->SMBPorts[PORT_INDEX(139)] |= CONV_PORT(139);
+    config->SMBPorts[PORT_INDEX(445)] |= CONV_PORT(445);
+    config->DCERPCPorts[PORT_INDEX(135)] |= CONV_PORT(135);
 }
 
 /*
@@ -129,7 +120,7 @@ void InitializeDefaultSMBConfig()
  * Returns: int indicating error
  *
  */
-int SMBSetPorts(int type, char *ErrorString, int ErrStrLen)
+int SMBSetPorts(DceRpcConfig *config, int type, char *ErrorString, int ErrStrLen)
 {
     int isReset = 0;
     char *token = strtok(NULL, CONF_SEPARATORS);
@@ -149,13 +140,13 @@ int SMBSetPorts(int type, char *ErrorString, int ErrStrLen)
     switch (type)
     {
         case TRANS_SMB:
-            ports = &SMBPorts[0];
-            portsSize = sizeof(SMBPorts);
+            ports = config->SMBPorts;
+            portsSize = sizeof(config->SMBPorts);
             transportType = "SMB";
             break;
         case TRANS_RPC:
-            ports = &DCERPCPorts[0];
-            portsSize = sizeof(DCERPCPorts);
+            ports = config->DCERPCPorts;
+            portsSize = sizeof(config->DCERPCPorts);
             transportType = "DCE/RPC";
             break;
         default:
@@ -198,7 +189,7 @@ int SMBSetPorts(int type, char *ErrorString, int ErrStrLen)
                 DynamicPreprocessorFatalMessage("ERROR %s(%d) => Port Number invalid format: %s\n",
                                                 *_dpd.config_file, *_dpd.config_line, token);
             }
-            else if(t_num < 0 || t_num > 65535)
+            else if(t_num < 0 || t_num > MAXPORTS-1)
             {
                 DynamicPreprocessorFatalMessage("ERROR %s(%d) => Port Number out of range: %ld\n",
                                                 *_dpd.config_file, *_dpd.config_line, t_num);
@@ -208,7 +199,7 @@ int SMBSetPorts(int type, char *ErrorString, int ErrStrLen)
                port list, so reset it unless already done */
             if(!isReset)
             {
-                bzero(ports, portsSize);
+                memset(ports, 0, portsSize);
                 portstr[0] = '\0';
                 isReset = 1;
             }
@@ -252,13 +243,19 @@ int SMBSetPorts(int type, char *ErrorString, int ErrStrLen)
  * Returns: int indicating error
  *
  */
-int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
+int DCERPCProcessConf(DceRpcConfig *config, char *pcToken, char *ErrorString, int ErrStrLen)
 {
     int  iRet = 0;
     int  iTokens = 0;
 
+    if (config == NULL)
+    {
+        DynamicPreprocessorFatalMessage("%s(%d) DceRpc config is NULL.\n", 
+                                        __FILE__, __LINE__);
+    }
+
     /* Initialize the defaults */
-    InitializeDefaultSMBConfig();
+    InitializeDefaultSMBConfig(config);
 
     _dpd.logMsg("DCE/RPC Decoder config:\n");
 
@@ -272,7 +269,7 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
         /*
          * Search for configuration keywords
          */
-        if ( !strcmp(pcToken, OPT_PORTS) )
+        if ( !strcasecmp(pcToken, OPT_PORTS) )
         {
             /* Next should be smb or dcerpc, then the actual ports.
              * ie, ports smb { 139 }
@@ -285,13 +282,13 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
                 return -1;
             }
 
-            if ( !strcmp(pcToken, OPT_SMB_PORTS) )
+            if ( !strcasecmp(pcToken, OPT_SMB_PORTS) )
             {
-                iRet = SMBSetPorts(TRANS_SMB, ErrorString, ErrStrLen);
+                iRet = SMBSetPorts(config, TRANS_SMB, ErrorString, ErrStrLen);
             }
-            else if (!strcmp(pcToken, OPT_RPC_PORTS))
+            else if (!strcasecmp(pcToken, OPT_RPC_PORTS))
             {
-                iRet = SMBSetPorts(TRANS_RPC, ErrorString, ErrStrLen);
+                iRet = SMBSetPorts(config, TRANS_RPC, ErrorString, ErrStrLen);
             }
             else
             {
@@ -304,7 +301,7 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
             if (iRet)
                 return iRet;
         }
-        else if ( !strcmp(pcToken, OPT_REASSEMBLE_INCREMENT) )
+        else if ( !strcasecmp(pcToken, OPT_REASSEMBLE_INCREMENT) )
         {
             pcToken = strtok(NULL, CONF_SEPARATORS);
             if (pcToken == NULL || !isdigit((int)pcToken[0]))
@@ -314,67 +311,68 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
                 return -1;
             }
 
-            _reassemble_increment = atoi(pcToken);
+            config->reassemble_increment = atoi(pcToken);
 
-            if (_reassemble_increment < 0 || _reassemble_increment > 65535)
+            if ((config->reassemble_increment < 0) ||
+                (config->reassemble_increment > 65535))
             {
                 snprintf(ErrorString, ErrStrLen,
                          "Increment must be an integer\n");
                 return -1;
             }
         }
-        else if ( !strcmp(pcToken, OPT_DISABLE_SMB_FRAG) )
+        else if ( !strcasecmp(pcToken, OPT_DISABLE_SMB_FRAG) )
         {
-            _disable_smb_fragmentation = 1;
+            config->disable_smb_fragmentation = 1;
         }
-        else if ( !strcmp(pcToken, OPT_DISABLE_DCERPC_FRAG) )
+        else if ( !strcasecmp(pcToken, OPT_DISABLE_DCERPC_FRAG) )
         {
-            _disable_dcerpc_fragmentation = 1;
+            config->disable_dcerpc_fragmentation = 1;
         }
-        else if ( !strcmp(pcToken, OPT_AUTODETECT) )
+        else if ( !strcasecmp(pcToken, OPT_AUTODETECT) )
         {
-            _autodetect = 1;
+            config->autodetect = 1;
         }
-        else if ( !strcmp(pcToken, OPT_PRINT_DEBUG) )
+        else if ( !strcasecmp(pcToken, OPT_PRINT_DEBUG) )
         {
-            _debug_print = 1;
+            config->debug_print = 1;
         }
-        else if ( !strcmp(pcToken, OPT_MAX_FRAG_SIZE) )
+        else if ( !strcasecmp(pcToken, OPT_MAX_FRAG_SIZE) )
         {
-             int max_frag_size;
- 
-             pcToken = strtok(NULL, CONF_SEPARATORS);
- 
-             if (pcToken == NULL || !isdigit((int)pcToken[0]))
-             {
-                 snprintf(ErrorString, ErrStrLen,
-                          "Frag size must be an integer between 0 and 65535\n");
-                 return -1;
-             }
- 
-             max_frag_size = atoi(pcToken);
- 
-             if (max_frag_size < 0 || max_frag_size > 65535)
-             {
-                 snprintf(ErrorString, ErrStrLen,
-                          "Frag size must be an integer between 0 and 65535\n");
-                 return -1;
-             }
- 
-             _max_frag_size = max_frag_size;
- 
-            if ( _max_frag_size == 0 )
+            int max_frag_size;
+
+            pcToken = strtok(NULL, CONF_SEPARATORS);
+
+            if (pcToken == NULL || !isdigit((int)pcToken[0]))
             {
-                _max_frag_size = DEFAULT_MAX_FRAG_SIZE;
+                snprintf(ErrorString, ErrStrLen,
+                         "Frag size must be an integer between 0 and 65535\n");
+                return -1;
+            }
+
+            max_frag_size = atoi(pcToken);
+
+            if (max_frag_size < 0 || max_frag_size > 65535)
+            {
+                snprintf(ErrorString, ErrStrLen,
+                         "Frag size must be an integer between 0 and 65535\n");
+                return -1;
+            }
+
+            if ( max_frag_size == 0 )
+            {
+                max_frag_size = DEFAULT_MAX_FRAG_SIZE;
                 _dpd.logMsg("    WARNING: Invalid max frag size - setting to default.\n");
             }
-            else if ( _max_frag_size > MAX_MAX_FRAG_SIZE )
+            else if ( max_frag_size > MAX_MAX_FRAG_SIZE )
             {
-                _max_frag_size = MAX_MAX_FRAG_SIZE;
+                max_frag_size = MAX_MAX_FRAG_SIZE;
                 _dpd.logMsg("    WARNING: Max frag size exceeded - setting to maximum.\n");
             }
+
+            config->max_frag_size = max_frag_size;
         }
-        else if ( !strcmp(pcToken, OPT_MEMCAP) )
+        else if ( !strcasecmp(pcToken, OPT_MEMCAP) )
         {
             int memcap;
 
@@ -396,24 +394,22 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
                 return -1;
             }
 
-            _memcap = memcap;
-            
-            if ( _memcap == 0 )
+            if ( memcap == 0 )
             {
-                _memcap = DEFAULT_MEMCAP;
+                memcap = DEFAULT_MEMCAP;
                 _dpd.logMsg("    WARNING: Invalid memcap - setting to default.\n");
             }
-            else if ( _memcap > DEFAULT_MEMCAP )
+            else if ( memcap > DEFAULT_MEMCAP )
             {
-                _memcap = DEFAULT_MEMCAP;
+                memcap = DEFAULT_MEMCAP;
                 _dpd.logMsg("    WARNING: Memcap exceeded - setting to maximum.\n");
             }
 
-            _memcap *= 1024;
+            config->memcap = memcap * 1024;
         }
-        else if ( !strcmp(pcToken, OPT_ALERT_MEMCAP) )
+        else if ( !strcasecmp(pcToken, OPT_ALERT_MEMCAP) )
         {
-            _alert_memcap = 1;
+            config->alert_memcap = 1;
         }
         /*
          * Invalid configuration keyword
@@ -442,16 +438,16 @@ int DCERPCProcessConf(char *pcToken, char *ErrorString, int ErrStrLen)
         return -1;
     }
 
-    _dpd.logMsg("    Autodetect ports %s\n", _autodetect ? "ENABLED" : "DISABLED");
-    _dpd.logMsg("    SMB fragmentation %s\n", _disable_smb_fragmentation ? "DISABLED" : "ENABLED");
-    _dpd.logMsg("    DCE/RPC fragmentation %s\n", _disable_dcerpc_fragmentation ? "DISABLED" : "ENABLED");
-    _dpd.logMsg("    Max Frag Size: %u bytes\n", _max_frag_size);
-    _dpd.logMsg("    Memcap: %lu KB\n", _memcap/1024);
-    _dpd.logMsg("    Alert if memcap exceeded %s\n", _alert_memcap ? "ENABLED" : "DISABLED");
-    if (_reassemble_increment == 0)
+    _dpd.logMsg("    Autodetect ports %s\n", config->autodetect ? "ENABLED" : "DISABLED");
+    _dpd.logMsg("    SMB fragmentation %s\n", config->disable_smb_fragmentation ? "DISABLED" : "ENABLED");
+    _dpd.logMsg("    DCE/RPC fragmentation %s\n", config->disable_dcerpc_fragmentation ? "DISABLED" : "ENABLED");
+    _dpd.logMsg("    Max Frag Size: %u bytes\n", config->max_frag_size);
+    _dpd.logMsg("    Memcap: %lu KB\n", config->memcap/1024);
+    _dpd.logMsg("    Alert if memcap exceeded %s\n", config->alert_memcap ? "ENABLED" : "DISABLED");
+    if (config->reassemble_increment == 0)
     _dpd.logMsg("    Reassembly increment: DISABLED\n");
     else
-    _dpd.logMsg("    Reassembly increment: %u\n", _reassemble_increment);
+    _dpd.logMsg("    Reassembly increment: %u\n", config->reassemble_increment);
 
     return 0;
 }

@@ -53,8 +53,8 @@ extern PreprocStats ruleOTNEvalPerfStats;
 
 typedef struct _IpTosCheckData
 {
-    u_int8_t ip_tos;
-    u_int8_t not_flag;
+    uint8_t ip_tos;
+    uint8_t not_flag;
 
 } IpTosCheckData;
 
@@ -62,9 +62,9 @@ void IpTosCheckInit(char *, OptTreeNode *, int);
 void ParseIpTos(char *, OptTreeNode *);
 int IpTosCheckEq(void *option_data, Packet *p);
 
-u_int32_t IpTosCheckHash(void *d)
+uint32_t IpTosCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IpTosCheckData *data = (IpTosCheckData *)d;
 
     a = data->ip_tos;
@@ -109,7 +109,7 @@ int IpTosCheckCompare(void *l, void *r)
 void SetupIpTosCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("tos", IpTosCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("tos", IpTosCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("tos", &ipTosPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

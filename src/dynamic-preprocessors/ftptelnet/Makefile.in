@@ -59,7 +59,7 @@ am_libsf_ftptelnet_preproc_la_OBJECTS = ftp_bounce_lookup.lo \
 	ftpp_ui_server_lookup.lo hi_util_kmap.lo hi_util_xmalloc.lo \
 	pp_ftp.lo pp_telnet.lo snort_ftptelnet.lo spp_ftptelnet.lo
 nodist_libsf_ftptelnet_preproc_la_OBJECTS = sf_dynamic_preproc_lib.lo \
-	sf_ip.lo sfrt.lo sfrt_dir.lo
+	sf_ip.lo sfrt.lo sfrt_dir.lo sfPolicyUserData.lo
 libsf_ftptelnet_preproc_la_OBJECTS =  \
 	$(am_libsf_ftptelnet_preproc_la_OBJECTS) \
 	$(nodist_libsf_ftptelnet_preproc_la_OBJECTS)
@@ -216,18 +216,20 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 lib_LTLIBRARIES = libsf_ftptelnet_preproc.la
-libsf_ftptelnet_preproc_la_LDFLAGS = -export-dynamic
+libsf_ftptelnet_preproc_la_LDFLAGS = -module
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 nodist_libsf_ftptelnet_preproc_la_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 libsf_ftptelnet_preproc_la_SOURCES = \
 ftp_bounce_lookup.c \
@@ -650,11 +652,14 @@ sfrt.c: ../include/sfrt.c
 sfrt_dir.c: ../include/sfrt_dir.c
 	cp $? $@
 
+sfPolicyUserData.c: ../include/sfPolicyUserData.c
+	cp $? $@
+
 all-local:
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
-	rm -f sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c
+	rm -f sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c sfPolicyUserData.c 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

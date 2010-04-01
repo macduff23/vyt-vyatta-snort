@@ -45,6 +45,7 @@
 #endif
 
 #include "sf_dynamic_define.h"
+#include "sf_dynamic_engine.h"
 
 #define ANY_NET         "any"
 #define HOME_NET        "$HOME_NET"
@@ -55,14 +56,14 @@
 #define SMTP_SERVERS    "$SMTP_SERVERS"
 
 #ifdef WIN32
-#ifdef SF_SNORT_ENGINE_DLL
-#define ENGINE_LINKAGE __declspec(dllexport)
-#else
-#define ENGINE_LINKAGE __declspec(dllimport)
-#endif
+# ifdef SF_SNORT_ENGINE_DLL
+#  define ENGINE_LINKAGE SO_PUBLIC
+# else
+#  define ENGINE_LINKAGE 
+# endif
 #else /* WIN32 */
-#define ENGINE_LINKAGE
-#endif /* WIN32 */
+# define ENGINE_LINKAGE SO_PUBLIC
+#endif
 
 #define RULE_MATCH 1
 #define RULE_NOMATCH 0
@@ -286,16 +287,14 @@ typedef struct _PreprocessorOption
     const char *optionName;
     const char *optionParameters;
     u_int32_t flags;
-    void *optionInit;
-    void *optionEval;
-    //PreprocOptionInit optionInit;
-    //PreprocOptionEval optionEval;
+    PreprocOptionInit optionInit;
+    PreprocOptionEval optionEval;
     void *dataPtr;
 } PreprocessorOption;
 
 typedef struct _RuleOption
 {
-    int optionType;
+    DynamicOptionType optionType;
     union
     {
         void *ptr;

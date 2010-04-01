@@ -27,13 +27,17 @@
 
 #include "stream_api.h"
 #include "sfghash.h"
+#include "sf_types.h"
+#include "decode.h"
 
 /* Normally exported functions, for plugin registration. */
-void SetupFlowBits();
-void FlowBitsVerify();
+void SetupFlowBits(void);
+void FlowBitsVerify(void);
 void FlowBitsFree(void *d);
-u_int32_t FlowBitsHash(void *d);
+uint32_t FlowBitsHash(void *d);
 int FlowBitsCompare(void *l, void *r);
+int FlowBitsCheck(void *, Packet *);
+void FlowBitsHashInit(void);
 
 /* These functions are now exported to be used by dynamic plugins */
 StreamFlowData *GetFlowbitsData(Packet *p);
@@ -50,9 +54,25 @@ StreamFlowData *GetFlowbitsData(Packet *p);
 */
 typedef struct _FLOWBITS_OBJECT
 {
-    u_int32_t id;
-    u_int8_t  types;
+    uint32_t id;
+    uint8_t  types;
+    int toggle;
+
 } FLOWBITS_OBJECT;
+
+/**
+**  This structure is the context ptr for each detection option
+**  on a rule.  The id is associated with a FLOWBITS_OBJECT id.
+**
+**  The type element track only one operation.
+*/
+typedef struct _FLOWBITS_OP
+{
+    uint32_t id;
+    uint8_t  type;        /* Set, Unset, Invert, IsSet, IsNotSet, Reset  */
+    char *name;
+} FLOWBITS_OP;
+
 
 #define FLOWBITS_SET       0x01  
 #define FLOWBITS_UNSET     0x02
@@ -61,9 +81,5 @@ typedef struct _FLOWBITS_OBJECT
 #define FLOWBITS_ISNOTSET  0x10
 #define FLOWBITS_RESET     0x20
 #define FLOWBITS_NOALERT   0x40
-
-extern u_int32_t flowbits_count;
-extern SFGHASH *flowbits_hash;
-extern unsigned int giFlowbitSize;
 
 #endif  /* __SP_FLOWBITS_H__ */

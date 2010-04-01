@@ -71,7 +71,8 @@ int hi_ui_config_init_global_conf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
 {
     int iRet;
 
-    memset(GlobalConf, 0x00, sizeof(HTTPINSPECT_GLOBAL_CONF));
+    /* Set Global Configurations */
+    GlobalConf->inspection_type = HI_UI_CONFIG_STATELESS;
 
     iRet = hi_ui_server_lookup_init(&GlobalConf->server_lookup);
     if (iRet)
@@ -99,55 +100,50 @@ int hi_ui_config_init_global_conf(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
 **  @retval HI_INVALID_ARG  Fatal Error.  Undefined pointer to GlobalConf
 **  @retval HI_MEM_ALLOC_FAIL Fatal Error.  Memory Allocation Failed
 */
-int hi_ui_config_default(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
+int hi_ui_config_default(HTTPINSPECT_CONF *global_server)
 {
-    if(GlobalConf == NULL)
+    if (global_server == NULL)
     {
         return HI_INVALID_ARG;
     }
 
     /*
-    **  Set Global Configurations
-    */
-    GlobalConf->inspection_type = HI_UI_CONFIG_STATELESS;
-
-    /*
     **  Set Global Server Configurations
     */
-    GlobalConf->global_server.port_count = 1;
-    GlobalConf->global_server.ports[80] = 1;
+    global_server->port_count = 1;
+    global_server->ports[10] = 1; /* sets port 80 */
 
-    GlobalConf->global_server.server_flow_depth = 300;
-    GlobalConf->global_server.client_flow_depth = 300;
+    global_server->server_flow_depth = 300;
+    global_server->client_flow_depth = 300;
 
-    GlobalConf->global_server.post_depth = 0;
+    global_server->post_depth = 0;
     
-    GlobalConf->global_server.chunk_length = 500000;
+    global_server->chunk_length = 500000;
 
-    GlobalConf->global_server.ascii.on = 1;
+    global_server->ascii.on = 1;
 
-    GlobalConf->global_server.utf_8.on = 1;
+    global_server->utf_8.on = 1;
 
-    GlobalConf->global_server.multiple_slash.on = 1;
+    global_server->multiple_slash.on = 1;
 
-    GlobalConf->global_server.directory.on = 1;
+    global_server->directory.on = 1;
 
-    GlobalConf->global_server.webroot.on = 1;
-    GlobalConf->global_server.webroot.alert = 1;
+    global_server->webroot.on = 1;
+    global_server->webroot.alert = 1;
 
-    GlobalConf->global_server.apache_whitespace.on = 1;
+    global_server->apache_whitespace.on = 1;
 
-    GlobalConf->global_server.iis_delimiter.on = 1;
+    global_server->iis_delimiter.on = 1;
 
-    GlobalConf->global_server.non_strict = 1;
+    global_server->non_strict = 1;
 
-    GlobalConf->global_server.whitespace[9] = HI_UI_CONFIG_WS_BEFORE_URI | HI_UI_CONFIG_WS_AFTER_URI;   /* horizontal tab */
-    GlobalConf->global_server.whitespace[11] = HI_UI_CONFIG_WS_BEFORE_URI;  /* vertical tab */
-    GlobalConf->global_server.whitespace[12] = HI_UI_CONFIG_WS_BEFORE_URI;  /* form feed */
-    GlobalConf->global_server.whitespace[13] = HI_UI_CONFIG_WS_BEFORE_URI;  /* carriage return */
+    global_server->whitespace[9] = HI_UI_CONFIG_WS_BEFORE_URI | HI_UI_CONFIG_WS_AFTER_URI;   /* horizontal tab */
+    global_server->whitespace[11] = HI_UI_CONFIG_WS_BEFORE_URI;  /* vertical tab */
+    global_server->whitespace[12] = HI_UI_CONFIG_WS_BEFORE_URI;  /* form feed */
+    global_server->whitespace[13] = HI_UI_CONFIG_WS_BEFORE_URI;  /* carriage return */
 
-    GlobalConf->global_server.max_hdr_len = HI_UI_CONFIG_MAX_HDR_DEFAULT;
-    GlobalConf->global_server.max_headers = HI_UI_CONFIG_MAX_HEADERS_DEFAULT;
+    global_server->max_hdr_len = HI_UI_CONFIG_MAX_HDR_DEFAULT;
+    global_server->max_headers = HI_UI_CONFIG_MAX_HEADERS_DEFAULT;
 
     return HI_SUCCESS;
 }

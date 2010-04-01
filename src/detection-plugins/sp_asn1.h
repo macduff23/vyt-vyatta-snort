@@ -22,7 +22,7 @@
 #ifndef __SP_ASN1_H__
 #define __SP_ASN1_H__
 
-void SetupAsn1();
-u_int32_t Asn1Hash(void *d);
+void SetupAsn1(void);
+uint32_t Asn1Hash(void *d);
 int Asn1Compare(void *l, void *r);
 #endif

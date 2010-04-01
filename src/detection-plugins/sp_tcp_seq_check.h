@@ -23,7 +23,7 @@
 #define __SP_TCP_SEQ_CHECK_H__
 
 void SetupTcpSeqCheck(void);
-u_int32_t TcpSeqCheckHash(void *d);
+uint32_t TcpSeqCheckHash(void *d);
 int TcpSeqCheckCompare(void *l, void *r);
 
 #endif  /* __SP_TCP_SEQ_CHECK_H__ */

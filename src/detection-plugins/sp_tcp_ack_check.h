@@ -23,7 +23,7 @@
 #define __SP_TCP_ACK_CHECK_H__
 
 void SetupTcpAckCheck(void);
-u_int32_t TcpAckCheckHash(void *d);
+uint32_t TcpAckCheckHash(void *d);
 int TcpAckCheckCompare(void *l, void *r);
 
 #endif  /* __SP_TCP_ACK_CHECK_H__ */

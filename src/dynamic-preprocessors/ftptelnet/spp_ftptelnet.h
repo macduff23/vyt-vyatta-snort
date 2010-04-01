@@ -33,6 +33,6 @@
 #ifndef __SPP_FTPTELNET_H__
 #define __SPP_FTPTELNET_H__
 
-void SetupFTPTelnet();
+void SetupFTPTelnet(void);
 
 #endif

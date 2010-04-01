@@ -184,7 +184,6 @@ typedef struct _DatabaseData
     DBINT       ms_col;
 #endif
     char *args;
-    ListHead *head_tmp;
 } DatabaseData;
 
 /* list for lookup of shared data information */
@@ -313,7 +312,8 @@ void          FreeSharedDataList();
 
 /******** Global Variables  ********************************************/
 
-extern PV pv;
+extern SnortConfig *snort_conf;
+extern char *pcap_interface;
 extern OptTreeNode *otn_tmp;  /* rule node */
 extern ListHead *head_tmp;
 
@@ -361,11 +361,11 @@ static int instances = 0;
  * Returns: void function
  *
  ******************************************************************************/
-void DatabaseSetup()
+void DatabaseSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("database", NT_OUTPUT_ALERT, DatabaseInit);
+    RegisterOutputPlugin("database", OUTPUT_TYPE_FLAG__ALERT, DatabaseInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "database(debug): database plugin is registered...\n"););
 }
@@ -389,10 +389,24 @@ void DatabaseInit(char *args)
     data = InitDatabaseData(args);
     
     data->tz = GetLocalTimezone();
-    data->head_tmp = head_tmp;
+
+    ParseDatabaseArgs(data);
     
+    /* Add the processor function into the function list */
+    if (strncasecmp(data->facility, "log", 3) == 0)
+    {
+        AddFuncToOutputList(Database, OUTPUT_TYPE__LOG, data);
+    }
+    else
+    {
+        AddFuncToOutputList(Database, OUTPUT_TYPE__ALERT, data);
+    }
+    
+    AddFuncToCleanExitList(SpoDatabaseCleanExitFunction, data);
+    AddFuncToRestartList(SpoDatabaseRestartFunction, data); 
     AddFuncToPostConfigList(DatabaseInitFinalize, data);
 
+    ++instances;
 }
 
 void DatabaseInitFinalize(int unused, void *arg)
@@ -407,30 +421,21 @@ void DatabaseInitFinalize(int unused, void *arg)
     char * escapedInterfaceName = NULL;
     char * escapedBPFFilter = NULL;
     int ret, bad_query = 0;
-    ListHead *head_tmp_dup = NULL;
-    
-    
+
     if (!data)
     {
         FatalError("database:  data uninitialized\n");
     }
 
-    ParseDatabaseArgs(data);
-
     /* find a unique name for sensor if one was not supplied as an option */
     if(!data->sensor_name)
     {
-        data->sensor_name = GetUniqueName((char *)PRINT_INTERFACE(pv.interface));
+        data->sensor_name = GetUniqueName((char *)PRINT_INTERFACE(pcap_interface));
         if ( data->sensor_name )
         {
             if( data->sensor_name[strlen(data->sensor_name)-1] == '\n' )
             {
                 data->sensor_name[strlen(data->sensor_name)-1] = '\0';
-            }
-
-            if( !pv.quiet_flag )
-            {
-                printf("database:   sensor name = %s\n", data->sensor_name);
             }
         }
     }
@@ -442,13 +447,13 @@ void DatabaseInitFinalize(int unused, void *arg)
 
     escapedSensorName    = snort_escape_string(data->sensor_name, data);
 
-    if(pv.interface != NULL)
+    if(pcap_interface != NULL)
     {
-        escapedInterfaceName = snort_escape_string(PRINT_INTERFACE(pv.interface), data);
+        escapedInterfaceName = snort_escape_string(PRINT_INTERFACE(pcap_interface), data);
     }
     else
     {   
-        if(InlineMode())
+        if(ScInlineMode())
         {
             escapedInterfaceName = snort_escape_string("inline", data);
         }
@@ -456,7 +461,7 @@ void DatabaseInitFinalize(int unused, void *arg)
 
     if( data->ignore_bpf == 0 )
     {
-        if(pv.pcap_cmd == NULL)
+        if(snort_conf->bpf_filter == NULL)
         {
             ret = SnortSnprintf(insert_into_sensor, MAX_QUERY_LENGTH, 
                                 "INSERT INTO sensor (hostname, interface, detail, encoding, last_cid) "
@@ -483,7 +488,7 @@ void DatabaseInitFinalize(int unused, void *arg)
         }
         else
         {
-            escapedBPFFilter = snort_escape_string(pv.pcap_cmd, data);
+            escapedBPFFilter = snort_escape_string(snort_conf->bpf_filter, data);
 
             ret = SnortSnprintf(insert_into_sensor, MAX_QUERY_LENGTH, 
                                 "INSERT INTO sensor (hostname, interface, filter, detail, encoding, last_cid) "
@@ -511,11 +516,11 @@ void DatabaseInitFinalize(int unused, void *arg)
     }
     else /* ( data->ignore_bpf == 1 ) */
     {
-        if(pv.pcap_cmd == NULL)
+        if(snort_conf->bpf_filter == NULL)
         {
             ret = SnortSnprintf(insert_into_sensor, MAX_QUERY_LENGTH, 
-                                "INSERT INTO sensor (hostname, interface, detail, encoding) "
-                                "VALUES ('%s','%s',%u,%u)", 
+                                "INSERT INTO sensor (hostname, interface, detail, encoding, last_cid) "
+                                "VALUES ('%s','%s',%u,%u, 0)", 
                                 escapedSensorName, escapedInterfaceName,
                                 data->detail, data->encoding);
 
@@ -537,11 +542,11 @@ void DatabaseInitFinalize(int unused, void *arg)
         }
         else
         {
-            escapedBPFFilter = snort_escape_string(pv.pcap_cmd, data);
+            escapedBPFFilter = snort_escape_string(snort_conf->bpf_filter, data);
 
             ret = SnortSnprintf(insert_into_sensor, MAX_QUERY_LENGTH, 
-                                "INSERT INTO sensor (hostname, interface, filter, detail, encoding) "
-                                "VALUES ('%s','%s','%s',%u,%u)", 
+                                "INSERT INTO sensor (hostname, interface, filter, detail, encoding, last_cid) "
+                                "VALUES ('%s','%s','%s',%u,%u, 0)", 
                                 escapedSensorName, escapedInterfaceName,
                                 escapedBPFFilter, data->detail, data->encoding);
 
@@ -591,11 +596,6 @@ void DatabaseInitFinalize(int unused, void *arg)
             FatalError("%s\n%s\n", FATAL_NO_SENSOR_1, FATAL_NO_SENSOR_2);
 
         }
-    }
-
-    if( !pv.quiet_flag )
-    {
-        printf("database:     sensor id = %u\n", data->shared->sid);
     }
 
     /* the cid may be shared across multiple instances of the database
@@ -706,9 +706,6 @@ void DatabaseInitFinalize(int unused, void *arg)
     if (data->DBschema_version == -1)
         FatalError("Database: Unable to construct query - output error or truncation\n");
 
-    if( !pv.quiet_flag )
-        printf("database: schema version = %d\n", data->DBschema_version);
-
     if ( data->DBschema_version == 0 )
     {
        FatalError(FATAL_BAD_SCHEMA_1, LATEST_DB_SCHEMA_VERSION, FATAL_BAD_SCHEMA_2);
@@ -723,29 +720,89 @@ void DatabaseInitFinalize(int unused, void *arg)
        ErrorMessage("database: The database is using an older version of the DB schema\n");
     }
     */
-    
-    head_tmp_dup = head_tmp;
-    head_tmp = data->head_tmp;
-    
-    /* Add the processor function into the function list */
-    if(!strncasecmp(data->facility,"log",3))
+
+    /* print out and test the capability of this plugin */
     {
-        pv.log_plugin_active = 1;
-        if( !pv.quiet_flag ) printf("database: using the \"log\" facility\n");
-        AddFuncToOutputList(Database, NT_OUTPUT_LOG, data);
+        char database_support_buf[100];
+        char database_in_use_buf[100];
+
+        database_support_buf[0] = '\0';
+        database_in_use_buf[0] = '\0';
+
+        /* These strings will not overflow the buffers */
+#ifdef ENABLE_MYSQL
+        snprintf(database_support_buf, sizeof(database_support_buf),
+                 "database: compiled support for (%s)", KEYWORD_MYSQL);
+        if (data->shared->dbtype_id == DB_MYSQL)
+        snprintf(database_in_use_buf, sizeof(database_in_use_buf),
+                 "database: configured to use %s", KEYWORD_MYSQL);
+#endif
+#ifdef ENABLE_POSTGRESQL
+        snprintf(database_support_buf, sizeof(database_support_buf),
+                 "database: compiled support for (%s)", KEYWORD_POSTGRESQL);
+        if (data->shared->dbtype_id == DB_POSTGRESQL)
+        snprintf(database_in_use_buf, sizeof(database_in_use_buf),
+                 "database: configured to use %s", KEYWORD_POSTGRESQL);
+#endif
+#ifdef ENABLE_ODBC
+        snprintf(database_support_buf, sizeof(database_support_buf),
+                 "database: compiled support for (%s)", KEYWORD_ODBC);
+        if (data->shared->dbtype_id == DB_ODBC)
+        snprintf(database_in_use_buf, sizeof(database_in_use_buf),
+                 "database: configured to use %s", KEYWORD_ODBC);
+#endif
+#ifdef ENABLE_ORACLE
+        snprintf(database_support_buf, sizeof(database_support_buf),
+                 "database: compiled support for (%s)", KEYWORD_ORACLE);
+        if (data->shared->dbtype_id == DB_ORACLE)
+        snprintf(database_in_use_buf, sizeof(database_in_use_buf),
+                 "database: configured to use %s", KEYWORD_ORACLE);
+#endif
+#ifdef ENABLE_MSSQL
+        snprintf(database_support_buf, sizeof(database_support_buf),
+                 "database: compiled support for (%s)", KEYWORD_MSSQL);
+        if (data->shared->dbtype_id == DB_MSSQL)
+        snprintf(database_in_use_buf, sizeof(database_in_use_buf),
+                 "database: configured to use %s", KEYWORD_MSSQL);
+#endif
+        LogMessage("%s\n", database_support_buf);
+        LogMessage("%s\n", database_in_use_buf);
     }
+
+    LogMessage("database: schema version = %d\n", data->DBschema_version);
+    if (data->shared->host != NULL)
+    LogMessage("database:           host = %s\n", data->shared->host);
+    if (data->port != NULL)
+    LogMessage("database:           port = %s\n", data->port);
+    if (data->user != NULL)
+    LogMessage("database:           user = %s\n", data->user);
+    if (data->shared->dbname != NULL)
+    LogMessage("database:  database name = %s\n", data->shared->dbname);
+    if (data->sensor_name != NULL)
+    LogMessage("database:    sensor name = %s\n", data->sensor_name);
+    LogMessage("database:      sensor id = %u\n", data->shared->sid);
+
+    if (data->encoding == ENCODING_HEX)
+    LogMessage("database:  data encoding = %s\n", KEYWORD_ENCODING_HEX);
+    else if (data->encoding == ENCODING_BASE64)
+    LogMessage("database:  data encoding = %s\n", KEYWORD_ENCODING_BASE64);
     else
-    {
-        pv.alert_plugin_active = 1;
-        if( !pv.quiet_flag ) printf("database: using the \"alert\" facility\n");
-        AddFuncToOutputList(Database, NT_OUTPUT_ALERT, data);
-    }
-    
-    head_tmp = head_tmp_dup;
-    
-    AddFuncToCleanExitList(SpoDatabaseCleanExitFunction, data);
-    AddFuncToRestartList(SpoDatabaseRestartFunction, data); 
-    ++instances;
+    LogMessage("database:  data encoding = %s\n", KEYWORD_ENCODING_ASCII);
+
+    if (data->detail == DETAIL_FULL)
+    LogMessage("database:   detail level = %s\n", KEYWORD_DETAIL_FULL);
+    else
+    LogMessage("database:   detail level = %s\n", KEYWORD_DETAIL_FAST);
+
+    if (data->ignore_bpf)
+    LogMessage("database:     ignore_bpf = %s\n", KEYWORD_IGNOREBPF_YES);
+    else
+    LogMessage("database:     ignore_bpf = %s\n", KEYWORD_IGNOREBPF_NO);
+
+    if(!strncasecmp(data->facility,"log",3))
+    LogMessage("database: using the \"log\" facility\n");
+    else
+    LogMessage("database: using the \"alert\" facility\n");
 }
 
 
@@ -835,44 +892,32 @@ void ParseDatabaseArgs(DatabaseData *data)
 
     if(type == NULL)
     {
-        ErrorMessage("database: you must enter the database type in configuration file as the second argument\n");
+        ErrorMessage("database: you must enter the database type in configuration "
+                     "file as the second argument\n");
         DatabasePrintUsage();
         FatalError("");
     }
 
-    /* print out and test the capability of this plugin */
-    if( !pv.quiet_flag ) printf("database: compiled support for ( ");
-
-
 #ifdef ENABLE_MYSQL
-    if( !pv.quiet_flag ) printf("%s ",KEYWORD_MYSQL);
     if(!strncasecmp(type,KEYWORD_MYSQL,strlen(KEYWORD_MYSQL)))
         data->shared->dbtype_id = DB_MYSQL; 
 #endif
 #ifdef ENABLE_POSTGRESQL
-    if( !pv.quiet_flag ) printf("%s ",KEYWORD_POSTGRESQL);
     if(!strncasecmp(type,KEYWORD_POSTGRESQL,strlen(KEYWORD_POSTGRESQL)))
         data->shared->dbtype_id = DB_POSTGRESQL; 
 #endif
 #ifdef ENABLE_ODBC
-    if( !pv.quiet_flag ) printf("%s ",KEYWORD_ODBC);
     if(!strncasecmp(type,KEYWORD_ODBC,strlen(KEYWORD_ODBC)))
         data->shared->dbtype_id = DB_ODBC; 
 #endif
 #ifdef ENABLE_ORACLE
-    if( !pv.quiet_flag ) printf("%s ",KEYWORD_ORACLE);
     if(!strncasecmp(type,KEYWORD_ORACLE,strlen(KEYWORD_ORACLE)))
         data->shared->dbtype_id = DB_ORACLE; 
 #endif
 #ifdef ENABLE_MSSQL
-    if( !pv.quiet_flag ) printf("%s ",KEYWORD_MSSQL);
     if(!strncasecmp(type,KEYWORD_MSSQL,strlen(KEYWORD_MSSQL)))
         data->shared->dbtype_id = DB_MSSQL; 
 #endif
-
-    if( !pv.quiet_flag ) printf(")\n");
-
-    if( !pv.quiet_flag ) printf("database: configured to use %s\n", type);
 
     if(data->shared->dbtype_id == 0)
     {
@@ -902,32 +947,26 @@ void ParseDatabaseArgs(DatabaseData *data)
         if(!strncasecmp(dbarg,KEYWORD_HOST,strlen(KEYWORD_HOST)))
         {
             data->shared->host = a1;
-            if( !pv.quiet_flag ) printf("database:          host = %s\n", data->shared->host);
         }
         if(!strncasecmp(dbarg,KEYWORD_PORT,strlen(KEYWORD_PORT)))
         {
             data->port = a1;
-            if( !pv.quiet_flag ) printf("database:          port = %s\n", data->port);
         }
         if(!strncasecmp(dbarg,KEYWORD_USER,strlen(KEYWORD_USER)))
         {
             data->user = a1;
-            if( !pv.quiet_flag ) printf("database:          user = %s\n", data->user);
         }
         if(!strncasecmp(dbarg,KEYWORD_PASSWORD,strlen(KEYWORD_PASSWORD)))
         {
-            if( !pv.quiet_flag ) printf("database: password is set\n");
             data->password = a1;
         }
         if(!strncasecmp(dbarg,KEYWORD_DBNAME,strlen(KEYWORD_DBNAME)))
         {
             data->shared->dbname = a1;
-            if( !pv.quiet_flag ) printf("database: database name = %s\n", data->shared->dbname);
         }
         if(!strncasecmp(dbarg,KEYWORD_SENSORNAME,strlen(KEYWORD_SENSORNAME)))
         {
             data->sensor_name = a1;
-            if( !pv.quiet_flag ) printf("database:   sensor name = %s\n", data->sensor_name);
         }
         if(!strncasecmp(dbarg,KEYWORD_ENCODING,strlen(KEYWORD_ENCODING)))
         {
@@ -947,7 +986,6 @@ void ParseDatabaseArgs(DatabaseData *data)
             {
                 FatalError("database: unknown  (%s)", a1);
             }
-            if( !pv.quiet_flag ) printf("database: data encoding = %s\n", a1);
         }
         if(!strncasecmp(dbarg,KEYWORD_DETAIL,strlen(KEYWORD_DETAIL)))
         {
@@ -963,7 +1001,6 @@ void ParseDatabaseArgs(DatabaseData *data)
             {
                 FatalError("database: unknown detail level (%s)", a1);
             } 
-            if( !pv.quiet_flag ) printf("database: detail level  = %s\n", a1);
         }
         if(!strncasecmp(dbarg,KEYWORD_IGNOREBPF,strlen(KEYWORD_IGNOREBPF)))
         {
@@ -982,7 +1019,6 @@ void ParseDatabaseArgs(DatabaseData *data)
                 FatalError("database: unknown ignore_bpf argument (%s)", a1);
             }
 
-            if( !pv.quiet_flag ) printf("database: ignore_bpf = %s\n", a1);
         }
         dbarg = strtok(NULL, "=");
     } 
@@ -999,8 +1035,6 @@ void ParseDatabaseArgs(DatabaseData *data)
         DatabasePrintUsage();
         FatalError("");
     }
-
-    return;
 }
 
 void FreeQueryNode(SQLQuery * node)
@@ -3185,11 +3219,8 @@ void Connect(DatabaseData * data)
  ******************************************************************************/
 void Disconnect(DatabaseData * data)
 {
-    if( !pv.quiet_flag )
-    {
-      printf("database: Closing connection to database \"%s\"\n", 
-             data->shared->dbname);
-    }
+    LogMessage("database: Closing connection to database \"%s\"\n", 
+               data->shared->dbname);
 
     if(data)
     {
@@ -3258,7 +3289,7 @@ void Disconnect(DatabaseData * data)
     }
 }
 
-void DatabasePrintUsage()
+void DatabasePrintUsage(void)
 {
     puts("\nUSAGE: database plugin\n");
 
@@ -3348,7 +3379,7 @@ void SpoDatabaseRestartFunction(int signal, void *arg)
     }
 }
 
-void FreeSharedDataList()
+void FreeSharedDataList(void)
 {
    SharedDatabaseDataNode *current;
 

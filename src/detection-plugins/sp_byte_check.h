@@ -23,7 +23,39 @@
 #ifndef __SP_BYTE_CHECK_H__
 #define __SP_BYTE_CHECK_H__
 
+#include "sf_engine/sf_snort_plugin_api.h"
+#include "decode.h"
+
+#define BT_LESS_THAN            CHECK_LT
+#define BT_EQUALS               CHECK_EQ
+#define BT_GREATER_THAN         CHECK_GT
+#define BT_AND                  CHECK_AND
+#define BT_XOR                  CHECK_XOR
+#define BT_GREATER_THAN_EQUAL   CHECK_GTE
+#define BT_LESS_THAN_EQUAL      CHECK_LTE
+#define BT_CHECK_ALL            CHECK_ALL
+#define BT_CHECK_ATLEASTONE     CHECK_ATLEASTONE
+#define BT_CHECK_NONE           CHECK_NONE
+
+#define BIG    0
+#define LITTLE 1
+
+
+typedef struct _ByteTestData
+{
+    uint32_t bytes_to_compare; /* number of bytes to compare */
+    uint32_t cmp_value;
+    uint32_t operator;
+    int32_t offset;
+    uint8_t not_flag;
+    uint8_t relative_flag;
+    uint8_t data_string_convert_flag;
+    uint8_t endianess;
+    uint32_t base;
+} ByteTestData;
+
 void SetupByteTest(void);
-u_int32_t ByteTestHash(void *d);
+uint32_t ByteTestHash(void *d);
 int ByteTestCompare(void *l, void *r);
+int ByteTest(void *, Packet *);
 #endif  /* __SP_BYTE_CHECK_H__ */

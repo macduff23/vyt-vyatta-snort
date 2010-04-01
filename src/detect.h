@@ -27,10 +27,11 @@
 #include "config.h"
 #endif
 
-//#include "snort.h"
+#include "debug.h"
 #include "decode.h"
 #include "rules.h"
 #include "parser.h"
+#include "plugbase.h"
 #include "log.h"
 #include "event.h"
 #ifdef PORTLISTS
@@ -42,7 +43,7 @@ extern int do_detect;
 extern int do_detect_content;
 
 /* rule match action functions */
-int PassAction();
+int PassAction(void);
 int ActivateAction(Packet *, OptTreeNode *, Event *);
 int AlertAction(Packet *, OptTreeNode *, Event *);
 int DropAction(Packet *, OptTreeNode *, Event *);
@@ -64,36 +65,17 @@ void TriggerResponses(Packet *, OptTreeNode *);
 
 #ifdef PORTLISTS
 #ifdef SUP_IP6
-int CheckAddrPort(sfip_var_t *, PortObject* , Packet *, u_int32_t, int);
+int CheckAddrPort(sfip_var_t *, PortObject* , Packet *, uint32_t, int);
 #else
-int CheckAddrPort(IpAddrSet *, PortObject* , Packet *, u_int32_t, int);
+int CheckAddrPort(IpAddrSet *, PortObject* , Packet *, uint32_t, int);
 #endif
 #else
 #ifdef SUP_IP6
-int CheckAddrPort(sfip_var_t *, u_int16_t, u_int16_t, Packet *, u_int32_t, int);
+int CheckAddrPort(sfip_var_t *, uint16_t, uint16_t, Packet *, uint32_t, int);
 #else
-int CheckAddrPort(IpAddrSet *, u_int16_t, u_int16_t, Packet *, u_int32_t, int);
+int CheckAddrPort(IpAddrSet *, uint16_t, uint16_t, Packet *, uint32_t, int);
 #endif
 #endif
-
-#include "bitop_funcs.h"
-static inline void DisableDetect(Packet *p)
-{
-    boResetBITOP(p->preprocessor_bits);
-    do_detect_content = 0;
-}
-
-static inline void DisableAllDetect(Packet *p)
-{
-    boResetBITOP(p->preprocessor_bits);
-    do_detect = do_detect_content = 0;
-}
-
-static inline void DisablePreprocessors(Packet *p)
-{
-    boResetBITOP(p->preprocessor_bits);
-}
-
 
 /* detection modules */
 int CheckBidirectional(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
@@ -108,11 +90,24 @@ int CheckDstPortNotEq(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
 
 int RuleListEnd(Packet *, struct _RuleTreeNode *, RuleFpList *, int);
 int OptListEnd(void *option_data, Packet *p);
+
 void CallLogPlugins(Packet *, char *, void *, Event *);
 void CallAlertPlugins(Packet *, char *, void *, Event *);
 void CallLogFuncs(Packet *, char *, ListHead *, Event *);
 void CallAlertFuncs(Packet *, char *, ListHead *, Event *);
 
 void ObfuscatePacket(Packet *p);
+
+static INLINE void DisableDetect(Packet *p)
+{
+    DisablePreprocessors(p);
+    do_detect_content = 0;
+}
+
+static INLINE void DisableAllDetect(Packet *p)
+{
+    DisablePreprocessors(p);
+    do_detect = do_detect_content = 0;
+}
 
 #endif /* __DETECT_H__ */

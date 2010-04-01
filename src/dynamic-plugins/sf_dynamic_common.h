@@ -44,9 +44,10 @@ typedef void (*DebugWideMsgFunc)(int, wchar_t *, ...);
 
 typedef struct _UriInfo
 {
-    u_int8_t *uriBuffer;
-    u_int16_t uriLength;
-    u_int32_t uriDecodeFlags;
+    uint8_t *uriBuffer;
+    uint16_t uriLength;
+    uint32_t uriDecodeFlags;
+
 } UriInfo;
 
 #endif /* _SF_DYNAMIC_COMMON_H_ */

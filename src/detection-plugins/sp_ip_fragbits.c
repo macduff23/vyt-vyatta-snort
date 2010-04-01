@@ -89,16 +89,16 @@ extern PreprocStats ruleOTNEvalPerfStats;
 typedef struct _FragBitsData
 {
     char mode;
-    u_int16_t frag_bits;
+    uint16_t frag_bits;
 
 } FragBitsData;
 
 
 typedef struct _FragOffsetData
 {
-    u_int8_t  comparison_flag;
-    u_int8_t  not_flag;
-    u_int16_t offset;
+    uint8_t  comparison_flag;
+    uint8_t  not_flag;
+    uint16_t offset;
 } FragOffsetData;
 
 
@@ -111,11 +111,11 @@ void FragOffsetInit(char *, OptTreeNode *, int);
 void ParseFragOffset(char *, OptTreeNode *);
 int CheckFragOffset(void *option_data, Packet *p);
 
-static u_int16_t bitmask;
+static uint16_t bitmask;
 
-u_int32_t IpFragBitsCheckHash(void *d)
+uint32_t IpFragBitsCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     FragBitsData *data = (FragBitsData *)d;
 
     a = data->mode;
@@ -144,9 +144,9 @@ int IpFragBitsCheckCompare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-u_int32_t IpFragOffsetCheckHash(void *d)
+uint32_t IpFragOffsetCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     FragOffsetData *data = (FragOffsetData *)d;
 
     a = data->comparison_flag || (data->not_flag << 8);
@@ -190,7 +190,7 @@ int IpFragOffsetCheckCompare(void *l, void *r)
 void SetupFragBits(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("fragbits", FragBitsInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("fragbits", FragBitsInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("fragbits", &fragBitsPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -280,7 +280,7 @@ void ParseFragBits(char *data, OptTreeNode *otn)
 
     if(strlen(fptr) == 0)
     {
-        FatalError("[!] ERROR Line %s (%d): No arguments to the fragbits keyword\n", file_name, file_line);
+        FatalError("[!] Line %s (%d): No arguments to the fragbits keyword\n", file_name, file_line);
     }
 
     fend = fptr + strlen(fptr);
@@ -319,7 +319,7 @@ void ParseFragBits(char *data, OptTreeNode *otn)
                 break;
 
             default:
-                FatalError("[!] ERROR Line %s (%d): Bad Frag Bits = \"%c\"\n"
+                FatalError("[!] Line %s (%d): Bad Frag Bits = \"%c\"\n"
                            "     Valid options are: RDM+!*\n", file_name, 
                            file_line, *fptr);
         }
@@ -446,7 +446,7 @@ int CheckFragBits(void *option_data, Packet *p)
 void SetupFragOffset(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("fragoffset", FragOffsetInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("fragoffset", FragOffsetInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("fragoffset", &fragOffsetPerfStats, 3, &ruleOTNEvalPerfStats);
@@ -520,7 +520,7 @@ void ParseFragOffset(char *data, OptTreeNode *otn)
 
     if(strlen(fptr) == 0)
     {
-        FatalError("[!] ERROR Line %s (%d): No arguments to the fragoffset keyword\n", file_name, file_line);
+        FatalError("[!] Line %s (%d): No arguments to the fragoffset keyword\n", file_name, file_line);
     }
 
     if(*fptr == '!')
@@ -545,7 +545,7 @@ void ParseFragOffset(char *data, OptTreeNode *otn)
     {
         ds_ptr->offset = atoi(fptr);
     } else {
-        FatalError("[!] ERROR Line %s (%d): Argument to fragoffset is not a number: %s\n",
+        FatalError("[!] Line %s (%d): Argument to fragoffset is not a number: %s\n",
            file_name, file_line, fptr);
     }
 

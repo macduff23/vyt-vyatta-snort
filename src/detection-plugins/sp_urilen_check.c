@@ -58,9 +58,9 @@ void UriLenCheckInit( char*, OptTreeNode*, int );
 void ParseUriLen( char*, OptTreeNode* );
 int CheckUriLen(void *option_data, Packet*p);
 
-u_int32_t UriLenCheckHash(void *d)
+uint32_t UriLenCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     UriLenCheckData *data = (UriLenCheckData *)d;
 
     a = data->urilen;
@@ -102,9 +102,9 @@ int UriLenCheckCompare(void *l, void *r)
  * RETURNS:	Nothing.
  */
 void 
-SetupUriLenCheck()
+SetupUriLenCheck(void)
 {
-	RegisterPlugin("urilen", UriLenCheckInit, NULL, OPT_TYPE_DETECTION);
+	RegisterRuleOption("urilen", UriLenCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("urilen_check", &urilenCheckPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

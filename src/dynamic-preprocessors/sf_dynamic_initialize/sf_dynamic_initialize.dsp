@@ -64,8 +64,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 1
-# PROP Output_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
-# PROP Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Debug"
+# PROP Output_Dir "IPv6_Debug"
+# PROP Intermediate_Dir "IPv6_Debug"
 # PROP Target_Dir ""
 
 !ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
@@ -77,8 +77,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 0
-# PROP Output_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
-# PROP Intermediate_Dir "sf_dynamic_initialize___Win32_IPv6_Release"
+# PROP Output_Dir "IPv6_Release"
+# PROP Intermediate_Dir "IPv6_Release"
 # PROP Target_Dir ""
 
 !ENDIF 
@@ -1350,6 +1350,255 @@ InputName=sfhashfcn
 	mkdir ..\include 
 	copy $(InputPath) ..\include 
 	
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\sfutil\sfPolicy.h"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicy.h"
+InputName=sfPolicy
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicy.h"
+InputName=sfPolicy
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicy.h"
+InputName=sfPolicy
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicy.h"
+InputName=sfPolicy
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\sfutil\sfPolicyUserData.c"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.c"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).c.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).c.new > ../include/$(InputName).c \
+	
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).c.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.c"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).c.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).c.new > ../include/$(InputName).c \
+	
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).c.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.c"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).c.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).c.new > ../include/$(InputName).c \
+	
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).c.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.c"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).c.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).c.new > ../include/$(InputName).c \
+	
+
+"..\include\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).c.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE="..\..\sfutil\sfPolicyUserData.h"
+
+!IF  "$(CFG)" == "sf_dynamic_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.h"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.h"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.h"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_dynamic_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath="..\..\sfutil\sfPolicyUserData.h"
+InputName=sfPolicyUserData
+
+BuildCmds= \
+	mkdir ..\include \
+	copy $(InputPath) ..\include\$(InputName).h.new \
+	c:\cygwin\bin\sed -e "/SharedObjectAddStarts/d" -e "/SharedObjectAddEnds/d" -e "/SharedObjectDeleteBegins/,/SharedObjectDeleteEnds/d" -e "s/getDefaultPolicy()/_dpd.getDefaultPolicy()/" ../include/$(InputName).h.new > ../include/$(InputName).h \
+	
+
+"..\include\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
+
+"..\include\$(InputName).h.new" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+   $(BuildCmds)
 # End Custom Build
 
 !ENDIF 

@@ -89,12 +89,21 @@
 #define PATH_MAX_UTIL 1024
 #endif /* PATH_MAX */
 
-extern long start_time;
-extern PreprocessStatsList *PreprocessStats;
 extern Stream5Stats s5stats;
 extern int datalink;
+extern pcap_t *pcap_handle;
+extern SnortConfig *snort_conf;
+extern PreprocStatsFuncNode *preproc_stats_funcs;
 
 static PcapPktStats pkt_stats;
+
+/*
+ * you may need to adjust this on the systems which don't have standard
+ * paths defined
+ */
+#ifndef _PATH_VARRUN
+static char _PATH_VARRUN[STD_BUF];
+#endif
 
 
 #ifdef NAME_MAX
@@ -105,221 +114,9 @@ static PcapPktStats pkt_stats;
 
 #define FILE_MAX_UTIL  (PATH_MAX_UTIL + NAME_MAX_UTIL)
 
-
-/*
- * Function: GenHomenet(char *)
- *
- * Purpose: Translate the command line character string into its equivalent
- *          32-bit network byte ordered value (with netmask)
- *
- * Arguments: netdata => The address/CIDR block
- *
- * Returns: void function
- */
-void GenHomenet(char *netdata)
-{
-#ifdef SUP_IP6
-    sfip_pton(netdata, &pv.homenet);
-#else
-    struct in_addr net;    /* place to stick the local network data */
-    char **toks;           /* dbl ptr to store mSplit return data in */
-    int num_toks;          /* number of tokens mSplit returns */
-    int nmask;             /* temporary netmask storage */
-
-    /* break out the CIDR notation from the IP address */
-    toks = mSplit(netdata, "/", 2, &num_toks, 0);
-
-    if(num_toks > 1)
-    {
-        /* convert the CIDR notation into a real live netmask */
-        nmask = atoi(toks[1]);
-
-        if((nmask > 0) && (nmask < 33))
-        {
-            pv.netmask = netmasks[nmask];
-        }
-        else
-        {
-            FatalError("Bad CIDR block [%s:%d], 1 to 32 please!\n",
-                       toks[1], nmask);
-        }
-    }
-    else
-    {
-        FatalError("No netmask specified for home network!\n");
-    }
-
-    pv.netmask = htonl(pv.netmask);
-
-    DEBUG_WRAP(DebugMessage(DEBUG_INIT, "homenet netmask = %#8lX\n", pv.netmask););
-
-    /* convert the IP addr into its 32-bit value */
-    if((net.s_addr = inet_addr(toks[0])) == -1)
-    {
-        FatalError("Homenet (%s) didn't translate\n",
-                   toks[0]);
-    }
-    else
-    {
-#ifdef DEBUG
-        struct in_addr sin;
-
-        DebugMessage(DEBUG_INIT, "Net = %s (%X)\n", inet_ntoa(net), net.s_addr);
-#endif
-        /* set the final homenet address up */
-        pv.homenet = ((u_long) net.s_addr & pv.netmask);
-
-#ifdef DEBUG
-        sin.s_addr = pv.homenet;
-        DebugMessage(DEBUG_INIT, "Homenet = %s (%X)\n", inet_ntoa(sin), sin.s_addr);
-#endif
-    }
-
-    mSplitFree(&toks, num_toks);
-#endif
-}
-
-
-
-void GenObfuscationMask(char *netdata)
-{
-#ifdef SUP_IP6
-    sfip_pton(netdata, &pv.obfuscation_net);
-#else
-    struct in_addr net;       /* place to stick the local network data */
-    char **toks;              /* dbl ptr to store mSplit return data in */
-    int num_toks;             /* number of tokens mSplit returns */
-    int nmask;                /* temporary netmask storage */
-
-    DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Got obfus data: %s\n", netdata););
-
-    /* break out the CIDR notation from the IP address */
-    toks = mSplit(netdata, "/", 2, &num_toks, 0);
-
-    if(num_toks > 1)
-    {
-        /* convert the CIDR notation into a real live netmask */
-        nmask = atoi(toks[1]);
-
-        if((nmask > 0) && (nmask < 33))
-        {
-            pv.obfuscation_mask = netmasks[nmask];
-        }
-        else
-        {
-            FatalError("Bad CIDR block in obfuscation mask [%s:%d], "
-                       "1 to 32 please!\n", toks[1], pv.obfuscation_mask);
-        }
-    }
-    else
-    {
-        FatalError("No netmask specified for obsucation mask!\n");
-    }
-
-    pv.obfuscation_mask = htonl(pv.obfuscation_mask);
-
-    DEBUG_WRAP(DebugMessage(DEBUG_INIT, "obfuscation netmask = %#8lX\n", 
-                pv.obfuscation_mask););
-
-    /* convert the IP addr into its 32-bit value */
-    if((net.s_addr = inet_addr(toks[0])) == -1)
-    {
-        FatalError("Obfuscation mask (%s) didn't translate\n",
-                   toks[0]);
-    }
-    else
-    {
-        struct in_addr sin;
-
-        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Obfuscation Net = %s (%X)\n", 
-                inet_ntoa(net), net.s_addr););
-
-        /* set the final homenet address up */
-        pv.obfuscation_net = ((u_long) net.s_addr & pv.obfuscation_mask);
-
-        sin.s_addr = pv.obfuscation_net;
-        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Obfuscation Net = %s (%X)\n", 
-                inet_ntoa(sin), sin.s_addr););
-        pv.obfuscation_mask = ~pv.obfuscation_mask;
-    }
-
-    mSplitFree(&toks, num_toks);
-#endif
-}
-
 /****************************************************************************
  *
- * Function  : DefineAllIfaceVars()
- * Purpose   : Find all up interfaces and define iface_ADDRESS vars for them
- * Arguments : none
- * Returns   : void function
- *
- ****************************************************************************/
-void DefineAllIfaceVars()
-{
-#ifndef SOURCEFIRE
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_if_t *alldevs;
-    bpf_u_int32 net, netmask;
-
-    if (pcap_findalldevs(&alldevs, errbuf) == -1)
-        return;
-
-    while (alldevs != NULL)
-    {
-        if (pcap_lookupnet(alldevs->name, &net, &netmask, errbuf) == 0)
-        {
-            DefineIfaceVar(PRINT_INTERFACE(alldevs->name),
-                           (u_char *)&net, 
-                           (u_char *)&netmask);
-        }
-
-        alldevs = alldevs->next;
-    }
-
-    pcap_freealldevs(alldevs);
-#endif
-}
-
-/****************************************************************************
- *
- * Function  : DefineIfaceVar()
- * Purpose   : Assign network address and network mast to IFACE_ADDR_VARNAME
- *             variable.
- * Arguments : interface name (string) netaddress and netmask (4 octets each)
- * Returns   : void function
- *
- ****************************************************************************/
-void DefineIfaceVar(char *iname, u_char * network, u_char * netmask)
-{
-    char valbuf[32];
-    char varbuf[BUFSIZ];
-
-    SnortSnprintf(varbuf, BUFSIZ, "%s_ADDRESS", iname);
-
-    SnortSnprintf(valbuf, 32, "%d.%d.%d.%d/%d.%d.%d.%d",
-            network[0] & 0xff, network[1] & 0xff, network[2] & 0xff, 
-            network[3] & 0xff, netmask[0] & 0xff, netmask[1] & 0xff, 
-            netmask[2] & 0xff, netmask[3] & 0xff);
-
-#ifdef WIN32
-    {
-        unsigned int i;
-        for (i=0;i<strlen(varbuf);i++)
-        {
-            if ((i != 0) && (varbuf[i] == '\\'))
-                varbuf[i] = '_';
-        }
-    }
-#endif
-
-    VarDefine(varbuf, valbuf);
-}
-
-
-/****************************************************************************
- *
- * Function: CalcPct(UINT64, UINT64)
+ * Function: CalcPct(uint64_t, uint64_t)
  *
  * Purpose:  Calculate the percentage of a value compared to a total
  *
@@ -329,7 +126,7 @@ void DefineIfaceVar(char *iname, u_char * network, u_char * netmask)
  * Returns: pct -> the percentage of cnt to value
  *
  ****************************************************************************/
-double CalcPct(UINT64 cnt, UINT64 total)
+double CalcPct(uint64_t cnt, uint64_t total)
 {
     double pct = 0.0;
 
@@ -359,7 +156,7 @@ double CalcPct(UINT64 cnt, UINT64 total)
  * Returns: 0 all the time
  *
  ****************************************************************************/
-int DisplayBanner()
+int DisplayBanner(void)
 {
     const char * info;
     const char * pcre_ver;
@@ -372,32 +169,31 @@ int DisplayBanner()
 
     pcre_ver = pcre_version();
 
-    fprintf(stderr, "\n"
-        "   ,,_     -*> Snort! <*-\n"
-        "  o\"  )~   Version %s%s%s (Build %s) %s %s\n"
-        "   ''''    By Martin Roesch & The Snort Team: http://www.snort.org/team.html\n"
-        "           Copyright (C) 1998-2009 Sourcefire, Inc., et al.\n"   
-        "           Using PCRE version: %s\n"
-        "\n"
-        , VERSION, 
+    LogMessage("\n");
+    LogMessage("   ,,_     -*> Snort! <*-\n");
+    LogMessage("  o\"  )~   Version %s%s%s (Build %s) %s %s\n",
+               VERSION,
 #ifdef SUP_IP6
-          " IPv6",
+               " IPv6",
 #else
-          "", 
+               "",
 #endif
 #ifdef GRE
-          " GRE",
+               " GRE",
 #else
-          "", 
+               "",
 #endif
-        BUILD, 
+               BUILD,
 #ifdef GIDS
-        "inline", 
+               "inline",
 #else
-        "",
+               "",
 #endif
-        info,
-        pcre_ver);
+               info);
+    LogMessage("   ''''    By Martin Roesch & The Snort Team: http://www.snort.org/snort/snort-team\n");
+    LogMessage("           Copyright (C) 1998-2009 Sourcefire, Inc., et al.\n");
+    LogMessage("           Using PCRE version: %s\n", pcre_ver);
+    LogMessage("\n");
 
     return 0;
 }
@@ -436,12 +232,12 @@ void ts_print(register const struct timeval *tvp, char *timebuf)
         tvp = &tv;
     }
 
-    localzone = thiszone;
+    localzone = snort_conf->thiszone;
    
     /*
     **  If we're doing UTC, then make sure that the timezone is correct.
     */
-    if(pv.use_utc)
+    if (ScOutputUseUtc())
         localzone = 0;
         
     s = (tvp->tv_sec + localzone) % 86400;
@@ -449,7 +245,7 @@ void ts_print(register const struct timeval *tvp, char *timebuf)
 
     lt = gmtime(&Time);
 
-    if(pv.include_year)
+    if (ScOutputIncludeYear())
     {
         (void) SnortSnprintf(timebuf, TIMEBUF_SIZE, 
                         "%02d/%02d/%02d-%02d:%02d:%02d.%06u ", 
@@ -612,60 +408,6 @@ void strip(char *data)
     }
 }
 
-
-/****************************************************************************
- *
- * Function: InitNetMasks()
- *
- * Purpose: Loads the netmask struct in network order.  Yes, I know I could
- *          just load the array when I define it, but this is what occurred
- *          to me when I wrote this at 3:00 AM.
- *
- * Arguments: None.
- *
- * Returns: void function
- *
- ****************************************************************************/
-extern u_long netmasks[33]; /* defined in snort.c */
-
-void InitNetmasks()
-{
-    netmasks[0] = 0x0;
-    netmasks[1] = 0x80000000;
-    netmasks[2] = 0xC0000000;
-    netmasks[3] = 0xE0000000;
-    netmasks[4] = 0xF0000000;
-    netmasks[5] = 0xF8000000;
-    netmasks[6] = 0xFC000000;
-    netmasks[7] = 0xFE000000;
-    netmasks[8] = 0xFF000000;
-    netmasks[9] = 0xFF800000;
-    netmasks[10] = 0xFFC00000;
-    netmasks[11] = 0xFFE00000;
-    netmasks[12] = 0xFFF00000;
-    netmasks[13] = 0xFFF80000;
-    netmasks[14] = 0xFFFC0000;
-    netmasks[15] = 0xFFFE0000;
-    netmasks[16] = 0xFFFF0000;
-    netmasks[17] = 0xFFFF8000;
-    netmasks[18] = 0xFFFFC000;
-    netmasks[19] = 0xFFFFE000;
-    netmasks[20] = 0xFFFFF000;
-    netmasks[21] = 0xFFFFF800;
-    netmasks[22] = 0xFFFFFC00;
-    netmasks[23] = 0xFFFFFE00;
-    netmasks[24] = 0xFFFFFF00;
-    netmasks[25] = 0xFFFFFF80;
-    netmasks[26] = 0xFFFFFFC0;
-    netmasks[27] = 0xFFFFFFE0;
-    netmasks[28] = 0xFFFFFFF0;
-    netmasks[29] = 0xFFFFFFF8;
-    netmasks[30] = 0xFFFFFFFC;
-    netmasks[31] = 0xFFFFFFFE;
-    netmasks[32] = 0xFFFFFFFF;
-}
-
-
 /*
  * Function: ErrorMessage(const char *, ...)
  *
@@ -681,9 +423,12 @@ void ErrorMessage(const char *format,...)
     char buf[STD_BUF+1];
     va_list ap;
 
+    if (snort_conf == NULL)
+        return;
+
     va_start(ap, format);
 
-    if(pv.daemon_flag || pv.logtosyslog_flag)
+    if (ScDaemonMode() || ScLogSyslog())
     {
         vsnprintf(buf, STD_BUF, format, ap);
         buf[STD_BUF] = '\0';
@@ -711,12 +456,15 @@ void LogMessage(const char *format,...)
     char buf[STD_BUF+1];
     va_list ap;
 
-    if(pv.quiet_flag && !pv.daemon_flag && !pv.logtosyslog_flag)
+    if (snort_conf == NULL)
+        return;
+
+    if (ScLogQuiet() && !ScDaemonMode() && !ScLogSyslog())
         return;
 
     va_start(ap, format);
 
-    if(pv.daemon_flag || pv.logtosyslog_flag)
+    if (ScDaemonMode() || ScLogSyslog())
     {
         vsnprintf(buf, STD_BUF, format, ap);
         buf[STD_BUF] = '\0';
@@ -726,6 +474,7 @@ void LogMessage(const char *format,...)
     {
         vfprintf(stderr, format, ap);
     }
+
     va_end(ap);
 }
 
@@ -785,17 +534,18 @@ void CreateApplicationEventLogEntry(const char *msg)
  *
  * Returns: void function
  */
-void FatalError(const char *format,...)
+NORETURN void FatalError(const char *format,...)
 {
     char buf[STD_BUF+1];
     va_list ap;
 
     va_start(ap, format);
-
     vsnprintf(buf, STD_BUF, format, ap);
+    va_end(ap);
+
     buf[STD_BUF] = '\0';
 
-    if(pv.daemon_flag || pv.logtosyslog_flag)
+    if ((snort_conf != NULL) && (ScDaemonMode() || ScLogSyslog()))
     {
         syslog(LOG_CONS | LOG_DAEMON | LOG_ERR, "FATAL ERROR: %s", buf);
     }
@@ -833,54 +583,48 @@ void CreatePidFile(char *intf)
     char dir[STD_BUF + 1];
 #endif
 
-    if (!pv.readmode_flag) 
+    if (!ScReadMode())
     {
-        if(!pv.quiet_flag)
-        {
-            LogMessage("Checking PID path...\n");
-        }
+        LogMessage("Checking PID path...\n");
 
-        if (strlen(pv.pid_path) != 0)
+        if (strlen(snort_conf->pid_path) != 0)
         {
-            if((stat(pv.pid_path, &pt) == -1) ||
-                !S_ISDIR(pt.st_mode) || access(pv.pid_path, W_OK) == -1)
+            if((stat(snort_conf->pid_path, &pt) == -1) ||
+                !S_ISDIR(pt.st_mode) || access(snort_conf->pid_path, W_OK) == -1)
             {
 #ifndef WIN32
                 /* Save this just in case it's reset with LogMessage call */
                 int err = errno;
 
                 LogMessage("WARNING: %s is invalid, trying "
-                           "/var/run...\n", pv.pid_path);
+                           "/var/run...\n", snort_conf->pid_path);
                 if (err)
                 {
                     LogMessage("Previous Error, errno=%d, (%s)\n",
                                err, strerror(err) == NULL ? "Unknown error" : strerror(err));
                 }
 #endif
-                memset(pv.pid_path, '\0', STD_BUF);
+                memset(snort_conf->pid_path, 0, sizeof(snort_conf->pid_path));
             }
             else
             {
                 LogMessage("PID path stat checked out ok, "
-                           "PID path set to %s\n", pv.pid_path);
+                           "PID path set to %s\n", snort_conf->pid_path);
             }
         }
 
-        if (strlen(pv.pid_path) == 0)
+        if (strlen(snort_conf->pid_path) == 0)
         {
 #ifndef _PATH_VARRUN
-#ifndef WIN32
+# ifndef WIN32
             SnortStrncpy(_PATH_VARRUN, "/var/run/", sizeof(_PATH_VARRUN));
-#else
+# else
             if (GetCurrentDirectory(sizeof(dir) - 1, dir))
                 SnortStrncpy(_PATH_VARRUN, dir, sizeof(_PATH_VARRUN));
-#endif  /* WIN32 */
+# endif  /* WIN32 */
 #else
-            if(!pv.quiet_flag)
-            {
-                LogMessage("PATH_VARRUN is set to %s on this operating "
-                           "system\n", _PATH_VARRUN);
-            }
+            LogMessage("PATH_VARRUN is set to %s on this operating "
+                       "system\n", _PATH_VARRUN);
 #endif  /* _PATH_VARRUN */
 
             stat(_PATH_VARRUN, &pt);
@@ -889,46 +633,46 @@ void CreatePidFile(char *intf)
             {
                 LogMessage("WARNING: _PATH_VARRUN is invalid, trying "
                            "/var/log...\n");
-                SnortStrncpy(pv.pid_path, "/var/log/", sizeof(pv.pid_path));
-                stat(pv.pid_path, &pt);
+                SnortStrncpy(snort_conf->pid_path, "/var/log/", sizeof(snort_conf->pid_path));
+                stat(snort_conf->pid_path, &pt);
 
-                if(!S_ISDIR(pt.st_mode) || access(pv.pid_path, W_OK) == -1)
+                if(!S_ISDIR(pt.st_mode) || access(snort_conf->pid_path, W_OK) == -1)
                 {
                     LogMessage("WARNING: %s is invalid, logging Snort "
-                               "PID path to log directory (%s)\n", pv.pid_path,
-                               pv.log_dir);
+                               "PID path to log directory (%s)\n", snort_conf->pid_path,
+                               snort_conf->log_dir);
                     CheckLogDir();
-                    SnortSnprintf(pv.pid_path, STD_BUF, "%s/", pv.log_dir);
+                    SnortSnprintf(snort_conf->pid_path, sizeof(snort_conf->pid_path),
+                                  "%s/", snort_conf->log_dir);
                 }
             }
             else
             {
                 LogMessage("PID path stat checked out ok, "
                            "PID path set to %s\n", _PATH_VARRUN);
-                SnortStrncpy(pv.pid_path, _PATH_VARRUN, sizeof(pv.pid_path));
+                SnortStrncpy(snort_conf->pid_path, _PATH_VARRUN, sizeof(snort_conf->pid_path));
             }
         }
     }
 
-    if(intf == NULL || strlen(pv.pid_path) == 0)
+    if(intf == NULL || strlen(snort_conf->pid_path) == 0)
     {
-        /* pv.pid_path should have some value by now
-         * so let us just be sane.
-         */
+        /* snort_conf->pid_path should have some value by now
+         * so let us just be sane. */
         FatalError("CreatePidFile() failed to lookup interface or pid_path is unknown!\n");
     }
 
-    SnortSnprintf(pv.pid_filename, STD_BUF,  "%s/snort_%s%s.pid", pv.pid_path, intf,
-                  pv.pidfile_suffix);
+    SnortSnprintf(snort_conf->pid_filename, sizeof(snort_conf->pid_filename),
+                  "%s/snort_%s%s.pid", snort_conf->pid_path, intf, snort_conf->pidfile_suffix);
 
 #ifndef WIN32
-    if (!pv.nolock_pid_file)
+    if (!ScNoLockPidFile())
     {
         char pid_lockfilename[STD_BUF+1];
         int lock_fd;
 
         /* First, lock the PID file */
-        SnortSnprintf(pid_lockfilename, STD_BUF, "%s.lck", pv.pid_filename);
+        SnortSnprintf(pid_lockfilename, STD_BUF, "%s.lck", snort_conf->pid_filename);
         pid_lockfile = fopen(pid_lockfilename, "w");
 
         if (pid_lockfile)
@@ -944,24 +688,24 @@ void CreatePidFile(char *intf)
             if (fcntl(lock_fd, F_SETLK, &lock) == -1)
             {
                 ClosePidFile();
-                FatalError("Failed to Lock PID File \"%s\" for PID \"%d\"\n", pv.pid_filename, pid);
+                FatalError("Failed to Lock PID File \"%s\" for PID \"%d\"\n", snort_conf->pid_filename, pid);
             }
         }
     }
 #endif
-    /* Okay, were able to lock PID file, now open and write PID */
-    pid_file = fopen(pv.pid_filename, "w");
 
+    /* Okay, were able to lock PID file, now open and write PID */
+    pid_file = fopen(snort_conf->pid_filename, "w");
     if(pid_file)
     {
-        LogMessage("Writing PID \"%d\" to file \"%s\"\n", pid, pv.pid_filename);
+        LogMessage("Writing PID \"%d\" to file \"%s\"\n", pid, snort_conf->pid_filename);
         fprintf(pid_file, "%d\n", pid);
         fflush(pid_file);
     }
     else
     {
-        ErrorMessage("Failed to create pid file %s", pv.pid_filename);
-        pv.pid_filename[0] = 0;
+        ErrorMessage("Failed to create pid file %s", snort_conf->pid_filename);
+        snort_conf->pid_filename[0] = 0;
     }
 }
 
@@ -976,7 +720,7 @@ void CreatePidFile(char *intf)
  * Returns: void function
  *
  ****************************************************************************/
-void ClosePidFile()
+void ClosePidFile(void)
 {
     if (pid_file)
     {
@@ -992,7 +736,7 @@ void ClosePidFile()
 
 /****************************************************************************
  *
- * Function: SetUidGid(char *)
+ * Function: SetUidGid()
  *
  * Purpose:  Sets safe UserID and GroupID if needed
  *
@@ -1001,63 +745,72 @@ void ClosePidFile()
  * Returns: void function
  *
  ****************************************************************************/
-void SetUidGid(void)
+void SetUidGid(int user_id, int group_id)
 {
 #ifndef WIN32
 
-    if(groupname != NULL)
+    if ((group_id != -1) && (getgid() != (gid_t)group_id))
     {
-        if (getgid() != groupid)
+        if (!InlineModeSetPrivsAllowed())
         {
-            if(!InlineModeSetPrivsAllowed())
-            {
-                ErrorMessage("Cannot set uid and gid when running Snort in "
-                             "inline mode.\n");
-
-                return;
-            }
-
-            if(setgid(groupid) < 0)
-                FatalError("Can not set gid: %lu\n", (u_long) groupid);
-
-            DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
+            ErrorMessage("Cannot set uid and gid when running Snort in "
+                         "inline mode.\n");
+            return;
         }
+
+        if (setgid(group_id) < 0)
+            FatalError("Cannot set gid: %d\n", group_id);
+
+        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %d\n", group_id););
     }
 
-    if(username != NULL)
+    if ((user_id != -1) && (getuid() != (uid_t)user_id))
     {
-        if (getuid() != userid)
-        {
-            if(!InlineModeSetPrivsAllowed())
-            {
-                ErrorMessage("Cannot set uid and gid when running Snort in "
-                             "inline mode.\n");
+        struct passwd *pw = getpwuid(user_id);
 
-                return;
+        if (!InlineModeSetPrivsAllowed())
+        {
+            ErrorMessage("Cannot set uid and gid when running Snort in "
+                         "inline mode.\n");
+            return;
+        }
+
+        if (pw != NULL)
+        {
+            /* getpwuid and initgroups may use the same static buffers */
+            char *username = SnortStrdup(pw->pw_name);
+
+            if ((getuid() == 0) && (initgroups(username, group_id) < 0))
+            {
+                free(username);
+                FatalError("Can not initgroups(%s,%d)",
+                           username, group_id);
             }
 
-            if(getuid() == 0 && initgroups(username, groupid) < 0)
-                FatalError("Can not initgroups(%s,%lu)",
-                           username, (u_long) groupid);
-
-            /** just to be on a safe side... **/
-            endgrent();
-            endpwent();
-
-            if(setuid(userid) < 0)
-                FatalError("Can not set uid: %lu\n", (u_long) userid);
-
-            DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set gid to %lu\n", groupid););
+            free(username);
         }
+
+        /** just to be on a safe side... **/
+        endgrent();
+        endpwent();
+
+        if (setuid(user_id) < 0)
+            FatalError("Can not set uid: %d\n", user_id);
+
+        DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Set uid to %d\n", user_id););
     }
 #endif  /* WIN32 */
-
-    return;
 }
 
 #ifdef TIMESTATS
 
 static IntervalStats istats = {0};
+time_t start_time;
+
+void InitTimeStats(void)
+{
+    start_time = time(NULL);
+}
 
 void ResetTimeStats(void)
 {
@@ -1067,11 +820,12 @@ void ResetTimeStats(void)
 /* This function prints out stats based on a configurable time
  * interval.  It is an indication on how well snort is */
 /* processing packets, including types, drops, etc */
-void DropStatsPerTimeInterval()
+void DropStatsPerTimeInterval(void)
 {
     double per_sec, per_minute, per_hour;
-    UINT64 recv, drop;
-    UINT64 total = 0;
+    uint64_t recv, drop;
+    uint64_t total = 0;
+    uint32_t timestats_interval = ScTimestatsInterval();
 
 #ifdef PCAP_CLOSE
     if (UpdatePcapPktStats(0) != -1)
@@ -1225,22 +979,22 @@ void DropStatsPerTimeInterval()
                    "===============================\n");
 
         LogMessage("\n");
-        LogMessage("Statistics Report (last %d seconds)\n", pv.timestats_interval);
+        LogMessage("Statistics Report (last %d seconds)\n", timestats_interval);
         LogMessage("\n");
 
-        per_sec = (double)istats.recv / (double)pv.timestats_interval;
+        per_sec = (double)istats.recv / (double)timestats_interval;
 
         LogMessage("Packet Wire Totals:\n");
         LogMessage("Packets received: " FMTu64("13") "\n", istats.recv);
 
-        if (pv.timestats_interval >= SECONDS_PER_HOUR)
+        if (timestats_interval >= SECONDS_PER_HOUR)
         {
-            per_hour = (double)(istats.recv * SECONDS_PER_HOUR) / (double)pv.timestats_interval;
+            per_hour = (double)(istats.recv * SECONDS_PER_HOUR) / (double)timestats_interval;
         LogMessage("        per hour: %13.2f\n", per_hour);
         }
-        if (pv.timestats_interval >= SECONDS_PER_MIN)
+        if (timestats_interval >= SECONDS_PER_MIN)
         {
-            per_minute = (double)(istats.recv * SECONDS_PER_MIN) / (double)pv.timestats_interval;
+            per_minute = (double)(istats.recv * SECONDS_PER_MIN) / (double)timestats_interval;
         LogMessage("      per minute: %13.2f\n", per_minute);
         }
         LogMessage("      per second: %13.2f\n", per_sec);
@@ -1256,8 +1010,10 @@ void DropStatsPerTimeInterval()
                    istats.icmp, CalcPct(istats.icmp, total));
         LogMessage("     ARP: " FMTu64("10") " (%.3f%%)\n",
                    istats.arp, CalcPct(istats.arp, total));
+#ifndef NO_NON_ETHER_DECODER
         LogMessage("   EAPOL: " FMTu64("10") " (%.3f%%)\n",
                    istats.eapol, CalcPct(istats.eapol, total));
+#endif
         LogMessage("    IPv6: " FMTu64("10") " (%.3f%%)\n",
                    istats.ipv6, CalcPct(istats.ipv6, total));
         LogMessage(" ETHLOOP: " FMTu64("10") " (%.3f%%)\n",
@@ -1307,6 +1063,7 @@ void DropStatsPerTimeInterval()
 
         /*   handle case where wireless is enabled...	*/
 
+#ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
         if (datalink == DLT_IEEE802_11)
         {
@@ -1322,6 +1079,7 @@ void DropStatsPerTimeInterval()
         }
 
 #endif /* if wireless is enabled... */
+#endif  // NO_NON_ETHER_DECODER
 
         /*   handle case where we have snort seeing fragmented packets	*/
 
@@ -1358,7 +1116,7 @@ void DropStatsPerTimeInterval()
 
     }  /* end if pcap_stats(ps, &ps) */
 
-    alarm(pv.timestats_interval);   /* reset the alarm to go off again */
+    alarm(timestats_interval);   /* reset the alarm to go off again */
 }
 
 /* print out stats on how long snort ran */
@@ -1388,16 +1146,16 @@ void TimeStats(void)
  */
 
     time_t end_time, total_secs;
-    u_int32_t days = 0, hrs = 0, mins = 0, secs = 0, tmp = 0;
-    UINT64 pps = 0, ppm = 0, pph = 0, ppd = 0;
-    u_int32_t int_total_secs = 0;
+    uint32_t days = 0, hrs = 0, mins = 0, secs = 0, tmp = 0;
+    uint64_t pps = 0, ppm = 0, pph = 0, ppd = 0;
+    uint32_t int_total_secs = 0;
     char hflag = 0, mflag = 0;
 
 
-    end_time = time(&end_time);         /* grab epoch for end time value (in seconds) */
+    end_time = time(NULL);              /* grab epoch for end time value (in seconds) */
     total_secs = end_time - start_time; /* total_secs is how many seconds snort ran for */
 
-    tmp = (u_int32_t)total_secs;        
+    tmp = (uint32_t)total_secs;        
     int_total_secs = tmp;               /* used for cast elimination */
 
     days = tmp / SECONDS_PER_DAY;       /* 86400 is number of seconds in a day */
@@ -1412,27 +1170,33 @@ void TimeStats(void)
     else                                         
         pps = pc.total_from_pcap;     /* guard against division by zero */
 
-    LogMessage("Snort ran for %u Days %u Hours %u Minutes %u Seconds\n", days, hrs, mins, secs);
+    /* Use ErrorMessage because this is logged whether
+     * or not logging quietly */
+    ErrorMessage("Snort ran for %u Days %u Hours %u Minutes %u Seconds\n",
+                 days, hrs, mins, secs);
 
-    if (days > 0) {
+    if (days > 0)
+    {
         ppd = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_DAY));
-        LogMessage("Snort Analyzed " STDu64 " Packets Per Day\n", ppd);
+        ErrorMessage("Snort Analyzed " STDu64 " Packets Per Day\n", ppd);
         hflag = 1;
     }
 
-    if (hrs > 0 || hflag == 1) {
+    if (hrs > 0 || hflag == 1)
+    {
         pph = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_HOUR));
-        LogMessage("Snort Analyzed " STDu64 " Packets Per Hour\n", pph);
+        ErrorMessage("Snort Analyzed " STDu64 " Packets Per Hour\n", pph);
         mflag = 1;
     }
 
-    if (mins > 0 || mflag == 1) {
+    if (mins > 0 || mflag == 1)
+    {
         ppm = (pc.total_from_pcap / (int_total_secs / SECONDS_PER_MIN));
-        LogMessage("Snort Analyzed " STDu64 " Packets Per Minute\n", ppm);
+        ErrorMessage("Snort Analyzed " STDu64 " Packets Per Minute\n", ppm);
     }
 
-    LogMessage("Snort Analyzed " STDu64 " Packets Per Second\n", pps);
-    LogMessage("\n");
+    ErrorMessage("Snort Analyzed " STDu64 " Packets Per Second\n", pps);
+    ErrorMessage("\n");
 }
 #endif /* TIMESTATS */
 
@@ -1444,7 +1208,7 @@ int UpdatePcapPktStats(void)
 #endif
 {
     struct pcap_stat ps;
-    u_int32_t recv, drop;
+    uint32_t recv, drop;
     static char not_initialized = 1;
 
 #ifdef PCAP_CLOSE
@@ -1466,17 +1230,17 @@ int UpdatePcapPktStats(void)
         not_initialized = 0;
     }
     
-    if ((pd == NULL) || pv.readmode_flag)
+    if ((pcap_handle == NULL) || ScReadMode())
         return -1;
 
-    if (pcap_stats(pd, &ps) == -1)
+    if (pcap_stats(pcap_handle, &ps) == -1)
     {
-        pcap_perror(pd, "pcap_stats");
+        pcap_perror(pcap_handle, "pcap_stats");
         return -1;
     }
 
-    recv = (u_int32_t)ps.ps_recv;
-    drop = (u_int32_t)ps.ps_drop;
+    recv = (uint32_t)ps.ps_recv;
+    drop = (uint32_t)ps.ps_drop;
 
 #ifdef LINUX_LIBPCAP_DOUBLES_STATS
     recv /= 2;
@@ -1486,17 +1250,17 @@ int UpdatePcapPktStats(void)
 #ifdef LIBPCAP_ACCUMULATES
     /* pcap recv wrapped */
     if (recv < pkt_stats.wrap_recv)
-        pkt_stats.recv += (UINT64)UINT32_MAX;
+        pkt_stats.recv += (uint64_t)UINT32_MAX;
 
     /* pcap drop wrapped */
     if (drop < pkt_stats.wrap_drop)
-        pkt_stats.drop += (UINT64)UINT32_MAX;
+        pkt_stats.drop += (uint64_t)UINT32_MAX;
 
     pkt_stats.wrap_recv = recv;
     pkt_stats.wrap_drop = drop;
 #else
-    pkt_stats.recv += (UINT64)recv;
-    pkt_stats.drop += (UINT64)drop;
+    pkt_stats.recv += (uint64_t)recv;
+    pkt_stats.drop += (uint64_t)drop;
 #endif  /* LIBPCAP_ACCUMULATES */
 
 #ifdef PCAP_CLOSE
@@ -1505,14 +1269,14 @@ int UpdatePcapPktStats(void)
     return 0;
 }
 
-UINT64 GetPcapPktStatsRecv(void)
+uint64_t GetPcapPktStatsRecv(void)
 {
-    return pkt_stats.recv + (UINT64)pkt_stats.wrap_recv;
+    return pkt_stats.recv + (uint64_t)pkt_stats.wrap_recv;
 }
 
-UINT64 GetPcapPktStatsDrop(void)
+uint64_t GetPcapPktStatsDrop(void)
 {
-    return pkt_stats.drop + (UINT64)pkt_stats.wrap_drop;
+    return pkt_stats.drop + (uint64_t)pkt_stats.wrap_drop;
 }
 
 
@@ -1523,30 +1287,38 @@ UINT64 GetPcapPktStatsDrop(void)
 #endif
 void DropStats(int exiting)
 {
-    PreprocessStatsList *idx;
-    UINT64 total = 0;
-    UINT64 pkts_recv;
-    UINT64 pkts_drop;
+    PreprocStatsFuncNode *idx;
+    uint64_t total = 0;
+    uint64_t pkts_recv;
+    uint64_t pkts_drop;
 
     total = pc.total_processed;
 
 #ifdef PPM_MGR
-    PPM_PRINT_SUMMARY();
+    PPM_PRINT_SUMMARY(&snort_conf->ppm_cfg);
 #endif
 
     LogMessage("================================================"
                "===============================\n");
 
-    if(pv.readmode_flag || InlineMode())
+#ifdef TIMESTATS
+    TimeStats();     /* how long did snort run? */
+#endif
+
+    if (ScReadMode()
+#ifdef GIDS
+            || ScAdapterInlineMode()
+#endif
+       )
     {
         LogMessage("Snort processed " STDu64 " packets.\n", total);
     }
     else
     {
 #ifdef PCAP_CLOSE
-        if (exiting < 2 && !pd)
+        if (exiting < 2 && (pcap_handle == NULL))
 #else
-        if (!pd)
+        if (pcap_handle == NULL)
 #endif
         {
             LogMessage("Snort received 0 packets\n");
@@ -1559,27 +1331,24 @@ void DropStats(int exiting)
             if (UpdatePcapPktStats() != -1)
 #endif
             {
-#ifdef TIMESTATS
-                {
-                    int oldQFlag = pv.quiet_flag;
-                    pv.quiet_flag = 0;
-                    TimeStats();     /* how long did snort run? */
-                    pv.quiet_flag = oldQFlag;
-                }
-#endif
                 pkts_recv = GetPcapPktStatsRecv();
                 pkts_drop = GetPcapPktStatsDrop();
 
                 LogMessage("Packet Wire Totals:\n");
                 LogMessage("   Received: " FMTu64("12") "\n", pkts_recv);
                 LogMessage("   Analyzed: " FMTu64("12") " (%.3f%%)\n", pc.total_from_pcap,
-                           CalcPct(pc.total_from_pcap, pkts_recv));
+                        CalcPct(pc.total_from_pcap, pkts_recv));
                 LogMessage("    Dropped: " FMTu64("12") " (%.3f%%)\n", pkts_drop,
-                           CalcPct(pkts_drop, pkts_recv));
+                        CalcPct(pkts_drop, pkts_recv));
                 LogMessage("Outstanding: " FMTu64("12") " (%.3f%%)\n",
-                           pkts_recv - pkts_drop - pc.total_from_pcap,
-                           CalcPct((pkts_recv - pkts_drop - pc.total_from_pcap), pkts_recv));
+                        pkts_recv - pkts_drop - pc.total_from_pcap,
+                        CalcPct((pkts_recv - pkts_drop - pc.total_from_pcap), pkts_recv));
             }
+            else
+            {
+                LogMessage("Unable to calculate percentages for stats\n");
+                LogMessage("Total number of packets Analyzed: " FMTu64("12") "\n", pc.total_from_pcap);
+            }		
         }
     }
 
@@ -1652,8 +1421,10 @@ void DropStats(int exiting)
 
     LogMessage("      ARP: " FMTu64("-10") " (%.3f%%)\n", 
                pc.arp, CalcPct(pc.arp, total));
+#ifndef NO_NON_ETHER_DECODER
     LogMessage("    EAPOL: " FMTu64("-10") " (%.3f%%)\n", 
                pc.eapol, CalcPct(pc.eapol, total));
+#endif
     LogMessage("  ETHLOOP: " FMTu64("-10") " (%.3f%%)\n", 
                pc.ethloopback, CalcPct(pc.ethloopback, total));
     LogMessage("      IPX: " FMTu64("-10") " (%.3f%%)\n", 
@@ -1715,15 +1486,19 @@ void DropStats(int exiting)
     LogMessage("PASSED: " STDu64 "\n", pc.pass_pkts);
 
 #ifdef TARGET_BASED
-    LogMessage("================================================"
-               "===============================\n");
-    LogMessage("Attribute Table Stats:\n");
-    LogMessage("    Number Entries: %u\n", SFAT_NumberOfHosts());
-    LogMessage("    Table Reloaded: " STDu64 "\n", pc.attribute_table_reloads);
+    if (ScIdsMode() && IsAdaptiveConfigured(getDefaultPolicy(), 0))
+    {
+        LogMessage("================================================"
+                   "===============================\n");
+        LogMessage("Attribute Table Stats:\n");
+        LogMessage("    Number Entries: %u\n", SFAT_NumberOfHosts());
+        LogMessage("    Table Reloaded: " STDu64 "\n", pc.attribute_table_reloads);
+    }
 #endif  /* TARGET_BASED */
 
     mpse_print_qinfo();
 
+#ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
     if(datalink == DLT_IEEE802_11)
     {
@@ -1739,16 +1514,17 @@ void DropStats(int exiting)
                    pc.wifi_data, CalcPct(pc.wifi_data, total));
     }
 #endif  /* DLT_IEEE802_11 */
+#endif  // NO_NON_ETHER_DECODER
 
-    for (idx = PreprocessStats; idx != NULL; idx = idx->next)
+    for (idx = preproc_stats_funcs; idx != NULL; idx = idx->next)
     {
         LogMessage("=============================================="
                    "=================================\n");
 
 #ifdef PCAP_CLOSE
-        idx->entry.func(exiting ? 1 : 0);
+        idx->func(exiting ? 1 : 0);
 #else
-        idx->entry.func(exiting);
+        idx->func(exiting);
 #endif
     }
 
@@ -1756,45 +1532,6 @@ void DropStats(int exiting)
                "=================================\n");
 
     return;
-}
-
-/****************************************************************************
- *
- * Function: InitProtoNames()
- *
- * Purpose: Initializes the protocol names
- *
- * Arguments: None.
- *
- * Returns: void function
- *
- ****************************************************************************/
-void InitProtoNames()
-{
-    int i;
-    struct protoent *pt;
-    u_char *tmp;
-    u_char protoname[12];
-
-    for(i = 0; i < 256; i++)
-    {
-        pt = getprotobynumber(i);
-
-        if(pt)
-        {
-            protocol_names[i] = SnortStrdup(pt->p_name);
-
-            tmp = (u_char*)protocol_names[i];
-
-            for(tmp = (u_char*)protocol_names[i]; *tmp != 0; tmp++)
-                *tmp = (u_char) toupper(*tmp);
-        }
-        else
-        {
-            SnortSnprintf((char*)protoname, 11, "PROTO:%03d", i);
-            protocol_names[i] = SnortStrdup((char*)protoname);
-        }
-    }
 }
 
 /****************************************************************************
@@ -1808,7 +1545,7 @@ void InitProtoNames()
  * Returns: void function
  *
  ****************************************************************************/
-void CleanupProtoNames()
+void CleanupProtoNames(void)
 {
     int i;
 
@@ -1895,22 +1632,19 @@ char *read_infile(char *fname)
 void CheckLogDir(void)
 {
     struct stat st;
-    char log_dir[STD_BUF];
 
-    SnortSnprintf(log_dir, STD_BUF, "%s", pv.log_dir);
-    stat(log_dir, &st);
+    if (snort_conf->log_dir == NULL)
+        return;
 
-    if(!S_ISDIR(st.st_mode) || access(log_dir, W_OK) == -1)
+    if (stat(snort_conf->log_dir, &st) == -1)
+        FatalError("Stat check on log dir failed: %s.\n", strerror(errno));
+
+    if (!S_ISDIR(st.st_mode) || (access(snort_conf->log_dir, W_OK) == -1))
     {
-        FatalError("\n[!] ERROR: "
-                "Can not get write access to logging directory \"%s\".\n"
-                "(directory doesn't exist or permissions are set incorrectly\n"
-                /*
-                 * let us add this comment. Too many people seem to
-                 * confuse it otherwise :-)
-                 */
-            "or it is not a directory at all)\n\n",
-        log_dir);
+        FatalError("Can not get write access to logging directory \"%s\". "
+                   "(directory doesn't exist or permissions are set incorrectly "
+                   "or it is not a directory at all)\n",
+                   snort_conf->log_dir);
     }
 }
 
@@ -1944,7 +1678,7 @@ void GoDaemon(void)
 
     LogMessage("Initializing daemon mode\n");
 
-    if (pv.daemon_restart_flag)
+    if (ScDaemonRestart())
         return;
 
     /* Don't daemonize if we've already daemonized and
@@ -1979,6 +1713,7 @@ void GoDaemon(void)
                         exit_val = -1;
                         break;
                     }
+
                     if (WIFSIGNALED(status))
                     {
                         LogMessage("Child terminated unexpectedly\n");
@@ -1986,7 +1721,6 @@ void GoDaemon(void)
                         break;
                     }
                 }
-
 #ifdef DEBUG
                 LogMessage("Parent waiting for child...\n");
 #endif
@@ -2009,21 +1743,39 @@ void GoDaemon(void)
         /* Child */
         setsid();
     }
-    /* redirect stdin/stdout/stderr to /dev/null */
+
     close(0);
     close(1);
     close(2);
 
 #ifdef DEBUG
-    open("/tmp/snort.debug", O_CREAT | O_RDWR);
+    /* redirect stdin/stdout/stderr to a file */
+    open("/tmp/snort.debug", O_CREAT | O_RDWR);  /* stdin, fd 0 */
+
+    /* Change ownership to that which we will drop privileges to */
+    if ((snort_conf->user_id != -1) || (snort_conf->group_id != -1))
+    {
+        uid_t user_id = getuid();
+        gid_t group_id = getgid();
+
+        if (snort_conf->user_id != -1)
+            user_id = snort_conf->user_id;
+        if (snort_conf->group_id != -1)
+            group_id = snort_conf->group_id;
+
+        chown("/tmp/snort.debug", user_id, group_id);
+    }
 #else
-    open("/dev/null", O_RDWR);
+    /* redirect stdin/stdout/stderr to /dev/null */
+    (void)open("/dev/null", O_RDWR);  /* stdin, fd 0 */
 #endif
 
-    dup(0);
-    dup(0);
+    dup(0);  /* stdout, fd 0 => fd 1 */
+    dup(0);  /* stderr, fd 0 => fd 2 */
+
+    SignalWaitingParent();
+
 #endif /* ! WIN32 */
-    return;
 }
 
 /* Signal the parent that child is ready */
@@ -2363,7 +2115,7 @@ const char *SnortStrcasestr(const char *s, const char *substr)
                 {
                     return NULL;
                 }
-            } while ((char)tolower((u_int8_t)nc) != ch);
+            } while ((char)tolower((uint8_t)nc) != ch);
         } while (strncasecmp(s, substr, len) != 0);
         s--;
     }
@@ -2410,10 +2162,10 @@ void * SnortAlloc2(size_t size, const char *format, ...)
 }
 
 /** 
- * Chroot and adjust the pv.log_dir reference 
+ * Chroot and adjust the snort_conf->log_dir reference 
  * 
  * @param directory directory to chroot to
- * @param logstore ptr to pv.log_dir which must be dynamically allocated
+ * @param logstore ptr to snort_conf->log_dir which must be dynamically allocated
  */
 void SetChroot(char *directory, char **logstore)
 {
@@ -2421,7 +2173,7 @@ void SetChroot(char *directory, char **logstore)
     FatalError("SetChroot() should not be called under Win32!\n");
 #else
     char *absdir;
-    int abslen;
+    size_t abslen;
     char *logdir;
     
     if(!directory || !logstore)
@@ -2509,8 +2261,11 @@ void SetChroot(char *directory, char **logstore)
 
     LogMessage("Chroot directory = %s\n", directory);
 
+#if 0
+    /* XXX XXX */
     /* install the I can't do this signal handler */
     signal(SIGHUP, SigCantHupHandler);
+#endif
 #endif /* !WIN32 */
 }
 
@@ -2750,4 +2505,555 @@ int GetFilesUnderDir(const char *path, SF_QUEUE *dir_queue, const char *filter)
     return num_files;
 }
 #endif
+
+/****************************************************************************
+ *
+ * Function: GetUniqueName(char * iface)
+ *
+ * Purpose: To return a string that has a high probability of being unique
+ *          for a given sensor.
+ *
+ * Arguments: char * iface - The network interface you are sniffing
+ *
+ * Returns: A char * -- its a static char * so you should not free it
+ *
+ ***************************************************************************/
+char *GetUniqueName(char * iface)
+{
+    char * rptr;
+    static char uniq_name[256];
+
+    if (iface == NULL) LogMessage("Interface is NULL. Name may not be unique for the host\n");
+#ifndef WIN32
+    rptr = GetIP(iface); 
+    if(rptr == NULL || !strcmp(rptr, "unknown"))
+#endif
+    {
+        SnortSnprintf(uniq_name, 255, "%s:%s\n",GetHostname(),iface);
+        rptr = uniq_name; 
+    }
+    if (ScLogVerbose()) LogMessage("Node unique name is: %s\n", rptr);
+    return rptr;
+}    
+
+/****************************************************************************
+ *
+ * Function: GetIP(char * iface)
+ *
+ * Purpose: To return a string representing the IP address for an interface
+ *
+ * Arguments: char * iface - The network interface you want to find an IP
+ *            address for.
+ *
+ * Returns: A char * -- make sure you call free on this when you are done
+ *          with it.
+ *
+ ***************************************************************************/
+char *GetIP(char * iface)
+{
+    struct ifreq ifr;
+    struct sockaddr_in *addr;
+    int s;
+#ifdef SUP_IP6
+    sfip_t ret;
+#endif
+
+    if(iface)
+    {
+        /* Set up a dummy socket just so we can use ioctl to find the
+           ip address of the interface */
+        s = socket(PF_INET, SOCK_DGRAM, 0);
+        if(s == -1)
+        {
+            FatalError("Problem establishing socket to find IP address for interface: %s\n", iface);
+        }
+
+        SnortStrncpy(ifr.ifr_name, iface, strlen(iface) + 1);
+
+#ifndef WIN32
+        if(ioctl(s, SIOCGIFADDR, &ifr) < 0) return NULL;
+        else
+#endif
+        {
+            addr = (struct sockaddr_in *) &ifr.ifr_broadaddr;
+        }
+        close(s);
+
+#ifdef SUP_IP6
+// XXX-IPv6 uses ioctl to populate a sockaddr_in structure ... but what if the interface only has an IPv6 address?
+        sfip_set_raw(&ret, addr, AF_INET); 
+        return SnortStrdup(sfip_ntoa(&ret));
+#else
+        return SnortStrdup(inet_ntoa(addr->sin_addr));
+#endif
+    }
+    else
+    {
+        return "unknown";
+    }
+}
+
+/****************************************************************************
+ *
+ * Function: GetHostname()
+ *
+ * Purpose: To return a string representing the hostname
+ *
+ * Arguments: None
+ *
+ * Returns: A static char * representing the hostname. 
+ *
+ ***************************************************************************/
+char *GetHostname()
+{
+#ifdef WIN32
+    DWORD bufflen = 256;
+    static char buff[256];
+    GetComputerName(buff, &bufflen);
+    return buff;
+#else
+    char * error = "unknown";
+    if(getenv("HOSTNAME")) return getenv("HOSTNAME");
+    else if(getenv("HOST")) return getenv("HOST");
+    else return error;
+#endif
+}
+
+/****************************************************************************
+ *
+ * Function: GetTimestamp(register const struct timeval *tvp, int tz)
+ *
+ * Purpose: Get an ISO-8601 formatted timestamp for tvp within the tz
+ *          timezone. 
+ *
+ * Arguments: tvp is a timeval pointer. tz is a timezone. 
+ *
+ * Returns: char * -- You must free this char * when you are done with it.
+ *
+ ***************************************************************************/
+char *GetTimestamp(register const struct timeval *tvp, int tz)
+{
+    struct tm *lt;  /* localtime */
+    char * buf;
+    int msec;
+
+    buf = (char *)SnortAlloc(SMALLBUFFER * sizeof(char));
+
+    msec = tvp->tv_usec / 1000;
+
+    if (ScOutputUseUtc())
+    {
+        lt = gmtime((time_t *)&tvp->tv_sec);
+        SnortSnprintf(buf, SMALLBUFFER, "%04i-%02i-%02i %02i:%02i:%02i.%03i",
+                1900 + lt->tm_year, lt->tm_mon + 1, lt->tm_mday,
+                lt->tm_hour, lt->tm_min, lt->tm_sec, msec);
+    }
+    else
+    {
+        lt = localtime((time_t *)&tvp->tv_sec);
+        SnortSnprintf(buf, SMALLBUFFER,
+                "%04i-%02i-%02i %02i:%02i:%02i.%03i+%03i",
+                1900 + lt->tm_year, lt->tm_mon + 1, lt->tm_mday,
+                lt->tm_hour, lt->tm_min, lt->tm_sec, msec, tz);
+    }
+
+    return buf;
+}
+
+/****************************************************************************
+ *
+ * Function: GetLocalTimezone()
+ *
+ * Purpose: Find the offset from GMT for current host
+ *
+ * Arguments: none 
+ *
+ * Returns: int representing the offset from GMT
+ *
+ ***************************************************************************/
+int GetLocalTimezone()
+{
+    time_t      ut;
+    struct tm * ltm;
+    long        seconds_away_from_utc;
+
+    time(&ut);
+    ltm = localtime(&ut);
+
+#if defined(WIN32) || defined(SOLARIS) || defined(AIX) || defined(HPUX)
+    /* localtime() sets the global timezone variable,
+       which is defined in <time.h> */
+    seconds_away_from_utc = timezone;
+#else
+    seconds_away_from_utc = ltm->tm_gmtoff;
+#endif
+
+    return  seconds_away_from_utc/3600;
+}
+
+/****************************************************************************
+ *
+ * Function: GetCurrentTimestamp()
+ *
+ * Purpose: Generate an ISO-8601 formatted timestamp for the current time.
+ *
+ * Arguments: none 
+ *
+ * Returns: char * -- You must free this char * when you are done with it.
+ *
+ ***************************************************************************/
+char *GetCurrentTimestamp()
+{
+    struct tm *lt;
+    struct timezone tz;
+    struct timeval tv;
+    struct timeval *tvp;
+    char * buf;
+    int tzone;
+    int msec;
+
+    buf = (char *)SnortAlloc(SMALLBUFFER * sizeof(char));
+
+    bzero((char *)&tz,sizeof(tz));
+    gettimeofday(&tv,&tz);
+    tvp = &tv;
+
+    msec = tvp->tv_usec/1000;
+
+    if (ScOutputUseUtc())
+    {
+        lt = gmtime((time_t *)&tvp->tv_sec);
+        SnortSnprintf(buf, SMALLBUFFER, "%04i-%02i-%02i %02i:%02i:%02i.%03i",
+                1900 + lt->tm_year, lt->tm_mon + 1, lt->tm_mday,
+                lt->tm_hour, lt->tm_min, lt->tm_sec, msec);
+    }
+    else
+    {
+        lt = localtime((time_t *)&tvp->tv_sec);
+
+        tzone = GetLocalTimezone();
+
+        SnortSnprintf(buf, SMALLBUFFER,
+                "%04i-%02i-%02i %02i:%02i:%02i.%03i+%03i",
+                1900 + lt->tm_year, lt->tm_mon + 1, lt->tm_mday,
+                lt->tm_hour, lt->tm_min, lt->tm_sec, msec, tzone);
+    }
+
+    return buf;
+}
+
+/****************************************************************************
+ * Function: base64(char * xdata, int length)
+ *
+ * Purpose: Insert data into the database
+ *
+ * Arguments: xdata  => pointer to data to base64 encode
+ *            length => how much data to encode 
+ *
+ * Make sure you allocate memory for the output before you pass
+ * the output pointer into this function. You should allocate 
+ * (1.5 * length) bytes to be safe.
+ *
+ * Returns: data base64 encoded as a char *
+ *
+ ***************************************************************************/
+char * base64(const u_char * xdata, int length)
+{
+    int count, cols, bits, c, char_count;
+    unsigned char alpha[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";  /* 64 bytes */
+    char * payloadptr;
+    char * output;
+    char_count = 0;
+    bits = 0;
+    cols = 0;
+
+    output = (char *)SnortAlloc( ((unsigned int) (length * 1.5 + 4)) * sizeof(char) );
+
+    payloadptr = output;
+
+    for(count = 0; count < length; count++)
+    {
+        c = xdata[count];
+
+        if(c > 255)
+        {
+            ErrorMessage("plugbase.c->base64(): encountered char > 255 (decimal %d)\n If you see this error message a char is more than one byte on your machine\n This means your base64 results can not be trusted", c);
+        }
+
+        bits += c;
+        char_count++;
+
+        if(char_count == 3)
+        {
+            *output = alpha[bits >> 18]; output++;
+            *output = alpha[(bits >> 12) & 0x3f]; output++;
+            *output = alpha[(bits >> 6) & 0x3f]; output++;
+            *output = alpha[bits & 0x3f]; output++; 
+            cols += 4;
+            if(cols == 72)
+            {
+                *output = '\n'; output++;
+                cols = 0;
+            }
+            bits = 0;
+            char_count = 0;
+        }
+        else
+        {
+            bits <<= 8;
+        }
+    }
+
+    if(char_count != 0)
+    {
+        bits <<= 16 - (8 * char_count);
+        *output = alpha[bits >> 18]; output++;
+        *output = alpha[(bits >> 12) & 0x3f]; output++;
+        if(char_count == 1)
+        {
+            *output = '='; output++;
+            *output = '='; output++;
+        }
+        else
+        {
+            *output = alpha[(bits >> 6) & 0x3f]; 
+            output++; *output = '='; 
+            output++;
+        }
+    }
+    *output = '\0';
+    return payloadptr;
+} 
+
+/****************************************************************************
+ *
+ * Function: ascii(u_char *xdata, int length)
+ *
+ * Purpose: This function takes takes a buffer "xdata" and its length then
+ *          returns a string of only the printable ASCII characters.
+ *
+ * Arguments: xdata is the buffer, length is the length of the buffer in
+ *            bytes
+ *
+ * Returns: char * -- You must free this char * when you are done with it.
+ *
+ ***************************************************************************/
+char *ascii(const u_char *xdata, int length)
+{
+     char *d_ptr, *ret_val;
+     int i,count = 0;
+     int size;
+     
+     if(xdata == NULL)
+     {
+         return NULL;         
+     }
+     
+     for(i=0;i<length;i++)
+     {
+         if(xdata[i] == '<')
+             count+=4;              /* &lt; */
+         else if(xdata[i] == '&')
+             count+=5;              /* &amp; */
+         else if(xdata[i] == '>')   /* &gt;  */
+             count += 4;
+     }
+
+     size = length + count + 1;
+     ret_val = (char *) calloc(1,size);
+     
+     if(ret_val == NULL)
+     {
+         LogMessage("plugbase.c: ascii(): Out of memory, can't log anything!\n");
+         return NULL;
+     }
+     
+     d_ptr = ret_val; 
+     
+     for(i=0;i<length;i++)
+     {
+         if((xdata[i] > 0x1F) && (xdata[i] < 0x7F))
+         {
+             if(xdata[i] == '<')
+             {
+                 SnortStrncpy(d_ptr, "&lt;", size - (d_ptr - ret_val));
+                 d_ptr+=4;
+             }
+             else if(xdata[i] == '&')
+             {
+                 SnortStrncpy(d_ptr, "&amp;", size - (d_ptr - ret_val));
+                 d_ptr += 5;
+             }
+             else if(xdata[i] == '>')
+             {
+                 SnortStrncpy(d_ptr, "&gt;", size - (d_ptr - ret_val));
+                 d_ptr += 4;
+             }
+             else
+             {
+                 *d_ptr++ = xdata[i];
+             }
+         }
+         else
+         {
+             *d_ptr++ = '.';
+         }        
+     }
+     
+     *d_ptr++ = '\0';
+     
+     return ret_val;
+}
+
+/****************************************************************************
+ *
+ * Function: hex(u_char *xdata, int length)
+ *
+ * Purpose: This function takes takes a buffer "xdata" and its length then
+ *          returns a string of hex with no spaces
+ *
+ * Arguments: xdata is the buffer, length is the length of the buffer in
+ *            bytes
+ *
+ * Returns: char * -- You must free this char * when you are done with it.
+ *
+ ***************************************************************************/
+char *hex(const u_char *xdata, int length)
+{
+    int x;
+    char *rval = NULL;
+    char *buf = NULL;
+
+    if (xdata == NULL)
+        return NULL;
+
+    buf = (char *)calloc((length * 2) + 1, sizeof(char));
+
+    if (buf != NULL)
+    {
+        rval = buf;
+
+        for (x = 0; x < length; x++)
+        {
+            SnortSnprintf(buf, 3, "%02X", xdata[x]);
+            buf += 2;
+        } 
+
+        rval[length * 2] = '\0';
+    }
+
+    return rval;
+}
+
+
+
+char *fasthex(const u_char *xdata, int length)
+{
+    char conv[] = "0123456789ABCDEF";
+    char *retbuf = NULL; 
+    const u_char *index;
+    const u_char *end;
+    char *ridx;
+
+    index = xdata;
+    end = xdata + length;
+    retbuf = (char *)SnortAlloc(((length * 2) + 1) * sizeof(char));
+    ridx = retbuf;
+
+    while(index < end)
+    {
+        *ridx++ = conv[((*index & 0xFF)>>4)];
+        *ridx++ = conv[((*index & 0xFF)&0x0F)];
+        index++;
+    }
+
+    return retbuf;
+}
+
+/*
+ *   Fatal Integer Parser
+ *   Ascii to Integer conversion with fatal error support
+ */
+long int xatol(const char *s , const char *etext)
+{
+    long int val;
+    char *endptr;
+    char *default_error = "xatol() error\n";
+
+    if (etext == NULL)
+        etext = default_error;
+
+    if (s == NULL)
+        FatalError("%s: String is NULL\n", etext);
+
+    while (isspace((int)*s))
+        s++;
+
+    if (strlen(s) == 0)
+        FatalError("%s: String is empty\n", etext);
+
+    errno = 0;
+
+    /*
+     *  strtoul - errors on win32 : ERANGE (VS 6.0)
+     *            errors on linux : ERANGE, EINVAL
+     *               (for EINVAL, unsupported base which won't happen here)
+     */ 
+    val = strtol(s, &endptr, 0);
+
+    if ((errno == ERANGE) || (*endptr != '\0'))
+        FatalError("%s: Invalid integer input: %s\n", etext, s);
+
+    return val;
+}
+
+/*
+ *   Fatal Integer Parser
+ *   Ascii to Integer conversion with fatal error support
+ */
+unsigned long int xatou(const char *s , const char *etext)
+{
+    unsigned long int val;
+    char *endptr;
+    char *default_error = "xatou() error\n";
+
+    if (etext == NULL)
+        etext = default_error;
+
+    if (s == NULL)
+        FatalError("%s: String is NULL\n", etext);
+
+    while (isspace((int)*s))
+        s++;
+
+    if (strlen(s) == 0)
+        FatalError("%s: String is empty\n", etext);
+
+    if (*s == '-') 
+    {
+        FatalError("%s: Invalid unsigned integer - negative sign found, "
+                   "input: %s\n", etext, s);
+    }
+
+    errno = 0;
+
+    /*
+     *  strtoul - errors on win32 : ERANGE (VS 6.0)
+     *            errors on linux : ERANGE, EINVAL
+     */ 
+    val = strtoul(s, &endptr, 0);
+
+    if ((errno == ERANGE) || (*endptr != '\0'))
+        FatalError("%s: Invalid integer input: %s\n", etext, s);
+
+    return val;
+}
+
+unsigned long int xatoup(const char *s , const char *etext)
+{
+    unsigned long int val = xatou(s, etext);
+    if ( !val ) 
+        FatalError("%s: must be > 0\n", etext);
+    return val;
+}
 

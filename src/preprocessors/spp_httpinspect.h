@@ -27,7 +27,6 @@
 #ifndef __SPP_HTTPINSPECT_H__
 #define __SPP_HTTPINSPECT_H__
 
-void SetupHttpInspect();
-int  HttpInspect_isinitialized();
+void SetupHttpInspect(void);
 
 #endif

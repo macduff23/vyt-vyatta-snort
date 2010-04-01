@@ -108,7 +108,7 @@ void AlertUnixSockSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_unixsock", NT_OUTPUT_ALERT, AlertUnixSockInit);
+    RegisterOutputPlugin("alert_unixsock", OUTPUT_TYPE_FLAG__ALERT, AlertUnixSockInit);
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output plugin: AlertUnixSock is setup...\n"););
 }
 
@@ -128,15 +128,13 @@ void AlertUnixSockInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertUnixSock Initialized\n"););
 
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     ParseAlertUnixSockArgs(args);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Linking UnixSockAlert functions to call lists...\n"););
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertUnixSock, NT_OUTPUT_ALERT, NULL);
+    AddFuncToOutputList(AlertUnixSock, OUTPUT_TYPE__ALERT, NULL);
 
     AddFuncToCleanExitList(AlertUnixSockCleanExit, NULL);
     AddFuncToRestartList(AlertUnixSockRestart, NULL);
@@ -274,7 +272,9 @@ void OpenAlertSock(void)
     char srv[STD_BUF];
 
     /* srv is our filename workspace. Set it to file UNSOCK_FILE inside the log directory. */
-    SnortSnprintf(srv, STD_BUF, "%s%s/%s", pv.chroot_dir == NULL ? "" : pv.chroot_dir, pv.log_dir, UNSOCK_FILE);
+    SnortSnprintf(srv, STD_BUF, "%s%s/%s",
+                  snort_conf->chroot_dir == NULL ? "" : snort_conf->chroot_dir,
+                  snort_conf->log_dir, UNSOCK_FILE);
 
     if(access(srv, W_OK))
     {
@@ -307,7 +307,7 @@ void AlertUnixSockRestart(int signal, void *arg)
     CloseAlertSock();
 }
 
-void CloseAlertSock()
+void CloseAlertSock(void)
 {
     if(alertsd >= 0) {
         close(alertsd);

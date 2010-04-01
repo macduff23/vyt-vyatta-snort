@@ -34,8 +34,25 @@
 #include "ipobj.h"
 
 #include "ipv6_port.h"
+#include "sfPolicy.h"
 
 #define PS_OPEN_PORTS 8
+
+typedef struct _PortscanConfig
+{
+    int memcap;
+    int detect_scans;
+    int detect_scan_type;
+    int sense_level;
+    int proto_cnt;
+    int include_midstream;
+    int print_tracker;
+    char *logfile;
+    IPSET *ignore_scanners;
+    IPSET *ignore_scanned;
+    IPSET *watch_ip;
+
+} PortscanConfig;
 
 typedef struct s_PS_PROTO
 {
@@ -66,24 +83,23 @@ typedef struct s_PS_PROTO
 
 typedef struct s_PS_TRACKER
 {
-    char     priority_node;
-    PS_PROTO proto[1];
+    int priority_node;
+    int protocol;
+    PS_PROTO proto;
 
 } PS_TRACKER;
 
 typedef struct s_PS_PKT
 {
-    void            *pkt;
+    void *pkt;
+    int proto;
+    int reverse_pkt;
+    PS_TRACKER *scanner;
+    PS_TRACKER *scanned;
 
-    PS_TRACKER      *scanner;
-    PS_TRACKER      *scanned;
-
-    int              proto;
-    int              proto_idx;
-
-    int              reverse_pkt;
 } PS_PKT;
 
+#define PS_PROTO_NONE        0x00
 #define PS_PROTO_TCP         0x01
 #define PS_PROTO_UDP         0x02
 #define PS_PROTO_ICMP        0x04
@@ -114,16 +130,15 @@ typedef struct s_PS_PKT
 
 #define PS_ALERT_GENERATED                 255
 
-int  ps_init(int detect_scans, int detect_scan_type, int sense_level,
-        IPSET *ignore_scanners, IPSET *ignore_scanned, IPSET *watch_ip,
-        int memcap);
+int ps_init(PortscanConfig *, int, int, int, IPSET *, IPSET *, IPSET *, int);
 void ps_cleanup(void);
 void ps_reset(void);
         
 int  ps_detect(PS_PKT *p);
 void ps_tracker_print(PS_TRACKER *tracker);
 
-int  ps_get_protocols();
+int ps_get_protocols(tSfPolicyId policyId);
+void ps_init_hash(int);
 
 #endif
 

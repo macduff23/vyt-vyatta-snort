@@ -44,6 +44,8 @@
 //#include "decode.h"
 #include "sf_snort_packet.h"
 #include "ftpp_eo.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 /*
  * These are the defines for the different types of
@@ -57,6 +59,12 @@
 #define FTPP_SI_PROTO_TELNET  1
 #define FTPP_SI_PROTO_FTP     2
 
+typedef struct s_FTP_TELNET_SESSION
+{
+    int proto;
+
+} FTP_TELNET_SESSION;
+
 /*
  * The TELNET_SESSION structure contains the complete TELNET session.  
  * This structure is the structure that is saved per session in the
@@ -65,19 +73,16 @@
  */
 typedef struct s_TELNET_SESSION
 {
-    /*
-     * The client configuration for this session if its FTP
-     */
+    FTP_TELNET_SESSION ft_ssn;
+
+    /* The global configuration for this session */
+    tSfPolicyId policy_id;
+    tSfPolicyUserContextId global_conf;
+
+    /* The client configuration for this session if its FTP */
     TELNET_PROTO_CONF *telnet_conf;
 
-    /*
-     * The global configuration for this session
-     */
-    FTPTELNET_GLOBAL_CONF *global_conf;
-
-    /*
-     * Number of consecutive are-you-there commands seen.
-     */
+    /* Number of consecutive are-you-there commands seen. */
     int consec_ayt;
 
     int encr_state;
@@ -115,52 +120,39 @@ typedef struct s_TELNET_SESSION
  */
 typedef struct s_FTP_SESSION
 {
-    /*
-     * The client construct contains all the info associated with a 
-     * client request.
-     */
+    FTP_TELNET_SESSION ft_ssn;
+
+    /* The client construct contains all the info associated with a 
+     * client request. */
     FTP_CLIENT client;
 
-    /*
-     * The server construct contains all the info associated with a 
-     * server response.
-     */
+    /* The server construct contains all the info associated with a 
+     * server response. */
     FTP_SERVER server;
 
-    /*
-     * The client configuration for this session if its FTP
-     */
+    /* The client configuration for this session if its FTP */
     FTP_CLIENT_PROTO_CONF *client_conf;
 
-    /*
-     * The server configuration for this session if its FTP
-     */
+    /* The server configuration for this session if its FTP */
     FTP_SERVER_PROTO_CONF *server_conf;
 
-    /*
-     * The global configuration for this session
-     */
-    FTPTELNET_GLOBAL_CONF *global_conf;
+    /* The global configuration for this session */
+    tSfPolicyId policy_id;
+    tSfPolicyUserContextId global_conf;
 
-    /*
-     * The data channel info
-     */
+    /* The data channel info */
     int data_chan_state;
     int data_chan_index;
     int data_xfer_index;
     snort_ip      clientIP;
-    u_int16_t clientPort;
+    uint16_t clientPort;
     snort_ip      serverIP;
-    u_int16_t serverPort;
+    uint16_t serverPort;
 
-    /*
-     * Command/data channel encryption
-     */
+    /* Command/data channel encryption */
     int encr_state;
 
-    /*
-     * Alertable event list
-     */
+    /* Alertable event list */
     FTP_EVENTS event_list;
 
 } FTP_SESSION;
@@ -187,7 +179,8 @@ typedef struct s_FTPP_SI_INPUT
 } FTPP_SI_INPUT;
 
 int ftpp_si_determine_proto(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
-        FTPP_SI_INPUT *SiInput, int *piInspectMode);
+        FTP_TELNET_SESSION **, FTPP_SI_INPUT *SiInput, int *piInspectMode);
+int FTPGetPacketDir(SFSnortPacket *);
 
 #endif
 

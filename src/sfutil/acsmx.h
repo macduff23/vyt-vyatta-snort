@@ -49,7 +49,7 @@
 
 typedef struct _acsm_userdata
 {
-    u_int32_t ref_count;
+    uint32_t ref_count;
     void *id;
 
 } ACSM_USERDATA;

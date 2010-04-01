@@ -69,7 +69,7 @@
  */
 #define CONSECUTIVE_8BIT_THRESHOLD 3
 
-//extern u_int8_t DecodeBuffer[DECODE_BLEN]; /* decode.c */
+//extern uint8_t DecodeBuffer[DECODE_BLEN]; /* decode.c */
 
 /*
  * Function: normalize_telnet(Packet *)
@@ -86,7 +86,7 @@
  */
 int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                      TELNET_SESSION *tnssn, SFSnortPacket *p,
-                     int iMode)
+                     int iMode, char ignoreEraseCmds)
 {
     int ret = FTPP_NORMALIZED;
     const unsigned char *read_ptr, *sb_start = NULL;
@@ -136,14 +136,14 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                     if (tnssn)
                     {
                         tnssn->encr_state = 1;
-                        if (tnssn->global_conf->encrypted.alert)
+                        if (GlobalConf->encrypted.alert)
                         {
                             /* Alert on encrypted channel */
                             telnet_eo_event_log(tnssn, TELNET_EO_ENCRYPTED,
                                 NULL, NULL);
                         }
 
-                        if (!tnssn->global_conf->check_encrypted_data)
+                        if (!GlobalConf->check_encrypted_data)
                         {
                             /* Mark this session & packet as one to ignore */
                             _dpd.streamAPI->stop_inspection(p->stream_session_ptr, p,
@@ -205,29 +205,36 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                 break;
             case TNC_EAC:
                 read_ptr += 2;
-                /* wind it back a character */
-                if(write_ptr  > start)
+                /* wind it back a character? */
+                if (ignoreEraseCmds == FTPP_APPLY_TNC_ERASE_CMDS)
                 {
-                    write_ptr--;
+                    if(write_ptr  > start)
+                    {
+                        write_ptr--;
+                    }
                 }
                 break;
             case TNC_EAL:
                 read_ptr += 2;
                 /* wind it back a line? */
-                /* Go back to previous CR NULL or CR LF? */
-                while (write_ptr > start)
+                if (ignoreEraseCmds == FTPP_APPLY_TNC_ERASE_CMDS)
                 {
-                    /* Go to previous char */
-                    write_ptr--;
-                    
-                    if ((*write_ptr == CR) &&
-                        ((*(write_ptr+1) == NUL) || (*(write_ptr+1) == LF)) )
+                    /* Go back to previous CR NULL or CR LF? */
+                    while (write_ptr > start)
                     {
-                    /* Okay, found the CR NUL or CR LF, move it forward past
-                    * those two -- that is the beginning of this line
-                        */
-                        write_ptr+=2;
-                        break;
+                        /* Go to previous char */
+                        write_ptr--;
+                    
+                        if ((*write_ptr == CR) &&
+                           ((*(write_ptr+1) == NUL) || (*(write_ptr+1) == LF)) )
+                        {
+                            /* Okay, found the CR NUL or CR LF, move it
+                             * forward past those two -- that is the
+                             * beginning of this line
+                             */
+                            write_ptr+=2;
+                            break;
+                        }
                     }
                 }
                 break;
@@ -333,14 +340,14 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                         if (tnssn)
                         {
                             tnssn->encr_state = 1;
-                            if (tnssn->global_conf->encrypted.alert)
+                            if (GlobalConf->encrypted.alert)
                             {
                                 /* Alert on encrypted channel */
                                 telnet_eo_event_log(tnssn, TELNET_EO_ENCRYPTED,
                                     NULL, NULL);
                             }
 
-                            if (!tnssn->global_conf->check_encrypted_data)
+                            if (!GlobalConf->check_encrypted_data)
                             {
                                 /* Mark this session & packet as one to ignore */
                                 _dpd.streamAPI->stop_inspection(p->stream_session_ptr, p,
@@ -382,7 +389,7 @@ int normalize_telnet(FTPTELNET_GLOBAL_CONF *GlobalConf,
                     /* Its an FTP session */
                     ret = FTPP_ALERT;
                 }
-                else if (tnssn->global_conf->global_telnet.detect_anomalies)
+                else if (GlobalConf->telnet_config->detect_anomalies)
                 {
                     /* Alert on SB without SE */
                     telnet_eo_event_log(tnssn, TELNET_EO_SB_NO_SE,

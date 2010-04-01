@@ -54,6 +54,10 @@
 #include "hi_ad.h"
 #include "stream_api.h"
 
+#ifdef TARGET_BASED
+extern int16_t hi_app_protocol_id;
+#endif
+
 /*
 **  NAME
 **    IsServer::
@@ -73,7 +77,7 @@
 */
 static int IsServer(HTTPINSPECT_CONF *ServerConf, unsigned short port)
 {
-    if(ServerConf->ports[port])
+    if(ServerConf->ports[port/8] & (1 << (port%8) ))
     {
         return 1;
     }
@@ -156,7 +160,7 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
 
     if(!ServerConfDip)
     {
-        ServerConfDip = &GlobalConf->global_server;
+        ServerConfDip = GlobalConf->global_server;
     }
 
     ServerConfSip = hi_ui_server_lookup_find(GlobalConf->server_lookup,
@@ -169,7 +173,7 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
 
     if(!ServerConfSip)
     {
-        ServerConfSip = &GlobalConf->global_server;
+        ServerConfSip = GlobalConf->global_server;
     }
 
     /*
@@ -189,7 +193,7 @@ static int InitServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
     if (stream_api)
     {
         app_id = stream_api->get_application_protocol_id(p->ssnptr);
-        if (app_id == GlobalConf->app_protocol_id)
+        if (app_id == hi_app_protocol_id)
         {
             http_id_found = 1;
         }

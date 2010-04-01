@@ -129,10 +129,11 @@
 #include "event_queue.h"
 /* In case we need to drop this packet */
 #include "inline.h"
-
 #include "snort.h"
-
 #include "profiler.h"
+#include "sf_types.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 #define BACKORIFICE_DEFAULT_KEY   31337
 #define BACKORIFICE_MAGIC_SIZE    8
@@ -146,7 +147,8 @@
 #define BO_BUF_SIZE         8
 #define BO_BUF_ATTACK_SIZE  1024
 
-/* Configuration defines */
+ /* Configuration defines */
+#define MODNAME "spp_bo"
 #define START_LIST      "{"
 #define END_LIST        "}"
 #define CONF_SEPARATORS         " \t\n\r"
@@ -155,39 +157,44 @@
 #define BO_ALERT_SERVER         0x0004
 #define BO_ALERT_SNORT_ATTACK   0x0008
 
+typedef struct _BoConfig
+{
+    int noalert_flags;
+    int drop_flags;
 
-/* list of function prototypes for this preprocessor */
-void BoInit(char *);
-void BoProcess(Packet *);
-void BoFind(Packet *, void *);
-
-/* list of private functions */
-static int  BoGetDirection(Packet *p, char *pkt_data);
-static void PrecalcPrefix();
-static char BoRand();
-static void ProcessArgs(char *args);
-static int  ProcessOptionList(void);
-static void PrintConfig(void);
-
-#define MODNAME "spp_bo"
+} BoConfig;
 
 
 /* global keyvalue for the BoRand() function */
 static long holdrand = 1L;
-
-/* brute forcing is on by default */
-int brute_force_enable = 1;
-int default_key;
-
-static u_int16_t noalert_flags = 0;
-static u_int16_t drop_flags = 0;
-
-
-u_int16_t lookup1[65536][3];
-u_int16_t lookup2[65536];
+static uint16_t lookup1[65536][3];
+static uint16_t lookup2[65536];
 
 #ifdef PERF_PROFILING
 PreprocStats boPerfStats;
+#endif
+
+static tSfPolicyUserContextId bo_config = NULL;
+
+/* list of function prototypes for this preprocessor */
+static void BoInit(char *);
+static void BoFind(Packet *, void *);
+
+/* list of private functions */
+static int  BoGetDirection(BoConfig *bo, Packet *p, char *pkt_data);
+static void PrecalcPrefix(void);
+static char BoRand(void);
+static void ProcessArgs(BoConfig *, char *args);
+static int  ProcessOptionList(void);
+static void PrintConfig(BoConfig *);
+static void BoFreeConfig(tSfPolicyUserContextId bo);
+static void BoCleanExit(int, void *);
+
+#ifdef SNORT_RELOAD
+static tSfPolicyUserContextId bo_swap_config = NULL;
+static void BoReload(char *);
+static void * BoReloadSwap(void);
+static void BoReloadSwapFree(void *);
 #endif
 
 /*
@@ -201,11 +208,16 @@ PreprocStats boPerfStats;
  * Returns: void function
  *
  */
-void SetupBo()
+void SetupBo(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
+#ifndef SNORT_RELOAD
     RegisterPreprocessor("bo", BoInit);
+#else
+    RegisterPreprocessor("bo", BoInit, BoReload, BoReloadSwap, BoReloadSwapFree);
+#endif
+
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, 
                 "Preprocessor: Back Orifice is setup...\n"););
 }
@@ -221,30 +233,49 @@ void SetupBo()
  * Returns: void function
  *
  */
-void BoInit(char *args)
+static void BoInit(char *args)
 {
-    static int bIsInitialized = 0;
+    int policy_id = (int)getParserPolicy();
+    BoConfig *pPolicyConfig = NULL;
 
-    /* BoInit is re-entrant */
-    if ( !bIsInitialized )
+    if (bo_config == NULL)
     {
+        //create a context
+        bo_config = sfPolicyConfigCreate();
+        
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Preprocessor: Bo Initialized\n"););
 
         /* we no longer need to take args */
         PrecalcPrefix();
 
-        /* Set the preprocessor function into the function list */
-        AddFuncToPreprocList(BoFind, PRIORITY_LAST, PP_BO, PROTO_BIT__UDP);
+        AddFuncToPreprocCleanExitList(BoCleanExit, NULL, PRIORITY_LAST, PP_BO);
+        AddFuncToPreprocRestartList(BoCleanExit, NULL, PRIORITY_LAST, PP_BO);
 
 #ifdef PERF_PROFILING
         RegisterPreprocessorProfile("backorifice", &boPerfStats, 0, &totalPerfStats);
 #endif
-
-        bIsInitialized = 1;
     }
 
+    sfPolicyUserPolicySet (bo_config, policy_id);
+    pPolicyConfig = (BoConfig *)sfPolicyUserDataGetCurrent(bo_config);
+    if (pPolicyConfig)
+    {
+        ParseError("BO preprocessor can only be configured once.\n");
+    }
+
+    pPolicyConfig = (BoConfig *)SnortAlloc(sizeof(BoConfig));
+    if (!pPolicyConfig)
+    {
+        ParseError("BO preprocessor: memory allocate failed.\n");
+    }
+
+    sfPolicyUserDataSetCurrent(bo_config, pPolicyConfig);
+
     /* Process argument list */
-    ProcessArgs(args);
+    ProcessArgs(pPolicyConfig, args);
+
+    /* Set the preprocessor function into the function list */
+    AddFuncToPreprocList(BoFind, PRIORITY_LAST, PP_BO, PROTO_BIT__UDP);
 }
 
 
@@ -264,11 +295,11 @@ void BoInit(char *args)
  * Returns: void function
  *
  */
-static void ProcessArgs(char *args)
+static void ProcessArgs(BoConfig *bo, char *args)
 {
     char *arg;
    
-    if ( args == NULL )
+    if ((args == NULL) || (bo == NULL))
         return;
 
     arg = strtok(args, CONF_SEPARATORS);
@@ -277,11 +308,11 @@ static void ProcessArgs(char *args)
     {
         if ( !strcasecmp("noalert", arg) )
         {
-            noalert_flags = (u_int16_t)ProcessOptionList();
+            bo->noalert_flags = (uint16_t)ProcessOptionList();
         }
         else if ( !strcasecmp("drop", arg) )
         {
-            drop_flags = (u_int16_t)ProcessOptionList();
+            bo->drop_flags = (uint16_t)ProcessOptionList();
         }
         else
         {
@@ -292,9 +323,7 @@ static void ProcessArgs(char *args)
         arg = strtok(NULL, CONF_SEPARATORS);
     }
 
-    PrintConfig();
-
-    return;
+    PrintConfig(bo);
 }
 
 
@@ -364,7 +393,7 @@ static int ProcessOptionList(void)
 }
 
 /*
- * Function: PrintConfig(u_char *)
+ * Function: PrintConfig()
  *
  * Purpose: Print configuration
  *
@@ -373,34 +402,37 @@ static int ProcessOptionList(void)
  * Returns: none
  *
  */
-static void PrintConfig(void)
+static void PrintConfig(BoConfig *bo)
 {
-    if ( noalert_flags != 0 || drop_flags != 0 )
+    if (bo == NULL)
+        return;
+
+    if ( bo->noalert_flags != 0 || bo->drop_flags != 0 )
         LogMessage("Back Orifice Config:\n");
     
-    if ( noalert_flags != 0 )
+    if ( bo->noalert_flags != 0 )
     {
         LogMessage("    Disable alerts:");
-        if ( noalert_flags & BO_ALERT_CLIENT )
+        if ( bo->noalert_flags & BO_ALERT_CLIENT )
             LogMessage(" client");
-        if ( noalert_flags & BO_ALERT_SERVER )
+        if ( bo->noalert_flags & BO_ALERT_SERVER )
             LogMessage(" server");
-        if ( noalert_flags & BO_ALERT_GENERAL )
+        if ( bo->noalert_flags & BO_ALERT_GENERAL )
             LogMessage(" general");
-        if ( noalert_flags & BO_ALERT_SNORT_ATTACK )
+        if ( bo->noalert_flags & BO_ALERT_SNORT_ATTACK )
             LogMessage(" snort_attack");
         LogMessage("\n");
     }
-    if ( drop_flags != 0 )
+    if ( bo->drop_flags != 0 )
     {
         LogMessage("    Drop packets (inline only) on alerts:");
-        if ( drop_flags & BO_ALERT_CLIENT )
+        if ( bo->drop_flags & BO_ALERT_CLIENT )
             LogMessage(" client");
-        if ( drop_flags & BO_ALERT_SERVER )
+        if ( bo->drop_flags & BO_ALERT_SERVER )
             LogMessage(" server");
-        if ( drop_flags & BO_ALERT_GENERAL )
+        if ( bo->drop_flags & BO_ALERT_GENERAL )
             LogMessage(" general");
-        if ( drop_flags & BO_ALERT_SNORT_ATTACK )
+        if ( bo->drop_flags & BO_ALERT_SNORT_ATTACK )
             LogMessage(" snort_attack");
         LogMessage("\n");
     }
@@ -415,7 +447,7 @@ static void PrintConfig(void)
  *
  * Returns: key to XOR with current char to be "encrypted"
  */
-static char BoRand()
+static char BoRand(void)
 {
     holdrand = holdrand * 214013L + 2531011L;
     return (char) (((holdrand  >> 16) & 0x7fff) & 0xFF);
@@ -427,14 +459,14 @@ static char BoRand()
  * to recover the key.  Using this in the BoFind() function below is much
  * faster than the old brute force method
  */
-static void PrecalcPrefix()
+static void PrecalcPrefix(void)
 {
-    u_int8_t cookie_cyphertext[BACKORIFICE_MAGIC_SIZE];
+    uint8_t cookie_cyphertext[BACKORIFICE_MAGIC_SIZE];
     char *cookie_plaintext = "*!*QWTY?";
     int key;
     int cookie_index;
     char *cp_ptr;       /* cookie plaintext indexing pointer */
-    u_int16_t cyphertext_referent;
+    uint16_t cyphertext_referent;
 
     memset(&lookup1[0], 0, sizeof(lookup1));
     memset(&lookup2[0], 0, sizeof(lookup2));
@@ -448,7 +480,7 @@ static void PrecalcPrefix()
         /* convert the plaintext cookie to cyphertext for this key */
         for(cookie_index=0;cookie_index<BACKORIFICE_MAGIC_SIZE;cookie_index++)
         {
-            cookie_cyphertext[cookie_index] =(u_int8_t)(*cp_ptr^(BoRand()));
+            cookie_cyphertext[cookie_index] =(uint8_t)(*cp_ptr^(BoRand()));
             cp_ptr++;
         }
 
@@ -456,32 +488,32 @@ static void PrecalcPrefix()
          * generate the key lookup mechanism from the first 2 characters of
          * the cyphertext
          */
-        cyphertext_referent = (u_int16_t) (cookie_cyphertext[0] << 8) & 0xFF00;
-        cyphertext_referent |= (u_int16_t) (cookie_cyphertext[1]) & 0x00FF;
+        cyphertext_referent = (uint16_t) (cookie_cyphertext[0] << 8) & 0xFF00;
+        cyphertext_referent |= (uint16_t) (cookie_cyphertext[1]) & 0x00FF;
 
         /* if there are any keyspace collisions that's going to suck */
         if(lookup1[cyphertext_referent][0] != 0)
         {
             if(lookup1[cyphertext_referent][1] != 0)
             {
-                lookup1[cyphertext_referent][2] = (u_int16_t)key;
+                lookup1[cyphertext_referent][2] = (uint16_t)key;
             }
             else
             {
-                lookup1[cyphertext_referent][1] = (u_int16_t)key;
+                lookup1[cyphertext_referent][1] = (uint16_t)key;
             }
         }
         else
         {
-            lookup1[cyphertext_referent][0] = (u_int16_t)key;
+            lookup1[cyphertext_referent][0] = (uint16_t)key;
         }
 
         /* 
          * generate the second lookup from the last two characters of 
          * the cyphertext
          */
-        cyphertext_referent = (u_int16_t) (cookie_cyphertext[6] << 8) & 0xFF00;
-        cyphertext_referent |= (u_int16_t) (cookie_cyphertext[7]) & 0x00FF;
+        cyphertext_referent = (uint16_t) (cookie_cyphertext[6] << 8) & 0xFF00;
+        cyphertext_referent |= (uint16_t) (cookie_cyphertext[7]) & 0x00FF;
 
         /*
          * set the second lookup with the current key
@@ -502,11 +534,11 @@ static void PrecalcPrefix()
  *
  *
  */
-void BoFind(Packet *p, void *context)
+static void BoFind(Packet *p, void *context)
 {
-    u_int16_t cyphertext_referent;
-    u_int16_t cyphertext_suffix;
-    u_int16_t key;
+    uint16_t cyphertext_referent;
+    uint16_t cyphertext_suffix;
+    uint16_t key;
     char *magic_cookie = "*!*QWTY?";
     char *pkt_data;
     char *magic_data;
@@ -514,7 +546,15 @@ void BoFind(Packet *p, void *context)
     char plaintext;
     int i;
     int bo_direction = 0;
+    BoConfig *bo = NULL;
     PROFILE_VARS;
+
+    sfPolicyUserPolicySet (bo_config, getRuntimePolicy());
+    bo = (BoConfig *)sfPolicyUserDataGetCurrent(bo_config);
+
+    /* Not configured in this policy */
+    if (bo == NULL)
+        return;
 
     /* make sure it's UDP and that it's at least 19 bytes long */
     if(!IsUDP(p))
@@ -535,15 +575,15 @@ void BoFind(Packet *p, void *context)
      * take the first two characters of the packet and generate the 
      * first reference that gives us a reference key
      */
-    cyphertext_referent = (u_int16_t) (p->data[0] << 8) & 0xFF00;
-    cyphertext_referent |= (u_int16_t) (p->data[1]) & 0x00FF;
+    cyphertext_referent = (uint16_t) (p->data[0] << 8) & 0xFF00;
+    cyphertext_referent |= (uint16_t) (p->data[1]) & 0x00FF;
 
     /* 
      * generate the second referent from the last two characters
      * of the cyphertext
      */
-    cyphertext_suffix = (u_int16_t) (p->data[6] << 8) & 0xFF00;
-    cyphertext_suffix |= (u_int16_t) (p->data[7]) & 0x00FF;
+    cyphertext_suffix = (uint16_t) (p->data[6] << 8) & 0xFF00;
+    cyphertext_suffix |= (uint16_t) (p->data[7]) & 0x00FF;
 
     for(i=0;i<3;i++)
     {
@@ -586,16 +626,16 @@ void BoFind(Packet *p, void *context)
                         "Detected Back Orifice Data!\n");
             DebugMessage(DEBUG_PLUGIN, "hash value: %d\n", key););
 
-            bo_direction = BoGetDirection(p, pkt_data);
+            bo_direction = BoGetDirection(bo, p, pkt_data);
 
             if ( bo_direction == BO_FROM_CLIENT )
             {
-                if ( !(noalert_flags & BO_ALERT_CLIENT) )
+                if ( !(bo->noalert_flags & BO_ALERT_CLIENT) )
                 {
                     SnortEventqAdd(GENERATOR_SPP_BO, BO_CLIENT_TRAFFIC_DETECT, 1, 0, 0,
                                             BO_CLIENT_TRAFFIC_DETECT_STR, 0);
                 }
-                if ( (drop_flags & BO_ALERT_CLIENT) && InlineMode() )
+                if ( (bo->drop_flags & BO_ALERT_CLIENT) && ScInlineMode() )
                 {
                     InlineDrop(p);
                 }
@@ -603,12 +643,12 @@ void BoFind(Packet *p, void *context)
             }
             else if ( bo_direction == BO_FROM_SERVER )
             {
-                if ( !(noalert_flags & BO_ALERT_SERVER) )
+                if ( !(bo->noalert_flags & BO_ALERT_SERVER) )
                 {
                     SnortEventqAdd(GENERATOR_SPP_BO, BO_SERVER_TRAFFIC_DETECT, 1, 0, 0,
                                             BO_SERVER_TRAFFIC_DETECT_STR, 0);
                 }
-                if ( (drop_flags & BO_ALERT_SERVER) && InlineMode() )
+                if ( (bo->drop_flags & BO_ALERT_SERVER) && ScInlineMode() )
                 {
                     InlineDrop(p);
                 }
@@ -616,12 +656,12 @@ void BoFind(Packet *p, void *context)
             }
             else
             {
-                if ( !(noalert_flags & BO_ALERT_GENERAL) )
+                if ( !(bo->noalert_flags & BO_ALERT_GENERAL) )
                 {
                     SnortEventqAdd(GENERATOR_SPP_BO, BO_TRAFFIC_DETECT, 1, 0, 0,
                                             BO_TRAFFIC_DETECT_STR, 0);
                 }
-                if ( (drop_flags & BO_ALERT_GENERAL) && InlineMode() )
+                if ( (bo->drop_flags & BO_ALERT_GENERAL) && ScInlineMode() )
                 {
                     InlineDrop(p);
                 }
@@ -659,11 +699,11 @@ void BoFind(Packet *p, void *context)
  *      CRC         1
  *
  */
-static int BoGetDirection(Packet *p, char *pkt_data)
+static int BoGetDirection(BoConfig *bo, Packet *p, char *pkt_data)
 {
-    u_int32_t len = 0;
-    u_int32_t id = 0;
-    u_int32_t l, i;
+    uint32_t len = 0;
+    uint32_t id = 0;
+    uint32_t l, i;
     char type;
     static char buf1[BO_BUF_SIZE];
     char plaintext;
@@ -684,7 +724,7 @@ static int BoGetDirection(Packet *p, char *pkt_data)
     for ( i = 0; i < 4; i++ )
     {
         plaintext = (char) (*pkt_data ^ BoRand());
-        l = (u_int32_t) plaintext;
+        l = (uint32_t) plaintext;
         len += l << (8*i);
         pkt_data++;
     }
@@ -693,7 +733,7 @@ static int BoGetDirection(Packet *p, char *pkt_data)
     for ( i = 0; i < 4; i++ )
     {
         plaintext = (char) (*pkt_data ^ BoRand() );
-        l = ((u_int32_t) plaintext) & 0x000000FF;
+        l = ((uint32_t) plaintext) & 0x000000FF;
         id += l << (8*i);
         pkt_data++;
     }
@@ -705,12 +745,12 @@ static int BoGetDirection(Packet *p, char *pkt_data)
     
     if ( len >= BO_BUF_ATTACK_SIZE )
     {
-        if ( !(noalert_flags & BO_ALERT_SNORT_ATTACK) )
+        if ( !(bo->noalert_flags & BO_ALERT_SNORT_ATTACK) )
         {
             SnortEventqAdd(GENERATOR_SPP_BO, BO_SNORT_BUFFER_ATTACK, 1, 0, 0,
                                             BO_SNORT_BUFFER_ATTACK_STR, 0);
         }
-        if ( (drop_flags & BO_ALERT_SNORT_ATTACK) && InlineMode() )
+        if ( (bo->drop_flags & BO_ALERT_SNORT_ATTACK) && ScInlineMode() )
         {
             InlineDrop(p);
         }
@@ -739,7 +779,7 @@ static int BoGetDirection(Packet *p, char *pkt_data)
     pkt_data++;
 
     /* check to make sure we don't run off end of packet */
-    if ((u_int32_t)(p->dsize - ((u_int8_t *)pkt_data - p->data)) < len)
+    if ((uint32_t)(p->dsize - ((uint8_t *)pkt_data - p->data)) < len)
     {
         /* We don't have enough data to inspect */
         return BO_FROM_UNKNOWN;
@@ -791,3 +831,90 @@ static int BoGetDirection(Packet *p, char *pkt_data)
    
     return BO_FROM_UNKNOWN;
 }
+
+
+static int BoFreeConfigPolicy(
+        tSfPolicyUserContextId bo,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    BoConfig *pPolicyConfig = (BoConfig *)pData;
+
+    //do any housekeeping before freeing BoConfig
+
+    sfPolicyUserDataClear (bo, policyId);
+    free(pPolicyConfig);
+    return 0;
+}
+
+static void BoFreeConfig(tSfPolicyUserContextId bo)
+{
+    if (bo == NULL)
+        return;
+
+    sfPolicyUserDataIterate (bo, BoFreeConfigPolicy);
+
+    sfPolicyConfigDelete(bo);
+}
+
+static void BoCleanExit(int signal, void *unused)
+{
+    BoFreeConfig(bo_config);
+    bo_config = NULL;
+}
+
+#ifdef SNORT_RELOAD
+static void BoReload(char *args)
+{
+    int policy_id = (int)getParserPolicy();
+    BoConfig *pPolicyConfig = NULL;
+
+    if (bo_swap_config == NULL)
+    {
+        //create a context
+        bo_swap_config = sfPolicyConfigCreate();
+    }
+
+    sfPolicyUserPolicySet (bo_swap_config, policy_id);
+
+    pPolicyConfig = (BoConfig *)sfPolicyUserDataGetCurrent(bo_swap_config);
+    if (pPolicyConfig)
+    {
+        ParseError("BO preprocessor can only be configured once.\n");
+    }
+
+    pPolicyConfig = (BoConfig *)SnortAlloc(sizeof(BoConfig));
+    if (!pPolicyConfig)
+    {
+        ParseError("BO preprocessor: memory allocate failed.\n");
+    }
+
+    sfPolicyUserDataSetCurrent(bo_swap_config, pPolicyConfig);
+
+    ProcessArgs(pPolicyConfig, args);
+
+    AddFuncToPreprocList(BoFind, PRIORITY_LAST, PP_BO, PROTO_BIT__UDP);
+}
+
+static void * BoReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = bo_config;
+
+    if (bo_swap_config == NULL)
+        return NULL;
+
+    bo_config = bo_swap_config;
+    bo_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void BoReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    BoFreeConfig((tSfPolicyUserContextId )data);
+}
+#endif

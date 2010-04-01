@@ -62,6 +62,7 @@
   
 #include "acsmx.h"
 #include "util.h"
+#include "debug.h"
 
 #define MEMASSERT(p,s) if(!p){fprintf(stderr,"ACSM-No Memory: %s!\n",s);exit(0);}
 
@@ -226,7 +227,7 @@ init_xlatcase ()
 /*
 *
 */ 
-static inline void
+static INLINE void
 ConvertCaseEx (unsigned char *d, unsigned char *s, int m) 
 {
   int i;
@@ -763,19 +764,19 @@ int acsmPrintSummaryInfo(void)
     if( !summary.num_states )
         return;
     
-    printf("+--[Pattern Matcher:Aho-Corasick Summary]----------------------\n");
-    printf("| Alphabet Size    : %d Chars\n",p->acsmAlphabetSize);
-    printf("| Sizeof State     : %d bytes\n",sizeof(acstate_t));
-    printf("| Storage Format   : %s \n",sf[ p->acsmFormat ]);
-    printf("| Num States       : %d\n",summary.num_states);
-    printf("| Num Transitions  : %d\n",summary.num_transitions);
-    printf("| State Density    : %.1f%%\n",100.0*(double)summary.num_transitions/(summary.num_states*p->acsmAlphabetSize));
-    printf("| Finite Automatum : %s\n", fsa[p->acsmFSA]);
+    LogMessage("+--[Pattern Matcher:Aho-Corasick Summary]----------------------\n");
+    LogMessage("| Alphabet Size    : %d Chars\n",p->acsmAlphabetSize);
+    LogMessage("| Sizeof State     : %d bytes\n",sizeof(acstate_t));
+    LogMessage("| Storage Format   : %s \n",sf[ p->acsmFormat ]);
+    LogMessage("| Num States       : %d\n",summary.num_states);
+    LogMessage("| Num Transitions  : %d\n",summary.num_transitions);
+    LogMessage("| State Density    : %.1f%%\n",100.0*(double)summary.num_transitions/(summary.num_states*p->acsmAlphabetSize));
+    LogMessage("| Finite Automatum : %s\n", fsa[p->acsmFSA]);
     if( max_memory < 1024*1024 )
-    printf("| Memory           : %.2fKbytes\n", (float)max_memory/1024 );
+    LogMessage("| Memory           : %.2fKbytes\n", (float)max_memory/1024 );
     else
-    printf("| Memory           : %.2fMbytes\n", (float)max_memory/(1024*1024) );
-    printf("+-------------------------------------------------------------\n");
+    LogMessage("| Memory           : %.2fMbytes\n", (float)max_memory/(1024*1024) );
+    LogMessage("+-------------------------------------------------------------\n");
 
 #endif
     return 0;

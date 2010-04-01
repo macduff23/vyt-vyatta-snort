@@ -36,7 +36,9 @@
 #define LIST_OPEN '['
 #define LIST_CLOSE ']'
 
-static INLINE sfip_var_t *_alloc_var()
+static SFIP_RET sfvar_list_compare(sfip_node_t *, sfip_node_t *);
+
+static INLINE sfip_var_t *_alloc_var(void)
 {
     return (sfip_var_t*)calloc(1, sizeof(sfip_var_t));
 }
@@ -52,6 +54,13 @@ void sfvar_free(sfip_var_t *var)
     if(var->mode == SFIP_LIST)
     {
         for(p=var->head; p; p=next)
+        {
+            next = p->next;
+            if(p->ip) sfip_free(p->ip);
+            free(p);
+        }
+
+        for(p=var->neg_head; p; p=next)
         {
             next = p->next;
             if(p->ip) sfip_free(p->ip);
@@ -229,7 +238,7 @@ SFIP_RET sfvar_add_node(sfip_var_t *var, sfip_node_t *node, int negated)
     /* Otherwise, check if this IP is less than the head's IP */
     if((node->flags & SFIP_ANY) || 
        (sfip_compare(node->ip, (*head)->ip) == SFIP_LESSER))
-       {
+    {
         node->next = *head;
         *head = node;
         return SFIP_SUCCESS;
@@ -265,14 +274,23 @@ SFIP_RET sfvar_add_node(sfip_var_t *var, sfip_node_t *node, int negated)
 //    sfrt_add(node->ip, 
 }
 
-/* Check's if two variables have the same nodes */
-SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
+static SFIP_RET sfvar_list_compare(sfip_node_t *list1, sfip_node_t *list2)
 {
-    sfip_node_t *idx1, *idx2;
-    int i, match;
     int total1 = 0;
     int total2 = 0;
     char *usage;
+    sfip_node_t *tmp;
+
+    if ((list1 == NULL) && (list2 == NULL))
+        return SFIP_EQUAL;
+
+    /* Check the ip lists for count mismatch */
+    for (tmp = list1; tmp != NULL; tmp = tmp->next) 
+        total1++;
+    for (tmp = list2; tmp != NULL; tmp = tmp->next) 
+        total2++;
+    if (total1 != total2) 
+        return SFIP_FAILURE;
 
     /* Walk first list.  For each node, check if there is an equal
      * counterpart in the second list.  This method breaks down of there are 
@@ -283,29 +301,17 @@ SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
      * Also, the lists are not necessarily ordered, so comparing 
      * node-for-node won't work */
 
-    if(!one && !two)
-        return SFIP_EQUAL;
-
-    if((one && !two) || (!one && two)) 
-        return SFIP_FAILURE;
-
-    for(idx1 = one->head; idx1; idx1 = idx1->next) 
-        total1++;
-    for(idx2 = two->head; idx2; idx2 = idx2->next) 
-        total2++;
-
-    if(total1 != total2) 
-        return SFIP_FAILURE;
-
+    /* Lists are of equal size */
     usage = (char*)SnortAlloc(total1);
 
-    for(idx1 = one->head; idx1; idx1 = idx1->next)
+    for (tmp = list1; tmp != NULL; tmp = tmp->next)
     {
-        match = 0;
+        int i, match = 0;
+        sfip_node_t *tmp2;
 
-        for(idx2 = two->head, i = 0; idx2; idx2 = idx2->next, i++)
+        for (tmp2 = list2, i = 0; tmp2 != NULL; tmp2 = tmp2->next, i++)
         {
-            if((sfip_compare(idx1->ip, idx2->ip) == SFIP_EQUAL) && !usage[i])
+            if ((sfip_compare(tmp->ip, tmp2->ip) == SFIP_EQUAL) && !usage[i])
             {
                 match = 1;
                 usage[i] = 1;
@@ -321,6 +327,26 @@ SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
     }
 
     free(usage);
+    return SFIP_EQUAL;
+}
+
+/* Check's if two variables have the same nodes */
+SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
+{
+    /* If both NULL, consider equal */
+    if(!one && !two)
+        return SFIP_EQUAL;
+
+    /* If one NULL and not the other, consider unequal */
+    if((one && !two) || (!one && two)) 
+        return SFIP_FAILURE;
+
+    if (sfvar_list_compare(one->head, two->head) == SFIP_FAILURE)
+        return SFIP_FAILURE;
+
+    if (sfvar_list_compare(one->neg_head, two->neg_head) == SFIP_FAILURE)
+        return SFIP_FAILURE;
+
     return SFIP_EQUAL;
 }
 
@@ -602,7 +628,7 @@ sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
     }
 
     /* Set the new variable's name/key */
-    if((ret->name = strndup(str, end - str)) == NULL)
+    if((ret->name = SnortStrndup(str, end - str)) == NULL)
     {
         if(status)
             *status = SFIP_ALLOC_ERR;

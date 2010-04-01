@@ -125,60 +125,60 @@
 
 typedef struct nbt_hdr
 {
-    u_int8_t type;
-    u_int8_t flags;
-    u_int16_t length;
+    uint8_t type;
+    uint8_t flags;
+    uint16_t length;
 } NBT_HDR;
 
 typedef struct {
-    u_int32_t LowPart;
+    uint32_t LowPart;
     int32_t HighPart;
 } SMB_LARGE_INTEGER; // 64 bits of data
 
-typedef u_int32_t SMB_UTIME;
-typedef u_int32_t SMB_ACCESS_MASK;
+typedef uint32_t SMB_UTIME;
+typedef uint32_t SMB_ACCESS_MASK;
 
 typedef struct smb_hdr
 {
-    u_int8_t protocol[4];      /* Should always be 0xff,SMB */
-    u_int8_t command;          /* Command code */
+    uint8_t protocol[4];      /* Should always be 0xff,SMB */
+    uint8_t command;          /* Command code */
 
     union
     {
         /* 32 Bits */
         struct {
-            u_int8_t errClass; /* Error class */
-            u_int8_t reserved; /* Should be 0 */
-            u_int16_t err;     /* Error code */
+            uint8_t errClass; /* Error class */
+            uint8_t reserved; /* Should be 0 */
+            uint16_t err;     /* Error code */
         } dosErr;
-        u_int32_t ntErrCode;    /* 32-bit Error code */
+        uint32_t ntErrCode;    /* 32-bit Error code */
     } status;
 
-    u_int8_t flags;            /* Flags */
-    u_int16_t flags2;          /* 8 bits weren't enough */
+    uint8_t flags;            /* Flags */
+    uint16_t flags2;          /* 8 bits weren't enough */
 
     union
     {
-        u_int16_t pad[6];      /* Make this 12 bytes long */
+        uint16_t pad[6];      /* Make this 12 bytes long */
         struct
         {
-            u_int16_t pidHigh; /* Upper 16 bits of PID */
-            u_int32_t unused;
-            u_int32_t unusedToo;
+            uint16_t pidHigh; /* Upper 16 bits of PID */
+            uint32_t unused;
+            uint32_t unusedToo;
         } extra;
     } extended;
 
-    u_int16_t tid;             /* Tree ID */
-    u_int16_t pid;             /* Process ID */
-    u_int16_t uid;             /* User ID */
-    u_int16_t mid;             /* Multiplex ID */
+    uint16_t tid;             /* Tree ID */
+    uint16_t pid;             /* Process ID */
+    uint16_t uid;             /* User ID */
+    uint16_t mid;             /* Multiplex ID */
 } SMB_HDR;
 
 typedef struct smb_neg_prot_hdr
 {
     /* The SMB data portion starts at smb_hdr + 32 */
-    u_int8_t wordCount;        /* Should be 0 */
-    u_int16_t byteCount;       /* Number of data bytes */
+    uint8_t wordCount;        /* Should be 0 */
+    uint16_t byteCount;       /* Number of data bytes */
 
     /* dialect array */
     /* format is (0x02, NULL-term string) */
@@ -186,106 +186,106 @@ typedef struct smb_neg_prot_hdr
 
 typedef struct transaction2_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t totalParameterCount;
-    u_int16_t totalDataCount;
-    u_int16_t maxParameterCount;
-    u_int16_t maxDataCount;
-    u_int8_t maxSetupCount;
-    u_int8_t reserved;
-    u_int16_t flags;
+    uint8_t wordCount;
+    uint16_t totalParameterCount;
+    uint16_t totalDataCount;
+    uint16_t maxParameterCount;
+    uint16_t maxDataCount;
+    uint8_t maxSetupCount;
+    uint8_t reserved;
+    uint16_t flags;
 
-    u_int32_t timeout;
-    u_int16_t reserved2;
+    uint32_t timeout;
+    uint16_t reserved2;
 
-    u_int16_t parameterCount;
-    u_int16_t parameterOffset;
-    u_int16_t dataCount;
-    u_int16_t dataOffset;
+    uint16_t parameterCount;
+    uint16_t parameterOffset;
+    uint16_t dataCount;
+    uint16_t dataOffset;
 
-    u_int8_t setupCount;
-    u_int8_t reserved3;
+    uint8_t setupCount;
+    uint8_t reserved3;
 
 } SMB_TRANSACTION2_REQ;
 
 typedef struct transaction2_secondary_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t totalParameterCount;
-    u_int16_t totalDataCount;
+    uint8_t wordCount;
+    uint16_t totalParameterCount;
+    uint16_t totalDataCount;
 
-    u_int16_t parameterCount;
-    u_int16_t parameterOffset;
-    u_int16_t parameterDisplacement;
-    u_int16_t dataCount;
-    u_int16_t dataOffset;
-    u_int16_t dataDisplacement;
+    uint16_t parameterCount;
+    uint16_t parameterOffset;
+    uint16_t parameterDisplacement;
+    uint16_t dataCount;
+    uint16_t dataOffset;
+    uint16_t dataDisplacement;
 
-    u_int16_t fid;
+    uint16_t fid;
 
-    u_int16_t byteCount;
+    uint16_t byteCount;
 
 } SMB_TRANSACTION2_SECONDARY_REQ;
 
 typedef struct nttransact_hdr
 {
-    u_int8_t wordCount;
-    u_int8_t maxSetupCount;
-    u_int16_t reserved;
-    u_int32_t totalParameterCount;
-    u_int32_t totalDataCount;
-    u_int32_t maxParameterCount;
-    u_int32_t maxDataCount;
+    uint8_t wordCount;
+    uint8_t maxSetupCount;
+    uint16_t reserved;
+    uint32_t totalParameterCount;
+    uint32_t totalDataCount;
+    uint32_t maxParameterCount;
+    uint32_t maxDataCount;
 
-    u_int32_t parameterCount;
-    u_int32_t parameterOffset;
-    u_int32_t dataCount;
-    u_int32_t dataOffset;
+    uint32_t parameterCount;
+    uint32_t parameterOffset;
+    uint32_t dataCount;
+    uint32_t dataOffset;
 
-    u_int8_t setupCount;
-    u_int16_t function;
-    u_int8_t buffer; /* Pad */
+    uint8_t setupCount;
+    uint16_t function;
+    uint8_t buffer; /* Pad */
 
 } SMB_NTTRANSACT_REQ;
 
 typedef struct nttransact_secondary_hdr
 {
-    u_int8_t wordCount;
-    u_int8_t reserved[3];
-    u_int32_t totalParameterCount;
-    u_int32_t totalDataCount;
+    uint8_t wordCount;
+    uint8_t reserved[3];
+    uint32_t totalParameterCount;
+    uint32_t totalDataCount;
 
-    u_int32_t parameterCount;
-    u_int32_t parameterOffset;
-    u_int32_t parameterDisplacement;
-    u_int32_t dataCount;
-    u_int32_t dataOffset;
-    u_int32_t dataDisplacement;
+    uint32_t parameterCount;
+    uint32_t parameterOffset;
+    uint32_t parameterDisplacement;
+    uint32_t dataCount;
+    uint32_t dataOffset;
+    uint32_t dataDisplacement;
 
-    u_int8_t reserved1;
+    uint8_t reserved1;
 
-    u_int16_t byteCount;
+    uint16_t byteCount;
 
 } SMB_NTTRANSACT_SECONDARY_REQ;
 
 typedef struct nttransact_create_hdr
 {
-    u_int32_t flags;
-    u_int32_t rootDirFid;
+    uint32_t flags;
+    uint32_t rootDirFid;
     SMB_ACCESS_MASK desiredAccess;
     SMB_LARGE_INTEGER allocationSize;
 
-    u_int32_t extFileAttributes;
-    u_int32_t shareAccess;
-    u_int32_t createDisposition;
-    u_int32_t createOptions;
+    uint32_t extFileAttributes;
+    uint32_t shareAccess;
+    uint32_t createDisposition;
+    uint32_t createOptions;
 
-    u_int32_t securityDescriptorLength;
-    u_int32_t eaLength;
-    u_int32_t nameLength;
-    u_int32_t impersonationLevel;
+    uint32_t securityDescriptorLength;
+    uint32_t eaLength;
+    uint32_t nameLength;
+    uint32_t impersonationLevel;
 
-    u_int8_t securityFlags;
+    uint8_t securityFlags;
 
 } SMB_NTTRANSACT_CREATE_REQ;
 
@@ -296,8 +296,8 @@ typedef struct nttransact_create_hdr
 #endif
 
 /* from snort_smb.c */
-int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
-            u_int8_t *data, u_int16_t data_size, u_int16_t size);
+int ProcessNextSMBCommand(uint8_t command, SMB_HDR *smbHdr,
+            uint8_t *data, uint16_t data_size, uint16_t size);
 
 /*
  * Grumble, grumble...
@@ -309,8 +309,8 @@ int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
  */
 
 #ifdef WORDS_BIGENDIAN
-#define smb_htons(A)  ((((u_int16_t)(A) & 0xff00) >> 8) | (((u_int16_t)(A) & 0x00ff) << 8))
-#define smb_htonl(A)  ((((u_int32_t)(A) & 0xff000000) >> 24) | (((u_int32_t)(A) & 0x00ff0000) >> 8)  | (((u_int32_t)(A) & 0x0000ff00) << 8)  | (((u_int32_t)(A) & 0x000000ff) << 24))
+#define smb_htons(A)  ((((uint16_t)(A) & 0xff00) >> 8) | (((uint16_t)(A) & 0x00ff) << 8))
+#define smb_htonl(A)  ((((uint32_t)(A) & 0xff000000) >> 24) | (((uint32_t)(A) & 0x00ff0000) >> 8)  | (((uint32_t)(A) & 0x0000ff00) << 8)  | (((uint32_t)(A) & 0x000000ff) << 24))
 #define smb_ntohs     smb_htons
 #define smb_ntohl     smb_htonl
 #define IS_LITTLE_ENDIAN 0

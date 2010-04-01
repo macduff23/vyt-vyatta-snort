@@ -52,6 +52,8 @@
 #include "sf_snort_packet.h"
 #include "sf_dynamic_preprocessor.h"
 #include "debug.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 #include "profiler.h"
 #ifdef PERF_PROFILING
@@ -62,22 +64,31 @@ int smtpDetectCalled = 0;
 
 #include "sf_types.h"
 
+tSfPolicyUserContextId smtp_config = NULL;
+SMTPConfig *smtp_eval_config = NULL;
+
 extern DynamicPreprocessorData _dpd;
-extern SMTP _smtp_no_session;
-extern int _smtp_check_gaps;
-extern int16_t _smtp_proto_id;
-extern SMTPConfig     _smtp_config;
+extern SMTP smtp_no_session;
+extern int16_t smtp_proto_id;
 
 static void SMTPInit(char *);
-static void SMTP_XLINK_Init(char *);
 static void SMTPDetect(void *, void *context);
 static void SMTPCleanExitFunction(int, void *);
 static void SMTPRestartFunction(int, void *);
 static void SMTPResetFunction(int, void *);
 static void SMTPResetStatsFunction(int, void *);
-static void _addPortsToStream5Filter();
+static void _addPortsToStream5Filter(SMTPConfig *, tSfPolicyId);
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter();
+static void _addServicesToStream5Filter(tSfPolicyId);
+#endif
+static void SMTPCheckConfig(void);
+
+#ifdef SNORT_RELOAD
+tSfPolicyUserContextId smtp_swap_config = NULL;
+static void SMTPReload(char *);
+static int SMTPReloadVerify(void);
+static void * SMTPReloadSwap(void);
+static void SMTPReloadSwapFree(void *);
 #endif
 
 
@@ -96,8 +107,12 @@ static void _addServicesToStream5Filter();
 void SetupSMTP(void)
 {
     /* link the preprocessor keyword to the init function in the preproc list */
+#ifndef SNORT_RELOAD
     _dpd.registerPreproc("smtp", SMTPInit);
-    _dpd.registerPreproc("xlink2state", SMTP_XLINK_Init);
+#else
+    _dpd.registerPreproc("smtp", SMTPInit, SMTPReload,
+                         SMTPReloadSwap, SMTPReloadSwapFree);
+#endif
 }
 
 
@@ -114,80 +129,100 @@ void SetupSMTP(void)
  */
 static void SMTPInit(char *args)
 {
-    static int config_done = 0;
+    SMTPToken *tmp;
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    SMTPConfig * pPolicyConfig = NULL;
 
-    if (config_done)
+    if (smtp_config == NULL)
+    {
+        //create a context
+        smtp_config = sfPolicyConfigCreate();
+        if (smtp_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Not enough memory to create SMTP "
+                                            "configuration.\n");
+        }
+
+        /* Initialize the searches not dependent on configuration.
+         * headers, reponsed, data, mime boundary regular expression */
+        SMTP_SearchInit();
+
+        /* zero out static SMTP global used for stateless SMTP or if there
+         * is no session pointer */
+        memset(&smtp_no_session, 0, sizeof(SMTP));
+
+        /* Put the preprocessor function into the function list */
+        _dpd.addPreproc(SMTPDetect, PRIORITY_APPLICATION, PP_SMTP, PROTO_BIT__TCP);
+        _dpd.addPreprocExit(SMTPCleanExitFunction, NULL, PRIORITY_LAST, PP_SMTP);
+        _dpd.addPreprocRestart(SMTPRestartFunction, NULL, PRIORITY_LAST, PP_SMTP);
+        _dpd.addPreprocReset(SMTPResetFunction, NULL, PRIORITY_LAST, PP_SMTP);
+        _dpd.addPreprocResetStats(SMTPResetStatsFunction, NULL, PRIORITY_LAST, PP_SMTP);
+        _dpd.addPreprocConfCheck(SMTPCheckConfig);
+
+#ifdef TARGET_BASED
+        smtp_proto_id = _dpd.findProtocolReference(SMTP_PROTO_REF_STR);
+        if (smtp_proto_id == SFTARGET_UNKNOWN_PROTOCOL)
+            smtp_proto_id = _dpd.addProtocolReference(SMTP_PROTO_REF_STR);
+
+        DEBUG_WRAP(DebugMessage(DEBUG_SMTP,"SMTP: Target-based: Proto id for %s: %u.\n",
+                                SMTP_PROTO_REF_STR, smtp_proto_id););
+#endif
+
+#ifdef PERF_PROFILING
+        _dpd.addPreprocProfileFunc("smtp", (void*)&smtpPerfStats, 0, _dpd.totalPerfStats);        
+#endif
+    }
+
+    sfPolicyUserPolicySet (smtp_config, policy_id);
+    pPolicyConfig = (SMTPConfig *)sfPolicyUserDataGetCurrent(smtp_config);
+    if (pPolicyConfig != NULL)
     {
         DynamicPreprocessorFatalMessage("Can only configure SMTP preprocessor once.\n");
     }
 
-    if (!_dpd.streamAPI)
+    if (_dpd.streamAPI == NULL)
     {
         DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
                                         "for SMTP preprocessor\n");
     }
 
+    pPolicyConfig = (SMTPConfig *)calloc(1, sizeof(SMTPConfig));
+    if (pPolicyConfig == NULL)
+    {
+        DynamicPreprocessorFatalMessage("Not enough memory to create SMTP "
+                                        "configuration.\n");
+    }
+ 
+    sfPolicyUserDataSetCurrent(smtp_config, pPolicyConfig);
+
+    SMTP_InitCmds(pPolicyConfig);
+    SMTP_ParseArgs(pPolicyConfig, args);
+
+    /* Command search - do this here because it's based on configuration */
+    pPolicyConfig->cmd_search_mpse = _dpd.searchAPI->search_instance_new();
+    if (pPolicyConfig->cmd_search_mpse == NULL)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate SMTP "
+                                        "command search.\n");
+    }
+
+    for (tmp = pPolicyConfig->cmds; tmp->name != NULL; tmp++)
+    {
+        pPolicyConfig->cmd_search[tmp->search_id].name = tmp->name;
+        pPolicyConfig->cmd_search[tmp->search_id].name_len = tmp->name_len;
+        
+        _dpd.searchAPI->search_instance_add(pPolicyConfig->cmd_search_mpse, tmp->name,
+                                            tmp->name_len, tmp->search_id);
+    }
+
+    _dpd.searchAPI->search_instance_prep(pPolicyConfig->cmd_search_mpse);
+
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+
 #ifdef TARGET_BASED
-    _smtp_proto_id = _dpd.findProtocolReference(SMTP_PROTO_REF_STR);
-    if (_smtp_proto_id == SFTARGET_UNKNOWN_PROTOCOL)
-        _smtp_proto_id = _dpd.addProtocolReference(SMTP_PROTO_REF_STR);
-
-    DEBUG_WRAP(DebugMessage(DEBUG_SMTP,"SMTP: Target-based: Proto id for %s: %u.\n",
-                            SMTP_PROTO_REF_STR, _smtp_proto_id););
-#endif
-
-    if (_dpd.streamAPI->version >= STREAM_API_VERSION5)
-        _smtp_check_gaps = 1;
-    else
-        _smtp_check_gaps = 0;
-
-    SMTP_InitCmds();
-
-    SMTP_ParseArgs(args);
-
-    /* initialize the searches - command, headers, data, etc. */
-    SMTP_SearchInit();
-
-    /* zero out static SMTP global used for stateless SMTP or if there
-     * is no session pointer */
-    memset(&_smtp_no_session, 0, sizeof(SMTP));
-
-    /* Put the preprocessor function into the function list */
-    _dpd.addPreproc(SMTPDetect, PRIORITY_APPLICATION, PP_SMTP, PROTO_BIT__TCP);
-    _dpd.addPreprocExit(SMTPCleanExitFunction, NULL, PRIORITY_LAST, PP_SMTP);
-    _dpd.addPreprocRestart(SMTPRestartFunction, NULL, PRIORITY_LAST, PP_SMTP);
-    _dpd.addPreprocReset(SMTPResetFunction, NULL, PRIORITY_LAST, PP_SMTP);
-    _dpd.addPreprocResetStats(SMTPResetStatsFunction, NULL, PRIORITY_LAST, PP_SMTP);
-
-#ifdef PERF_PROFILING
-    _dpd.addPreprocProfileFunc("smtp", (void*)&smtpPerfStats, 0, _dpd.totalPerfStats);        
-#endif
-
-    config_done = 1;
-
-    _addPortsToStream5Filter();
-#ifdef TARGET_BASED
-    _addServicesToStream5Filter();
+    _addServicesToStream5Filter(policy_id);
 #endif
 }
-
-
-/*
- * Function: SMTP_XLINK_Init(char *)
- *
- * Purpose: Dummy function to make upgrade easier.  If preprocessor
- *           xlink2state is configured in snort.conf, just ignore it.
-  *
- * Arguments: args => ptr to argument string
- *
- * Returns: void function
- *
- */
-static void SMTP_XLINK_Init(char *args)
-{
-    return;
-}
-
 
 /*
  * Function: SMTPDetect(void *, void *)
@@ -205,6 +240,7 @@ static void SMTP_XLINK_Init(char *args)
 static void SMTPDetect(void *pkt, void *context)
 {
     SFSnortPacket *p = (SFSnortPacket *)pkt;
+    tSfPolicyId policy_id = _dpd.getRuntimePolicy();
     PROFILE_VARS;
 
     if ((p->payload_size == 0) || !IsTCP(p) || (p->payload == NULL))
@@ -213,6 +249,8 @@ static void SMTPDetect(void *pkt, void *context)
     PREPROC_PROFILE_START(smtpPerfStats);
 
     DEBUG_WRAP(DebugMessage(DEBUG_SMTP, "SMTP Start (((((((((((((((((((((((((((((((((((((((\n"););
+
+    sfPolicyUserPolicySet (smtp_config, policy_id);
 
     SnortSMTP(p);
 
@@ -281,23 +319,175 @@ static void SMTPResetStatsFunction(int signal, void *data)
     return;
 }
 
-static void _addPortsToStream5Filter()
+static void _addPortsToStream5Filter(SMTPConfig *config, tSfPolicyId policy_id)
 {
     unsigned int portNum;
 
+    if (config == NULL)
+        return;
+
     for (portNum = 0; portNum < MAXPORTS; portNum++)
     {
-        if(_smtp_config.ports[(portNum/8)] & (1<<(portNum%8)))
+        if(config->ports[(portNum/8)] & (1<<(portNum%8)))
         {
             //Add port the port
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (u_int16_t)portNum, PORT_MONITOR_SESSION);
+            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (uint16_t)portNum,
+                                                   PORT_MONITOR_SESSION, policy_id, 1);
         }
     }
 }
+
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter()
+static void _addServicesToStream5Filter(tSfPolicyId policy_id)
 {
-    _dpd.streamAPI->set_service_filter_status(_smtp_proto_id, PORT_MONITOR_SESSION);
+    _dpd.streamAPI->set_service_filter_status(smtp_proto_id, PORT_MONITOR_SESSION, policy_id, 1);
 }
 #endif
 
+static int SMTPCheckPolicyConfig(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    _dpd.setParserPolicy(policyId);
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
+                                        "for SMTP preprocessor\n");
+    }
+
+    return 0;
+}
+static void SMTPCheckConfig(void)
+{
+    sfPolicyUserDataIterate (smtp_config, SMTPCheckPolicyConfig);
+}
+
+#ifdef SNORT_RELOAD
+static void SMTPReload(char *args)
+{
+    SMTPToken *tmp;
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    SMTPConfig *pPolicyConfig = NULL;
+
+    if (smtp_swap_config == NULL)
+    {
+        //create a context
+        smtp_swap_config = sfPolicyConfigCreate();
+        if (smtp_swap_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Not enough memory to create SMTP "
+                                            "configuration.\n");
+        }
+
+        _dpd.addPreprocReloadVerify(SMTPReloadVerify);
+    }
+
+    if (_dpd.streamAPI == NULL)
+    {
+        DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
+                                        "for SMTP preprocessor\n");
+    }
+
+    sfPolicyUserPolicySet (smtp_swap_config, policy_id);
+    pPolicyConfig = (SMTPConfig *)sfPolicyUserDataGetCurrent(smtp_swap_config);
+
+    if (pPolicyConfig != NULL)
+        DynamicPreprocessorFatalMessage("Can only configure SMTP preprocessor once.\n");
+
+    pPolicyConfig = (SMTPConfig *)calloc(1, sizeof(SMTPConfig));
+    if (pPolicyConfig == NULL)
+    {
+        DynamicPreprocessorFatalMessage("Not enough memory to create SMTP "
+                                        "configuration.\n");
+    }
+
+    sfPolicyUserDataSetCurrent(smtp_swap_config, pPolicyConfig);
+
+    SMTP_InitCmds(pPolicyConfig);
+    SMTP_ParseArgs(pPolicyConfig, args);
+
+    /* Command search - do this here because it's based on configuration */
+    pPolicyConfig->cmd_search_mpse = _dpd.searchAPI->search_instance_new();
+    if (pPolicyConfig->cmd_search_mpse == NULL)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate SMTP "
+                                        "command search.\n");
+    }
+
+    for (tmp = pPolicyConfig->cmds; tmp->name != NULL; tmp++)
+    {
+        pPolicyConfig->cmd_search[tmp->search_id].name = tmp->name;
+        pPolicyConfig->cmd_search[tmp->search_id].name_len = tmp->name_len;
+        
+        _dpd.searchAPI->search_instance_add(pPolicyConfig->cmd_search_mpse, tmp->name,
+                                            tmp->name_len, tmp->search_id);
+    }
+
+    _dpd.searchAPI->search_instance_prep(pPolicyConfig->cmd_search_mpse);
+
+    _dpd.addPreproc(SMTPDetect, PRIORITY_APPLICATION, PP_SMTP, PROTO_BIT__TCP);
+
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+
+#ifdef TARGET_BASED
+    _addServicesToStream5Filter(policy_id);
+#endif
+}
+
+static int SMTPReloadVerify(void)
+{
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DynamicPreprocessorFatalMessage("Streaming & reassembly must be enabled "
+                                        "for SMTP preprocessor\n");
+    }
+
+    return 0;
+}
+
+static int SMTPReloadSwapPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    SMTPConfig *pPolicyConfig = (SMTPConfig *)pData;
+
+    if (pPolicyConfig->ref_count == 0)
+    {
+        sfPolicyUserDataClear (config, policyId);
+        SMTP_FreeConfig(pPolicyConfig);
+    }
+     
+    return 0;
+}
+
+static void * SMTPReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = smtp_config;
+
+    if (smtp_swap_config == NULL)
+        return NULL;
+
+    smtp_config = smtp_swap_config;
+    smtp_swap_config = NULL;
+
+    sfPolicyUserDataIterate (old_config, SMTPReloadSwapPolicy);
+
+    if (sfPolicyUserPolicyGetActive(old_config) == 0)
+        SMTP_FreeConfigs(old_config);
+
+    return NULL;
+}
+
+static void SMTPReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    SMTP_FreeConfigs((tSfPolicyUserContextId)data);
+}
+#endif

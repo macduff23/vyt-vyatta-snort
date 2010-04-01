@@ -77,9 +77,9 @@ void ParseIcmpId(char *, OptTreeNode *);
 int IcmpIdCheck(void *option_data, Packet *);
 void IcmpIdCheckInit(char *, OptTreeNode *, int);
 
-u_int32_t IcmpIdCheckHash(void *d)
+uint32_t IcmpIdCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IcmpIdCheckData *data = (IcmpIdCheckData *)d;
 
     a = data->icmpid;
@@ -123,7 +123,7 @@ int IcmpIdCheckCompare(void *l, void *r)
 void SetupIcmpIdCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icmp_id", IcmpIdCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("icmp_id", IcmpIdCheckInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("icmp_id", &icmpIdPerfStats, 3, &ruleOTNEvalPerfStats);

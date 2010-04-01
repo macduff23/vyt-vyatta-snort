@@ -25,14 +25,14 @@
 #endif
 
 #include "debug.h"
-#include "sf_types.h"  /* for UINT64 */
+#include "sf_types.h"  /* for uint64_t */
 
 /* Assembly to find clock ticks. */
 #ifdef WIN32
 #include <windows.h>
 
 /* INTEL WINDOWS */
-__inline void __cputicks_msc(UINT64 *val)
+__inline void __cputicks_msc(uint64_t *val)
 {
   __int64 t;
   __asm
@@ -41,7 +41,7 @@ __inline void __cputicks_msc(UINT64 *val)
       mov dword PTR [t],eax;
       mov dword PTR [t+4],edx;
     }
- *val = (UINT64)t;
+ *val = (uint64_t)t;
 }
 #define get_clockticks(val) __cputicks_msc(&val)
 
@@ -58,9 +58,9 @@ __inline void __cputicks_msc(UINT64 *val)
 #if (defined(__i386) || defined(__amd64) || defined(__x86_64__))
 #define get_clockticks(val) \
 { \
-    u_int32_t a, d; \
+    uint32_t a, d; \
     __asm__ __volatile__ ("rdtsc" : "=a" (a), "=d" (d));  \
-    val = ((UINT64)a) | (((UINT64)d) << 32);  \
+    val = ((uint64_t)a) | (((uint64_t)d) << 32);  \
 }
 #else
 #if (defined(__ia64) && defined(__GNUC__) )
@@ -80,14 +80,14 @@ __inline void __cputicks_msc(UINT64 *val)
 #if (defined(__GNUC__) && (defined(__powerpc__) || (defined(__ppc__))))
 #define get_clockticks(val) \
 { \
-    u_int32_t tbu0, tbu1, tbl; \
+    uint32_t tbu0, tbu1, tbl; \
     do \
     { \
         __asm__ __volatile__ ("mftbu %0" : "=r"(tbu0)); \
         __asm__ __volatile__ ("mftb %0" : "=r"(tbl)); \
         __asm__ __volatile__ ("mftbu %0" : "=r"(tbu1)); \
     } while (tbu0 != tbu1); \
-    val = ((UINT64)tbl) | (((UINT64)tbu0) << 32);  \
+    val = ((uint64_t)tbl) | (((uint64_t)tbu0) << 32);  \
 }
 #else
 /* SPARC */
@@ -104,7 +104,7 @@ __inline void __cputicks_msc(UINT64 *val)
     __asm__ __volatile__("rd %%tick, %0\n" \
                          "srlx %0, 32, %1" \
                          : "=r"(a), "=r"(b)); \
-    val = ((UINT64)a) | (((UINT64)b) << 32); \
+    val = ((uint64_t)a) | (((uint64_t)b) << 32); \
 }
 #endif /* _LP64 */
 #else
@@ -116,9 +116,9 @@ __inline void __cputicks_msc(UINT64 *val)
 #endif /* I386 || AMD64 || X86_64 */
 #endif /* WIN32 */
 
-static INLINE double get_ticks_per_usec ()
+static INLINE double get_ticks_per_usec (void)
 {
-    UINT64 start = 0, end = 0;
+    uint64_t start = 0, end = 0;
     get_clockticks(start);
 
 #ifdef WIN32

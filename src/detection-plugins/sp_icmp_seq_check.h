@@ -25,7 +25,7 @@
 #define __SP_ICMP_SEQ_H__
 
 void SetupIcmpSeqCheck(void);
-u_int32_t IcmpSeqCheckHash(void *d);
+uint32_t IcmpSeqCheckHash(void *d);
 int IcmpSeqCheckCompare(void *l, void *r);
 
 #endif  /* __SP_ICMP_SEQ_H__ */

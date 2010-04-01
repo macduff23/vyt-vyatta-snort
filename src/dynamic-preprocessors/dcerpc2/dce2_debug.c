@@ -32,6 +32,52 @@
 #include <errno.h>
 
 /********************************************************************
+ * Function: DCE2_GetDebugLevel()
+ *
+ * Gets the debugging level set by the DCE2 debugging environment
+ * variable on the first call.  Subsequent calls will used the
+ * cached value.
+ *
+ * Arguments: None
+ *
+ * Returns:
+ *  uint32_t
+ *      The debugging level set by the environment variable.
+ *
+ ********************************************************************/
+static uint32_t DCE2_GetDebugLevel(void)
+{
+    static int debug_init = 0;
+    static uint32_t debug_level = 0;
+    const char* value;
+
+    if (debug_init)
+        return debug_level;
+
+    value = getenv(DCE2_DEBUG_VARIABLE);
+
+    if (value != NULL)
+    {
+        char *endptr;
+
+        debug_level = strtoul(value, &endptr, 0);
+        if ((errno == ERANGE) || (*endptr != '\0'))
+        {
+            DCE2_Log(DCE2_LOG_TYPE__WARN,
+                     "\"%s\" value out of range or not a number: %s. "
+                     "Debugging will not be turned on.",
+                     DCE2_DEBUG_VARIABLE, value);
+
+            debug_level = 0;
+        }
+    }
+
+    debug_init = 1;
+
+    return debug_level;
+}
+
+/********************************************************************
  * Function: DCE2_DebugThis()
  *
  * Determines based on the level if debugging is turned on.
@@ -78,51 +124,5 @@ void DCE2_DebugMsg(int level, const char *format, ...)
     va_start(ap, format);
     vfprintf(stdout, format, ap);
     va_end(ap);
-}
-
-/********************************************************************
- * Function: DCE2_GetDebugLevel()
- *
- * Gets the debugging level set by the DCE2 debugging environment
- * variable on the first call.  Subsequent calls will used the
- * cached value.
- *
- * Arguments: None
- *
- * Returns:
- *  uint32_t
- *      The debugging level set by the environment variable.
- *
- ********************************************************************/
-uint32_t DCE2_GetDebugLevel(void)
-{
-    static int debug_init = 0;
-    static uint32_t debug_level = 0;
-    const char* value;
-
-    if (debug_init)
-        return debug_level;
-
-    value = getenv(DCE2_DEBUG_VARIABLE);
-
-    if (value != NULL)
-    {
-        char *endptr;
-
-        debug_level = strtoul(value, &endptr, 0);
-        if ((errno == ERANGE) || (*endptr != '\0'))
-        {
-            DCE2_Log(DCE2_LOG_TYPE__WARN,
-                     "\"%s\" value out of range or not a number: %s. "
-                     "Debugging will not be turned on.",
-                     DCE2_DEBUG_VARIABLE, value);
-
-            debug_level = 0;
-        }
-    }
-
-    debug_init = 1;
-
-    return debug_level;
 }
 

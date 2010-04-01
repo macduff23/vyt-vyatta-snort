@@ -7,7 +7,7 @@ lib_LTLIBRARIES = libsf_engine.la
 
 libdir = ${exec_prefix}/lib/snort_dynamicengine
 
-libsf_engine_la_LDFLAGS = -export-dynamic
+libsf_engine_la_LDFLAGS = -module
 
 BUILT_SOURCES = \
 sfhashfcn.c \
@@ -19,7 +19,8 @@ sfprimetable.h \
 ipv6_port.h \
 sf_ip.c \
 sf_ip.h \
-debug.h
+debug.h \
+sf_types.h
 
 nodist_libsf_engine_la_SOURCES = \
 sfhashfcn.c \
@@ -31,7 +32,8 @@ sfprimetable.h \
 ipv6_port.h \
 sf_ip.c \
 sf_ip.h \
-debug.h
+debug.h \
+sf_types.h
 
 libsf_engine_la_SOURCES = \
 bmh.c \
@@ -154,7 +156,10 @@ sfprimetable.h: ../../sfutil/sfprimetable.h
 sfprimetable.c: ../../sfutil/sfprimetable.c
 	@src_file=$?; dst_file=$@; $(copy_files)
 
+sf_types.h: ../../sf_types.h
+	@src_file=$?; dst_file=$@; $(copy_files)
+
 SUBDIRS = examples
 
 clean-local:
-	rm -rf sfhashfcn.c sfhashfcn.c.new sfghash.c sfprimetable.c sf_ip.c sf_ip.h ipv6_port.h debug.h debug.h.new sfprimetable.h sfghash.h ipv6_port.h.new sfhashfcn.h
+	rm -rf sfhashfcn.c sfhashfcn.c.new sfghash.c sfprimetable.c sf_ip.c sf_ip.h ipv6_port.h debug.h debug.h.new sfprimetable.h sfghash.h ipv6_port.h.new sfhashfcn.h sf_types.h

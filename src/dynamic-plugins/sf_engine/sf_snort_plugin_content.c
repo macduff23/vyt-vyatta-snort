@@ -42,7 +42,7 @@ static const u_int8_t *_buffer_end = NULL;
 static const u_int8_t *_alt_buffer_end = NULL;
 static const u_int8_t *_uri_buffer_end = NULL;
 
-void ContentSetup()
+void ContentSetup(void)
 {
     _buffer_end = NULL;
     _alt_buffer_end = NULL;

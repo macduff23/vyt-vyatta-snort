@@ -52,12 +52,22 @@
 #include "ftpp_ui_client_lookup.h"
 #include "ftpp_ui_server_lookup.h"
 #include "ftpp_si.h"
-
 #include "stream_api.h"
+#include "snort_ftptelnet.h"
+#include "sfPolicyUserData.h"
 
 #ifndef WIN32
-#include <ctype.h>
+# include <ctype.h>
 #endif
+
+extern tSfPolicyUserContextId ftp_telnet_config;
+
+#ifdef TARGET_BASED
+extern int16_t ftp_app_id;
+extern int16_t telnet_app_id;
+#endif
+
+static FTP_SESSION StaticSession;
 
 /*
  * Function: PortMatch(PROTO_CONF *Conf, unsigned short port)
@@ -93,8 +103,29 @@ static int PortMatch(PROTO_CONF *Conf, unsigned short port)
  */
 static void TelnetFreeSession(void *preproc_session)
 {
-    TELNET_SESSION *TelnetSession = preproc_session;
-    free(TelnetSession);
+    TELNET_SESSION *ssn = (TELNET_SESSION *)preproc_session;
+    FTPTELNET_GLOBAL_CONF *pPolicyConfig = NULL;
+
+    if (ssn == NULL)
+        return;
+
+    pPolicyConfig = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(ssn->global_conf, ssn->policy_id);
+
+    if (pPolicyConfig != NULL)
+    {
+        pPolicyConfig->ref_count--;
+        if ((pPolicyConfig->ref_count == 0) &&
+            (ssn->global_conf != ftp_telnet_config))
+        {
+            sfPolicyUserDataClear (ssn->global_conf, ssn->policy_id);
+            FTPTelnetFreeConfig(pPolicyConfig);
+
+            if (sfPolicyUserPolicyGetActive(ssn->global_conf) == 0)
+                FTPTelnetFreeConfigs(ssn->global_conf);
+        }
+    }
+
+    free(ssn);
 }
 
 /*
@@ -112,6 +143,7 @@ static void TelnetFreeSession(void *preproc_session)
  */
 static INLINE int TelnetResetSession(TELNET_SESSION *Session)
 {
+    Session->ft_ssn.proto = FTPP_SI_PROTO_TELNET;
     Session->telnet_conf = NULL;
     Session->global_conf = NULL;
 
@@ -148,37 +180,36 @@ static int TelnetStatefulSessionInspection(SFSnortPacket *p,
         TELNET_SESSION **TelnetSession,
         FTPP_SI_INPUT *SiInput)
 {
-    TELNET_SESSION *NewSession;
-
-    /*
-     * First, check if there is already a session pointer.
-     */
     if (p->stream_session_ptr)
     {
-        *TelnetSession =
-            _dpd.streamAPI->get_application_data(p->stream_session_ptr, PP_TELNET);
-        if (*TelnetSession)
-            return FTPP_SUCCESS;
+        TELNET_SESSION *NewSession = (TELNET_SESSION *)calloc(1, sizeof(TELNET_SESSION));
+        tSfPolicyId policy_id = _dpd.getRuntimePolicy();
+
+        if (NewSession == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Failed to allocate memory for "
+                                            "new Telnet session.\n");
+        }
+
+        TelnetResetSession(NewSession);
+
+        NewSession->ft_ssn.proto = FTPP_SI_PROTO_TELNET;
+        NewSession->telnet_conf = GlobalConf->telnet_config;
+
+        NewSession->global_conf = ftp_telnet_config;
+        NewSession->policy_id = policy_id;
+        GlobalConf->ref_count++;
+
+        SiInput->pproto = FTPP_SI_PROTO_TELNET;
+
+        _dpd.streamAPI->set_application_data(p->stream_session_ptr,
+                PP_FTPTELNET, NewSession, &TelnetFreeSession);
+
+        *TelnetSession = NewSession;
+        return FTPP_SUCCESS;
     }
 
-    /*
-     * If not, create a new one, and initialize it.
-     */
-    NewSession = (TELNET_SESSION *)calloc(1, sizeof(TELNET_SESSION));
-    if (NewSession == NULL)
-    {
-        DynamicPreprocessorFatalMessage("%s(%d) => Failed to allocate memory for new Telnet session\n",
-                                        *(_dpd.config_file), *(_dpd.config_line));
-    }
-    
-    TelnetResetSession(NewSession);
-
-    NewSession->telnet_conf = &GlobalConf->global_telnet;
-    NewSession->global_conf = GlobalConf;
-
-    *TelnetSession = NewSession;
-
-    return FTPP_SUCCESS;
+    return FTPP_NONFATAL_ERR;
 }
 
 /*
@@ -213,14 +244,15 @@ static int TelnetStatelessSessionInspection(SFSnortPacket *p,
         TELNET_SESSION **Session,
         FTPP_SI_INPUT *SiInput)
 {
-    static TELNET_SESSION StaticSession;
+    static TELNET_SESSION TelnetStaticSession;
 
-    TelnetResetSession(&StaticSession);
+    TelnetResetSession(&TelnetStaticSession);
 
-    StaticSession.telnet_conf = &GlobalConf->global_telnet;
-    StaticSession.global_conf = GlobalConf;
+    SiInput->pproto = FTPP_SI_PROTO_TELNET;
+    TelnetStaticSession.telnet_conf = GlobalConf->telnet_config;
+    TelnetStaticSession.global_conf = ftp_telnet_config;
 
-    *Session = &StaticSession;
+    *Session = &TelnetStaticSession;
 
     return FTPP_SUCCESS;
 }
@@ -257,9 +289,8 @@ static int TelnetStatelessSessionInspection(SFSnortPacket *p,
  *
  */
 int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
-        FTPP_SI_INPUT *SiInput, int *piInspectMode)
+        TELNET_SESSION **TelnetSession, FTPP_SI_INPUT *SiInput, int *piInspectMode)
 {
-    TELNET_SESSION *TelnetSession;
     int iRet;
     int iTelnetSip;
     int iTelnetDip;
@@ -275,7 +306,7 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     {
         return FTPP_INVALID_PROTO;
     }
-    if (app_id == GlobalConf->telnet_app_id)
+    if (app_id == telnet_app_id)
     {
         if (SiInput->pdir == FTPP_SI_CLIENT_MODE ||
             SiInput->pdir == FTPP_SI_SERVER_MODE)
@@ -283,15 +314,15 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
             *piInspectMode = (int)SiInput->pdir;
         }
     }
-    else if (app_id && app_id != GlobalConf->telnet_app_id)
+    else if (app_id && app_id != telnet_app_id)
     {
             return FTPP_INVALID_PROTO;
     }
     else {
 #endif
-    iTelnetSip = PortMatch((PROTO_CONF*)&GlobalConf->global_telnet,
+    iTelnetSip = PortMatch((PROTO_CONF*)GlobalConf->telnet_config,
                            SiInput->sport);
-    iTelnetDip = PortMatch((PROTO_CONF*)&GlobalConf->global_telnet,
+    iTelnetDip = PortMatch((PROTO_CONF*)GlobalConf->telnet_config,
                            SiInput->dport);
 
     if (iTelnetSip)
@@ -310,8 +341,6 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
     }
 #endif
 
-    SiInput->pproto = FTPP_SI_PROTO_TELNET;
-
     /*
      * We get the server configuration and the session structure differently 
      * depending on what type of inspection we are doing.  In the case of 
@@ -325,51 +354,17 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
      */
     if(GlobalConf->inspection_type == FTPP_UI_CONFIG_STATEFUL)
     {
-        iRet = TelnetStatefulSessionInspection(p, GlobalConf, &TelnetSession, SiInput);
+        iRet = TelnetStatefulSessionInspection(p, GlobalConf, TelnetSession, SiInput);
         if (iRet)
-        {
             return iRet;
-        }
-
-        if (p->stream_session_ptr)
-        {
-            _dpd.streamAPI->set_application_data(p->stream_session_ptr,
-                    PP_TELNET, TelnetSession, &TelnetFreeSession);
-        }
-        else
-        {
-            /* Uh, can't create the session info */
-            /* Free session data, to avoid memory leak */
-            TelnetFreeSession(TelnetSession);
-            return FTPP_NONFATAL_ERR;
-        }
     }
     else
     {
-        /*
-         * Assume stateless processing otherwise
-         */
-        iRet = TelnetStatelessSessionInspection(p, GlobalConf, &TelnetSession, SiInput);
+        /* Assume stateless processing otherwise */
+        iRet = TelnetStatelessSessionInspection(p, GlobalConf, TelnetSession, SiInput);
         if (iRet)
-        {
             return iRet;
-        }
-
-        if (p->stream_session_ptr)
-        {
-            /* Set the free function pointer to NULL, 
-             * since this is a static one */
-            _dpd.streamAPI->set_application_data(p->stream_session_ptr,
-                    PP_TELNET, TelnetSession, NULL);
-        }
-        else
-        {
-            /* Uh, can't create the session info */
-            return FTPP_NONFATAL_ERR;
-        }
     }
-
-    SiInput->pproto = FTPP_SI_PROTO_TELNET;
 
     return FTPP_SUCCESS;
 }
@@ -386,7 +381,7 @@ int TelnetSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
  * Returns: int => return code indicating the mode
  *
  */
-static int FTPGetPacketDir(SFSnortPacket *p)
+int FTPGetPacketDir(SFSnortPacket *p)
 {
     if (p->payload_size >= 3)
     {
@@ -484,7 +479,7 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
 
     if(!ClientConfDip)
     {
-        ClientConfDip = &GlobalConf->global_ftp_client;
+        ClientConfDip = GlobalConf->default_ftp_client;
     }
 
     ClientConfSip = ftpp_ui_client_lookup_find(GlobalConf->client_lookup,
@@ -497,7 +492,7 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
 
     if(!ClientConfSip)
     {
-        ClientConfSip = &GlobalConf->global_ftp_client;
+        ClientConfSip = GlobalConf->default_ftp_client;
     }
 
     /*
@@ -516,7 +511,7 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
 
     if(!ServerConfDip)
     {
-        ServerConfDip = &GlobalConf->global_ftp_server;
+        ServerConfDip = GlobalConf->default_ftp_server;
     }
 
     ServerConfSip = ftpp_ui_server_lookup_find(GlobalConf->server_lookup,
@@ -529,7 +524,7 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
 
     if(!ServerConfSip)
     {
-        ServerConfSip = &GlobalConf->global_ftp_server;
+        ServerConfSip = GlobalConf->default_ftp_server;
     }
 
     /*
@@ -562,11 +557,9 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
         case FTPP_SI_NO_MODE:
 
 #ifdef TARGET_BASED
-            if (_dpd.streamAPI)
-            {
-                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
-            }
-            if (app_id == GlobalConf->ftp_app_id || app_id == 0)
+            app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+
+            if (app_id == ftp_app_id || app_id == 0)
             {
 #endif
             
@@ -630,11 +623,9 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
         case FTPP_SI_CLIENT_MODE:
             /* Packet is from client --> dest is Server */
 #ifdef TARGET_BASED
-            if (_dpd.streamAPI)
-            {
-                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
-            }
-            if ((app_id == GlobalConf->ftp_app_id) || (!app_id && iServerDip))
+            app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+
+            if ((app_id == ftp_app_id) || (!app_id && iServerDip))
 #else
             if(iServerDip)
 #endif
@@ -654,11 +645,9 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
         case FTPP_SI_SERVER_MODE:
             /* Packet is from server --> src is Server */
 #ifdef TARGET_BASED
-            if (_dpd.streamAPI)
-            {
-                app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
-            }
-            if ((app_id == GlobalConf->ftp_app_id) || (!app_id && iServerSip))
+            app_id = _dpd.streamAPI->get_application_protocol_id(p->stream_session_ptr);
+
+            if ((app_id == ftp_app_id) || (!app_id && iServerSip))
 #else
             if(iServerSip)
 #endif
@@ -696,11 +685,30 @@ static int FTPInitConf(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
  */
 static void FTPFreeSession(void *preproc_session)
 {
-    FTP_SESSION *FtpSession = preproc_session;
-    if (FtpSession)
+    FTP_SESSION *ssn = (FTP_SESSION *)preproc_session;
+    FTPTELNET_GLOBAL_CONF *pPolicyConfig = NULL;
+
+    if (ssn == NULL)
+        return;
+
+    pPolicyConfig = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(ssn->global_conf, ssn->policy_id);
+
+    if (pPolicyConfig != NULL)
     {
-        free(FtpSession);
+        pPolicyConfig->ref_count--;
+        if ((pPolicyConfig->ref_count == 0) &&
+            (ssn->global_conf != ftp_telnet_config))
+        {
+
+            sfPolicyUserDataClear (ssn->global_conf, ssn->policy_id);
+            FTPTelnetFreeConfig(pPolicyConfig);
+
+            if (sfPolicyUserPolicyGetActive(ssn->global_conf) == 0)
+                FTPTelnetFreeConfigs(ssn->global_conf);
+        }
     }
+
+    free(ssn);
 }
 
 /*
@@ -717,8 +725,10 @@ static void FTPFreeSession(void *preproc_session)
  * Returns: int => return code indicating error or success
  *
  */
-static INLINE int FTPResetSession(FTP_SESSION *FtpSession, int first)
+static INLINE int FTPResetSession(FTP_SESSION *FtpSession)
 {
+    FtpSession->ft_ssn.proto = FTPP_SI_PROTO_FTP;
+
     FtpSession->server.response.pipeline_req = 0;
     FtpSession->server.response.state = 0;
     FtpSession->client.request.pipeline_req = 0;
@@ -768,67 +778,44 @@ static int FTPStatefulSessionInspection(SFSnortPacket *p,
         FTP_SESSION **FtpSession,
         FTPP_SI_INPUT *SiInput, int *piInspectMode)
 {
-    FTP_CLIENT_PROTO_CONF *ClientConf;
-    FTP_SERVER_PROTO_CONF *ServerConf;
-    int iRet;
-    FTP_SESSION *NewSession;
-
-    /*
-     * First, check if there is already a session pointer.
-     */
     if (p->stream_session_ptr)
     {
-        *FtpSession =
-            _dpd.streamAPI->get_application_data(p->stream_session_ptr, PP_FTPTELNET);
-        if (*FtpSession)
+        FTP_CLIENT_PROTO_CONF *ClientConf;
+        FTP_SERVER_PROTO_CONF *ServerConf;
+        int iRet;
+
+        iRet = FTPInitConf(p, GlobalConf, &ClientConf, &ServerConf, SiInput, piInspectMode);
+        if (iRet)
+            return iRet;
+
+        if (*piInspectMode)
         {
-            if (SiInput->pdir != FTPP_SI_NO_MODE)
-            {
-                *piInspectMode = SiInput->pdir;
-            }
-            else
-            {
-                FTP_SESSION *tmp = *FtpSession;
-                /* check session pointer server conf port */
+            FTP_SESSION *NewSession = (FTP_SESSION *)calloc(1, sizeof(FTP_SESSION));
+            tSfPolicyId policy_id = _dpd.getRuntimePolicy();
 
-                if (tmp->server_conf && tmp->server_conf->proto_ports.ports[SiInput->sport])
-                    *piInspectMode = FTPP_SI_SERVER_MODE;
-                else if (tmp->server_conf && tmp->server_conf->proto_ports.ports[SiInput->dport])
-                    *piInspectMode = FTPP_SI_CLIENT_MODE;
-                else
-                    *piInspectMode = FTPGetPacketDir(p);
+            if (NewSession == NULL)
+            {
+                DynamicPreprocessorFatalMessage("Failed to allocate memory for "
+                                                "new FTP session.\n");
             }
 
+            FTPResetSession(NewSession);
+
+            NewSession->ft_ssn.proto = FTPP_SI_PROTO_FTP;
+            NewSession->client_conf = ClientConf;
+            NewSession->server_conf = ServerConf;
+
+            NewSession->global_conf = ftp_telnet_config;
+            NewSession->policy_id = policy_id;
+            GlobalConf->ref_count++;
+
+            _dpd.streamAPI->set_application_data
+                (p->stream_session_ptr, PP_FTPTELNET, NewSession, &FTPFreeSession);
+
+            *FtpSession = NewSession;
+            SiInput->pproto = FTPP_SI_PROTO_FTP;
             return FTPP_SUCCESS;
         }
-    }
-
-    /*
-     * If not, create a new one, and initialize it.
-     */
-    iRet = FTPInitConf(p, GlobalConf, &ClientConf, &ServerConf, SiInput, piInspectMode);
-    if (iRet)
-    {
-        return iRet;
-    }
-
-    if (*piInspectMode)
-    {
-        NewSession = (FTP_SESSION *)calloc(1, sizeof(FTP_SESSION));
-        if (NewSession == NULL)
-        {
-            DynamicPreprocessorFatalMessage("%s(%d) => Failed to allocate memory for new FTP session\n",
-                                            *(_dpd.config_file), *(_dpd.config_line));
-        }
-
-        FTPResetSession(NewSession, 1);
-
-        NewSession->client_conf = ClientConf;
-        NewSession->server_conf = ServerConf;
-        NewSession->global_conf = GlobalConf;
-
-        *FtpSession = NewSession;
-        return FTPP_SUCCESS;
     }
 
     return FTPP_INVALID_PROTO;
@@ -862,9 +849,6 @@ static int FTPStatefulSessionInspection(SFSnortPacket *p,
  * Returns: int => return code indicating error or success
  *
  */
-static FTP_SESSION StaticSession;
-static int first = 1;
-
 static int FTPStatelessSessionInspection(SFSnortPacket *p,
         FTPTELNET_GLOBAL_CONF *GlobalConf,
         FTP_SESSION **FtpSession,
@@ -874,21 +858,18 @@ static int FTPStatelessSessionInspection(SFSnortPacket *p,
     FTP_SERVER_PROTO_CONF *ServerConf;
     int iRet;
 
-    FTPResetSession(&StaticSession, first);
-
-    if (first)
-        first = 0;
+    FTPResetSession(&StaticSession);
 
     iRet = FTPInitConf(p, GlobalConf, &ClientConf, &ServerConf, SiInput, piInspectMode);
     if (iRet)
-    {
         return iRet;
-    }
-    
+
+    StaticSession.ft_ssn.proto = FTPP_SI_PROTO_FTP;
+    StaticSession.global_conf = ftp_telnet_config;
     StaticSession.client_conf = ClientConf;
     StaticSession.server_conf = ServerConf;
-    StaticSession.global_conf = GlobalConf;
 
+    SiInput->pproto = FTPP_SI_PROTO_FTP;
     *FtpSession = &StaticSession;
 
     return FTPP_SUCCESS;
@@ -924,10 +905,9 @@ static int FTPStatelessSessionInspection(SFSnortPacket *p,
  *
  */
 int FTPSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
-        FTPP_SI_INPUT *SiInput, int *piInspectMode)
+        FTP_SESSION **FtpSession, FTPP_SI_INPUT *SiInput, int *piInspectMode)
 {
     int iRet;
-    FTP_SESSION *FtpSession;
 
     /*
      * We get the server configuration and the session structure differently 
@@ -942,52 +922,16 @@ int FTPSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
      */
     if(GlobalConf->inspection_type == FTPP_UI_CONFIG_STATEFUL)
     {
-        iRet = FTPStatefulSessionInspection(p, GlobalConf, &FtpSession, SiInput, piInspectMode);
+        iRet = FTPStatefulSessionInspection(p, GlobalConf, FtpSession, SiInput, piInspectMode);
         if (iRet)
-        {
             return iRet;
-        }
-
-        if (p->stream_session_ptr)
-        {
-            SiInput->pproto = FTPP_SI_PROTO_FTP;
-            _dpd.streamAPI->set_application_data(p->stream_session_ptr,
-                    PP_FTPTELNET, FtpSession, &FTPFreeSession);
-        }
-        else
-        {
-            /* Uh, can't create the session info */
-
-            /* Free session data, to avoid memory leak */
-            FTPFreeSession(FtpSession);
-            SiInput->pproto = FTPP_SI_PROTO_UNKNOWN;
-            return FTPP_NONFATAL_ERR;
-        }
     }
     else
     {
-        /*
-         * Assume stateless processing otherwise
-         */
-        iRet = FTPStatelessSessionInspection(p, GlobalConf, &FtpSession, SiInput, piInspectMode);
+        /* Assume stateless processing otherwise */
+        iRet = FTPStatelessSessionInspection(p, GlobalConf, FtpSession, SiInput, piInspectMode);
         if (iRet)
-        {
             return iRet;
-        }
-
-        if (p->stream_session_ptr)
-        {
-            SiInput->pproto = FTPP_SI_PROTO_FTP;
-            /* Set the free function pointer to NULL,
-             * since this is a static one */
-            _dpd.streamAPI->set_application_data(p->stream_session_ptr,
-                    PP_FTPTELNET, FtpSession, NULL);
-        }
-        else
-        {
-            /* Uh, can't create the session info */
-            return FTPP_NONFATAL_ERR;
-        }
     }
 
     return FTPP_SUCCESS;
@@ -1013,17 +957,17 @@ int FTPSessionInspection(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
  *
  */
 int ftpp_si_determine_proto(SFSnortPacket *p, FTPTELNET_GLOBAL_CONF *GlobalConf,
-        FTPP_SI_INPUT *SiInput, int *piInspectMode)
+        FTP_TELNET_SESSION **ft_ssn, FTPP_SI_INPUT *SiInput, int *piInspectMode)
 {
     /* Default to no FTP or Telnet case */
     SiInput->pproto = FTPP_SI_PROTO_UNKNOWN;
     *piInspectMode = FTPP_SI_NO_MODE;
 
-    TelnetSessionInspection(p, GlobalConf, SiInput, piInspectMode);
+    TelnetSessionInspection(p, GlobalConf, (TELNET_SESSION **)ft_ssn, SiInput, piInspectMode);
     if (SiInput->pproto == FTPP_SI_PROTO_TELNET)
         return FTPP_SUCCESS;
 
-    FTPSessionInspection(p, GlobalConf, SiInput, piInspectMode);
+    FTPSessionInspection(p, GlobalConf, (FTP_SESSION **)ft_ssn, SiInput, piInspectMode);
     if (SiInput->pproto == FTPP_SI_PROTO_FTP)
         return FTPP_SUCCESS;
 

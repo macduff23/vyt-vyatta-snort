@@ -27,37 +27,60 @@
  *
  * Marc Norton
  *
- * 3/5/07 - man - fixed memory leak in globnal config to limit
+ * 3/5/07 - man - fixed memory leak in global config to limit
  * of one gid=0, or multiple gid!=0 but not both.
  * Boris Lytochkin found it.
  */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
+#ifndef WIN32
+#include <netinet/in.h>
+#endif
+
+#include "parser/IpAddrSet.h"
 #include "sflsq.h"
 #include "sfghash.h"
 #include "sfxhash.h"
 
 #include "sfthd.h"
 #include "util.h"
+#include "sfPolicy.h"
 
-static int s_id = 1;  /* thd_id generator for both local and global thresholds */
+//  Debug Printing
+//#define THD_DEBUG
 
-/*
- *  Debug Printing
- */
+// This disables adding and testing of Threshold objects
+//#define CRIPPLE
 
-/* #define THD_DEBUG */
+SFXHASH * sfthd_new_hash(unsigned nbytes, size_t key, size_t data)
+{
+    size_t size = key + data;
+    int nrows;
 
+    /* Calc max ip nodes for this memory */
+    if ( nbytes < size )
+    {
+        nbytes = size;
+    }
+    nrows = nbytes / (size);
 
-/*
- *   This disables adding and testing of Threshold objects
- */
-/*
-#define CRIPPLE
-*/
+    return sfxhash_new(
+        nrows,  /* try one node per row - for speed */
+        key,    /* keys size */
+        data,   /* data size */
+        nbytes, /* memcap **/
+        1,      /* ANR flag - true ?- Automatic Node Recovery=ANR */
+        0,      /* ANR callback - none */
+        0,      /* user freemem callback - none */
+        1 ) ;   /* Recycle nodes ?*/
+}
 
 /*!
   Create a threshold table, initialize the threshold system,
@@ -69,53 +92,61 @@ static int s_id = 1;  /* thd_id generator for both local and global thresholds *
   @retval  0 error
   @retval !0 valid THD_STRUCT
 */
-THD_STRUCT * sfthd_new( unsigned nbytes )
+
+SFXHASH * sfthd_local_new(unsigned bytes)
+{
+    SFXHASH *local_hash =
+        sfthd_new_hash(bytes, 
+                       sizeof(THD_IP_NODE_KEY),
+                       sizeof(THD_IP_NODE));
+
+#ifdef THD_DEBUG
+    if (local_hash == NULL)
+        printf("Could not allocate the sfxhash table\n");
+#endif
+
+    return local_hash;
+}
+
+SFXHASH * sfthd_global_new(unsigned bytes)
+{
+    SFXHASH *global_hash =
+        sfthd_new_hash(bytes, 
+                       sizeof(THD_IP_GNODE_KEY),
+                       sizeof(THD_IP_NODE));
+
+#ifdef THD_DEBUG
+    if (global_hash == NULL)
+        printf("Could not allocate the sfxhash table\n");
+#endif
+
+    return global_hash;
+}
+
+THD_STRUCT * sfthd_new(unsigned lbytes, unsigned gbytes)
 {
     THD_STRUCT * thd;
-    int          nrows;
 
     /* Create the THD struct */
-    thd = (THD_STRUCT*) calloc(1,sizeof(THD_STRUCT));
-    if( !thd )
-    {
-        return 0;
-    }
-
-    /* Calc max ip nodes for this memory */
-    nrows = nbytes /( sizeof(THD_IP_NODE)+sizeof(THD_IP_NODE_KEY) );
+    thd = (THD_STRUCT *)SnortAlloc(sizeof(THD_STRUCT));
 
 #ifndef CRIPPLE
-    /* Create global hash table for all of the IP Nodes */
-    thd->ip_nodes = sfxhash_new( nrows,  /* try one node per row - for speed */
-                                 sizeof(THD_IP_NODE_KEY), /* keys size */
-                                 sizeof(THD_IP_NODE),     /* data size */
-                                 nbytes,                  /* memcap **/
-                                 1,         /* ANR flag - true ?- Automatic Node Recovery=ANR */
-                                 0,         /* ANR callback - none */
-                                 0,         /* user freemem callback - none */
-                                 1 ) ;      /* Recycle nodes ?*/
+    /* Create hash table for all of the local IP Nodes */
+    thd->ip_nodes = sfthd_local_new(lbytes);
     if( !thd->ip_nodes )
     {
 #ifdef THD_DEBUG
         printf("Could not allocate the sfxhash table\n");
 #endif
         free(thd);
-        return 0;
+        return NULL;
     }
 
+    if ( gbytes == 0 )
+        return thd;
 
-    /* Calc max ip nodes for global thresholding memory */
-    nrows = nbytes /( sizeof(THD_IP_GNODE)+sizeof(THD_IP_GNODE_KEY) );
-
-    /* Create global hash table for all of the Global-Thresholding IP Nodes */
-    thd->ip_gnodes = sfxhash_new( nrows,  /* try one node per row - for speed */
-                                  sizeof(THD_IP_GNODE_KEY), /* keys size */
-                                  sizeof(THD_IP_GNODE),     /* data size */
-                                  nbytes,                  /* memcap **/
-                                  1,         /* ANR flag - true ?- Automatic Node Recovery=ANR */
-                                  0,         /* ANR callback - none */
-                                  0,         /* user freemem callback - none */
-                                  1 ) ;      /* Recycle nodes ?*/
+    /* Create hash table for all of the global IP Nodes */
+    thd->ip_gnodes = sfthd_global_new(gbytes);
     if( !thd->ip_gnodes )
     {
 #ifdef THD_DEBUG
@@ -123,56 +154,126 @@ THD_STRUCT * sfthd_new( unsigned nbytes )
 #endif
         sfxhash_delete(thd->ip_nodes);
         free(thd);
-        return 0;
+        return NULL;
     }
 #endif
 
     return thd;
 }
 
+ThresholdObjects * sfthd_objs_new(void)
+{
+    return (ThresholdObjects *)SnortAlloc(sizeof(ThresholdObjects));
+}
+
+static void sfthd_node_free(void *node)
+{
+    THD_NODE *sfthd_node = (THD_NODE *)node;
+
+    if (sfthd_node == NULL)
+        return;
+
+    if (sfthd_node->ip_address != NULL)
+    {
+        IpAddrSetDestroy(sfthd_node->ip_address);
+#ifndef SUP_IP6
+        free(sfthd_node->ip_address);
+#endif
+    }
+
+    free(sfthd_node);
+}
+
+void sfthd_objs_free(ThresholdObjects *thd_objs)
+{
+    int i;
+    tSfPolicyId policyId;
+
+    if (thd_objs == NULL)
+        return;
+
+    for (i = 0; i < THD_MAX_GENID; i++)
+    {
+        if (thd_objs->sfthd_array[i])
+            sfghash_delete(thd_objs->sfthd_array[i]);
+    }
+
+    for (policyId = 0; policyId < thd_objs->numPoliciesAllocated; policyId++)
+    {
+        if (thd_objs->sfthd_garray[policyId] == NULL)
+            continue;
+
+        if (thd_objs->sfthd_garray[policyId][0] != NULL)
+        {
+            /* GID of 0 means all of the nodes are pointers to one allocated
+             * THD_NODE */
+            sfthd_node_free((void *)thd_objs->sfthd_garray[policyId][0]);
+        }
+        else
+        {
+            /* Anything other GID will be allocated individually */
+            for (i = 1; i < THD_MAX_GENID; i++)
+            {
+                if (thd_objs->sfthd_garray[policyId][i])
+                {
+                    sfthd_node_free((void *)thd_objs->sfthd_garray[policyId][i]);
+                }
+            }
+        }
+
+        free(thd_objs->sfthd_garray[policyId]);
+    }
+
+    if (thd_objs->sfthd_garray != NULL)
+        free(thd_objs->sfthd_garray);
+
+    free(thd_objs);
+}
+
 void sfthd_item_free(void *item)
 {
     THD_ITEM *sfthd_item = (THD_ITEM*)item;
-    sflist_free_all(sfthd_item->sfthd_node_list, free);
+    sflist_free_all(sfthd_item->sfthd_node_list, sfthd_node_free);
     free(sfthd_item);
 }
 
-void sfthd_free( THD_STRUCT * thd )
+void sfthd_free(THD_STRUCT *thd)
 {
-    int i;
-    if (!thd)
+    if (thd == NULL)
         return;
 
 #ifndef CRIPPLE
-    if (thd->ip_nodes)
-    {
+    if (thd->ip_nodes != NULL)
         sfxhash_delete(thd->ip_nodes);
-    }
 
-    if (thd->ip_gnodes)
-    {
+    if (thd->ip_gnodes != NULL)
         sfxhash_delete(thd->ip_gnodes);
-    }
 #endif
-    for (i=0;i<THD_MAX_GENID;i++)
-    {
-        if (thd->sfthd_array[i])
-        {
-            sfghash_delete(thd->sfthd_array[i]);
-        }
-    }
-
-    if (thd->sfthd_garray[0])
-    {
-        /* Is the global array, they should all be same pointer */
-        free(thd->sfthd_garray[0]);
-    }
 
     free(thd);
 }
 
-/*!
+void * sfthd_create_rule_threshold(int id, 
+                                   int tracking,
+                                   int type,
+                                   int count,
+                                   unsigned int seconds)
+{
+    THD_NODE *sfthd_node = (THD_NODE *)calloc(1, sizeof(THD_NODE));
 
+    if (sfthd_node == NULL)
+        return NULL;
+
+    sfthd_node->thd_id    = id;
+    sfthd_node->tracking  = tracking;
+    sfthd_node->type      = type;
+    sfthd_node->count     = count;
+    sfthd_node->seconds   = seconds;
+
+    return (void *)sfthd_node;
+}
+
+/*!
 Add a permanent threshold object to the threshold table. Multiple
 objects may be defined for each gen_id and sig_id pair. Internally
 a unique threshold id is generated for each pair.
@@ -199,45 +300,31 @@ the current event should be logged or dropped.
 @retval !0 failed
 
 */
-static
-int
-sfthd_create_threshold_local(   THD_STRUCT * thd,
-                                unsigned     gen_id,
-                                unsigned     sig_id,
-                                int          tracking,
-                                int          type,
-                                int          priority,
-                                int          count,
-                                int          seconds,
-                                snort_ip_p   ip_address,
-#ifndef SUP_IP6
-                                unsigned     ip_mask,
-#endif
-                                unsigned     not_flag)
+static int sfthd_create_threshold_local(ThresholdObjects *thd_objs,
+                                        THD_NODE* config)
 {
     SFGHASH  * sfthd_hash;
-    int        nrows;
-    int        hstatus;
     THD_ITEM * sfthd_item;
     THD_NODE * sfthd_node;
-    THD_NODE * sfthd_n;
-    SF_LNODE * lnode;
+    tThdItemKey key;
+    int nrows;
+    int hstatus;
+    tSfPolicyId policy_id = getParserPolicy();
 
-
-    if( !thd )
+    if (thd_objs == NULL )
         return -1;
 
-    if( gen_id >= THD_MAX_GENID )
+    if( config->gen_id >= THD_MAX_GENID )
         return -1;
 
 #ifdef CRIPPLE
     return 0;
 #endif
 
-    /* Check for an existing 'gen_id' entry, if none found than create one. */
-    if( !thd->sfthd_array[ gen_id ] )
+    /* Check for an existing 'gen_id' entry, if none found create one. */
+    if (thd_objs->sfthd_array[config->gen_id] == NULL)
     {
-        if( gen_id == 1 )/* patmatch rules gen_id, many rules */
+        if( config->gen_id == 1 )/* patmatch rules gen_id, many rules */
         {
             nrows= THD_GEN_ID_1_ROWS;
         }
@@ -247,28 +334,28 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
         }
 
         /* Create the hash table for this gen_id */
-        sfthd_hash = sfghash_new( nrows, sizeof(sig_id), 0, sfthd_item_free );
+        sfthd_hash = sfghash_new( nrows, sizeof(tThdItemKey), 0, sfthd_item_free );
         if( !sfthd_hash )
         {
             return -2;
         }
 
-        thd->sfthd_array[gen_id] = sfthd_hash;
+        thd_objs->sfthd_array[config->gen_id] = sfthd_hash;
     }
     else
     {
         /* Get the hash table for this gen_id */
-        sfthd_hash = thd->sfthd_array[gen_id];
+        sfthd_hash = thd_objs->sfthd_array[config->gen_id];
     }
 
-    if( !sfthd_hash )
-    {
+    if (sfthd_hash == NULL)
          return -2;
-    }
 
+    key.sig_id = config->sig_id;
+    key.policyId = policy_id;
 
     /* Check if sig_id is already in the table - if not allocate and add it */
-    sfthd_item = (THD_ITEM*)sfghash_find( sfthd_hash, (void*)&sig_id );
+    sfthd_item = (THD_ITEM*)sfghash_find( sfthd_hash, (void*)&key );
     if( !sfthd_item )
     {
         /* Create the sfthd_item hash node data */
@@ -278,8 +365,9 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
             return -3;
         }
 
-        sfthd_item->gen_id          = gen_id;
-        sfthd_item->sig_id          = sig_id;
+        sfthd_item->gen_id = config->gen_id;
+        sfthd_item->sig_id = config->sig_id;
+        sfthd_item->policyId = policy_id;
         sfthd_item->sfthd_node_list = sflist_new();
 
         if(!sfthd_item->sfthd_node_list)
@@ -289,7 +377,7 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
         }
 
         /* Add the sfthd_item to the hash table */
-        hstatus = sfghash_add( sfthd_hash, (void*)&sig_id, sfthd_item );
+        hstatus = sfghash_add( sfthd_hash, (void*)&key, sfthd_item );
         if( hstatus )
         {
             sflist_free(sfthd_item->sfthd_node_list);
@@ -307,15 +395,18 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
         THD_NODE * p;
         if( !sfthd_item->sfthd_node_list->tail)
         {
-            return -10; /* can you say paranoid- if there is a count, there should be a tail */
+            /* can you say paranoid- if there is a count, there should be a tail */
+            return -10;
         }
         p = (THD_NODE*)sfthd_item->sfthd_node_list->tail->ndata;
         if(p) /* just to be safe- if thers a tail, there is is node data */
         {
-            if( p->type != THD_TYPE_SUPPRESS && type != THD_TYPE_SUPPRESS )
+            if( p->type != THD_TYPE_SUPPRESS && config->type != THD_TYPE_SUPPRESS )
             {
 #ifdef THD_DEBUG
-                printf("THD_DEBUG: Could not add a 2nd Threshold object, you can onlky have 1 per sid: gid=%u, sid=%u\n",gen_id,sig_id);
+                printf("THD_DEBUG: Could not add a 2nd Threshold object, "
+                       "you can only have 1 per sid: gid=%u, sid=%u\n",
+                       config->gen_id, config->sig_id);
 #endif
                 /* cannot add more than one threshold per sid in
                    version 3.0, wait for 3.2 and CIDR blocks */
@@ -332,45 +423,26 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
     }
 
     /* Limit priorities to force supression nodes to highest priority */
-    if( priority >= THD_PRIORITY_SUPPRESS )
+    if( config->priority >= THD_PRIORITY_SUPPRESS )
     {
-        priority  = THD_PRIORITY_SUPPRESS - 1;
+        config->priority  = THD_PRIORITY_SUPPRESS - 1;
     }
 
     /* Copy the node parameters */
-    sfthd_node->thd_id    = s_id++; /* produce a unique thd_id for this node */
-    sfthd_node->gen_id    = gen_id;
-    sfthd_node->sig_id    = sig_id;
-    sfthd_node->tracking  = tracking; /* by_src, by_dst */
-    sfthd_node->type      = type;
-    sfthd_node->priority  = priority;
-    sfthd_node->count     = count;
-    sfthd_node->seconds   = seconds;
-#ifdef SUP_IP6
-    sfthd_node->ip_address= *ip_address;
-#else
-    sfthd_node->ip_address= ip_address;
-    sfthd_node->ip_mask   = ip_mask;
-#endif
-    sfthd_node->not_flag  = not_flag;
+    sfthd_node->thd_id    = config->thd_id;
+    sfthd_node->gen_id    = config->gen_id;
+    sfthd_node->sig_id    = config->sig_id;
+    sfthd_node->tracking  = config->tracking; /* by_src, by_dst */
+    sfthd_node->type      = config->type;
+    sfthd_node->priority  = config->priority;
+    sfthd_node->count     = config->count;
+    sfthd_node->seconds   = config->seconds;
+    sfthd_node->ip_address= config->ip_address;
 
-    if( type == THD_TYPE_SUPPRESS )
+    if( config->type == THD_TYPE_SUPPRESS )
     {
-#ifdef SUP_IP6
-        if( !sfip_bits(&sfthd_node->ip_address) && sfip_is_set(ip_address))
-        {
-            /* not necessary for IP6 */
-        }
-#else
-            if( sfthd_node->ip_mask == 0 && sfthd_node->ip_address != 0 )
-            {
-            sfthd_node->ip_mask = 0xffffffff;
-        }
-#endif
-            sfthd_node->priority = THD_PRIORITY_SUPPRESS;
+        sfthd_node->priority = THD_PRIORITY_SUPPRESS;
     }
-
-    thd->count++;
 
     /*
       If sfthd_node list is empty - add as head node
@@ -397,12 +469,14 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
     */
     else
     {
+        SF_LNODE* lnode;
+
         /* Walk the list and insert based on priorities if suppress */
         for( lnode = sflist_first_node(sfthd_item->sfthd_node_list);
              lnode;
              lnode = sflist_next_node(sfthd_item->sfthd_node_list) )
         {
-            sfthd_n = (THD_NODE*)lnode->ndata;
+            THD_NODE* sfthd_n = (THD_NODE*)lnode->ndata;
 
             /* check if the new node is higher priority */
             if( sfthd_node->priority > sfthd_n->priority  )
@@ -433,44 +507,41 @@ sfthd_create_threshold_local(   THD_STRUCT * thd,
 
 
 /*
- *
- *
  */
-static
-int
-sfthd_create_threshold_global(  THD_STRUCT * thd,
-                                unsigned     gen_id,
-                                unsigned     sig_id,
-                                int          tracking,
-                                int          type,
-                                int          priority,
-                                int          count,
-                                int          seconds,
-                                snort_ip_p     ip_address
-#ifndef SUP_IP6
-                                ,unsigned     ip_mask
-#endif
-                )
+static int sfthd_create_threshold_global(ThresholdObjects *thd_objs,
+                                         THD_NODE* config)
 {
-    THD_NODE * sfthd_node;
+    THD_NODE *sfthd_node;
+    tSfPolicyId policy_id = getParserPolicy();
+
+    if (thd_objs == NULL)
+        return -1;
+
+    if (thd_objs->sfthd_garray[policy_id] == NULL)
+    {
+        thd_objs->sfthd_garray[policy_id] = (THD_NODE **)(calloc(THD_MAX_GENID, sizeof(THD_NODE *)));
+        if (thd_objs->sfthd_garray[policy_id] == NULL)
+        {
+            return -1;
+        }
+    }
 
     /*
      * check for duplicates, we only allow
      * a single gid=0/sid=0 rule,
      * or multiple gid!=0/sid=0 rules
      */
-    if( gen_id == 0)
+    if (config->gen_id == 0)
     {
        int i;
-       for(i=0;i<THD_MAX_GENID;i++)
+
+       for (i = 0; i < THD_MAX_GENID; i++)
        {
-           if( thd->sfthd_garray [ i ] )
-           {
+           if (thd_objs->sfthd_garray[policy_id][i] != NULL)
                return THD_TOO_MANY_THDOBJ;
-           }
        }
     }
-    else if(  thd->sfthd_garray [ gen_id ] )
+    else if (thd_objs->sfthd_garray[policy_id][config->gen_id])
     {
        return THD_TOO_MANY_THDOBJ;
     }
@@ -482,65 +553,42 @@ sfthd_create_threshold_global(  THD_STRUCT * thd,
     }
 
     /* Copy the node parameters */
-    sfthd_node->thd_id    = s_id++;  /* produce a unique thd_id for this node */
-    sfthd_node->gen_id    = gen_id;
-    sfthd_node->sig_id    = sig_id;  /* -1 for global thresholds */
-    sfthd_node->tracking  = tracking; /* by_src, by_dst */
-    sfthd_node->type      = type;
-    sfthd_node->priority  = priority;
-    sfthd_node->count     = count;
-    sfthd_node->seconds   = seconds;
-#ifdef SUP_IP6
-    sfthd_node->ip_address= *ip_address;
-#else
-    sfthd_node->ip_address= ip_address;
-    sfthd_node->ip_mask   = ip_mask;
-#endif
+    sfthd_node->thd_id = config->thd_id;
+    sfthd_node->gen_id = config->gen_id;
+    sfthd_node->sig_id = config->sig_id;      /* -1 for global thresholds */
+    sfthd_node->tracking = config->tracking;  /* by_src, by_dst */
+    sfthd_node->type = config->type;
+    sfthd_node->priority = config->priority;
+    sfthd_node->count = config->count;
+    sfthd_node->seconds = config->seconds;
+    sfthd_node->ip_address = config->ip_address;
 
-#ifdef SUP_IP6
-    if( !sfip_bits(&sfthd_node->ip_address) && sfip_is_set(ip_address))
-    {
-        if(sfip_family(ip_address) == AF_INET)
-        {
-            sfip_set_bits(&sfthd_node->ip_address, 32);
-        }
-        else
-        {
-            sfip_set_bits(&sfthd_node->ip_address, 128);
-        }
-    }
-#else
-    if( sfthd_node->ip_mask == 0 && sfthd_node->ip_address != 0 )
-    {
-        sfthd_node->ip_mask = 0xffffffff;
-    }
-#endif
-
-    /* need a hash of these where the key=[gen_id,sig_id] => THD_GNODE_KEY, the data = THD_NODE's */
-    if( gen_id == 0)/* do em all */
+    /* need a hash of these where
+     * key=[gen_id,sig_id] => THD_GNODE_KEY
+     * data = THD_NODE's
+     */
+    if (config->gen_id == 0) /* do em all */
     {
         int i;
-        for(i=0;i<THD_MAX_GENID;i++)
-        {
-            thd->sfthd_garray [ i ] =  sfthd_node;
-        }
+
+        for (i = 0; i < THD_MAX_GENID; i++)
+            thd_objs->sfthd_garray[policy_id][i] = sfthd_node;
     }
     else
     {
-       thd->sfthd_garray [ gen_id ] =  sfthd_node;
+        thd_objs->sfthd_garray[policy_id][config->gen_id] = sfthd_node;
     }
 
 #ifdef THD_DEBUG
-    printf("THD_DEBUG-GLOBAL: created global threshold object for gen_id=%d\n",gen_id);
+    printf("THD_DEBUG-GLOBAL: created global threshold object "
+           "for gen_id=%d\n",config->gen_id);
     fflush(stdout);
 #endif
 
     return 0;
 }
 
-
 /*!
-
 Add a permanent threshold object to the threshold table. Multiple
 objects may be defined for each gen_id and sig_id pair. Internally
 a unique threshold id is generated for each pair.
@@ -569,57 +617,52 @@ the current event should be logged or dropped.
  --- Local and Global Thresholding is setup here  ---
 
 */
-int sfthd_create_threshold(     THD_STRUCT * thd,
-                                unsigned     gen_id,
-                                unsigned     sig_id,
-                                int          tracking,
-                                int          type,
-                                int          priority,
-                                int          count,
-                                int          seconds,
-                                snort_ip_p     ip_address,
-#ifndef SUP_IP6
-                                unsigned     ip_mask,
-#endif
-                                unsigned     not_flag)
+int sfthd_create_threshold(ThresholdObjects *thd_objs,
+                           unsigned gen_id,
+                           unsigned sig_id,
+                           int tracking,
+                           int type,
+                           int priority,
+                           int count,
+                           int seconds,
+                           IpAddrSet* ip_address)
 {
+    //allocate memory fpr sfthd_array if needed.
+    tSfPolicyId policyId = getParserPolicy();
+    THD_NODE sfthd_node;
+    memset(&sfthd_node, 0, sizeof(sfthd_node));
+
+    thd_objs->count++;
+
+    sfthd_node.thd_id    = thd_objs->count;  /* produce a unique thd_id for this node */
+    sfthd_node.gen_id    = gen_id;
+    sfthd_node.sig_id    = sig_id;
+    sfthd_node.tracking  = tracking; /* by_src, by_dst */
+    sfthd_node.type      = type;
+    sfthd_node.priority  = priority;
+    sfthd_node.count     = count;
+    sfthd_node.seconds   = seconds;
+    sfthd_node.ip_address= ip_address;
+
+    sfDynArrayCheckBounds ((void **)&thd_objs->sfthd_garray, policyId, &thd_objs->numPoliciesAllocated);
+    if (thd_objs->sfthd_garray[policyId] == NULL)
+    {
+        thd_objs->sfthd_garray[policyId] = SnortAlloc(THD_MAX_GENID * sizeof(THD_NODE *));
+        if (thd_objs->sfthd_garray[policyId] == NULL)
+        {
+            return -1;
+        } 
+    }
 
     if( sig_id == 0 )
     {
-        return  sfthd_create_threshold_global( thd,
-                                               gen_id,
-                                               sig_id,
-                                               tracking,
-                                               type,
-                                               priority,
-                                               count,
-                                               seconds,
-                                               ip_address
-#ifndef SUP_IP6
-                                               ,ip_mask
-#endif
-                                            );
-
+        return sfthd_create_threshold_global(thd_objs, &sfthd_node);
     }
-    else
-    {
-        if( gen_id == 0 )
-            return -1;
 
-        return  sfthd_create_threshold_local( thd,
-                                              gen_id,
-                                              sig_id,
-                                              tracking,
-                                              type,
-                                              priority,
-                                              count,
-                                              seconds,
-                                              ip_address,
-#ifndef SUP_IP6
-                                              ip_mask,
-#endif
-                                              not_flag );
-    }
+    if( gen_id == 0 )
+        return -1;
+
+    return sfthd_create_threshold_local(thd_objs, &sfthd_node);
 }
 
 #ifdef THD_DEBUG
@@ -630,6 +673,189 @@ static char * printIP(unsigned u )
     return s;
 }
 #endif
+
+int sfthd_test_rule(SFXHASH *rule_hash, THD_NODE *sfthd_node,
+                    snort_ip_p sip, snort_ip_p dip, long curtime)
+{
+    int status;
+
+    if ((rule_hash == NULL) || (sfthd_node == NULL))
+        return 0;
+
+    status = sfthd_test_local(rule_hash, sfthd_node, sip, dip, curtime );
+
+    return (status < -1) ? 1 : status;
+}
+
+static INLINE int sfthd_test_suppress (
+    THD_NODE* sfthd_node,
+    snort_ip_p ip)
+{
+#ifndef SUP_IP6
+    struct in_addr addr;
+    addr.s_addr = ip;
+
+    if ( !sfthd_node->ip_address ||
+         IpAddrSetContains(sfthd_node->ip_address, addr) )
+#else
+    if ( !sfthd_node->ip_address ||
+         IpAddrSetContains(sfthd_node->ip_address, ip) )
+#endif
+    {
+#ifdef THD_DEBUG
+        printf("THD_DEBUG: SUPPRESS NODE, do not log events with this IP\n");
+        fflush(stdout);
+#endif
+        /* Don't log, and stop looking( event's to this address
+         * for this gen_id+sig_id) */
+        return -1;
+    }
+    return 1; /* Keep looking for other suppressors */
+}
+
+/*
+ *  Do the appropriate test for the Threshold Object Type
+ */
+static INLINE int sfthd_test_non_suppress(
+    THD_NODE* sfthd_node,
+    THD_IP_NODE* sfthd_ip_node,
+    time_t curtime)
+{
+    unsigned dt;
+
+    if( sfthd_node->type == THD_TYPE_DETECT )
+    {
+#ifdef THD_DEBUG
+        printf("\n...Detect Test\n");
+        fflush(stdout);
+#endif
+        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
+
+        if( dt >= sfthd_node->seconds )
+        {   /* reset */
+            sfthd_ip_node->tstart = curtime;
+            if ( (unsigned)(curtime - sfthd_ip_node->tlast) > sfthd_node->seconds )
+                sfthd_ip_node->prev = 0;
+            else
+                sfthd_ip_node->prev = sfthd_ip_node->count - 1;
+            sfthd_ip_node->count = 1;
+        }
+        sfthd_ip_node->tlast = curtime;
+
+#ifdef THD_DEBUG
+        printf("...dt=%d, sfthd_node->seconds=%d\n",dt, sfthd_node->seconds );
+        printf("...sfthd_ip_node->count=%d, sfthd_node->count=%d\n",
+            sfthd_ip_node->count,sfthd_node->count );
+        fflush(stdout);
+#endif
+        if( (int)sfthd_ip_node->count > sfthd_node->count ||
+            (int)sfthd_ip_node->prev > sfthd_node->count )
+        {
+            return 0; /* Log it, stop looking: log all > 'count' events */
+        }
+
+        /* Don't Log yet, don't keep looking:
+         * already logged our limit, don't log this sid  */
+        return -2;
+    }
+    if( sfthd_node->type == THD_TYPE_LIMIT )
+    {
+#ifdef THD_DEBUG
+        printf("\n...Limit Test\n");
+        fflush(stdout);
+#endif
+        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
+
+        if( dt >= sfthd_node->seconds )
+        {   /* reset */
+            sfthd_ip_node->tstart = curtime;
+            sfthd_ip_node->count  = 1;
+        }
+
+#ifdef THD_DEBUG
+        printf("...dt=%d, sfthd_node->seconds=%d\n",dt, sfthd_node->seconds );
+        printf("...sfthd_ip_node->count=%d, sfthd_node->count=%d\n",
+            sfthd_ip_node->count,sfthd_node->count );
+        fflush(stdout);
+#endif
+        if( (int)sfthd_ip_node->count <= sfthd_node->count )
+        {
+            return 0; /* Log it, stop looking: only log the 1st 'count' events */
+        }
+
+        /* Don't Log yet, don't keep looking:
+         * already logged our limit, don't log this sid  */
+        return -2;
+    }
+
+    else if( sfthd_node->type == THD_TYPE_THRESHOLD )
+    {
+#ifdef THD_DEBUG
+        printf("\n...Threshold Test\n");
+        fflush(stdout);
+#endif
+        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
+        if( dt >= sfthd_node->seconds )
+        {
+            sfthd_ip_node->tstart = curtime;
+            sfthd_ip_node->count  = 1;
+        }
+        if( (int)sfthd_ip_node->count >= sfthd_node->count )
+        {
+            /* reset */
+            sfthd_ip_node->count = 0;
+            sfthd_ip_node->tstart= curtime;
+            return 0; /* Log it, stop looking */
+        }
+        return -2; /* don't log yet */
+    }
+
+    else if( sfthd_node->type == THD_TYPE_BOTH )
+    {
+#ifdef THD_DEBUG
+        printf("\n...Threshold+Limit Test\n");
+        fflush(stdout);
+#endif
+        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
+        if( dt >= sfthd_node->seconds )
+        {
+            sfthd_ip_node->tstart = curtime;
+            sfthd_ip_node->count  = 1;
+
+            /* Don't Log yet, keep looking:
+             * only log after we reach count, which must be > '1' */
+            return -2;
+        }
+        else
+        {
+            if( (int)sfthd_ip_node->count >= sfthd_node->count )
+            {
+                if( (int)sfthd_ip_node->count >  sfthd_node->count )
+                {
+                    /* don't log it, stop looking:
+                     * log once per time interval - than block it */
+                    return -2;
+                }
+                /* Log it, stop looking:
+                 * log the 1st event we see past 'count' events */
+                return 0;
+            }
+            else  /* Block it from logging */
+            {
+                /* don't log it, stop looking:
+                 * we must see at least count events 1st */
+                return -2;
+            }
+        }
+    }
+
+#ifdef THD_DEBUG
+    printf("THD_DEBUG: You should not be here...\n");
+    fflush(stdout);
+#endif
+
+    return 0;  /* should not get here, so log it just to be safe */
+}
 
 /*!
  *
@@ -648,18 +874,18 @@ static char * printIP(unsigned u )
  *  @retval  <0 : Event should never be logged to this user! Suppressed Event+IP
  *
  */
-static
-int sfthd_test_object(        THD_STRUCT * thd,
-                        THD_NODE   * sfthd_node,
-                        snort_ip_p     sip,
-                        snort_ip_p     dip,
-                        time_t       curtime )
+int sfthd_test_local(
+    SFXHASH *local_hash,
+    THD_NODE   * sfthd_node,
+    snort_ip_p   sip,
+    snort_ip_p   dip,
+    time_t       curtime )
 {
     THD_IP_NODE_KEY key;
     THD_IP_NODE     data,*sfthd_ip_node;
     int             status=0;
-    snort_ip_p        ip;
-    unsigned        dt;
+    snort_ip_p      ip;
+    tSfPolicyId policy_id = getRuntimePolicy();
 
 #ifdef THD_DEBUG
     printf("THD_DEBUG: Key THD_NODE IP=%s,",printIP((unsigned)sfthd_node->ip_address) );
@@ -669,7 +895,8 @@ int sfthd_test_object(        THD_STRUCT * thd,
     fflush(stdout);
 #endif
 
-    if (sfthd_node->count == THD_NO_THRESHOLD) /* -1 means don't do any limit or thresholding */
+    /* -1 means don't do any limit or thresholding */
+    if ( sfthd_node->count == THD_NO_THRESHOLD)
     {
 #ifdef THD_DEBUG
         printf("\n...No Threshold applied for this object\n");
@@ -681,14 +908,10 @@ int sfthd_test_object(        THD_STRUCT * thd,
     /*
      *  Get The correct IP
      */
-    if( sfthd_node->tracking== THD_TRK_SRC )
-    {
+    if (sfthd_node->tracking == THD_TRK_SRC)
        ip = sip;
-    }
     else
-    {
        ip = dip;
-    }
 
     /*
      *  Check for and test Suppression of this event to this IP
@@ -698,26 +921,7 @@ int sfthd_test_object(        THD_STRUCT * thd,
 #ifdef THD_DEBUG
         printf("THD_DEBUG: SUPPRESS NODE Testing...\n");fflush(stdout);
 #endif
-
-#ifdef SUP_IP6
-        if((sfthd_node->ip_address.family == AF_UNSPEC) || 
-            ((sfip_contains(&sfthd_node->ip_address, ip) == SFIP_CONTAINS) &&
-            !sfthd_node->not_flag) ||
-           (!(sfip_contains(&sfthd_node->ip_address, ip) == SFIP_CONTAINS) &&
-            sfthd_node->not_flag))
-#else
-        if((sfthd_node->ip_address == (sfthd_node->ip_mask & ip) &&
-            !sfthd_node->not_flag) ||
-           (sfthd_node->ip_address != (sfthd_node->ip_mask & ip) &&
-            sfthd_node->not_flag))
-#endif
-        {
-#ifdef THD_DEBUG
-            printf("THD_DEBUG: SUPPRESS NODE, do not log events with this IP\n");fflush(stdout);
-#endif
-            return -1; /* Don't log, and stop looking( event's to this address for this gen_id+sig_id) */
-        }
-        return 1; /* Keep looking for other suppressors */
+        return sfthd_test_suppress(sfthd_node, ip);
     }
 
     /*
@@ -725,36 +929,28 @@ int sfthd_test_object(        THD_STRUCT * thd,
     */
 
     /* Set up the key */
-#ifdef SUP_IP6
-    key.ip     = *ip;
+    key.policyId = policy_id;
+    key.ip     = IP_VAL(ip);
     key.thd_id = sfthd_node->thd_id;
 
     /* Set up a new data element */
-    data.ip     = *ip;
-#else
-    key.ip     = ip;
-    key.thd_id = sfthd_node->thd_id;
-
-    /* Set up a new data element */
-    data.ip     = ip;
-#endif
     data.count  = 1;
-    data.tstart = curtime; /* Event time */
+    data.prev   = 0;
+    data.tstart = data.tlast = curtime; /* Event time */
 
     /*
      * Check for any Permanent sig_id objects for this gen_id  or add this one ...
      */
-    status = sfxhash_add( thd->ip_nodes, (void*)&key, &data );
-
-    if( status == SFXHASH_INTABLE )
+    status = sfxhash_add(local_hash, (void*)&key, &data);
+    if (status == SFXHASH_INTABLE)
     {
         /* Already in the table */
-        sfthd_ip_node = thd->ip_nodes->cnode->data;
+        sfthd_ip_node = local_hash->cnode->data;
 
         /* Increment the event count */
         sfthd_ip_node->count++;
     }
-    else if (status )
+    else if (status != SFXHASH_OK)
     {
         /* hash error */
         return 1; /*  check the next threshold object */
@@ -765,128 +961,26 @@ int sfthd_test_object(        THD_STRUCT * thd,
         sfthd_ip_node = &data;
     }
 
-
-    /*
-     *  Do the appropriate test for the Threshold Object Type
-     */
-
-    /*
-      Limit
-    */
-    if( sfthd_node->type == THD_TYPE_LIMIT )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Limit Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {   /* reset */
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-        }
-
-#ifdef THD_DEBUG
-        printf("...dt=%d, sfthd_node->seconds=%d\n",dt,sfthd_node->seconds );
-        printf("...sfthd_ip_node->count=%d, sfthd_node->count=%d\n",sfthd_ip_node->count,sfthd_node->count );
-        fflush(stdout);
-#endif
-        if( sfthd_ip_node->count <= sfthd_node->count )
-        {
-            return 0; /* Log it, stop looking: only log the 1st 'count' events */
-        }
-
-        return -1; /* Don't Log yet, don't keep looking : already logged our limit, don't log this sid  */
-    }
-
-    else if( sfthd_node->type == THD_TYPE_THRESHOLD )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Threshold Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-
-            return -1; /* Don't Log, keep looking: only log after we reach count, which must be > '1' */
-        }
-        else
-        {
-            if( sfthd_ip_node->count >= sfthd_node->count )
-            {
-                /* reset */
-                sfthd_ip_node->count = 0;
-                sfthd_ip_node->tstart= curtime;
-
-                return 0; /* Log it, stop looking */
-            }
-            return -1; /* don't log yet */
-        }
-    }
-    else if( sfthd_node->type == THD_TYPE_BOTH )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Threshold+Limit Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-
-            return -1; /* Don't Log yet, keep looking: only log after we reach count, which must be > '1' */
-        }
-        else
-        {
-            if( sfthd_ip_node->count >= sfthd_node->count )
-            {
-                if( sfthd_ip_node->count >  sfthd_node->count )
-                {
-                    return -1; /* don't log it, stop  looking, log once per time interval - than block it */
-                }
-                return 0; /* Log it, stop looking, log the 1st event we see past 'count' events */
-            }
-            else  /* Block it from logging */
-            {
-                return -1; /* don't log it, stop  looking,  we must see at least count events 1st */
-            }
-        }
-    }
-
-#ifdef THD_DEBUG
-    printf("THD_DEBUG: You should not be here...\n");
-    fflush(stdout);
-#endif
-
-    return 0;  /* should not get here, so log it just to be safe */
+    return sfthd_test_non_suppress(sfthd_node, sfthd_ip_node, curtime);
 }
+
 /*
- *
- *
- *
  *   Test a global thresholding object
- *
- *
- *
  */
-static
-int sfthd_test_gobject( THD_STRUCT * thd,
-                        THD_NODE   * sfthd_node,
-                        unsigned     gen_id,     /* from current event */
-                        unsigned     sig_id,     /* from current event */
-                        snort_ip_p     sip,        /* " */
-                        snort_ip_p     dip,        /* " */
-                        time_t       curtime )
+static INLINE int sfthd_test_global(
+    SFXHASH *global_hash,
+    THD_NODE   * sfthd_node,
+    unsigned     gen_id,     /* from current event */
+    unsigned     sig_id,     /* from current event */
+    snort_ip_p   sip,        /* " */
+    snort_ip_p   dip,        /* " */
+    time_t       curtime )
 {
     THD_IP_GNODE_KEY key;
-    THD_IP_GNODE     data, *sfthd_ip_node;
+    THD_IP_NODE      data, *sfthd_ip_node;
     int              status=0;
-    snort_ip_p         ip;
-    unsigned         dt;
+    snort_ip_p       ip;
+    tSfPolicyId policy_id = getRuntimePolicy();
 
 #ifdef THD_DEBUG
     printf("THD_DEBUG-GLOBAL:  gen_id=%u, sig_id=%u\n",gen_id,sig_id);
@@ -897,41 +991,19 @@ int sfthd_test_gobject( THD_STRUCT * thd,
     fflush(stdout);
 #endif
 
-    gen_id = gen_id;
-
-    /*
-     *  Get The correct IP
-     */
-    if( sfthd_node->tracking== THD_TRK_SRC )
-    {
+    /* Get The correct IP */
+    if (sfthd_node->tracking == THD_TRK_SRC)
        ip = sip;
-    }
     else
-    {
        ip = dip;
-    }
 
-    /*
-     *  Check for and test Suppression of this event to this IP
-     */
+    /* Check for and test Suppression of this event to this IP */
     if( sfthd_node->type == THD_TYPE_SUPPRESS )
     {
 #ifdef THD_DEBUG
         printf("THD_DEBUG: G-SUPPRESS NODE Testing...\n");fflush(stdout);
 #endif
-
-#ifdef SUP_IP6
-	if((sfthd_node->ip_address.family == AF_UNSPEC) || (sfip_contains(&sfthd_node->ip_address, ip) == SFIP_CONTAINS))
-#else
-        if( sfthd_node->ip_address == (sfthd_node->ip_mask & ip) )
-#endif
-        {
-#ifdef THD_DEBUG
-            printf("THD_DEBUG: G-SUPPRESS NODE, do not log events with this IP\n");fflush(stdout);
-#endif
-            return -1; /* Don't log, and stop looking( event's to this address for this gen_id+sig_id) */
-        }
-        return 1; /* Keep looking for other suppressors */
+        return sfthd_test_suppress(sfthd_node, ip);
     }
 
     /*
@@ -939,32 +1011,27 @@ int sfthd_test_gobject( THD_STRUCT * thd,
     */
 
     /* Set up the key */
-#ifdef SUP_IP6
-    key.ip     = *ip;
-#else
-    key.ip     = ip;
-#endif
+    key.ip     = IP_VAL(ip);
     key.gen_id = sfthd_node->gen_id;
     key.sig_id = sig_id;
+    key.policyId = policy_id;
 
     /* Set up a new data element */
     data.count  = 1;
-    data.tstart = curtime; /* Event time */
+    data.prev  = 0;
+    data.tstart = data.tlast = curtime; /* Event time */
 
-    /*
-     * Check for any Permanent sig_id objects for this gen_id  or add this one ...
-     */
-    status = sfxhash_add( thd->ip_gnodes, (void*)&key, &data );
-
-    if( status == SFXHASH_INTABLE )
+    /* Check for any Permanent sig_id objects for this gen_id  or add this one ...  */
+    status = sfxhash_add(global_hash, (void*)&key, &data);
+    if (status == SFXHASH_INTABLE)
     {
         /* Already in the table */
-        sfthd_ip_node = thd->ip_gnodes->cnode->data;
+        sfthd_ip_node = global_hash->cnode->data;
 
         /* Increment the event count */
         sfthd_ip_node->count++;
     }
-    else if (status )
+    else if (status != SFXHASH_OK)
     {
         /* hash error */
         return 1; /*  check the next threshold object */
@@ -975,105 +1042,7 @@ int sfthd_test_gobject( THD_STRUCT * thd,
         sfthd_ip_node = &data;
     }
 
-
-    /*
-     *  Do the appropriate test for the Threshold Object Type
-     */
-
-    /*
-      Limit
-      */
-    if( sfthd_node->type == THD_TYPE_LIMIT )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Limit Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {   /* reset */
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-        }
-
-#ifdef THD_DEBUG
-        printf("...dt=%d, sfthd_node->seconds=%d\n",dt, sfthd_node->seconds );
-        printf("...sfthd_ip_node->count=%d, sfthd_node->count=%d\n",sfthd_ip_node->count,sfthd_node->count );
-        fflush(stdout);
-#endif
-        if( sfthd_ip_node->count <= sfthd_node->count )
-        {
-            return 0; /* Log it, stop looking: only log the 1st 'count' events */
-        }
-
-        return -1; /* Don't Log yet, don't keep looking : already logged our limit, don't log this sid  */
-    }
-
-    else if( sfthd_node->type == THD_TYPE_THRESHOLD )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Threshold Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-
-            return -1; /* Don't Log, keep looking: only log after we reach count, which must be > '1' */
-        }
-        else
-        {
-            if( sfthd_ip_node->count >= sfthd_node->count )
-            {
-                /* reset */
-                sfthd_ip_node->count = 0;
-                sfthd_ip_node->tstart= curtime;
-
-                return 0; /* Log it, stop looking */
-            }
-            return -1; /* don't log yet */
-        }
-    }
-
-    else if( sfthd_node->type == THD_TYPE_BOTH )
-    {
-#ifdef THD_DEBUG
-        printf("\n...Threshold+Limit Test\n");
-        fflush(stdout);
-#endif
-        dt = (unsigned)(curtime - sfthd_ip_node->tstart);
-        if( dt > sfthd_node->seconds )
-        {
-            sfthd_ip_node->tstart = curtime;
-            sfthd_ip_node->count  = 1;
-
-            return -1; /* Don't Log yet, keep looking: only log after we reach count, which must be > '1' */
-        }
-        else
-        {
-            if( sfthd_ip_node->count >= sfthd_node->count )
-            {
-                if( sfthd_ip_node->count >  sfthd_node->count )
-                {
-                    return -1; /* don't log it, stop  looking, log once per time interval - than block it */
-                }
-                return 0; /* Log it, stop looking, log the 1st event we see past 'count' events */
-            }
-            else  /* Block it from logging */
-            {
-                return -1; /* don't log it, stop  looking,  we must see at least count events 1st */
-            }
-        }
-    }
-
-#ifdef THD_DEBUG
-    printf("THD_DEBUG: You should not be here...\n");
-    fflush(stdout);
-#endif
-
-    return 0;  /* should not get here, so log it just to be safe */
+    return sfthd_test_non_suppress(sfthd_node, sfthd_ip_node, curtime);
 }
 
 
@@ -1092,23 +1061,31 @@ int sfthd_test_gobject( THD_STRUCT * thd,
  *
  *  @return  integer
  *  @retval  0 : Event is loggable
- *  @retval !0 : Event should not be logged
+ *  @retval !0 : Event should not be logged (-1 suppressed, 1 filtered)
  *
  */
-int sfthd_test_threshold( THD_STRUCT * thd,
-                          unsigned gen_id,
-                          unsigned sig_id,
-                          snort_ip_p sip,
-                          snort_ip_p dip,
-                          long     curtime )
+int sfthd_test_threshold(
+    ThresholdObjects *thd_objs,
+    THD_STRUCT *thd,
+    unsigned   gen_id,
+    unsigned   sig_id,
+    snort_ip_p sip,
+    snort_ip_p dip,
+    long       curtime )
 {
+    tThdItemKey key;
     SFGHASH  * sfthd_hash;
     THD_ITEM * sfthd_item;
-    THD_NODE * sfthd_node, * g_thd_node;
+    THD_NODE * sfthd_node;
+    THD_NODE * g_thd_node = NULL;
 #ifdef THD_DEBUG
     int cnt;
 #endif
     int status=0;
+    tSfPolicyId policy_id = getRuntimePolicy();
+
+    if ((thd_objs == NULL) || (thd == NULL))
+        return 0;
 
 #ifdef CRIPPLE
     return 0;
@@ -1117,6 +1094,7 @@ int sfthd_test_threshold( THD_STRUCT * thd,
 #ifdef THD_DEBUG
     printf("sfthd_test_threshold...\n");fflush(stdout);
 #endif
+
     if( gen_id >= THD_MAX_GENID )
     {
 #ifdef THD_DEBUG
@@ -1129,8 +1107,8 @@ int sfthd_test_threshold( THD_STRUCT * thd,
     /*
      *  Get the hash table for this gen_id
      */
-    sfthd_hash = thd->sfthd_array [ gen_id ];
-    if( !sfthd_hash )
+    sfthd_hash = thd_objs->sfthd_array[gen_id];
+    if (sfthd_hash == NULL)
     {
 #ifdef THD_DEBUG
         printf("THD_DEBUG: no hash table entry for gen_id=%u\n",gen_id);
@@ -1140,25 +1118,26 @@ int sfthd_test_threshold( THD_STRUCT * thd,
         /* return 0; */ /* no threshold objects for this gen_id, log it ! */
     }
 
+    key.sig_id = sig_id;
+    key.policyId = policy_id;
     /*
      * Check for any Permanent sig_id objects for this gen_id
      */
-    sfthd_item = (THD_ITEM*)sfghash_find( sfthd_hash, (void*)&sig_id );
-    if( !sfthd_item )
+    sfthd_item = (THD_ITEM *)sfghash_find(sfthd_hash, (void*)&key);
+    if (sfthd_item == NULL)
     {
 #ifdef THD_DEBUG
         printf("THD_DEBUG: no THD objects for gen_id=%u, sig_id=%u\n",gen_id,sig_id);
         fflush(stdout);
 #endif
+        /* no matching permanent sig_id objects so, log it ! */
         goto global_test;
-        /* return 0; */ /* no matching permanent sig_id objects so, log it ! */
     }
 
     /* No List of Threshold objects - bail and log it */
-    if( !sfthd_item->sfthd_node_list )
+    if (sfthd_item->sfthd_node_list == NULL)
     {
           goto global_test;
-          /*  return 0; */
     }
 
     /* For each permanent thresholding object, test/add/update the thd object */
@@ -1168,9 +1147,9 @@ int sfthd_test_threshold( THD_STRUCT * thd,
 #ifdef THD_DEBUG
     cnt=0;
 #endif
-    for( sfthd_node  = (THD_NODE*)sflist_first(sfthd_item->sfthd_node_list);
-         sfthd_node != 0;
-         sfthd_node  = (THD_NODE*)sflist_next(sfthd_item->sfthd_node_list) )
+    for (sfthd_node = (THD_NODE *)sflist_first(sfthd_item->sfthd_node_list);
+         sfthd_node != NULL;
+         sfthd_node = (THD_NODE *)sflist_next(sfthd_item->sfthd_node_list))
     {
 #ifdef THD_DEBUG
         cnt++;
@@ -1180,41 +1159,35 @@ int sfthd_test_threshold( THD_STRUCT * thd,
 #endif
         /*
          *   Test SUPPRESSION and THRESHOLDING
-         *
-         *   For 3.0 SUPPRESSION returns -1 to suppress, +1 to keep on testing the next object
-         *           THRESHOLDING returns -1 to suppress, and 0 to log
          */
-        status = sfthd_test_object( thd, sfthd_node, sip, dip, curtime );
+        status = sfthd_test_local(thd->ip_nodes, sfthd_node, sip, dip, curtime );
 
         if( status < 0 ) /* -1 == Don't log and stop looking */
         {
 #ifdef THD_DEBUG
-                printf("THD_DEBUG: gen_id=%u sig_id=%u, UnLoggable\n\n",gen_id, sig_id,cnt);
-                fflush(stdout);
+            printf("THD_DEBUG: gen_id=%u sig_id=%u, UnLoggable\n\n",gen_id, sig_id,cnt);
+            fflush(stdout);
 #endif
-                return 1;  /* 1 == Don't log it*/
+            return (status < -1) ? 1 : -1;  /* !0 == Don't log it*/
         }
         else if( status == 0 )  /* Log it and stop looking */
         {
 #ifdef THD_DEBUG
-                printf("THD_DEBUG: gen_id=%u sig_id=%u tested %d THD_NODE's, Loggable\n\n",sfthd_item->gen_id, sfthd_item->sig_id,cnt);
-                fflush(stdout);
+            printf("THD_DEBUG: gen_id=%u sig_id=%u tested %d THD_NODE's, "
+                   "Loggable\n\n",sfthd_item->gen_id, sfthd_item->sig_id,cnt);
+            fflush(stdout);
 #endif
-                return 0; /* 0 == Log the event */
+            return 0; /* 0 == Log the event */
         }
-        /* status > 0 : Log it later but Keep looking....check the next threshold object for a blocking action ...
-        *              For 3.0 SUPPRESS objects return +1 if they don't suppress... so we can fall out of this loop
-        *              to log by returning 0 below....
-        */
+        /* status > 0 : Log it later but Keep looking
+         * check the next threshold object for a blocking action ...
+         */
     }
 
 
     /*
-     *
-     *
-     *  Test for a global threshold object  - we're here cause ther were no threshold objects for this gen_id/sig_id pair
-     *
-     *
+     * Test for a global threshold object
+     * we're here cause ther were no threshold objects for this gen_id/sig_id pair
      */
 global_test:
 
@@ -1222,29 +1195,38 @@ global_test:
     printf("THD_DEBUG-GLOBAL: doing global object test\n");
 #endif
 
-     g_thd_node = thd->sfthd_garray[ gen_id ];
+     if (thd_objs->sfthd_garray && thd_objs->sfthd_garray[policy_id])
+     {
+         g_thd_node = thd_objs->sfthd_garray[policy_id][gen_id];
+     }
+
      if( g_thd_node )
      {
-         status = sfthd_test_gobject( thd, g_thd_node, gen_id, sig_id, sip, dip, curtime );
+         status = sfthd_test_global(
+             thd->ip_gnodes, g_thd_node, gen_id, sig_id, sip, dip, curtime );
+
          if( status < 0 ) /* -1 == Don't log and stop looking */
          {
 #ifdef THD_DEBUG
-            printf("THD_DEBUG-GLOBAL: gen_id=%u sig_id=%u THD_NODE's, UnLoggable\n\n",gen_id, sig_id);
+            printf("THD_DEBUG-GLOBAL: gen_id=%u sig_id=%u THD_NODE's, "
+                   "UnLoggable\n\n",gen_id, sig_id);
             fflush(stdout);
 #endif
-            return 1;  /* 1 == Don't log it*/
+            return (status < -1) ? 1 : -1;  /* !0 == Don't log it*/
          }
 
          /* Log it ! */
 #ifdef THD_DEBUG
-        printf("THD_DEBUG-GLOBAL: gen_id=%u sig_id=%u  THD_NODE's, Loggable\n\n",gen_id, sig_id);
+        printf("THD_DEBUG-GLOBAL: gen_id=%u sig_id=%u  THD_NODE's, "
+               "Loggable\n\n",gen_id, sig_id);
         fflush(stdout);
 #endif
      }
      else
      {
 #ifdef THD_DEBUG
-        printf("THD_DEBUG-GLOBAL: no Global THD Object for gen_id=%u, sig_id=%u\n\n",gen_id, sig_id);
+        printf("THD_DEBUG-GLOBAL: no Global THD Object for gen_id=%u, "
+               "sig_id=%u\n\n",gen_id, sig_id);
         fflush(stdout);
 #endif
      }
@@ -1252,25 +1234,25 @@ global_test:
     return 0; /* Default: Log it if we did not block the logging action */
 }
 
+#ifdef THD_DEBUG
 /*!
  *   A function to print the thresholding objects to stdout.
  *
  */
-int sfthd_show_objects( THD_STRUCT * thd )
+int sfthd_show_objects(ThresholdObjects *thd_objs)
 {
     SFGHASH  * sfthd_hash;
     THD_ITEM * sfthd_item;
     THD_NODE * sfthd_node;
     int        gen_id;
     SFGHASH_NODE * item_hash_node;
+    tSfPolicyId policyId;
 
     for(gen_id=0;gen_id < THD_MAX_GENID ; gen_id++ )
     {
-        sfthd_hash = thd->sfthd_array [ gen_id ];
-        if( !sfthd_hash )
-        {
+        sfthd_hash = thd_objs->sfthd_array[gen_id];
+        if (sfthd_hash == NULL)
             continue;
-        }
 
         printf("...GEN_ID = %u\n",gen_id);
 
@@ -1281,7 +1263,7 @@ int sfthd_show_objects( THD_STRUCT * thd )
             /* Check for any Permanent sig_id objects for this gen_id */
             sfthd_item = (THD_ITEM*)item_hash_node->data;
 
-            printf(".....GEN_ID = %u, SIG_ID = %u\n",gen_id,sfthd_item->sig_id);
+            printf(".....GEN_ID = %u, SIG_ID = %u, Policy = %u\n",gen_id,sfthd_item->sig_id, sfthd_item->policyId);
 
             /* For each permanent thresholding object, test/add/update the thd object */
             /* We maintain a list of thd objects for each gen_id+sig_id */
@@ -1293,14 +1275,14 @@ int sfthd_show_objects( THD_STRUCT * thd )
             {
                 printf(".........THD_ID  =%d\n",sfthd_node->thd_id );
 
-                       if( sfthd_node->type == THD_TYPE_SUPPRESS )
-                printf(".........type    =Suppress\n");
+                if( sfthd_node->type == THD_TYPE_SUPPRESS )
+                    printf(".........type    =Suppress\n");
                 if( sfthd_node->type == THD_TYPE_LIMIT )
-                printf(".........type    =Limit\n");
+                    printf(".........type    =Limit\n");
                 if( sfthd_node->type == THD_TYPE_THRESHOLD )
-                printf(".........type    =Threshold\n");
+                    printf(".........type    =Threshold\n");
                 if( sfthd_node->type == THD_TYPE_BOTH )
-                printf(".........type    =Both\n");
+                    printf(".........type    =Both\n");
 
                 printf(".........tracking=%d\n",sfthd_node->tracking);
                 printf(".........priority=%d\n",sfthd_node->priority);
@@ -1309,14 +1291,14 @@ int sfthd_show_objects( THD_STRUCT * thd )
                 {
 #ifdef SUP_IP6
                     printf(".........ip      =%s\n",
-                        sfip_to_str(&sfthd_node->ip_address));
+                           sfip_to_str(&sfthd_node->ip_address));
                     printf(".........mask    =%d\n",
-                        sfip_bits(&sfthd_node->ip_address));
+                           sfip_bits(&sfthd_node->ip_address));
 #else
                     printf(".........ip      =%d\n",sfthd_node->ip_address);
                     printf(".........mask    =%d\n",sfthd_node->ip_mask);
-                    printf(".........not_flag=%d\n",sfthd_node->ip_mask);
 #endif
+                    printf(".........not_flag=%d\n",sfthd_node->ip_mask);
                 }
                 else
                 {
@@ -1329,4 +1311,5 @@ int sfthd_show_objects( THD_STRUCT * thd )
 
     return 0;
 }
+#endif // THD_DEBUG
 

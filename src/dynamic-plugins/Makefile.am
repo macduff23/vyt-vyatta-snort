@@ -16,7 +16,9 @@ sf_dynamic_preprocessor.h \
 sp_dynamic.c \
 sp_dynamic.h \
 sp_preprocopt.c \
-sp_preprocopt.h
+sp_preprocopt.h \
+sf_convert_dynamic.c \
+sf_convert_dynamic.h 
 
 INCLUDES = @INCLUDES@
 

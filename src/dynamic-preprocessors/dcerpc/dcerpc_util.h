@@ -44,9 +44,9 @@ typedef enum _dcerpc_event_e
 
 typedef struct _DCERPC_Buffer
 {
-    u_int8_t *data;
-    u_int16_t len;
-    u_int16_t size;
+    uint8_t *data;
+    uint16_t len;
+    uint16_t size;
 
 } DCERPC_Buffer;
 
@@ -55,6 +55,6 @@ typedef struct _DCERPC_Buffer
 
 
 void DCERPC_GenerateAlert(dcerpc_event_e event, char *msg);
-void PrintBuffer(const char * title, const u_int8_t *buf, u_int16_t buf_len);
+void PrintBuffer(const char * title, const uint8_t *buf, uint16_t buf_len);
 
 #endif  /*  _DCERPC_UTIL_H_  */

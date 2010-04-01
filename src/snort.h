@@ -23,44 +23,67 @@
 #ifndef __SNORT_H__
 #define __SNORT_H__
 
+/*  I N C L U D E S  **********************************************************/
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+# include "config.h"
 #endif
 
 #include <sys/types.h>
 #include <pcap.h>
 #include <stdio.h>
 
+#include "spo_plugbase.h"
 #include "decode.h"
 #include "perf.h"
 #include "sf_types.h"
-#include "sflsq.h"
+#include "sfutil/sflsq.h"
+#include "profiler.h"
+#include "rules.h"
+#include "sfutil/sf_ipvar.h"
+#include "sfutil/sfghash.h"
+#include "sfutil/sfrim.h"
+#include "sfutil/sfportobject.h"
+#include "sfutil/asn1.h"
+#include "signature.h"
+#include "event_queue.h"
+#include "sfthreshold.h"
+#include "fpcreate.h"
+#include "plugbase.h"
+#include "fpdetect.h"
+#include "ppm.h"
+#include "sfutil/sfrf.h"
+#include "sfutil/sfPolicy.h"
+#include "detection_filter.h"
 
 #ifdef GIDS
-#include "inline.h"
+# include "inline.h"
 #endif /* GIDS */
 
-#if defined(INLINE_FAILOPEN) || defined(TARGET_BASED)
-#include "pthread.h"
+#if defined(INLINE_FAILOPEN) || defined(TARGET_BASED) || defined(SNORT_RELOAD)
+# include <pthread.h>
 #endif
 
-extern SFPERF sfPerf;
 
+/*  D E F I N E S  ************************************************************/
 /* Mark this as a modern version of snort */
 #define SNORT_20
 
-/*  I N C L U D E S  **********************************************************/
+#define MIN_SNAPLEN  68
+
+#define MAX_IFS   1
+
+#define TIMEBUF_SIZE    26
+#define MAX_PIDFILE_SUFFIX 11 /* uniqueness extension to PID file, see '-R' */
+#define ASSURE_ALL    0  /* all TCP alerts fire regardless of stream state */
+#define ASSURE_EST    1  /* only established TCP sessions fire alerts */
 
 /* This macro helps to simplify the differences between Win32 and
    non-Win32 code when printing out the name of the interface */
 #ifndef WIN32
-    #define PRINT_INTERFACE(i)  (i ? i : "NULL")
+# define PRINT_INTERFACE(i)  (i ? i : "NULL")
 #else
-    #define PRINT_INTERFACE(i)  print_interface(i)
+# define PRINT_INTERFACE(i)  print_interface(i)
 #endif
-
-/*  D E F I N E S  ************************************************************/
-#define STD_BUF  1024
 
 #define RF_ANY_SIP    0x01
 #define RF_ANY_DIP    0x02
@@ -68,43 +91,30 @@ extern SFPERF sfPerf;
 #define RF_ANY_DP     0x10
 #define RF_ANY_FLAGS  0x20
 
-#define MAX_PIDFILE_SUFFIX 11 /* uniqueness extension to PID file, see '-R' */
-
-#ifndef _PATH_VARRUN
-extern char _PATH_VARRUN[STD_BUF];
-#endif
-
 #ifndef WIN32
-    #define DEFAULT_LOG_DIR            "/var/log/snort"
-    #define DEFAULT_DAEMON_ALERT_FILE  "alert"
+# define DEFAULT_LOG_DIR            "/var/log/snort"
+# define DEFAULT_DAEMON_ALERT_FILE  "alert"
 #else
-    #define DEFAULT_LOG_DIR            "log"
-    #define DEFAULT_DAEMON_ALERT_FILE  "log/alert.ids"
+# define DEFAULT_LOG_DIR            "log"
+# define DEFAULT_DAEMON_ALERT_FILE  "log/alert.ids"
 #endif  /* WIN32 */
 
 /* you can redefine the user ID which is allowed to
  * initialize interfaces using pcap and read from them
  */
 #ifndef SNIFFUSER
-    #define SNIFFUSER 0
+# define SNIFFUSER 0
 #endif
 
-
 #ifdef ACCESSPERMS
-    #define FILEACCESSBITS ACCESSPERMS
+# define FILEACCESSBITS ACCESSPERMS
 #else
-    #ifdef  S_IAMB
-        #define FILEACCESSBITS S_IAMB
-    #else
-        #define FILEACCESSBITS 0x1FF
-    #endif
+# ifdef S_IAMB
+#  define FILEACCESSBITS S_IAMB
+# else
+#  define FILEACCESSBITS 0x1FF
+# endif
 #endif    
-
-#define TIMEBUF_SIZE    26
-
-
-#define ASSURE_ALL    0  /* all TCP alerts fire regardless of stream state */
-#define ASSURE_EST    1  /* only established TCP sessions fire alerts */
 
 #define DO_IP_CHECKSUMS     0x00000001
 #define DO_TCP_CHECKSUMS    0x00000002
@@ -115,13 +125,11 @@ extern char _PATH_VARRUN[STD_BUF];
 #define LOG_TCPDUMP         0x00000002
 #define LOG_UNIFIED2         0x0000004
 
-#define SIGNAL_SNORT_ROTATE_STATS  28
-#define SIGNAL_SNORT_CHILD_READY   29
+#define SIGNAL_SNORT_ROTATE_STATS   28
+#define SIGNAL_SNORT_CHILD_READY    29
 #ifdef TARGET_BASED
-#define SIGNAL_SNORT_READ_ATTR_TBL 30
+# define SIGNAL_SNORT_READ_ATTR_TBL 30
 #endif
-
-/*  D A T A  S T R U C T U R E S  *********************************************/
 
 #define MODE_PACKET_DUMP    1
 #define MODE_PACKET_LOG     2
@@ -129,26 +137,6 @@ extern char _PATH_VARRUN[STD_BUF];
 #define MODE_TEST           4
 #define MODE_RULE_DUMP      5
 #define MODE_VERSION        6
-
-extern u_int8_t runMode;
-
-typedef struct _Configuration
-{
-    char *logging_directory;
-
-} Configuration;
-
-typedef struct _Capabilities
-{
-    u_int8_t stateful_inspection;
-
-} Capabilities;
-
-typedef struct _runtime_config
-{
-    Configuration configuration;
-    Capabilities capabilities;
-} runtime_config;
 
 #define LOG_ASCII   1
 #define LOG_PCAP    2
@@ -164,16 +152,13 @@ typedef struct _runtime_config
 #define ALERT_TEST     9
 #define ALERT_UNIFIED  10
 
-#define MAX_IFS        1
-
 #ifdef MPLS
-#define DEFAULT_MPLS_MULTICAST        0
-#define DEFAULT_MPLS_OVERLAPPING_IP   0
-#define MPLS_PAYLOADTYPE_IPV4         1
-#define MPLS_PAYLOADTYPE_ETHERNET     2
-#define MPLS_PAYLOADTYPE_IPV6         3
-#define DEFAULT_MPLS_PAYLOADTYPE      1
-#define DEFAULT_LABELCHAIN_LENGTH      -1
+# define MPLS_PAYLOADTYPE_IPV4         1
+# define MPLS_PAYLOADTYPE_ETHERNET     2
+# define MPLS_PAYLOADTYPE_IPV6         3
+# define MPLS_PAYLOADTYPE_ERROR       -1 
+# define DEFAULT_MPLS_PAYLOADTYPE      MPLS_PAYLOADTYPE_IPV4
+# define DEFAULT_LABELCHAIN_LENGTH    -1
 #endif
 
 /* This feature allows us to change the state of a rule,
@@ -182,407 +167,790 @@ typedef struct _runtime_config
 #define RULE_STATE_DISABLED 0
 #define RULE_STATE_ENABLED 1
 
-typedef struct _RuleState
-{
-    int sid;
-    int gid;
-    int state;
-    int action;
-    struct _RuleState *next;
-} RuleState;
-
-#include "profiler.h"
-
-/* GetoptLong Option numbers */
-#define PID_PATH                  1
 #ifdef DYNAMIC_PLUGIN
-#define DYNAMIC_LIBRARY_DIRECTORY 2
-#define DYNAMIC_LIBRARY_FILE      3
-#define DYNAMIC_PREPROC_DIRECTORY 4
-#define DYNAMIC_PREPROC_FILE      5
-#define DYNAMIC_ENGINE_FILE       6
-#define DYNAMIC_ENGINE_DIRECTORY  7
-#define DUMP_DYNAMIC_RULES        8
-#define DUMP_DYNAMIC_PREPROCS     9
+# define MAX_DYNAMIC_ENGINES         16
+# define MAX_DYNAMIC_DETECTION_LIBS  16
+# define MAX_DYNAMIC_PREPROC_LIBS    16
 #endif
-#define ARG_RESTART               10
-#define CREATE_PID_FILE           11
-#define TREAT_DROP_AS_ALERT       12
-#define PROCESS_ALL_EVENTS        13
-#define ALERT_BEFORE_PASS         14
-#define NOLOCK_PID_FILE           15
-#define DISABLE_INLINE_INIT       16
+
+#ifdef TARGET_BASED
+# define ATTRIBUTE_TABLE_RELOAD_FLAG          0x01
+# define ATTRIBUTE_TABLE_AVAILABLE_FLAG       0x02
+# define ATTRIBUTE_TABLE_RELOADING_FLAG       0x04
+# define ATTRIBUTE_TABLE_TAKEN_FLAG           0x08
+# define ATTRIBUTE_TABLE_PARSE_FAILED_FLAG    0x10
+# define DEFAULT_MAX_ATTRIBUTE_HOSTS   10000
+# define DEFAULT_MAX_METADATA_SERVICES     8
+# define MAX_MAX_ATTRIBUTE_HOSTS   (512 * 1024)
+# define MIN_MAX_ATTRIBUTE_HOSTS    32
+# define MAX_MAX_METADATA_SERVICES 256
+# define MIN_MAX_METADATA_SERVICES 1
+#endif
+
+/*  D A T A  S T R U C T U R E S  *********************************************/
+typedef struct _VarEntry
+{
+    char *name;
+    char *value;
+    unsigned char flags;
+    struct _VarEntry *prev;
+    struct _VarEntry *next;
+
+} VarEntry;
+
+/* GetoptLong Option numbers ********************/
+typedef enum _GetOptLongIds
+{
+    PID_PATH = 1,
+
+#ifdef DYNAMIC_PLUGIN
+    DYNAMIC_LIBRARY_DIRECTORY,
+    DYNAMIC_LIBRARY_FILE,
+    DYNAMIC_PREPROC_DIRECTORY,
+    DYNAMIC_PREPROC_FILE,
+    DYNAMIC_ENGINE_FILE,
+    DYNAMIC_ENGINE_DIRECTORY,
+    DUMP_DYNAMIC_RULES,
+#endif
+
+    ARG_RESTART,
+    CREATE_PID_FILE,
+    TREAT_DROP_AS_ALERT,
+    PROCESS_ALL_EVENTS,
+    ALERT_BEFORE_PASS,
+    NOLOCK_PID_FILE,
+    DISABLE_INLINE_INIT,
+
 #ifdef INLINE_FAILOPEN
-#define DISABLE_INLINE_FAILOPEN   17
+    DISABLE_INLINE_FAILOPEN,
 #endif
-#define NO_LOGGING_TIMESTAMPS     18
-#define PCAP_LOOP                 19
-#define PCAP_SINGLE               20
-#define PCAP_FILE_LIST            21
-#define PCAP_LIST                 22
-#define PCAP_DIR                  23
-#define PCAP_FILTER               24
-#define PCAP_NO_FILTER            25
-#define PCAP_RESET                26
-#define PCAP_SHOW                 27
+
+    NO_LOGGING_TIMESTAMPS,
+    PCAP_LOOP,
+    PCAP_SINGLE,
+    PCAP_FILE_LIST,
+    PCAP_LIST,
+    PCAP_DIR,
+    PCAP_FILTER,
+    PCAP_NO_FILTER,
+    PCAP_RESET,
+    PCAP_SHOW,
+
 #define EXIT_CHECK  // allow for rollback for now
 #ifdef EXIT_CHECK
-#define ARG_EXIT_CHECK            28
+    ARG_EXIT_CHECK,
 #endif
+
 #ifdef TARGET_BASED
-#define DISABLE_ATTRIBUTE_RELOAD  29
+    DISABLE_ATTRIBUTE_RELOAD,
 #endif
-#define DETECTION_SEARCH_METHOD   30
-#define CONF_ERROR_OUT                 31
+
+    DETECTION_SEARCH_METHOD,
+    CONF_ERROR_OUT,
+
 #ifdef MPLS
-#define ENABLE_MPLS_MULTICAST     31
-#define ENABLE_OVERLAPPING_IP     32
-#define MAX_MPLS_LABELCHAIN_LEN   33
-#define MPLS_PAYLOAD_TYPE         34
+    ENABLE_MPLS_MULTICAST,
+    ENABLE_OVERLAPPING_IP,
+    MAX_MPLS_LABELCHAIN_LEN,
+    MPLS_PAYLOAD_TYPE,
 #endif
-#define REQUIRE_RULE_SID         35
+
+    REQUIRE_RULE_SID,
+
+    GET_OPT_LONG_IDS_MAX
+
+} GetOptLongIds;
+
+typedef struct _PreprocConfig
+{
+    char *keyword;
+    char *opts;
+    char *file_name;
+    int file_line;
+    /* We have to configure internal and dynamic preprocessors separately,
+     * mainly because of the stream_api which is set in stream5 and needs to
+     * be set before calling the dynamic preprocessor initialization
+     * functions which set _dpd and call the setup function.  streamAPI is set
+     * in the _dpd so stream5 needs to be configured first */
+    int configured;
+    struct _PreprocConfig *next;
+
+} PreprocConfig;
+
+typedef struct _OutputConfig
+{
+    char *keyword;
+    char *opts;
+    char *file_name;
+    int file_line;
+    ListHead *rule_list;
+    struct _OutputConfig *next;
+
+} OutputConfig;
+
+typedef enum _DynamicType
+{
+    DYNAMIC_TYPE__ENGINE,
+    DYNAMIC_TYPE__DETECTION,
+    DYNAMIC_TYPE__PREPROCESSOR,
+    DYNAMIC_TYPE__MAX
+
+} DynamicType;
+
+typedef enum _PathType
+{
+    PATH_TYPE__FILE,
+    PATH_TYPE__DIRECTORY
+
+} PathType;
+
+typedef struct _DynamicLibPath
+{
+    PathType ptype;
+    char *path;
+    time_t last_mod_time;
+
+} DynamicLibPath;
+
+#define MAX_DYNAMIC_LIBS 16
+
+typedef struct _DynamicLibInfo
+{
+    DynamicType type;
+    unsigned int count;
+    DynamicLibPath *lib_paths[MAX_DYNAMIC_LIBS];
+
+} DynamicLibInfo;
+
+
+typedef enum _RunMode
+{
+    /* -V */
+    RUN_MODE__VERSION = 1,
 
 #ifdef DYNAMIC_PLUGIN
-typedef struct _DynamicDetectionSpecifier
-{
-    int type;
-    char *path;
-} DynamicDetectionSpecifier;
+    /* --dump-dynamic-rules */
+    RUN_MODE__RULE_DUMP,
 #endif
 
-/* struct to contain the program variables and command line args */
-typedef struct _progvars
+    /* neither of the above and snort.conf presence (-c or implicit) */
+    RUN_MODE__IDS,
+
+    /* snort.conf presence and -T */
+    RUN_MODE__TEST,
+
+    /* neither -V or --dump-dynamic-rules and no snort.conf, but logging
+     * enabled on command line - NONE type logging seems to count here */
+    RUN_MODE__PACKET_LOG,
+
+    RUN_MODE__PACKET_DUMP
+
+} RunMode;
+
+
+typedef enum _RunModeFlag
 {
-    int static_hash;
-    int stateful;
-    int line_buffer_flag;
-    int checksums_mode;
-    int checksums_drop;
-    int assurance_mode;
-    int max_pattern;
-    int test_mode_flag;
-    int alert_interface_flag;
-    int verbose_bytedump_flag;
-    int obfuscation_flag;
-    int log_cmd_override;
-    int alert_cmd_override;
-    int char_data_flag;
-    int data_flag;
-    int verbose_flag;
-    int readmode_flag;
-    int show2hdr_flag;
-    int showwifimgmt_flag;
-    int inline_flag;
-    char disable_inline_init_flag;
+    /* -V */
+    RUN_MODE_FLAG__VERSION      = 0x00000001,
+
+#ifdef DYNAMIC_PLUGIN
+    /* --dump-dynamic-rules */
+    RUN_MODE_FLAG__RULE_DUMP    = 0x00000002,
+#endif
+
+    /* neither of the above and snort.conf presence (-c or implicit) */
+    RUN_MODE_FLAG__IDS          = 0x00000004,
+
+    /* snort.conf presence and -T */
+    RUN_MODE_FLAG__TEST         = 0x00000008,
+
+    /* neither -V or --dump-dynamic-rules and no snort.conf, but logging
+     * enabled on command line - NONE type logging seems to count here */
+    RUN_MODE_FLAG__PACKET_LOG   = 0x00000010,
+
+    RUN_MODE_FLAG__PACKET_DUMP  = 0x00000020
+
+} RunModeFlag;
+
+typedef enum _RunFlag
+{
+    RUN_FLAG__READ                = 0x00000001,     /* -r --pcap-dir, etc. */
+    RUN_FLAG__DAEMON              = 0x00000002,     /* -D */
+    RUN_FLAG__DAEMON_RESTART      = 0x00000004,     /* --restart */
+    RUN_FLAG__NO_PROMISCUOUS      = 0x00000008,     /* -p and -J */
+    RUN_FLAG__INLINE              = 0x00000010,     /* -J and -Q */
+    RUN_FLAG__STATIC_HASH         = 0x00000020,     /* -H */
+    RUN_FLAG__CREATE_PID_FILE     = 0x00000040,     /* --pid-path and --create-pidfile */
+    RUN_FLAG__NO_LOCK_PID_FILE    = 0x00000080,     /* --nolock-pidfile */
+    RUN_FLAG__TREAT_DROP_AS_ALERT = 0x00000100,     /* --treat-drop-as-alert */
+    RUN_FLAG__ALERT_BEFORE_PASS   = 0x00000200,     /* --alert-before-pass */
+    RUN_FLAG__CONF_ERROR_OUT      = 0x00000400,     /* -x and --conf-error-out */
+#ifdef MPLS
+    RUN_FLAG__MPLS_MULTICAST      = 0x00000800,     /* --enable_mpls_multicast */
+    RUN_FLAG__MPLS_OVERLAPPING_IP = 0x00001000,     /* --enable_mpls_overlapping_ip */
+#endif
+
+    /* --process-all-events
+     * this is transferred to the snort event queue var */
+    RUN_FLAG__PROCESS_ALL_EVENTS  = 0x00002000,
+
+#ifdef TARGET_BASED
+    /* --disable-attribute-reload-thread */
+    RUN_FLAG__DISABLE_ATTRIBUTE_RELOAD_THREAD
+                                  = 0x00004000,
+#endif
+    RUN_FLAG__STATEFUL            = 0x00008000,     /* set if stream5 configured */
+
+#if defined(GIDS) && !defined(IPFW)
+    RUN_FLAG__LINK_LAYER_RESETS   = 0x00010000,     /* config layer2resets */
+#endif
+
+#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
+    /* config autogenerate_preprocessor_decoder_rules */
+    RUN_FLAG__AUTOGEN_PREPROC_DECODER_OTN
+                                  = 0x00020000,
+#endif
+
 #ifdef INLINE_FAILOPEN
-    char initialization_done_flag;
-    char pass_thread_running_flag;
-    pthread_t pass_thread_id;
-    pid_t pass_thread_pid;
-    int pass_thread_pktcount;
-    char inline_failopen_disabled_flag;
+    RUN_FLAG__DISABLE_FAILOPEN    = 0x00040000,      /* --disable-inline-init-failopen */
 #endif
-#ifdef GIDS
-#ifndef IPFW
-    char layer2_resets;
-    u_char enet_src[6];
+    RUN_FLAG__DISABLE_INLINE_INIT = 0x00080000,      /* --disable-inline-initialization */
+
+#ifdef MIMICK_IPV6
+    RUN_FLAG__MIMICK_IP6          = 0x00100000,      /* -6 */
 #endif
-#ifdef IPFW
-    int divert_port;
-#endif /* USE IPFW DIVERT socket instead of IPtables */
-#endif /* GIDS */
+
+    RUN_FLAG__PCAP_RESET          = 0x00200000,
+    RUN_FLAG__PCAP_SHOW           = 0x00400000,
+    RUN_FLAG__REQUIRE_RULE_SID    = 0x00800000,
+    RUN_FLAG__NO_PCRE             = 0x01000000,
+    RUN_FLAG__ASSURE_EST          = 0x02000000      /* config stateful */
+#if defined(WIN32) && defined(ENABLE_WIN32_SERVICE)
+   ,RUN_FLAG__TERMINATE_SERVICE   = 0x04000000,
+    RUN_FLAG__PAUSE_SERVICE       = 0x08000000
+#endif
+
+} RunFlag;
+
+typedef enum _OutputFlag
+{
+    OUTPUT_FLAG__LINE_BUFFER       = 0x00000001,      /* -f */
+    OUTPUT_FLAG__VERBOSE_DUMP      = 0x00000002,      /* -X */
+    OUTPUT_FLAG__CHAR_DATA         = 0x00000004,      /* -C */
+    OUTPUT_FLAG__APP_DATA          = 0x00000008,      /* -d */
+    OUTPUT_FLAG__SHOW_DATA_LINK    = 0x00000010,      /* -e */
+#ifndef NO_NON_ETHER_DECODER
+    OUTPUT_FLAG__SHOW_WIFI_MGMT    = 0x00000020,      /* -w */
+#endif
+    OUTPUT_FLAG__USE_UTC           = 0x00000040,      /* -U */
+    OUTPUT_FLAG__INCLUDE_YEAR      = 0x00000080,      /* -y */
+
+    /* Note using this alters the packet - can't be used inline */
+    OUTPUT_FLAG__OBFUSCATE         = 0x00000100,      /* -B */
+
+    OUTPUT_FLAG__ALERT_IFACE       = 0x00000200,      /* -I */
+    OUTPUT_FLAG__NO_TIMESTAMP      = 0x00000400,      /* --nostamps */
+    OUTPUT_FLAG__ALERT_PKT_CNT     = 0x00000800,      /* -A packet-count */
+    /* XXX XXX pv.outputVidInAlerts */
+    OUTPUT_FLAG__ALERT_VLAN        = 0x00001000       /* config include_vlan_in_alerts */
+
+} OutputFlag;
+
+typedef enum _LoggingFlag
+{
+    LOGGING_FLAG__VERBOSE         = 0x00000001,      /* -v */
+    LOGGING_FLAG__QUIET           = 0x00000002,      /* -q */
+    LOGGING_FLAG__SYSLOG          = 0x00000004       /* -M */
 #ifdef WIN32
-    int syslog_remote_flag;
-    char syslog_server[STD_BUF];
-    int syslog_server_port;
-#ifdef ENABLE_WIN32_SERVICE
-    int terminate_service_flag;
-    int pause_service_flag;
-#endif  /* ENABLE_WIN32_SERVICE */
-#endif  /* WIN32 */
-    int promisc_flag;
-    int rules_order_flag;
-    int track_flag;
-    int daemon_flag;
-    int daemon_restart_flag;
-    int logtosyslog_flag;
-    int quiet_flag;
-    int print_version;
-    int pkt_cnt;
+   ,LOGGING_FLAG__SYSLOG_REMOTE   = 0x00000008       /* -s and -E */
+#endif
+
+} LoggingFlag;
+
+/* -k
+ * config checksum_mode
+ * config checksum_drop_mode */
+typedef enum _ChecksumFlag
+{
+    CHECKSUM_FLAG__IP   = 0x00000001,
+    CHECKSUM_FLAG__TCP  = 0x00000002,
+    CHECKSUM_FLAG__UDP  = 0x00000004,
+    CHECKSUM_FLAG__ICMP = 0x00000008,
+    CHECKSUM_FLAG__ALL  = 0x7fffffff
+
+} ChecksumFlag;
+
+typedef enum _PolicyModeFlag
+{
+    POLICYMODE_FLAG__PASSIVE = 0x00000001,
+    POLICYMODE_FLAG__INLINE  = 0x00000002
+} PolicyModeFlag;
+
+typedef enum _DecodeEventFlag
+{
+    DECODE_EVENT_FLAG__DEFAULT              = 0x00000001,
+    DECODE_EVENT_FLAG__OVERSIZED            = 0x00000002,
+    DECODE_EVENT_FLAG__TCP_EXP_OPT          = 0x00000004,
+    DECODE_EVENT_FLAG__TCP_OBS_OPT          = 0x00000008,
+    DECODE_EVENT_FLAG__TCP_TTCP_OPT         = 0x00000010,
+    DECODE_EVENT_FLAG__TCP_OPT_ANOMALY      = 0x00000020,
+    DECODE_EVENT_FLAG__IP_OPT_ANOMALY       = 0x00000040,
+    DECODE_EVENT_FLAG__IPV6_BAD_FRAG        = 0x00000080,
+    DECODE_EVENT_FLAG__IPV6_BSD_ICMP_FRAG   = 0x00000100
+
+} DecodeEventFlag;
+
+typedef struct _VarNode
+{
+    char *name;
+    char *value;
+    char *line;
+    struct _VarNode *next;
+
+} VarNode;
+
+#ifdef TARGET_BASED
+typedef struct _TargetBasedConfig
+{
+    char *args;
+    char *file_name;
+    int file_line;
+
+} TargetBasedConfig;
+#endif
+
+typedef struct _SnortPolicy
+{
+#ifdef TARGET_BASED
+    TargetBasedConfig target_based_config;
+#endif
+    PreprocConfig *preproc_configs;
+
+    VarEntry *var_table;
+#ifdef SUP_IP6
+    vartable_t *ip_vartable;
+#endif  /* SUP_IP6 */
+
+#ifdef PORTLISTS
+    /* The portobjects in these are attached to rtns and used during runtime */
+    PortVarTable *portVarTable;     /* named entries, uses a hash table */
+    PortTable *nonamePortVarTable;  /* un-named entries */
+#endif
+
+    PreprocEvalFuncNode *preproc_eval_funcs;
+    PreprocReassemblyPktFuncNode *preproc_reassembly_pkt_funcs;
+
+    int preproc_proto_mask;
+    SFGHASH *preproc_rule_options;
+    int num_preprocs;
+    int policy_mode;
+
+    /** Identifier assigned by user to correlate unified2 events to actual 
+     * policy. User or DC should assign each policy a unique number. Snort
+     * will not verify uniqueness.
+     */
+    unsigned short configPolicyId;
+
+    char *policy_version;
+
+    //checksum_mode and checksum_drop are now policy specific
+    int checksum_flags;         /* -k */
+    int checksum_flags_modified;
+    int checksum_drop_flags;
+    int checksum_drop_flags_modified;
+
+    //disable_decode_alerts and disable_decode_drop
+    int decoder_alert_flags;
+    int decoder_drop_flags;
+    int decoder_alert_flags_saved;
+    int decoder_drop_flags_saved;
+    uint8_t decodeRulesArray[DECODE_INDEX_MAX];
+} SnortPolicy;
+
+typedef struct _SnortConfig
+{
+    RunMode run_mode;
+    int run_mode_flags;
+    int run_flags;
+    int output_flags;
+    int logging_flags;
+    int log_tcpdump;
+    int no_log;
+    int no_alert;
+
+    //used for processing command line arguments, checksum configuration
+    //in conf files is maintained at policy level
+    int checksum_flags;         /* -k */
+    int checksum_flags_modified;
+    int checksum_drop_flags;
+    int checksum_drop_flags_modified;
+
+    uint32_t event_log_id;      /* -G */
     int pkt_snaplen;
+    int64_t pkt_cnt;            /* -n */
+
+    char *dynamic_rules_path;   /* --dump-dynamic-rules */
+
+#ifdef DYNAMIC_PLUGIN
+    /* --dynamic-engine-lib
+     * --dynamic-engine-lib-dir
+     * --dynamic-detection-lib
+     * --dynamic-detection-lib-dir
+     * --dynamic-preprocessor-lib
+     * --dynamic-preprocessor-lib-dir
+     *
+     * See below for struct type
+     */
+    DynamicLibInfo *dyn_engines;
+    DynamicLibInfo *dyn_rules;
+    DynamicLibInfo *dyn_preprocs;
+#endif
+
+    char pid_path[STD_BUF];  /* --pid-path or config pidpath */
+
+#ifdef EXIT_CHECK
+    uint64_t exit_check;        /* --exit-check */
+#endif
+
+    /* -h and -B */
 #ifdef SUP_IP6
     sfip_t homenet;
     sfip_t obfuscation_net;
 #else
-    u_long homenet;
-    u_long netmask;
-    u_int32_t obfuscation_net;
-    u_int32_t obfuscation_mask;
-#endif
-    int alert_mode;
-    int log_plugin_active;
-    int alert_plugin_active;
-    u_int32_t log_bitmap;
-    char pid_filename[STD_BUF];
-    char *config_file;
-    char *config_dir;
-    char *log_dir;
-    char readfile[STD_BUF];
-    char pid_path[STD_BUF];
-    char *interface;
-    char *pcap_cmd;
-    char *alert_filename;
-    char *binLogFile;
-    int use_utc;
-    int include_year;
-    char *chroot_dir;
-    u_int8_t min_ttl;
-    u_int8_t log_mode;
-    int num_rule_types;
-    char pidfile_suffix[MAX_PIDFILE_SUFFIX+1]; /* room for a null */
-    char create_pid_file;
-    char nolock_pid_file;
-    DecoderFlags decoder_flags; /* if decode.c alerts are going to be enabled */
-    char ignore_ports[0x10000]; /* 65536, enough to hold ports */
-    int rotate_perf_file;
-    u_int32_t event_log_id;
-
-#ifdef DYNAMIC_PLUGIN
-#define MAX_DYNAMIC_ENGINES 16
-    u_int32_t dynamicEngineCount;
-    u_int8_t dynamicEngineCurrentDir;
-    DynamicDetectionSpecifier *dynamicEngine[MAX_DYNAMIC_ENGINES];
-
-#define MAX_DYNAMIC_DETECTION_LIBS 16
-    u_int8_t dynamicLibraryCount;
-    u_int8_t dynamicLibraryCurrentDir;
-    DynamicDetectionSpecifier *dynamicDetection[MAX_DYNAMIC_DETECTION_LIBS];
-
-    char dump_dynamic_rules_flag;
-    char dynamic_rules_path[STD_BUF];
-
-#define MAX_DYNAMIC_PREPROC_LIBS 16
-    u_int8_t dynamicPreprocCount;
-    u_int8_t dynamicPreprocCurrentDir;
-    DynamicDetectionSpecifier *dynamicPreprocs[MAX_DYNAMIC_PREPROC_LIBS];
-
+    uint32_t homenet;
+    uint32_t netmask;
+    uint32_t obfuscation_net;
+    uint32_t obfuscation_mask;
 #endif
 
-    int default_rule_state; /* Enabled */
-    u_int32_t numRuleStates;
-    RuleState *ruleStateList;
+    /* config disable_decode_alerts
+     * config enable_decode_oversized_alerts
+     * config enable_decode_oversized_drops
+     * config enable_decode_drops
+     * config disable_decode_drops
+     * config disable_tcpopt_experimental_alerts
+     * config enable_tcpopt_experimental_drops
+     * config disable_tcpopt_experimental_drops
+     * config disable_tcpopt_obsolete_alerts
+     * config enable_tcpopt_obsolete_drops
+     * config disable_tcpopt_obsolete_drops
+     * config disable_ttcp_alerts, config disable_tcpopt_ttcp_alerts
+     * config enable_ttcp_drops, config enable_tcpopt_ttcp_drops
+     * config disable_ttcp_drops
+     * config disable_tcpopt_alerts
+     * config enable_tcpopt_drops
+     * config disable_tcpopt_drops
+     * config disable_ipopt_alerts
+     * config enable_ipopt_drops
+     * config disable_ipopt_drops
+     * config ipv6_frag:
+     *   bsd_icmp_frag_alert
+     *   bad_ipv6_frag_alert
+     *   frag_timeout  -  not in DecoderFlags
+     *   max_frag_sessions  -  not in DecoderFlags
+     *   drop_bad_ipv6_frag
+     */
+    uint32_t ipv6_frag_timeout;
+    uint32_t ipv6_max_frag_sessions;
 
-    int done_processing;
+    uint8_t flowbit_size;
 
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-    int respond2_link;
-    int respond2_rows;
-    int respond2_memcap;
-    u_int8_t respond2_attempts;
-    char *respond2_ethdev;
+    char pid_filename[STD_BUF];  /* used with pid_path */
+    char pidfile_suffix[MAX_PIDFILE_SUFFIX + 1];  /* -R */
+    char *log_dir;           /* -l or config log_dir */
+    char *orig_log_dir;      /* set in case of chroot */
+    char *interface;         /* -i or config interface */
+    char *bpf_file;          /* -F or config bpf_file */
+    char *pcap_log_file;     /* -L */
+    char *chroot_dir;        /* -t or config chroot */
+    char *alert_file;
+    char *perf_file;         /* -Z */
+    char *bpf_filter;        /* last command line arguments */
+    char *pcap_file;         /* config read_bin_file */
+
+    int thiszone;
+
+#ifdef WIN32
+    char syslog_server[STD_BUF];
+    int syslog_server_port;
+# ifdef ENABLE_WIN32_SERVICE
+    int terminate_service_flag;
+    int pause_service_flag;
+# endif
 #endif
-    int usr_signal;
-    int cant_hup_signal;
-#ifdef TIMESTATS
-    int alrm_signal;
-    u_int32_t timestats_interval;
-#endif
-    int exit_signal;
-    int restart_flag;
+
+    uint8_t ignore_ports[UINT16_MAX];        /* config ignore_ports */
+    long int tagged_packet_limit;            /* config tagged_packet_limit */
+    long int pcre_match_limit;               /* config pcre_match_limit */
+    long int pcre_match_limit_recursion;     /* config pcre_match_limit_recursion */
+
 #ifdef PERF_PROFILING
-    int profile_rules_flag;
-    int profile_rules_sort;
-    int profile_preprocs_flag;
-    int profile_preprocs_sort;
-    char *profile_rules_filename;
-    int profile_rules_append;
-    char *profile_preprocs_filename;
-    int profile_preprocs_append;
+    ProfileConfig profile_rules;     /* config profile_rules */
+    ProfileConfig profile_preprocs;  /* config profile_preprocs */
 #endif
-    int tagged_packet_limit;
-    int treat_drop_as_alert;
-    int process_all_events;
-    int alert_before_pass;
-    int alert_packet_count;/* diplays packet count with alerts in console mode */
-    char nostamp;
 
-    /* XXX Move to IPv6 frag preprocessor once written */
-    u_int32_t ipv6_frag_timeout;
-    u_int32_t ipv6_max_frag_sessions;
+    int user_id;
+    int group_id;
 
+    mode_t file_mask;
+
+#ifdef MPLS
+    uint8_t mpls_payload_type;  /* --mpls_payload_type */
+    long int mpls_stack_depth;  /* --max_mpls_labelchain_len */
+#endif
+
+#ifdef TIMESTATS
+    uint32_t timestats_interval;   /* config timestats_interval */
+#endif
+
+    uint8_t min_ttl;            /* config min_ttl */
+    int default_rule_state;     /* config default_rule_state */
+
+#if defined(GIDS) && !defined(IPFW)
+    uint8_t enet_src[6];        /* config layer2resets */
+#endif
+
+#ifdef ENABLE_RESPONSE2
+    int respond2_link;       /* config flexresp2_interface */
+    char *respond2_ethdev;   /* config flexresp2_interface */
+    int respond2_rows;       /* config flexresp2_rows */
+    int respond2_memcap;     /* config flexresp2_memcap */
+    int respond2_attempts;   /* config flexresp2_attempts */
+#endif
 
 #ifdef TARGET_BASED
-    pthread_t attribute_reload_thread_id;
-    pid_t attribute_reload_thread_pid;
-    char attribute_reload_thread_running;
-    char attribute_reload_thread_stop;
-#define ATTRIBUTE_TABLE_RELOAD_FLAG 0x01
-#define ATTRIBUTE_TABLE_AVAILABLE_FLAG 0x02
-#define ATTRIBUTE_TABLE_RELOADING_FLAG 0x04
-#define ATTRIBUTE_TABLE_TAKEN_FLAG 0x08
-#define ATTRIBUTE_TABLE_PARSE_FAILED_FLAG 0x10
-    char reload_attribute_table_flags;
-#define DEFAULT_MAX_ATTRIBUTE_HOSTS 10000
-#define MAX_MAX_ATTRIBUTE_HOSTS 512 * 1024
-#define MIN_MAX_ATTRIBUTE_HOSTS 32
-    u_int32_t max_attribute_hosts;
-    char disable_attribute_reload_thread;
+    uint32_t max_attribute_hosts;    /* config max_attribute_hosts */
+    uint32_t max_metadata_services;  /* config max_metadata_services */
 #endif
 
-#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
-    char generate_preprocessor_decoder_otn;
+#if defined(GIDS) && defined(IPFW)
+    uint16_t divert_port;       /* -J */
 #endif
 
-    SF_QUEUE *pcap_queue;
-    SF_QUEUE *pcap_save_queue;
-    int pcap_loop_count;
-    char pcap_reset;
-    char pcap_show;
+    OutputConfig *output_configs;
+    OutputConfig *rule_type_output_configs;
+    SFGHASH *config_table;   /* table of config keywords and arguments */
+    int asn1_mem;
 
-#ifdef EXIT_CHECK
-    unsigned long exit_check;
-#endif
-    long pcre_match_limit;
-    long pcre_match_limit_recursion;
+    int active_dynamic_nodes;
 
-    unsigned max_inq;
-    UINT64 tot_inq_flush;
-    UINT64 tot_inq_inserts;
-    UINT64 tot_inq_uinserts;
-    int conf_error_out;
-#ifdef MPLS
-    u_int8_t mpls_multicast;
-    u_int8_t overlapping_IP;
-    int mpls_stack_depth;
-    u_int8_t mpls_payload_type;
+    RuleState *rule_state_list;
+    ClassType *classifications;
+    ReferenceSystemNode *references;
+    SFGHASH *so_rule_otn_map;
+    SFGHASH *otn_map;
+
+    FastPatternConfig *fast_pattern_config;
+    EventQueueConfig *event_queue_config;
+
+    PreprocPostConfigFuncNode *preproc_post_config_funcs;
+    PreprocCheckConfigFuncNode *preproc_config_check_funcs;
+#ifdef SNORT_RELOAD
+    PreprocReloadVerifyFuncNode *preproc_reload_verify_funcs;
 #endif
 
-    char require_rule_sid;
-} PV;
+    /* XXX XXX policy specific? */
+    ThresholdConfig *threshold_config;
+    RateFilterConfig *rate_filter_config;
+    DetectionFilterConfig *detection_filter_config;
+
+    SF_EVENTQ *event_queue;
+
+    SF_LIST **ip_proto_only_lists;
+    uint8_t ip_proto_array[NUM_IP_PROTOS];
+
+    int num_rule_types;
+    RuleListNode *rule_lists;
+
+    ListHead Alert;         /* Alert Block Header */
+    ListHead Log;           /* Log Block Header */
+    ListHead Pass;          /* Pass Block Header */
+    ListHead Activation;    /* Activation Block Header */
+    ListHead Dynamic;       /* Dynamic Block Header */
+    ListHead Drop;
+#ifdef GIDS
+    ListHead SDrop;
+    ListHead Reject;
+#endif
+
+    PluginSignalFuncNode *plugin_post_config_funcs;
+
+    OTNX_MATCH_DATA *omd;
+
+    /* Pattern matcher queue statistics */
+    unsigned int max_inq;
+    uint64_t tot_inq_flush;
+    uint64_t tot_inq_inserts;
+    uint64_t tot_inq_uinserts;
+
+#ifdef PORTLISTS
+    /* master port list table */
+    rule_port_tables_t *port_tables;
+#endif
+
+#ifdef PPM_MGR
+    ppm_cfg_t ppm_cfg;
+#endif
+
+    /* The port-rule-maps map the src-dst ports to rules for
+     * udp and tcp, for Ip we map the dst port as the protocol, 
+     * and for Icmp we map the dst port to the Icmp type. This 
+     * allows us to use the decode packet information to in O(1) 
+     * select a group of rules to apply to the packet.  These 
+     * rules may have uricontent, content, or they may be no content 
+     * rules, or any combination. We process the uricontent 1st,
+     * then the content, and then the no content rules for udp/tcp 
+     * and icmp, than we process the ip rules. */
+    PORT_RULE_MAP *prmIpRTNX;
+    PORT_RULE_MAP *prmTcpRTNX;
+    PORT_RULE_MAP *prmUdpRTNX;
+    PORT_RULE_MAP *prmIcmpRTNX;
+
+#ifdef TARGET_BASED
+    srmm_table_t *srmmTable;   /* srvc rule map master table */
+    srmm_table_t *spgmmTable;  /* srvc port_group map master table */
+    sopg_table_t *sopgTable;   /* service-oridnal to port_group table */ 
+#endif
+
+    SFXHASH *detection_option_hash_table;
+    SFXHASH *detection_option_tree_hash_table;
+
+    tSfPolicyConfig *policy_config;
+    SnortPolicy **targeted_policies;
+    unsigned int num_policies_allocated;
+
+    char *base_version;
+
+} SnortConfig;
 
 /* struct to collect packet statistics */
 typedef struct _PacketCount
 {
-    UINT64 total_from_pcap;
-    UINT64 total_processed;
+    uint64_t total_from_pcap;
+    uint64_t total_processed;
 
-    UINT64 s5tcp1;
-    UINT64 s5tcp2;
-    UINT64 ipv6opts;
-    UINT64 eth;
-    UINT64 ethdisc;
-    UINT64 ipv6disc;
-    UINT64 ip6ext;
-    UINT64 other;
-    UINT64 tcp;
-    UINT64 udp;
-    UINT64 icmp;
-    UINT64 arp;
-    UINT64 eapol;
-    UINT64 vlan;
-    UINT64 nested_vlan;
-    UINT64 ipv6;
-    UINT64 ipv6_up;
-    UINT64 ipv6_upfail;
-    UINT64 frag6;
-    UINT64 icmp6;
-    UINT64 tdisc;
-    UINT64 udisc;
-    UINT64 tcp6;
-    UINT64 udp6;
-    UINT64 ipdisc;
-    UINT64 icmpdisc;
-    UINT64 embdip;
-    UINT64 ip;
-    UINT64 ipx;
-    UINT64 ethloopback;
+    uint64_t s5tcp1;
+    uint64_t s5tcp2;
+    uint64_t ipv6opts;
+    uint64_t eth;
+    uint64_t ethdisc;
+    uint64_t ipv6disc;
+    uint64_t ip6ext;
+    uint64_t other;
+    uint64_t tcp;
+    uint64_t udp;
+    uint64_t icmp;
+    uint64_t arp;
+#ifndef NO_NON_ETHER_DECODER
+    uint64_t eapol;
+#endif
+    uint64_t vlan;
+    uint64_t nested_vlan;
+    uint64_t ipv6;
+    uint64_t ipv6_up;
+    uint64_t ipv6_upfail;
+    uint64_t frag6;
+    uint64_t icmp6;
+    uint64_t tdisc;
+    uint64_t udisc;
+    uint64_t tcp6;
+    uint64_t udp6;
+    uint64_t ipdisc;
+    uint64_t icmpdisc;
+    uint64_t embdip;
+    uint64_t ip;
+    uint64_t ipx;
+    uint64_t ethloopback;
 
-    UINT64 invalid_checksums;
+    uint64_t invalid_checksums;
 
 #ifdef GRE
-    UINT64 ip4ip4;
-    UINT64 ip4ip6;
-    UINT64 ip6ip4;
-    UINT64 ip6ip6;
+    uint64_t ip4ip4;
+    uint64_t ip4ip6;
+    uint64_t ip6ip4;
+    uint64_t ip6ip6;
 
-    UINT64 gre;
-    UINT64 gre_ip;
-    UINT64 gre_eth;
-    UINT64 gre_arp;
-    UINT64 gre_ipv6;
-    UINT64 gre_ipv6ext;
-    UINT64 gre_ipx;
-    UINT64 gre_loopback;
-    UINT64 gre_vlan;
-    UINT64 gre_ppp;
+    uint64_t gre;
+    uint64_t gre_ip;
+    uint64_t gre_eth;
+    uint64_t gre_arp;
+    uint64_t gre_ipv6;
+    uint64_t gre_ipv6ext;
+    uint64_t gre_ipx;
+    uint64_t gre_loopback;
+    uint64_t gre_vlan;
+    uint64_t gre_ppp;
 #endif
 
-    UINT64 discards;
-    UINT64 alert_pkts;
-    UINT64 log_pkts;
-    UINT64 pass_pkts;
+    uint64_t discards;
+    uint64_t alert_pkts;
+    uint64_t log_pkts;
+    uint64_t pass_pkts;
 
-    UINT64 frags;           /* number of frags that have come in */
-    UINT64 frag_trackers;   /* number of tracking structures generated */
-    UINT64 rebuilt_frags;   /* number of packets rebuilt */
-    UINT64 frag_incomp;     /* number of frags cleared due to memory issues */
-    UINT64 frag_timeout;    /* number of frags cleared due to timeout */
-    UINT64 rebuild_element; /* frags that were element of rebuilt pkt */
-    UINT64 frag_mem_faults; /* number of times the memory cap was hit */
+    uint64_t frags;           /* number of frags that have come in */
+    uint64_t frag_trackers;   /* number of tracking structures generated */
+    uint64_t rebuilt_frags;   /* number of packets rebuilt */
+    uint64_t frag_incomp;     /* number of frags cleared due to memory issues */
+    uint64_t frag_timeout;    /* number of frags cleared due to timeout */
+    uint64_t rebuild_element; /* frags that were element of rebuilt pkt */
+    uint64_t frag_mem_faults; /* number of times the memory cap was hit */
 
-    UINT64 tcp_stream_pkts; /* number of packets tcp reassembly touches */
-    UINT64 rebuilt_tcp;     /* number of phoney tcp packets generated */
-    UINT64 tcp_streams;     /* number of tcp streams created */
-    UINT64 rebuilt_segs;    /* number of tcp segments used in rebuilt pkts */
-    UINT64 queued_segs;     /* number of tcp segments stored for rebuilt pkts */
-    UINT64 str_mem_faults;  /* number of times the stream memory cap was hit */
+    uint64_t tcp_stream_pkts; /* number of packets tcp reassembly touches */
+    uint64_t rebuilt_tcp;     /* number of phoney tcp packets generated */
+    uint64_t tcp_streams;     /* number of tcp streams created */
+    uint64_t rebuilt_segs;    /* number of tcp segments used in rebuilt pkts */
+    uint64_t queued_segs;     /* number of tcp segments stored for rebuilt pkts */
+    uint64_t str_mem_faults;  /* number of times the stream memory cap was hit */
 
 #ifdef TARGET_BASED
-    UINT64 attribute_table_reloads; /* number of times attribute table was reloaded. */
+    uint64_t attribute_table_reloads; /* number of times attribute table was reloaded. */
 #endif
 
+#ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
   /* wireless statistics */
-    UINT64 wifi_mgmt;
-    UINT64 wifi_data;
-    UINT64 wifi_control; 
-    UINT64 assoc_req;
-    UINT64 assoc_resp;
-    UINT64 reassoc_req;
-    UINT64 reassoc_resp;
-    UINT64 probe_req;
-    UINT64 probe_resp;
-    UINT64 beacon;
-    UINT64 atim;
-    UINT64 dissassoc;
-    UINT64 auth;
-    UINT64 deauth;
-    UINT64 ps_poll;
-    UINT64 rts;
-    UINT64 cts;
-    UINT64 ack;
-    UINT64 cf_end;
-    UINT64 cf_end_cf_ack;
-    UINT64 data;
-    UINT64 data_cf_ack;
-    UINT64 data_cf_poll;
-    UINT64 data_cf_ack_cf_poll;
-    UINT64 cf_ack;
-    UINT64 cf_poll;
-    UINT64 cf_ack_cf_poll;
+    uint64_t wifi_mgmt;
+    uint64_t wifi_data;
+    uint64_t wifi_control; 
+    uint64_t assoc_req;
+    uint64_t assoc_resp;
+    uint64_t reassoc_req;
+    uint64_t reassoc_resp;
+    uint64_t probe_req;
+    uint64_t probe_resp;
+    uint64_t beacon;
+    uint64_t atim;
+    uint64_t dissassoc;
+    uint64_t auth;
+    uint64_t deauth;
+    uint64_t ps_poll;
+    uint64_t rts;
+    uint64_t cts;
+    uint64_t ack;
+    uint64_t cf_end;
+    uint64_t cf_end_cf_ack;
+    uint64_t data;
+    uint64_t data_cf_ack;
+    uint64_t data_cf_poll;
+    uint64_t data_cf_ack_cf_poll;
+    uint64_t cf_ack;
+    uint64_t cf_poll;
+    uint64_t cf_ack_cf_poll;
 #endif
+#endif  // NO_NON_ETHER_DECODER
 
 #ifdef GIDS
-#ifndef IPFW
-    UINT64 iptables;
-#else
-    UINT64 ipfw;
-#endif
+# ifndef IPFW
+    uint64_t iptables;
+# else
+    uint64_t ipfw;
+# endif
 #endif
 
 #ifdef MPLS
-    UINT64 mpls;    
+    uint64_t mpls;    
 #endif
+
 } PacketCount;
 
 typedef struct _PcapReadObject
@@ -593,58 +961,562 @@ typedef struct _PcapReadObject
 
 } PcapReadObject;
 
+/* ptr to the packet processor */
+typedef void (*grinder_t)(Packet *, const struct pcap_pkthdr *, const uint8_t *);
 
-/*  G L O B A L S  ************************************************************/
-extern PV pv;                 /* program vars (command line args) */
+
+/*  E X T E R N S  ************************************************************/
+extern SnortConfig *snort_conf;
 extern int datalink;          /* the datalink value */
-extern char *progname;        /* name of the program (from argv[0]) */
-extern char **progargs;
-extern char *username;
-extern char *groupname;
-extern unsigned long userid;
-extern unsigned long groupid;
-extern struct passwd *pw;
-extern struct group *gr;
-extern char *pcap_cmd;        /* the BPF command string */
-extern char *pktidx;          /* index ptr for the current packet */
-extern pcap_t *pd; /* array of packet descriptors per interface */
-extern Packet *BsdPseudoPacket; /* Specifically for logging the IPv6 
-                                  fragmented ICMP BSD vulnerability */
+extern pcap_t *pcap_handle;
 
-/* backwards compatibility */
-extern FILE *alert;           /* alert file ptr */
-extern FILE *binlog_ptr;      /* binary log file ptr */
-extern int flow;              /* flow var (probably obsolete) */
-extern int thiszone;          /* time zone info */
+/* Specifically for logging the IPv6 fragmented ICMP BSD vulnerability */
+extern Packet *BsdPseudoPacket;
+
 extern PacketCount pc;        /* packet count information */
-extern u_long netmasks[33];   /* precalculated netmask array */
-extern struct pcap_pkthdr *g_pkthdr; /* packet header ptr */
-extern u_char *g_pkt;         /* ptr to the packet data */
-extern u_long g_caplen;       /* length of the current packet */
-extern char *protocol_names[256];
-extern u_int snaplen;
-
-
-typedef void (*grinder_t)(Packet *, const struct pcap_pkthdr *, const u_int8_t *);  /* ptr to the packet processor */
-
+extern char **protocol_names;
 extern grinder_t grinder;
 
-/* Snort run-time configuration struct*/
-extern runtime_config snort_runtime;
 
 /*  P R O T O T Y P E S  ******************************************************/
 int SnortMain(int argc, char *argv[]);
-int ParseCmdLine(int, char**);
-void *InterfaceThread(void *);
-void InitPcap( int );
-int OpenPcap();
-int SetPktProcessor(void);
 void CleanExit(int);
-void PcapProcessPacket(char *, struct pcap_pkthdr *, u_char *);
+void PcapProcessPacket(char *, struct pcap_pkthdr *, const u_char *);
 void ProcessPacket(char *, const struct pcap_pkthdr *, const u_char *, void *);
-int ShowUsage(char *);
 void SigCantHupHandler(int signal);
-void print_packet_count();
+void print_packet_count(void);
+int SignalCheck(void);
+void Restart(void);
+void FreeVarList(VarNode *);
+SnortConfig * SnortConfNew(void);
+void SnortConfFree(SnortConfig *);
+void CleanupPreprocessors(SnortConfig *);
+void CleanupPlugins(SnortConfig *);
 
+static INLINE int ScTestMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__TEST;
+}
+
+static INLINE int ScIdsMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__IDS;
+}
+
+#ifdef DYNAMIC_PLUGIN
+static INLINE int ScRuleDumpMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__RULE_DUMP;
+}
+#endif
+
+static INLINE int ScVersionMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__VERSION;
+}
+
+static INLINE int ScPacketLogMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__PACKET_LOG;
+}
+
+static INLINE int ScPacketDumpMode(void)
+{
+    return snort_conf->run_mode == RUN_MODE__PACKET_DUMP;
+}
+
+static INLINE int ScDaemonMode(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__DAEMON;
+}
+
+static INLINE int ScDaemonRestart(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__DAEMON_RESTART;
+}
+
+static INLINE int ScReadMode(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__READ;
+}
+
+static INLINE int ScLogSyslog(void)
+{
+    return snort_conf->logging_flags & LOGGING_FLAG__SYSLOG;
+}
+
+#ifdef WIN32
+static INLINE int ScLogSyslogRemote(void)
+{
+    return snort_conf->logging_flags & LOGGING_FLAG__SYSLOG_REMOTE;
+}
+#endif
+
+static INLINE int ScLogVerbose(void)
+{
+    return snort_conf->logging_flags & LOGGING_FLAG__VERBOSE;
+}
+
+static INLINE int ScLogQuiet(void)
+{
+    return snort_conf->logging_flags & LOGGING_FLAG__QUIET;
+}
+
+static INLINE int ScDecoderAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__DEFAULT;
+}
+
+static INLINE int ScDecoderDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__DEFAULT;
+}
+
+static INLINE int ScDecoderOversizedAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__OVERSIZED;
+}
+
+static INLINE int ScDecoderOversizedDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__OVERSIZED;
+}
+
+static INLINE int ScDecoderIpv6BadFragAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__IPV6_BAD_FRAG;
+}
+
+static INLINE int ScDecoderIpv6BadFragDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__IPV6_BAD_FRAG;
+}
+
+static INLINE int ScDecoderIpv6BsdIcmpFragAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__IPV6_BSD_ICMP_FRAG;
+}
+
+static INLINE int ScDecoderIpv6BsdIcmpFragDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__IPV6_BSD_ICMP_FRAG;
+}
+
+static INLINE int ScDecoderTcpOptAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__TCP_OPT_ANOMALY;
+}
+
+static INLINE int ScDecoderTcpOptDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__TCP_OPT_ANOMALY;
+}
+
+static INLINE int ScDecoderTcpOptExpAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__TCP_EXP_OPT;
+}
+
+static INLINE int ScDecoderTcpOptExpDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__TCP_EXP_OPT;
+}
+
+static INLINE int ScDecoderTcpOptObsAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__TCP_OBS_OPT;
+}
+
+static INLINE int ScDecoderTcpOptObsDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__TCP_OBS_OPT;
+}
+
+static INLINE int ScDecoderTcpOptTTcpAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__TCP_TTCP_OPT;
+}
+
+static INLINE int ScDecoderTcpOptTTcpDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__TCP_TTCP_OPT;
+}
+
+static INLINE int ScDecoderIpOptAlerts(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_alert_flags & DECODE_EVENT_FLAG__IP_OPT_ANOMALY;
+}
+
+static INLINE int ScDecoderIpOptDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->decoder_drop_flags & DECODE_EVENT_FLAG__IP_OPT_ANOMALY;
+}
+
+static INLINE int ScIpChecksums(void)
+{
+    return snort_conf->targeted_policies[getDefaultPolicy()]->checksum_flags & CHECKSUM_FLAG__IP;
+}
+
+static INLINE int ScIpChecksumDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->checksum_drop_flags & CHECKSUM_FLAG__IP;
+}
+
+static INLINE int ScUdpChecksums(void)
+{
+    return snort_conf->targeted_policies[getDefaultPolicy()]->checksum_flags & CHECKSUM_FLAG__UDP;
+}
+
+static INLINE int ScUdpChecksumDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->checksum_drop_flags & CHECKSUM_FLAG__UDP;
+}
+
+static INLINE int ScTcpChecksums(void)
+{
+    return snort_conf->targeted_policies[getDefaultPolicy()]->checksum_flags & CHECKSUM_FLAG__TCP;
+}
+
+static INLINE int ScTcpChecksumDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->checksum_drop_flags & CHECKSUM_FLAG__TCP;
+}
+
+static INLINE int ScIcmpChecksums(void)
+{
+    return snort_conf->targeted_policies[getDefaultPolicy()]->checksum_flags & CHECKSUM_FLAG__ICMP;
+}
+
+static INLINE int ScIcmpChecksumDrops(void)
+{
+    return snort_conf->targeted_policies[getRuntimePolicy()]->checksum_drop_flags & CHECKSUM_FLAG__ICMP;
+}
+
+static INLINE int ScIgnoreTcpPort(uint16_t port)
+{
+    return snort_conf->ignore_ports[port] == IPPROTO_TCP;
+}
+
+static INLINE int ScIgnoreUdpPort(uint16_t port)
+{
+    return snort_conf->ignore_ports[port] == IPPROTO_UDP;
+}
+
+#ifdef MPLS
+static INLINE long int ScMplsStackDepth(void)
+{
+    return snort_conf->mpls_stack_depth;
+}
+
+static INLINE long int ScMplsPayloadType(void)
+{
+    return snort_conf->mpls_payload_type;
+}
+
+static INLINE int ScMplsOverlappingIp(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__MPLS_OVERLAPPING_IP;
+}
+
+static INLINE int ScMplsMulticast(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__MPLS_MULTICAST;
+}
+
+#endif
+
+static INLINE uint32_t ScIpv6FragTimeout(void)
+{
+    return snort_conf->ipv6_frag_timeout;
+}
+
+static INLINE uint32_t ScIpv6MaxFragSessions(void)
+{
+    return snort_conf->ipv6_max_frag_sessions;
+}
+
+static INLINE uint8_t ScMinTTL(void)
+{
+    return snort_conf->min_ttl;
+}
+
+static INLINE uint32_t ScEventLogId(void)
+{
+    return snort_conf->event_log_id;
+}
+
+static INLINE int ScConfErrorOut(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__CONF_ERROR_OUT;
+}
+
+static INLINE int ScAssureEstablished(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__ASSURE_EST;
+}
+
+/* Set if stream5 is configured */
+static INLINE int ScStateful(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__STATEFUL;
+}
+
+static INLINE long int ScPcreMatchLimit(void)
+{
+    return snort_conf->pcre_match_limit;
+}
+
+static INLINE long int ScPcreMatchLimitRecursion(void)
+{
+    return snort_conf->pcre_match_limit_recursion;
+}
+
+#ifdef PERF_PROFILING
+static INLINE int ScProfilePreprocs(void)
+{
+    return snort_conf->profile_preprocs.num;
+}
+
+static INLINE int ScProfileRules(void)
+{
+    return snort_conf->profile_rules.num;
+}
+#endif
+
+static INLINE int ScStaticHash(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__STATIC_HASH;
+}
+
+#ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
+static INLINE int ScAutoGenPreprocDecoderOtns(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__AUTOGEN_PREPROC_DECODER_OTN;
+}
+#endif
+
+static INLINE int ScProcessAllEvents(void)
+{
+    return snort_conf->event_queue_config->process_all_events;
+}
+
+static INLINE int ScInlineMode(void)
+{
+    return (((snort_conf->targeted_policies[getRuntimePolicy()])->policy_mode) & POLICYMODE_FLAG__INLINE );
+}
+
+static INLINE int ScAdapterInlineMode(void)
+{
+   return snort_conf->run_flags & RUN_FLAG__INLINE;
+}
+
+#if defined(GIDS) && !defined(IPFW)
+static INLINE int ScLinkLayerResets(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__LINK_LAYER_RESETS;
+}
+#endif
+
+#if defined(GIDS) && defined(IPFW)
+static INLINE uint16_t ScDivertPort(void)
+{
+    return snort_conf->divert_port;
+}
+#endif
+
+static INLINE int ScOutputIncludeYear(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__INCLUDE_YEAR;
+}
+
+static INLINE int ScOutputUseUtc(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__USE_UTC;
+}
+
+static INLINE int ScOutputDataLink(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__SHOW_DATA_LINK;
+}
+
+static INLINE int ScVerboseByteDump(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__VERBOSE_DUMP;
+}
+
+static INLINE int ScAlertPacketCount(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__ALERT_PKT_CNT;
+}
+
+static INLINE int ScObfuscate(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__OBFUSCATE;
+}
+
+static INLINE int ScOutputAppData(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__APP_DATA;
+}
+
+static INLINE int ScOutputCharData(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__CHAR_DATA;
+}
+
+static INLINE int ScAlertInterface(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__ALERT_IFACE;
+}
+
+static INLINE int ScNoOutputTimestamp(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__NO_TIMESTAMP;
+}
+
+static INLINE int ScLineBufferedLogging(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__LINE_BUFFER;
+}
+
+static INLINE int ScDefaultRuleState(void)
+{
+    return snort_conf->default_rule_state;
+}
+
+static INLINE int ScRequireRuleSid(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__REQUIRE_RULE_SID;
+}
+
+static INLINE int ScDisableInlineInit(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__DISABLE_INLINE_INIT;
+}
+
+#ifdef INLINE_FAILOPEN
+static INLINE int ScDisableInlineFailopen(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__DISABLE_FAILOPEN;
+}
+#endif
+
+static INLINE int ScNoLockPidFile(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__NO_LOCK_PID_FILE;
+}
+
+#ifdef TIMESTATS
+static INLINE uint32_t ScTimestatsInterval(void)
+{
+    return snort_conf->timestats_interval;
+}
+#endif
+
+static INLINE long int ScTaggedPacketLimit(void)
+{
+    return snort_conf->tagged_packet_limit;
+}
+
+static INLINE int ScCreatePidFile(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__CREATE_PID_FILE;
+}
+
+static INLINE int ScPcapShow(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__PCAP_SHOW;
+}
+
+static INLINE int ScPcapReset(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__PCAP_RESET;
+}
+
+#ifndef NO_NON_ETHER_DECODER
+static INLINE int ScOutputWifiMgmt(void)
+{
+    return snort_conf->output_flags & OUTPUT_FLAG__SHOW_WIFI_MGMT;
+}
+#endif
+
+#ifdef TARGET_BASED
+static INLINE uint32_t ScMaxAttrHosts(void)
+{
+    return snort_conf->max_attribute_hosts;
+}
+
+static INLINE int ScDisableAttrReload(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__DISABLE_ATTRIBUTE_RELOAD_THREAD;
+}
+#endif
+
+static INLINE int ScTreatDropAsAlert(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__TREAT_DROP_AS_ALERT;
+}
+
+static INLINE int ScAlertBeforePass(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__ALERT_BEFORE_PASS;
+}
+
+static INLINE int ScNoPcre(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__NO_PCRE;
+}
+
+static INLINE int ScNoLog(void)
+{
+    return snort_conf->no_log;
+}
+
+static INLINE int ScNoAlert(void)
+{
+    return snort_conf->no_alert;
+}
+
+#if defined(WIN32) && defined(ENABLE_WIN32_SERVICE)
+static INLINE int ScTerminateService(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__TERMINATE_SERVICE;
+}
+
+static INLINE int ScPauseService(void)
+{
+    return snort_conf->run_flags & RUN_FLAG__PAUSE_SERVICE;
+}
+#endif
+
+static INLINE int ScUid(void)
+{
+    return snort_conf->user_id;
+}
+
+static INLINE int ScGid(void)
+{
+    return snort_conf->group_id;
+}
+
+// use of macro avoids depending on generators.h
+#define EventIsInternal(gid) (gid == GENERATOR_INTERNAL)
+     
+static INLINE void EnableInternalEvent(RateFilterConfig *config, uint32_t sid)
+{   
+    if (config == NULL)
+        return;
+
+    config->internal_event_mask |= (1 << sid);
+}    
+
+static INLINE int InternalEventIsEnabled(RateFilterConfig *config, uint32_t sid)
+{   
+    if (config == NULL)
+        return 0;
+
+    return (config->internal_event_mask & (1 << sid));
+} 
 
 #endif  /* __SNORT_H__ */
+

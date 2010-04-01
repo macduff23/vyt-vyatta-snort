@@ -31,25 +31,25 @@
 #define HI_GET_METHOD 4
 
 typedef struct _hi_stats {
-    UINT64 unicode;
-    UINT64 double_unicode;
-    UINT64 non_ascii;        /* Non ASCII-representable character in URL */
-    UINT64 base36;
-    UINT64 dir_trav;         /* '../' */
-    UINT64 slashes;          /* '//' */
-    UINT64 self_ref;         /* './' */
-    UINT64 post;             /* Number of POST methods encountered */
-    UINT64 get;              /* Number of GETs */
-    UINT64 post_params;      /* Number of successfully extract post parameters */
-    UINT64 headers;          /* Number of successfully extracted headers */
+    uint64_t unicode;
+    uint64_t double_unicode;
+    uint64_t non_ascii;        /* Non ASCII-representable character in URL */
+    uint64_t base36;
+    uint64_t dir_trav;         /* '../' */
+    uint64_t slashes;          /* '//' */
+    uint64_t self_ref;         /* './' */
+    uint64_t post;             /* Number of POST methods encountered */
+    uint64_t get;              /* Number of GETs */
+    uint64_t post_params;      /* Number of successfully extract post parameters */
+    uint64_t headers;          /* Number of successfully extracted headers */
 #ifdef DEBUG
-    UINT64 header_len;
+    uint64_t header_len;
 #endif
-    UINT64 cookies;          /* Number of successfully extracted cookies */
+    uint64_t cookies;          /* Number of successfully extracted cookies */
 #ifdef DEBUG
-    UINT64 cookie_len;
+    uint64_t cookie_len;
 #endif
-    UINT64 total;
+    uint64_t total;
 } HIStats;
 
 extern HIStats hi_stats;

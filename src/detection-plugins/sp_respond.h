@@ -27,11 +27,12 @@
 ************************************************************/
 #ifndef __RESPOND_H__
 #define __RESPOND_H__
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
 
+#ifdef ENABLE_RESPOND
 void SetupRespond(void);
-u_int32_t RespondHash(void *d);
+void RespondFree(void* d);
+uint32_t RespondHash(void* d);
 int RespondCompare(void *l, void *r);
+#endif /* ENABLE_RESPOND */
 
-#endif /* ENABLE_RESPONSE && !ENABLE_RESPONSE2 */
 #endif /* __RESPOND_H__ */

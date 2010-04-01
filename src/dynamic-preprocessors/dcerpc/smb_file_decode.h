@@ -29,10 +29,10 @@
 #ifndef _SMB_FILE_DECODE_H_
 #define _SMB_FILE_DECODE_H_
 
-int ProcessSMBEcho(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size);
-int ProcessSMBClose(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size);
-int ProcessSMBSeek(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size);
-int ProcessSMBFlush(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size);
-int ProcessSMBNoParams(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size);
+int ProcessSMBEcho(SMB_HDR *smbHdr, uint8_t *data, uint16_t size);
+int ProcessSMBClose(SMB_HDR *smbHdr, uint8_t *data, uint16_t size);
+int ProcessSMBSeek(SMB_HDR *smbHdr, uint8_t *data, uint16_t size);
+int ProcessSMBFlush(SMB_HDR *smbHdr, uint8_t *data, uint16_t size);
+int ProcessSMBNoParams(SMB_HDR *smbHdr, uint8_t *data, uint16_t size);
 
 #endif /* _SMB_FILE_DECODE_H_ */

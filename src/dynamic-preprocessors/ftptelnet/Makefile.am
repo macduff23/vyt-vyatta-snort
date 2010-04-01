@@ -7,19 +7,21 @@ libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
 
 lib_LTLIBRARIES = libsf_ftptelnet_preproc.la
 
-libsf_ftptelnet_preproc_la_LDFLAGS = -export-dynamic
+libsf_ftptelnet_preproc_la_LDFLAGS = -module
 
 BUILT_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 nodist_libsf_ftptelnet_preproc_la_SOURCES = \
 sf_dynamic_preproc_lib.c \
 sf_ip.c \
 sfrt.c \
-sfrt_dir.c
+sfrt_dir.c \
+sfPolicyUserData.c 
 
 libsf_ftptelnet_preproc_la_SOURCES = \
 ftp_bounce_lookup.c \
@@ -71,11 +73,14 @@ sfrt.c: ../include/sfrt.c
 sfrt_dir.c: ../include/sfrt_dir.c
 	cp $? $@
 
+sfPolicyUserData.c: ../include/sfPolicyUserData.c
+	cp $? $@
+
 all-local:
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
-	rm -f sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c
+	rm -f sf_dynamic_preproc_lib.c sf_ip.c sfrt.c sfrt_dir.c sfPolicyUserData.c 
 
 DIST_SUBDIRS = .
 

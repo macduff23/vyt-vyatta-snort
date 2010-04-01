@@ -112,7 +112,7 @@ BSC32=bscmake.exe
 # ADD BSC32 /nologo
 LINK32=link.exe
 # ADD BASE LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /dll /debug /machine:I386 /pdbtype:sept
-# ADD LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib ../libs/Debug/sfdynamic_preproc_libs.lib /nologo /dll /debug /machine:I386 /pdbtype:sept
+# ADD LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib ../libs/IPv6_Debug/sfdynamic_preproc_libs.lib /nologo /dll /debug /machine:I386 /pdbtype:sept
 
 !ELSEIF  "$(CFG)" == "sf_ssl - Win32 IPv6 Release"
 
@@ -140,7 +140,7 @@ BSC32=bscmake.exe
 # ADD BSC32 /nologo
 LINK32=link.exe
 # ADD BASE LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /dll /machine:I386
-# ADD LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib ../libs/Release/sfdynamic_preproc_libs.lib /nologo /dll /machine:I386
+# ADD LINK32 ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib ../libs/IPv6_Release/sfdynamic_preproc_libs.lib /nologo /dll /machine:I386
 
 !ENDIF 
 
@@ -156,6 +156,10 @@ LINK32=link.exe
 # Begin Source File
 
 SOURCE=..\include\sf_dynamic_preproc_lib.c
+# End Source File
+# Begin Source File
+
+SOURCE=..\include\sfPolicyUserData.c
 # End Source File
 # Begin Source File
 

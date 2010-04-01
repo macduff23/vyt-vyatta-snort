@@ -40,29 +40,40 @@ extern void SetupSSLPP(void);
 typedef struct _SSLPP_config 
 {
     ports_tbl_t ports;
-    u_int16_t flags;
+    uint16_t flags;
 
 } SSLPP_config_t;
 
+typedef struct 
+{
+    /*
+     * SSL preprocessor global configuration structure.
+     */
+    SSLPP_config_t config;
+
+} tSslPolicyConfig;
+
+extern tSslPolicyConfig sslPolicyConfig[];
+
 typedef struct _SSLPP_counters
 {
-    UINT64 stopped;
-    UINT64 disabled;
-    UINT64 decoded;
-    UINT64 alerts;
-    UINT64 cipher_change;
-    UINT64 unrecognized;
-    UINT64 completed_hs;
-    UINT64 bad_handshakes;
-    UINT64 hs_chello;
-    UINT64 hs_shello;
-    UINT64 hs_cert;
-    UINT64 hs_skey;
-    UINT64 hs_ckey;
-    UINT64 hs_finished;
-    UINT64 hs_sdone;
-    UINT64 capp;
-    UINT64 sapp;
+    uint64_t stopped;
+    uint64_t disabled;
+    uint64_t decoded;
+    uint64_t alerts;
+    uint64_t cipher_change;
+    uint64_t unrecognized;
+    uint64_t completed_hs;
+    uint64_t bad_handshakes;
+    uint64_t hs_chello;
+    uint64_t hs_shello;
+    uint64_t hs_cert;
+    uint64_t hs_skey;
+    uint64_t hs_ckey;
+    uint64_t hs_finished;
+    uint64_t hs_sdone;
+    uint64_t capp;
+    uint64_t sapp;
 
 } SSLPP_counters_t;
 

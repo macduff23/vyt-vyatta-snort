@@ -65,8 +65,6 @@ int ftpp_ui_config_init_global_conf(FTPTELNET_GLOBAL_CONF *GlobalConf)
 {
     int iRet;
 
-    memset(GlobalConf, 0x00, sizeof(FTPTELNET_GLOBAL_CONF));
-
     iRet = ftpp_ui_client_lookup_init(&GlobalConf->client_lookup);
     if (iRet)
     {
@@ -104,9 +102,9 @@ int ftpp_ui_config_default(FTPTELNET_GLOBAL_CONF *GlobalConf)
     /*
      * Set Global Client Configurations
      */
-    ftpp_ui_config_reset_ftp_client(&GlobalConf->global_ftp_client, 0);
-    ftpp_ui_config_reset_ftp_server(&GlobalConf->global_ftp_server, 0);
-    ftpp_ui_config_reset_telnet_proto(&GlobalConf->global_telnet);
+    ftpp_ui_config_reset_ftp_client(GlobalConf->default_ftp_client, 0);
+    ftpp_ui_config_reset_ftp_server(GlobalConf->default_ftp_server, 0);
+    ftpp_ui_config_reset_telnet_proto(GlobalConf->telnet_config);
 
     return FTPP_SUCCESS;
 }
@@ -127,8 +125,8 @@ int ftpp_ui_config_reset_global(FTPTELNET_GLOBAL_CONF *GlobalConf)
     int iRet;
 
     /* Clean these up before mem setting */
-    ftp_bounce_lookup_cleanup(&(GlobalConf->global_ftp_client.bounce_lookup));
-    ftp_cmd_lookup_cleanup(&(GlobalConf->global_ftp_server.cmd_lookup));
+    ftp_bounce_lookup_cleanup(&GlobalConf->default_ftp_client->bounce_lookup);
+    ftp_cmd_lookup_cleanup(&(GlobalConf->default_ftp_server->cmd_lookup));
 
     ftpp_ui_client_lookup_cleanup(&GlobalConf->client_lookup);
     ftpp_ui_server_lookup_cleanup(&GlobalConf->server_lookup);
@@ -287,7 +285,6 @@ int ftpp_ui_config_reset_ftp_server(FTP_SERVER_PROTO_CONF *ServerConf,
                                     char first)
 {
     int iRet = FTPP_SUCCESS;
-    //FTP_CMD_CONF *NextFTPCmd = NULL;
 
     if (first == 0)
     {
@@ -306,6 +303,7 @@ int ftpp_ui_config_reset_ftp_server(FTP_SERVER_PROTO_CONF *ServerConf,
     ftp_cmd_lookup_init(&ServerConf->cmd_lookup);
 
     ServerConf->def_max_param_len = FTPP_UI_CONFIG_FTP_DEF_CMD_PARAM_MAX;
+    ServerConf->max_cmd_len = MAX_CMD;
 
     return iRet;
 }

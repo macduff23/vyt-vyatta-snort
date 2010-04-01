@@ -51,6 +51,8 @@
 #include "sfghash.h"
 #include "util.h"
 #include "ipv6_port.h"
+#include "sfPolicy.h"
+#include "sfPolicyUserData.h"
 
 /* Reasonably small, and prime */
 #define IGNORE_HASH_SIZE 1021
@@ -64,12 +66,14 @@ typedef struct _IgnoreNode
     time_t expires;
     int direction;
     int numOccurances;
+    tSfPolicyId policyId;
 } IgnoreNode;
 
 typedef struct _IgnoreHashKey
 {
     snort_ip ip1;
     snort_ip ip2;
+    tSfPolicyId policyId;
     short port;
     char protocol;
     char pad;
@@ -78,10 +82,10 @@ typedef struct _IgnoreHashKey
 /* The hash table of ignored channels */
 static SFGHASH *channelHash = NULL;
 
-int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
-                  snort_ip_p srvIP, u_int16_t srvPort,
+int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
+                  snort_ip_p srvIP, uint16_t srvPort,
                   char protocol, char direction, char flags,
-                  u_int32_t timeout)
+                  uint32_t timeout)
 {
     IgnoreHashKey hashKey;
     time_t now;
@@ -137,6 +141,7 @@ int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
     IP_COPY_VALUE(hashKey.ip2, ip2);
     hashKey.port = portToHash;
     hashKey.protocol = protocol;
+    hashKey.policyId = getRuntimePolicy();
     hashKey.pad = 0;
 
     node = sfghash_find(channelHash, &hashKey);
@@ -163,6 +168,7 @@ int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
             node->port2 = srvPort;
             node->direction = direction;
             node->protocol = protocol;
+            node->policyId = getRuntimePolicy();
         }
         else
         {
@@ -192,6 +198,7 @@ int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
         node->port2 = srvPort;
         node->direction = direction;
         node->protocol = protocol;
+        node->policyId = getRuntimePolicy();
         /* now + 5 minutes (configurable?)
          *
          * use the time that we keep sessions around
@@ -266,6 +273,7 @@ char CheckIgnoreChannel(Packet *p)
     hashKey.port = dstPort;
     hashKey.protocol = protocol;
     hashKey.pad = 0;
+    hashKey.policyId = getRuntimePolicy();
 
     node = sfghash_find(channelHash, &hashKey);
 
@@ -314,6 +322,7 @@ char CheckIgnoreChannel(Packet *p)
 #else
         IP_EQUALITY(node->ip1, srcIP) && IP_EQUALITY(node->ip2, dstIP) &&
 #endif
+            (node->policyId == getRuntimePolicy()) &&
             (node->port1 == srcPort || node->port1 == UNKNOWN_PORT) &&
             (node->port2 == dstPort || node->port2 == UNKNOWN_PORT) )
         {
@@ -325,6 +334,7 @@ char CheckIgnoreChannel(Packet *p)
 #else
         IP_EQUALITY(node->ip2, srcIP) && IP_EQUALITY(node->ip1, dstIP) &&
 #endif
+                 (node->policyId == getRuntimePolicy()) &&
                  (node->port2 == srcPort || node->port2 == UNKNOWN_PORT) &&
                  (node->port1 == dstPort || node->port1 == UNKNOWN_PORT) )
         {
@@ -380,9 +390,9 @@ char CheckIgnoreChannel(Packet *p)
 #endif
 
                     DEBUG_WRAP(DebugMessage(DEBUG_STREAM,
-                           "Ignoring channel %s:%d --> %s:%d\n",
+                           "Ignoring channel %s:%d --> %s:%d, policyId %d\n",
                            srcAddr, srcPort,
-                           inet_ntoa(tmpAddr), dstPort););
+                           inet_ntoa(tmpAddr), dstPort, getRuntimePolicy()););
                 }
 #endif
             }
@@ -427,7 +437,7 @@ char CheckIgnoreChannel(Packet *p)
     return retVal;
 }
 
-void CleanupIgnore()
+void CleanupIgnore(void)
 {
     if (channelHash)
     {

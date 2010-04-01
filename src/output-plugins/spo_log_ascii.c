@@ -88,11 +88,11 @@ static FILE *OpenLogFile(int mode, Packet * p);
 #define ARP               4
 #define GENERIC_LOG   5
 
-void LogAsciiSetup()
+void LogAsciiSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("log_ascii", NT_OUTPUT_LOG, LogAsciiInit);
+    RegisterOutputPlugin("log_ascii", OUTPUT_TYPE_FLAG__LOG, LogAsciiInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogAscii is setup\n"););
 }
@@ -101,15 +101,11 @@ void LogAsciiInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: Ascii logging initialized\n"););
 
-    pv.log_plugin_active = 1;
-
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(LogAscii, NT_OUTPUT_LOG, NULL);
+    AddFuncToOutputList(LogAscii, OUTPUT_TYPE__LOG, NULL);
     AddFuncToCleanExitList(LogAsciiCleanExit, NULL);
     AddFuncToRestartList(LogAsciiRestart, NULL);
 }
-
-
 
 void LogAscii(Packet *p, char *msg, void *arg, Event *event)
 {
@@ -119,8 +115,10 @@ void LogAscii(Packet *p, char *msg, void *arg, Event *event)
     { 
         if(IPH_IS_VALID(p))
             log_ptr = OpenLogFile(0, p);
+#ifndef NO_NON_ETHER_DECODER
         else if(p->ah)
             log_ptr = OpenLogFile(ARP, p);
+#endif
         else
             log_ptr = OpenLogFile(NON_IP, p);
     }
@@ -148,8 +146,10 @@ void LogAscii(Packet *p, char *msg, void *arg, Event *event)
     {
         if(IPH_IS_VALID(p))
             PrintIPPkt(log_ptr, GET_IPH_PROTO(p), p);
+#ifndef NO_NON_ETHER_DECODER
         else if(p->ah)
             PrintArpHeader(log_ptr, p);
+#endif
     }
     if(log_ptr)
         fclose(log_ptr);
@@ -205,7 +205,7 @@ FILE *OpenLogFile(int mode, Packet * p)
     if (mode == GENERIC_LOG || mode == DUMP || mode == BOGUS ||
         mode == NON_IP || mode == ARP)
     {
-        SnortSnprintf(log_file, STD_BUF, "%s/%s", pv.log_dir, logfile[mode]);
+        SnortSnprintf(log_file, STD_BUF, "%s/%s", snort_conf->log_dir, logfile[mode]);
 
         log_ptr = fopen(log_file, "a");
         if (!log_ptr)
@@ -221,7 +221,7 @@ FILE *OpenLogFile(int mode, Packet * p)
     {
         if(otn_tmp->logto != NULL)
         {
-            SnortSnprintf(log_file, STD_BUF, "%s/%s", pv.log_dir, otn_tmp->logto);
+            SnortSnprintf(log_file, STD_BUF, "%s/%s", snort_conf->log_dir, otn_tmp->logto);
 
             log_ptr = fopen(log_file, "a");
             if (!log_ptr)
@@ -234,30 +234,30 @@ FILE *OpenLogFile(int mode, Packet * p)
     }
 #ifdef SUP_IP6
     ip = GET_DST_IP(p);
-    if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+    if(sfip_contains(&snort_conf->homenet, ip) == SFIP_CONTAINS)
 #else
-    if((p->iph->ip_dst.s_addr & pv.netmask) == pv.homenet)
+    if((p->iph->ip_dst.s_addr & snort_conf->netmask) == snort_conf->homenet)
 #endif
     {
 #ifdef SUP_IP6
-        if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+        if(sfip_contains(&snort_conf->homenet, ip) == SFIP_CONTAINS)
 #else
-        if((p->iph->ip_src.s_addr & pv.netmask) != pv.homenet)
+        if((p->iph->ip_src.s_addr & snort_conf->netmask) != snort_conf->homenet)
 #endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                     inet_ntoa(GET_SRC_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                         inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                         inet_ntoa(GET_DST_ADDR(p)));
             }
         }
@@ -266,24 +266,24 @@ FILE *OpenLogFile(int mode, Packet * p)
     {
 #ifdef SUP_IP6
         ip = GET_SRC_IP(p);
-        if(sfip_contains(&pv.homenet, ip) == SFIP_CONTAINS)
+        if(sfip_contains(&snort_conf->homenet, ip) == SFIP_CONTAINS)
 #else
-        if((p->iph->ip_src.s_addr & pv.netmask) == pv.homenet)
+        if((p->iph->ip_src.s_addr & snort_conf->netmask) == snort_conf->homenet)
 #endif
         {
-            SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+            SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                     inet_ntoa(GET_DST_ADDR(p)));
         }
         else
         {
             if(p->sp >= p->dp)
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                         inet_ntoa(GET_SRC_ADDR(p)));
             }
             else
             {
-                SnortSnprintf(log_path, STD_BUF, "%s/%s", pv.log_dir, 
+                SnortSnprintf(log_path, STD_BUF, "%s/%s", snort_conf->log_dir, 
                         inet_ntoa(GET_DST_ADDR(p)));
             }
         }

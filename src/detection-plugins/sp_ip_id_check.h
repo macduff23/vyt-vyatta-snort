@@ -23,7 +23,7 @@
 #define __SP_IP_ID_CHECK_H__
 
 void SetupIpIdCheck(void);
-u_int32_t IpIdCheckHash(void *d);
+uint32_t IpIdCheckHash(void *d);
 int IpIdCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_ID_CHECK_H__ */

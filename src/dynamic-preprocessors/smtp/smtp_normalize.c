@@ -40,9 +40,9 @@
 #include "sf_dynamic_preprocessor.h"
 #include "sf_snort_packet.h"
 
-extern SMTP *_smtp;
+extern SMTP *smtp_ssn;
 extern DynamicPreprocessorData _dpd;
-extern char _smtp_normalizing;
+extern char smtp_normalizing;
 
 
 /*
@@ -69,14 +69,14 @@ extern char _smtp_normalizing;
  * @retval   0          function succeded without error
  * @retval  -1          there were errors
  */
-int SMTP_NormalizeCmd(SFSnortPacket *p, const u_int8_t *ptr, const u_int8_t *eolm, const u_int8_t *eol)
+int SMTP_NormalizeCmd(SFSnortPacket *p, const uint8_t *ptr, const uint8_t *eolm, const uint8_t *eol)
 {
-    const u_int8_t *tmp;
-    const u_int8_t *cmd_start;
-    const u_int8_t *cmd_end;
-    const u_int8_t *args_start;
-    const u_int8_t *args_end;
-    const u_int8_t *space = (u_int8_t *)" ";
+    const uint8_t *tmp;
+    const uint8_t *cmd_start;
+    const uint8_t *cmd_end;
+    const uint8_t *args_start;
+    const uint8_t *args_end;
+    const uint8_t *space = (uint8_t *)" ";
     int need_normalize = 0;
     int ret;
 
@@ -132,7 +132,7 @@ int SMTP_NormalizeCmd(SFSnortPacket *p, const u_int8_t *ptr, const u_int8_t *eol
 
         /* if we're not yet normalizing copy everything in the payload up to this
          * line into the alt buffer */
-        if (!_smtp_normalizing)
+        if (!smtp_normalizing)
         {
             ret = SMTP_CopyToAltBuffer(p, p->payload, ptr - p->payload);
             if (ret == -1)
@@ -163,7 +163,7 @@ int SMTP_NormalizeCmd(SFSnortPacket *p, const u_int8_t *ptr, const u_int8_t *eol
             return -1;
 
     }
-    else if (_smtp_normalizing)
+    else if (smtp_normalizing)
     {
         /* if we're already normalizing and didn't need to normalize this line, just
          * copy it into the alt buffer */

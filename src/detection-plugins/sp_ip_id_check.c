@@ -56,9 +56,9 @@ void IpIdCheckInit(char *, OptTreeNode *, int);
 void ParseIpId(char *, OptTreeNode *);
 int IpIdCheckEq(void *option_data, Packet *p);
 
-u_int32_t IpIdCheckHash(void *d)
+uint32_t IpIdCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IpIdCheckData *data = (IpIdCheckData *)d;
 
     a = data->ip_id;
@@ -100,7 +100,7 @@ int IpIdCheckCompare(void *l, void *r)
 void SetupIpIdCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("id", IpIdCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("id", IpIdCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("id", &ipIdPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

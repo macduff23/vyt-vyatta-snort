@@ -36,7 +36,7 @@
 
 #include "smb_file_decode.h"
 
-int ProcessSMBEcho(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
+int ProcessSMBEcho(SMB_HDR *smbHdr, uint8_t *data, uint16_t size)
 {
     //unsigned char *smb_data = data + sizeof(SMB_ECHO_REQ);
 
@@ -58,7 +58,7 @@ int ProcessSMBEcho(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
     return 0;
 }
 
-int ProcessSMBClose(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
+int ProcessSMBClose(SMB_HDR *smbHdr, uint8_t *data, uint16_t size)
 {
     SMB_CLOSE_REQ *closeReq = (SMB_CLOSE_REQ *)data;
 
@@ -81,7 +81,7 @@ int ProcessSMBClose(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
     return 0;
 }
 
-int ProcessSMBSeek(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
+int ProcessSMBSeek(SMB_HDR *smbHdr, uint8_t *data, uint16_t size)
 {
     SMB_SEEK_REQ *seekReq = (SMB_SEEK_REQ *)data;
 
@@ -98,7 +98,7 @@ int ProcessSMBSeek(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
 }
 
 
-int ProcessSMBFlush(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
+int ProcessSMBFlush(SMB_HDR *smbHdr, uint8_t *data, uint16_t size)
 {
     SMB_FLUSH_REQ *flushReq = (SMB_FLUSH_REQ *)data;
 
@@ -113,7 +113,7 @@ int ProcessSMBFlush(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
     return 0;
 }
 
-int ProcessSMBNoParams(SMB_HDR *smbHdr, u_int8_t *data, u_int16_t size)
+int ProcessSMBNoParams(SMB_HDR *smbHdr, uint8_t *data, uint16_t size)
 {
     SMB_TREE_DISCONNECT_REQ *disconnect = (SMB_TREE_DISCONNECT_REQ *)data;
 

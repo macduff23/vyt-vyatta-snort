@@ -35,52 +35,55 @@
 **  evaluation.  So if one module wants to turn off
 **  another module, it must come first in the order.
 */
-//#define PP_ALL                    0xffffffff
-//#define PP_LOADBALANCING          1
-//#define PP_PORTSCAN               2
-#define PP_HTTPINSPECT            3
-//#define PP_PORTSCAN_IGNORE_HOSTS  4
-#define PP_RPCDECODE              5
-#define PP_BO                     6
-#define PP_TELNET                 7
-//#define PP_STREAM4                8
-//#define PP_FRAG2                  9
-#define PP_ARPSPOOF               10
-//#define PP_ASN1DECODE             11
-//#define PP_FNORD                  12
-//#define PP_CONVERSATION           13
-//#define PP_PORTSCAN2              14
-//#define PP_HTTPFLOW               15
-#define PP_PERFMONITOR            16
-//#define PP_STREAM4_REASSEMBLE     17
-#define PP_FRAG3                  18
-#define PP_FTPTELNET              19
-#define PP_SMTP                   20
-#define PP_SFPORTSCAN             21
-#define PP_FLOW                   22
-#define PP_ISAKMP                 23
-#define PP_SSH                    24
-#define PP_DNS                    25
-#define PP_STREAM5                26
-#define PP_DCERPC                 27
-#define PP_SKYPE                  28
-#define PP_SSL                    29
-#define PP_RULES                  30
-#define PP_DCE2                   31
 
-/* clamav: using the ID from the snort-inline fork */
-#define PP_CLAMAV                 30
+#define PP_BO                      0
+#define PP_DCERPC                  1
+#define PP_DNS                     2
+#define PP_FRAG3                   3
+#define PP_FTPTELNET               4
+#define PP_HTTPINSPECT             5
+#define PP_PERFMONITOR             6
+#define PP_RPCDECODE               7
+#define PP_RULES                   8
+#define PP_SFPORTSCAN              9
+#define PP_SMTP                   10
+#define PP_SSH                    11
+#define PP_SSL                    12
+#define PP_STREAM5                13
+#define PP_TELNET                 14
+#define PP_ARPSPOOF               15
+#define PP_DCE2                   16
 
-/* clamav: using the ID from the snort-inline fork */
-#define PP_CLAMAV                 30
+// used externally
+#define PP_ISAKMP                 17
+#define PP_SKYPE                  18
 
-#define PRIORITY_FIRST 0x0
-#define PRIORITY_NETWORK 0x10
-#define PRIORITY_TRANSPORT 0x100
-#define PRIORITY_TUNNEL  0x105
-#define PRIORITY_SCANNER 0x110
-#define PRIORITY_APPLICATION 0x200
-#define PRIORITY_LAST 0xffff
+// currently 32 bits (preprocessors)
+// are available.  most of these can
+// be deleted:
+#if 0
+#define PP_ASN1DECODE             17
+#define PP_CONVERSATION           18
+#define PP_FLOW                   19
+#define PP_FRAG2                  20
+#define PP_FNORD                  21
+#define PP_HTTPFLOW               22
+#define PP_LOADBALANCING          24
+#define PP_PORTSCAN               25
+#define PP_PORTSCAN2              26
+#define PP_PORTSCAN_IGNORE_HOSTS  27
+#endif
+
+#define PP_ALL_ON         0xFFFFFFFF
+#define PP_ALL_OFF        0x00000000
+
+#define PRIORITY_FIRST           0x0
+#define PRIORITY_NETWORK        0x10
+#define PRIORITY_TRANSPORT     0x100
+#define PRIORITY_TUNNEL        0x105
+#define PRIORITY_SCANNER       0x110
+#define PRIORITY_APPLICATION   0x200
+#define PRIORITY_LAST         0xffff
 
 #endif /* _PREPROC_IDS_H */
 

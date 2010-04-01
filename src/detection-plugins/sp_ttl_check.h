@@ -23,7 +23,7 @@
 #define __SP_TTL_CHECK_H__
 
 void SetupTtlCheck(void);
-u_int32_t TtlCheckHash(void *d);
+uint32_t TtlCheckHash(void *d);
 int TtlCheckCompare(void *l, void *r);
 
 #endif  /* __SP_TTL_CHECK_H__ */

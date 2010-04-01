@@ -70,6 +70,8 @@ static char *standard_protocols[] =
     NULL
 };
 
+/* XXX XXX Probably need to do this during swap time since the
+ * proto_reference_table is accessed during runtime */
 int16_t AddProtocolReference(char *protocol)
 {
     SFTargetProtocolReference *reference;
@@ -142,7 +144,7 @@ int16_t FindProtocolReference(char *protocol)
     return SFTARGET_UNKNOWN_PROTOCOL;
 }
 
-void InitializeProtocolReferenceTable()
+void InitializeProtocolReferenceTable(void)
 {
     char **protocol;
 
@@ -164,7 +166,7 @@ void InitializeProtocolReferenceTable()
     }
 }
 
-void FreeProtoocolReferenceTable()
+void FreeProtoocolReferenceTable(void)
 {
     sfghash_delete(proto_reference_table);
     proto_reference_table = NULL;

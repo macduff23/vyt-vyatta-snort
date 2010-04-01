@@ -49,6 +49,7 @@ typedef enum _HI_EVENTS
     HI_EO_CLIENT_WEBROOT_DIR    , 
     HI_EO_CLIENT_LONG_HDR       ,
     HI_EO_CLIENT_MAX_HEADERS    ,
+    HI_EO_CLIENT_MULTIPLE_CONTLEN,
     HI_EO_CLIENT_EVENT_NUM
 } HI_EVENTS;
 
@@ -95,6 +96,8 @@ typedef enum _HI_EVENTS
     "(http_inspect) LONG HEADER"
 #define HI_EO_CLIENT_MAX_HEADERS_STR                       \
     "(http_inspect) MAX HEADER FIELDS"
+#define HI_EO_CLIENT_MULTIPLE_CONTLEN_STR               \
+    "(http_inspect) MULTIPLE CONTENT LENGTH"
 
 /*
 **  Anomalous Server Events

@@ -7,13 +7,15 @@ libdir = ${exec_prefix}/lib/snort_dynamicpreprocessor
 
 lib_LTLIBRARIES = libsf_ssl_preproc.la
 
-libsf_ssl_preproc_la_LDFLAGS = -export-dynamic
+libsf_ssl_preproc_la_LDFLAGS = -module
 
 BUILT_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c \
+sfPolicyUserData.c
 
 nodist_libsf_ssl_preproc_la_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c \
+sfPolicyUserData.c
 
 libsf_ssl_preproc_la_SOURCES = \
 spp_ssl.c \
@@ -30,8 +32,12 @@ sf_ssl.dsp
 sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
+sfPolicyUserData.c: ../include/sfPolicyUserData.c
+	cp $? $@
+
 all-local:
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
 	rm -f sf_dynamic_preproc_lib.c
+	rm -f sfPolicyUserData.c

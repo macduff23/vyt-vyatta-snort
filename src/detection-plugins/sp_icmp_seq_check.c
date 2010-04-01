@@ -76,9 +76,9 @@ void IcmpSeqCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpSeq(char *, OptTreeNode *);
 int IcmpSeqCheck(void *option_data, Packet *p);
 
-u_int32_t IcmpSeqCheckHash(void *d)
+uint32_t IcmpSeqCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IcmpSeqCheckData *data = (IcmpSeqCheckData *)d;
 
     a = data->icmpseq;
@@ -124,7 +124,7 @@ int IcmpSeqCheckCompare(void *l, void *r)
 void SetupIcmpSeqCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("icmp_seq", IcmpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("icmp_seq", IcmpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("icmp_seq", &icmpSeqPerfStats, 3, &ruleOTNEvalPerfStats);

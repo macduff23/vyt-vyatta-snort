@@ -21,7 +21,7 @@
 
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   1
-#define BUILD_VERSION   1
+#define BUILD_VERSION   2
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_SSH (IPV6)"
 #else
@@ -29,6 +29,6 @@
 #endif
 
 #define DYNAMIC_PREPROC_SETUP SetupSSH
-extern void SetupSSH();
+extern void SetupSSH(void);
 
 #endif /* SF_PREPROC_INFO_H */

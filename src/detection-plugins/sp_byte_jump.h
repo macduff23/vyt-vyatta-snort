@@ -23,8 +23,26 @@
 #ifndef __SP_BYTE_JUMP_H__
 #define __SP_BYTE_JUMP_H__
 
+#include "decode.h"
+
+typedef struct _ByteJumpData
+{
+    uint32_t bytes_to_grab; /* number of bytes to compare */
+    int32_t offset;
+    uint8_t relative_flag;
+    uint8_t data_string_convert_flag;
+    uint8_t from_beginning_flag;
+    uint8_t align_flag;
+    uint8_t endianess;
+    uint32_t base;
+    uint32_t multiplier;
+    int32_t post_offset;
+
+} ByteJumpData;
+
 void SetupByteJump(void);
-u_int32_t ByteJumpHash(void *d);
+uint32_t ByteJumpHash(void *d);
 int ByteJumpCompare(void *l, void *r);
+int ByteJump(void *, Packet *);
 
 #endif  /* __SP_BYTE_JUMP_H__ */

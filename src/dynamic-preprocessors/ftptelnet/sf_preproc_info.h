@@ -22,9 +22,11 @@
 #ifndef SF_PREPROC_INFO_H
 #define SF_PREPROC_INFO_H
 
+#include "spp_ftptelnet.h"
+
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   2
-#define BUILD_VERSION   11
+#define BUILD_VERSION   12
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_FTPTELNET (IPV6)"
 #else
@@ -32,6 +34,5 @@
 #endif
 
 #define DYNAMIC_PREPROC_SETUP SetupFTPTelnet
-extern void SetupFTPTelnet();
 
 #endif /* SF_PREPROC_INFO_H */

@@ -50,16 +50,12 @@ typedef enum _DCERPC_FragType
 
 } DCERPC_FragType;
 
-extern u_int16_t _max_frag_size;
-
 extern DCERPC         *_dcerpc;
 extern SFSnortPacket  *_dcerpc_pkt;
-extern u_int8_t        _disable_dcerpc_fragmentation;
-extern u_int8_t        _debug_print;
-extern u_int8_t *dce_reassembly_buf;
-extern u_int16_t dce_reassembly_buf_size;
+extern uint8_t *dce_reassembly_buf;
+extern uint16_t dce_reassembly_buf_size;
 extern SFSnortPacket *real_dce_mock_pkt;
-extern int _reassemble_increment;
+extern DceRpcConfig *dcerpc_eval_config;
 
 /* Check to see if we have a full DCE/RPC fragment
  * Guarantees:
@@ -68,10 +64,10 @@ extern int _reassemble_increment;
  *  DCE/RPC fragment length is greater than the size of request header
  *  DCE/RPC fragment length is less than or equal to size of data remaining
  */
-int IsCompleteDCERPCMessage(const u_int8_t *data, u_int16_t size)
+int IsCompleteDCERPCMessage(const uint8_t *data, uint16_t size)
 {
     const DCERPC_HDR *dcerpc;
-    u_int16_t       frag_length;
+    uint16_t       frag_length;
 
     if (size < sizeof(DCERPC_REQ))
         return 0;
@@ -102,11 +98,11 @@ int IsCompleteDCERPCMessage(const u_int8_t *data, u_int16_t size)
 }
 
 /* Return 1 if successfully parsed at least one message */
-int ProcessDCERPCMessage(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u_int8_t *data, u_int16_t size)
+int ProcessDCERPCMessage(const uint8_t *smb_hdr, uint16_t smb_hdr_len, const uint8_t *data, uint16_t size)
 {
-    u_int16_t current_size = size;
-    const u_int8_t *current_data = data;
-    u_int16_t opnum = 0;
+    uint16_t current_size = size;
+    const uint8_t *current_data = data;
+    uint16_t opnum = 0;
     DCERPC_Buffer *sbuf;
 
     if (_dcerpc->trans == DCERPC_TRANS_TYPE__DCERPC)
@@ -147,7 +143,7 @@ int ProcessDCERPCMessage(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u
     while (current_size > 0)
     {
         const DCERPC_HDR *dcerpc = (DCERPC_HDR *) current_data;
-        u_int16_t frag_length = dcerpc_ntohs(dcerpc->byte_order, dcerpc->frag_length);
+        uint16_t frag_length = dcerpc_ntohs(dcerpc->byte_order, dcerpc->frag_length);
         DCERPC_FragType frag_type = DCERPC_FRAG_TYPE__FULL;
 
         if (dcerpc->packet_type != DCERPC_REQUEST)
@@ -161,7 +157,7 @@ int ProcessDCERPCMessage(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u
 
         if (frag_length > sizeof(DCERPC_REQ))
         {
-            frag_type = DCERPC_Fragmentation(current_data, (u_int16_t)current_size, frag_length);
+            frag_type = DCERPC_Fragmentation(current_data, (uint16_t)current_size, frag_length);
             if (frag_type == DCERPC_FRAG_TYPE__LAST)
             {
                 ReassembleDCERPCRequest(smb_hdr, smb_hdr_len, current_data);
@@ -224,7 +220,7 @@ int ProcessDCERPCMessage(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u
         }
     }
 
-    if (_reassemble_increment)
+    if (dcerpc_eval_config->reassemble_increment)
         DCERPC_EarlyFragReassemble(_dcerpc, smb_hdr, smb_hdr_len, opnum);
 
     return DCERPC_FRAGMENT;
@@ -237,7 +233,7 @@ int ProcessDCERPCMessage(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u
  */
 
 
-int DCERPC_Fragmentation(const u_int8_t *data, u_int16_t data_size, u_int16_t frag_length)
+int DCERPC_Fragmentation(const uint8_t *data, uint16_t data_size, uint16_t frag_length)
 {
     DCERPC_HDR     *dcerpc_hdr;
     DCERPC_Buffer *buf = &_dcerpc->dce_frag_buf;
@@ -269,8 +265,8 @@ int DCERPC_Fragmentation(const u_int8_t *data, u_int16_t data_size, u_int16_t fr
     data += sizeof(DCERPC_REQ);
     data_size -= sizeof(DCERPC_REQ);
 
-    if (frag_length > _max_frag_size)
-        frag_length = _max_frag_size;
+    if (frag_length > dcerpc_eval_config->max_frag_size)
+        frag_length = dcerpc_eval_config->max_frag_size;
 
     if (DCERPC_BufferAddData(_dcerpc, buf, data, frag_length) == -1)
     {
@@ -280,7 +276,7 @@ int DCERPC_Fragmentation(const u_int8_t *data, u_int16_t data_size, u_int16_t fr
         return DCERPC_FRAG_TYPE__ERROR;
     }
 
-    if (_debug_print)
+    if (dcerpc_eval_config->debug_print)
         PrintBuffer("DCE/RPC current frag reassembly buffer", buf->data, buf->len);
 
     if (dcerpc_hdr->flags & DCERPC_LAST_FRAG)
@@ -289,13 +285,13 @@ int DCERPC_Fragmentation(const u_int8_t *data, u_int16_t data_size, u_int16_t fr
     return DCERPC_FRAG_TYPE__FRAG;
 }
 
-void ReassembleDCERPCRequest(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, const u_int8_t *data)
+void ReassembleDCERPCRequest(const uint8_t *smb_hdr, uint16_t smb_hdr_len, const uint8_t *data)
 {
     int pkt_len;
     DCERPC_REQ fake_req;
     unsigned int dcerpc_req_len = sizeof(DCERPC_REQ);
     int status;
-    u_int16_t data_len = 0;
+    uint16_t data_len = 0;
     DCERPC_Buffer *buf = &_dcerpc->dce_frag_buf;
 
     /* Make sure we have room to fit into buffer */
@@ -316,7 +312,7 @@ void ReassembleDCERPCRequest(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, con
 
     /* Mock up header */
     status = SafeMemcpy(&fake_req, data, dcerpc_req_len,
-                        &fake_req, (u_int8_t *)&fake_req + dcerpc_req_len);
+                        &fake_req, (uint8_t *)&fake_req + dcerpc_req_len);
     
     if (status != SAFEMEM_SUCCESS)
     {
@@ -394,10 +390,10 @@ void ReassembleDCERPCRequest(const u_int8_t *smb_hdr, u_int16_t smb_hdr_len, con
 
     data_len += buf->len;
 
-    if (_debug_print)
+    if (dcerpc_eval_config->debug_print)
     {
         PrintBuffer("DCE/RPC reassembled request",
-                    (u_int8_t *)dce_reassembly_buf, data_len);
+                    (uint8_t *)dce_reassembly_buf, data_len);
     }
 
     /* create pseudo packet */

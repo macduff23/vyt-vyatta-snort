@@ -165,7 +165,7 @@ static INLINE unsigned short in_chksum_tcp(  unsigned short *h, unsigned short *
     /* printf("new checksum odd byte-packet\n"); */
     *(unsigned char*)(&answer) = (*(unsigned char*)d);
 
-    /* cksum += (u_int16_t) (*(u_int8_t*)d); */
+    /* cksum += (uint16_t) (*(uint8_t*)d); */
      
      cksum += answer;
    }
@@ -266,7 +266,7 @@ static INLINE unsigned short in_chksum_tcp6(  unsigned short *h, unsigned short 
     /* printf("new checksum odd byte-packet\n"); */
     *(unsigned char*)(&answer) = (*(unsigned char*)d);
 
-    /* cksum += (u_int16_t) (*(u_int8_t*)d); */
+    /* cksum += (uint16_t) (*(uint8_t*)d); */
      
      cksum += answer;
    }

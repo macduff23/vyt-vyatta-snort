@@ -63,9 +63,9 @@ void ParseDsize(char *, OptTreeNode *);
 
 int CheckDsize(void *option_data, Packet *p);
 
-u_int32_t DSizeCheckHash(void *d)
+uint32_t DSizeCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     DsizeCheckData *data = (DsizeCheckData *)d;
 
     a = data->dsize;
@@ -113,7 +113,7 @@ int DSizeCheckCompare(void *l, void *r)
 void SetupDsizeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("dsize", DsizeCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("dsize", DsizeCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("dsize_eq", &dsizePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

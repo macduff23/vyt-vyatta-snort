@@ -27,12 +27,12 @@
 
 #define PARSELEN 10
 
-int string_extract(int bytes_to_grab, int base, const u_int8_t *ptr,
-                   const u_int8_t *start, const u_int8_t *end,
-                   u_int32_t *value);
+int string_extract(int bytes_to_grab, int base, const uint8_t *ptr,
+                   const uint8_t *start, const uint8_t *end,
+                   uint32_t *value);
 
-int byte_extract(int endianess, int bytes_to_grab, const u_int8_t *ptr,
-                 const u_int8_t *start, const u_int8_t *end,
-                 u_int32_t *value);
+int byte_extract(int endianess, int bytes_to_grab, const uint8_t *ptr,
+                 const uint8_t *start, const uint8_t *end,
+                 uint32_t *value);
 
 #endif /* _BYTE_EXTRACT_H */

@@ -53,15 +53,17 @@ char *data_dump_buffer;     /* printout buffer for PrintNetData */
 int data_dump_buffer_size = 0;/* size of printout buffer */
 int dump_size;              /* amount of data to print */
 
-extern u_int16_t event_id;
+extern uint16_t event_id;
 
 void AllocDumpBuf();
 
 
 /***************** LOG ASCII ROUTINES *******************/
 
+#ifndef NO_NON_ETHER_DECODER
 #ifndef SUP_IP6
 static unsigned char ezero[6];  /* crap for ARP */
+#endif
 #endif
 
 /*
@@ -109,12 +111,12 @@ void PrintNetData(FILE * fp, const u_char * start, const int len)
 
     if(len > IP_MAXPACKET)
     {
-        if(pv.verbose_flag)
+        if (ScLogVerbose())
         {
             printf("Got bogus buffer length (%d) for PrintNetData, defaulting to 16 bytes!\n", len);
         }
 
-        if(pv.verbose_bytedump_flag == 1)
+        if (ScVerboseByteDump())
         {
             dbuf_size = (FRAME_SIZE + 8) + (FRAME_SIZE + 8) + 1;
         }
@@ -128,7 +130,7 @@ void PrintNetData(FILE * fp, const u_char * start, const int len)
     }
     else
     {
-        if(pv.verbose_bytedump_flag == 1)
+        if (ScVerboseByteDump())
         {
             /* figure out how big the printout data buffer has to be */
             dbuf_size = ((len / 16) * (FRAME_SIZE + 8)) + (FRAME_SIZE + 8) + 1;
@@ -167,7 +169,7 @@ void PrintNetData(FILE * fp, const u_char * start, const int len)
     /* loop thru the whole buffer */
     while(!done)
     {
-        if(pv.verbose_bytedump_flag == 1)
+        if (ScVerboseByteDump())
         {
             d_ptr = frame_ptr + 8;
             c_ptr = (frame_ptr + 8 + C_OFFSET);
@@ -228,7 +230,7 @@ void PrintNetData(FILE * fp, const u_char * start, const int len)
         }
 
         *c_ptr = '\n';
-        if(pv.verbose_bytedump_flag == 1)
+        if (ScVerboseByteDump())
         {
             frame_ptr += (FRAME_SIZE + 8);
         }
@@ -355,6 +357,9 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
 {
     char timestamp[TIMEBUF_SIZE];
 
+    if (p->packet_flags & PKT_LOGGED)
+        return;
+
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "PrintIPPkt type = %d\n", type););
 
     bzero((char *) timestamp, TIMEBUF_SIZE);
@@ -364,7 +369,7 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
     fwrite(timestamp, strlen(timestamp), 1, fp);
 
     /* dump the ethernet header if we're doing that sort of thing */
-    if(pv.show2hdr_flag)
+    if(ScOutputDataLink())
     {
         Print2ndHeader(fp, p);
     }
@@ -393,7 +398,7 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
 #ifdef SUP_IP6
                     PrintNetData(fp, (u_char *) 
                                         (u_char *)p->iph + (GET_IPH_HLEN(p) << 2),
-                                        (p->actual_ip_len - (GET_IPH_HLEN(p) << 2)));
+                                        GET_IP_PAYLEN(p));
 #else
                     PrintNetData(fp, (u_char *) 
                                         ((u_char *)p->iph + (IP_HLEN(p->iph) << 2)), 
@@ -413,7 +418,7 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
 #ifdef SUP_IP6
                     PrintNetData(fp, (u_char *) 
                                         (u_char *)p->iph + (GET_IPH_HLEN(p) << 2),
-                                        (p->actual_ip_len - (GET_IPH_HLEN(p) << 2)));
+                                        GET_IP_PAYLEN(p));
 #else
                     PrintNetData(fp, (u_char *) 
                                         ((u_char *)p->iph + (IP_HLEN(p->iph) << 2)), 
@@ -454,20 +459,22 @@ void PrintIPPkt(FILE * fp, int type, Packet * p)
         }
     }
     /* dump the application layer data */
-    if(pv.data_flag && !pv.verbose_bytedump_flag)
+    if (ScOutputAppData() && !ScVerboseByteDump())
     {
-        if(pv.char_data_flag)
+        if (ScOutputCharData())
             PrintCharData(fp, (char*) p->data, p->dsize);
         else
             PrintNetData(fp, p->data, p->dsize);
     }
-    else if(pv.verbose_bytedump_flag)
+    else if (ScVerboseByteDump())
     {
         PrintNetData(fp, p->pkt, p->pkth->caplen);
     }
 
     fprintf(fp, "=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+"
             "=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n\n");
+
+    p->packet_flags |= PKT_LOGGED;
 }
 
 
@@ -496,10 +503,10 @@ FILE *OpenAlertFile(const char *filearg)
 
     if(filearg == NULL)
     {
-        if(!pv.daemon_flag)
-            SnortSnprintf(filename, STD_BUF, "%s/alert%s", pv.log_dir, suffix);
+        if(!ScDaemonMode())
+            SnortSnprintf(filename, STD_BUF, "%s/alert%s", snort_conf->log_dir, suffix);
         else
-            SnortSnprintf(filename, STD_BUF, "%s/%s", pv.log_dir, 
+            SnortSnprintf(filename, STD_BUF, "%s/%s", snort_conf->log_dir, 
                     DEFAULT_DAEMON_ALERT_FILE);
     }
     else
@@ -550,10 +557,10 @@ int RollAlertFile(const char *filearg)
 
     if(filearg == NULL)
     {
-        if(!pv.daemon_flag)
-            SnortSnprintf(oldname, STD_BUF, "%s/alert%s", pv.log_dir, suffix);
+        if(!ScDaemonMode())
+            SnortSnprintf(oldname, STD_BUF, "%s/alert%s", snort_conf->log_dir, suffix);
         else
-            SnortSnprintf(oldname, STD_BUF, "%s/%s", pv.log_dir, 
+            SnortSnprintf(oldname, STD_BUF, "%s/%s", snort_conf->log_dir, 
                     DEFAULT_DAEMON_ALERT_FILE);
     }
     else
@@ -583,11 +590,11 @@ int RollAlertFile(const char *filearg)
  * Returns: void function
  *
  */
-void AllocDumpBuf()
+void AllocDumpBuf(void)
 {
     if (data_dump_buffer_size == 0)
     {
-        if (pv.verbose_bytedump_flag == 1)
+        if (ScVerboseByteDump())
         {
             data_dump_buffer_size = (((IP_MAXPACKET+1)/16) * (FRAME_SIZE + 8)) + (FRAME_SIZE + 8) + 1;
         }
@@ -616,7 +623,7 @@ void AllocDumpBuf()
  * Returns: void function
  *
  */
-void ClearDumpBuf()
+void ClearDumpBuf(void)
 {
     if(data_dump_buffer)
         free(data_dump_buffer);
@@ -684,6 +691,7 @@ void Print2ndHeader(FILE * fp, Packet * p)
             if(p && p->eh)
                 PrintEthHeader(fp, p);
             break;
+#ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
         case DLT_IEEE802_11:
             if(p && p->wifih)
@@ -699,16 +707,20 @@ void Print2ndHeader(FILE * fp, Packet * p)
             if (p && p->sllh)
                 PrintSLLHeader(fp, p);  /* Linux cooked sockets */
             break;
-#endif            
+#endif
+#endif  // NO_NON_ETHER_DECODER
         default:
-            if(pv.verbose_flag)
+            if (ScLogVerbose())
+            {
                 ErrorMessage("Datalink %i type 2nd layer display is not "
-                        "supported\n", datalink);   
+                             "supported\n", datalink);   
+            }
     }
 }
 
 
 
+#ifndef NO_NON_ETHER_DECODER
 /****************************************************************************
  *
  * Function: PrintTrHeader(FILE *, Packet p)
@@ -751,6 +763,7 @@ void PrintTrHeader(FILE * fp, Packet * p)
                 p->trhmr->rseg[6], p->trhmr->rseg[7]);
     }
 }
+#endif  // NO_NON_ETHER_DECODER
 
 
 /****************************************************************************
@@ -789,6 +802,7 @@ void PrintMPLSHeader(FILE* log, Packet* p)
 }
 #endif
 
+#ifndef NO_NON_ETHER_DECODER
 /****************************************************************************
  *
  * Function: PrintSLLHeader(FILE *)
@@ -846,8 +860,8 @@ void PrintArpHeader(FILE * fp, Packet * p)
 #else
     struct in_addr ip_addr;
     char timestamp[TIMEBUF_SIZE];
-    const u_int8_t *mac_src = NULL;
-    const u_int8_t *mac_dst = NULL;
+    const uint8_t *mac_src = NULL;
+    const uint8_t *mac_dst = NULL;
 
     bzero((struct in_addr *) &ip_addr, sizeof(struct in_addr));
     bzero((char *) timestamp, TIMEBUF_SIZE);
@@ -973,6 +987,7 @@ void PrintArpHeader(FILE * fp, Packet * p)
     fprintf(fp, "\n\n");
 #endif
 }
+#endif  // NO_NON_ETHER_DECODER
 
 
 /****************************************************************************
@@ -1012,7 +1027,7 @@ void PrintIPHeader(FILE * fp, Packet * p)
         }
         else
         {
-            if(!pv.obfuscation_flag)
+            if (!ScObfuscate())
             {
                 /* print the header complete with port information */
                 fputs(inet_ntoa(GET_SRC_ADDR(p)), fp);
@@ -1031,7 +1046,7 @@ void PrintIPHeader(FILE * fp, Packet * p)
         }
     }
 
-    if(!pv.show2hdr_flag)
+    if (!ScOutputDataLink())
     {
         fputc('\n', fp);
     }
@@ -1044,19 +1059,19 @@ void PrintIPHeader(FILE * fp, Packet * p)
             protocol_names[GET_IPH_PROTO(p)],
             GET_IPH_TTL(p),
             GET_IPH_TOS(p),
-            IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((u_int16_t)GET_IPH_ID(p)),
+            IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((uint16_t)GET_IPH_ID(p)),
             GET_IPH_HLEN(p) << 2, 
             GET_IP_DGMLEN(p));
 
     /* print the reserved bit if it's set */
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x8000) >> 15) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x8000) >> 15) == 1)
         fprintf(fp, " RB");
 
     /* printf more frags/don't frag bits */
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x4000) >> 14) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x4000) >> 14) == 1)
         fprintf(fp, " DF");
 
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x2000) >> 13) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x2000) >> 13) == 1)
         fprintf(fp, " MF");
 
     fputc('\n', fp);
@@ -1110,7 +1125,7 @@ void PrintTCPHeader(FILE * fp, Packet * p)
 
     if((p->tcph->th_flags & TH_URG) != 0)
     {
-        fprintf(fp, "  UrgPtr: 0x%X\n", (u_int16_t) ntohs(p->tcph->th_urp));
+        fprintf(fp, "  UrgPtr: 0x%X\n", (uint16_t) ntohs(p->tcph->th_urp));
     }
     else
     {
@@ -1447,7 +1462,7 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
 {
     Packet op;
     Packet *orig_p;
-    u_int32_t orig_ip_hlen;
+    uint32_t orig_ip_hlen;
 
     if (fp == NULL || p == NULL)
         return;
@@ -1462,10 +1477,10 @@ void PrintICMPEmbeddedIP(FILE *fp, Packet *p)
     orig_p->dp = p->orig_dp;
     orig_p->icmph = p->orig_icmph;
 #ifdef SUP_IP6
-    orig_p->iph_api = p->iph_api;
+    orig_p->iph_api = p->orig_iph_api;
     orig_p->ip4h = p->orig_ip4h;
     orig_p->ip6h = p->orig_ip6h;
-    orig_p->family = p->family;
+    orig_p->family = p->orig_family;
 #endif
 
     if(orig_p->iph != NULL)
@@ -1892,8 +1907,8 @@ void SetEvent
 #else
 void SnortSetEvent
 #endif
-       (Event *event, u_int32_t generator, u_int32_t id, u_int32_t rev, 
-        u_int32_t classification, u_int32_t priority, u_int32_t event_ref)
+       (Event *event, uint32_t generator, uint32_t id, uint32_t rev, 
+        uint32_t classification, uint32_t priority, uint32_t event_ref)
 {
     event->sig_generator = generator;
     event->sig_id = id;
@@ -1901,7 +1916,7 @@ void SnortSetEvent
     event->classification = classification;
     event->priority = priority;
     /* this one gets set automatically */
-    event->event_id = ++event_id | pv.event_log_id;
+    event->event_id = ++event_id | ScEventLogId();
     if(event_ref)
         event->event_reference = event_ref;
     else
@@ -1912,6 +1927,7 @@ void SnortSetEvent
     return;
 }
 
+#ifndef NO_NON_ETHER_DECODER
 /*
  * Function: PrintEapolPkt(FILE *, Packet *)
  *
@@ -1935,7 +1951,7 @@ void PrintEapolPkt(FILE * fp, Packet * p)
     fwrite(timestamp, strlen(timestamp), 1, fp);
 
     /* dump the ethernet header if we're doing that sort of thing */
-    if(pv.show2hdr_flag)
+    if (ScOutputDataLink())
     {
         Print2ndHeader(fp, p);
     }
@@ -1948,14 +1964,14 @@ void PrintEapolPkt(FILE * fp, Packet * p)
     }
 
     /* dump the application layer data */
-    if(pv.data_flag && !pv.verbose_bytedump_flag)
+    if(ScOutputAppData() && !ScVerboseByteDump())
     {
-        if(pv.char_data_flag)
+        if (ScOutputCharData())
             PrintCharData(fp, (char*) p->data, p->dsize);
         else
             PrintNetData(fp, p->data, p->dsize);
     }
-    else if(pv.verbose_bytedump_flag)
+    else if (ScVerboseByteDump())
     {
         PrintNetData(fp, p->pkt, p->pkth->caplen);
     }
@@ -2112,14 +2128,14 @@ void PrintWifiPkt(FILE * fp, Packet * p)
     Print2ndHeader(fp, p);
 
     /* dump the application layer data */
-    if(pv.data_flag && !pv.verbose_bytedump_flag)
+    if (ScOutputAppData() && !ScVerboseByteDump())
     {
-        if(pv.char_data_flag)
+        if (ScOutputCharData())
             PrintCharData(fp, (char*) p->data, p->dsize);
         else
             PrintNetData(fp, p->data, p->dsize);
     }
-    else if(pv.verbose_bytedump_flag)
+    else if (ScVerboseByteDump())
     {
         PrintNetData(fp, p->pkt, p->pkth->caplen);
     }
@@ -2245,7 +2261,7 @@ void PrintEAPHeader(FILE * fp, Packet * p)
  ***************************************************************************/
 void PrintEapolKey(FILE * fp, Packet * p)
 {
-    u_int16_t length;
+    uint16_t length;
     
     if(p->eapolk == NULL)
     {
@@ -2265,4 +2281,5 @@ void PrintEapolKey(FILE * fp, Packet * p)
     
 
 }
+#endif  // NO_NON_ETHER_DECODER
 

@@ -40,13 +40,13 @@
 
 #include "ipv6_port.h"
 
-int IgnoreChannel(snort_ip_p cliIP, u_int16_t cliPort,
-                  snort_ip_p srvIP, u_int16_t srvPort,
+int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
+                  snort_ip_p srvIP, uint16_t srvPort,
                   char protocol, char direction, char flags,
-                  u_int32_t timeout);
+                  uint32_t timeout);
 
 char CheckIgnoreChannel(Packet *);
-void CleanupIgnore();
+void CleanupIgnore(void);
 
 #endif /* STREAM_IGNORE_H_ */
 

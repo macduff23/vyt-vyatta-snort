@@ -58,7 +58,7 @@
 #endif
 #endif
 
-#define PREPROCESSOR_DATA_VERSION 4
+#define PREPROCESSOR_DATA_VERSION 5
 
 #include "sf_dynamic_common.h"
 #include "sf_dynamic_engine.h"
@@ -67,37 +67,52 @@
 
 #define MINIMUM_DYNAMIC_PREPROC_ID 10000
 typedef void (*PreprocessorInitFunc)(char *);
-typedef void * (*AddPreprocFunc)(void (*func)(void *, void *), unsigned short, unsigned int, uint32_t);
-typedef void (*AddPreprocExit)(void (*func) (int, void *), void *arg, unsigned short, unsigned int);
-typedef void (*AddPreprocRestart)(void (*func) (int, void *), void *arg, unsigned short, unsigned int);
-typedef void *(*AddPreprocConfCheck)(void (*func) (void));
+typedef void * (*AddPreprocFunc)(void (*func)(void *, void *), u_int16_t, u_int32_t, u_int32_t);
+typedef void (*AddPreprocExit)(void (*func) (int, void *), void *arg, u_int16_t, u_int32_t);
+typedef void (*AddPreprocRestart)(void (*func) (int, void *), void *arg, u_int16_t, u_int32_t);
+typedef void (*AddPreprocConfCheck)(void (*func) (void));
 typedef int (*AlertQueueAdd)(unsigned int, unsigned int, unsigned int,
                              unsigned int, unsigned int, char *, void *);
+#ifdef SNORT_RELOAD
+typedef void (*PreprocessorReloadFunc)(char *);
+typedef int (*PreprocessorReloadVerifyFunc)(void);
+typedef void * (*PreprocessorReloadSwapFunc)(void);
+typedef void (*PreprocessorReloadSwapFreeFunc)(void *);
+#endif
+
+#ifndef SNORT_RELOAD
 typedef void (*PreprocRegisterFunc)(char *, PreprocessorInitFunc);
+#else
+typedef void (*PreprocRegisterFunc)(char *, PreprocessorInitFunc,
+                                    PreprocessorReloadFunc,
+                                    PreprocessorReloadSwapFunc,
+                                    PreprocessorReloadSwapFreeFunc);
+
+typedef void (*AddPreprocReloadVerifyFunc)(PreprocessorReloadVerifyFunc);
+#endif
 typedef int (*ThresholdCheckFunc)(unsigned int, unsigned int, snort_ip_p, snort_ip_p, long);
-typedef int (*InlineFunc)();
 typedef int (*InlineDropFunc)(void *);
 typedef void (*DisableDetectFunc)(void *);
-typedef int (*SetPreprocBitFunc)(void *, unsigned int);
+typedef int (*SetPreprocBitFunc)(void *, u_int32_t);
 typedef int (*DetectFunc)(void *);
 typedef void *(*GetRuleInfoByNameFunc)(char *);
 typedef void *(*GetRuleInfoByIdFunc)(int);
 typedef int (*printfappendfunc)(char *, int, const char *, ...);
-typedef char ** (*TokenSplitFunc)(char *, const char *, int, int *, char);
+typedef char ** (*TokenSplitFunc)(const char *, const char *, const int, int *, const char);
 typedef void (*TokenFreeFunc)(char ***, int);
 typedef void (*AddPreprocProfileFunc)(char *, void *, int, void *);
-typedef int (*ProfilingFunc)();
+typedef int (*ProfilingFunc)(void);
 typedef int (*PreprocessFunc)(void *);
 typedef void (*PreprocStatsRegisterFunc)(char *, void (*func)(int));
-typedef void (*AddPreprocReset)(void (*func) (int, void *), void *arg, unsigned short, unsigned int);
-typedef void (*AddPreprocResetStats)(void (*func) (int, void *), void *arg, unsigned short, unsigned int);
-typedef void (*AddPreprocGetReassemblyPktFunc)(void * (*func)(void), unsigned int);
-typedef int (*SetPreprocGetReassemblyPktBitFunc)(void *, unsigned int);
+typedef void (*AddPreprocReset)(void (*func) (int, void *), void *arg, u_int16_t, u_int32_t);
+typedef void (*AddPreprocResetStats)(void (*func) (int, void *), void *arg, u_int16_t, u_int32_t);
+typedef void (*AddPreprocReassemblyPktFunc)(void * (*func)(void), u_int32_t);
+typedef int (*SetPreprocReassemblyPktBitFunc)(void *, u_int32_t);
 typedef void (*DisablePreprocessorsFunc)(void *);
 #ifdef TARGET_BASED
 typedef int16_t (*FindProtocolReferenceFunc)(char *);
 typedef int16_t (*AddProtocolReferenceFunc)(char *);
-typedef int (*IsAdaptiveConfiguredFunc)(void);
+typedef int (*IsAdaptiveConfiguredFunc)(tSfPolicyId, int);
 #endif
 #ifdef SUP_IP6
 typedef void (*IP6BuildFunc)(void *, const void *, int);
@@ -107,10 +122,13 @@ typedef void (*IP6SetCallbacksFunc)(void *, int, char);
 #endif
 typedef void (*AddKeywordOverrideFunc)(char *, char *, PreprocOptionInit, PreprocOptionEval, PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
 
-typedef int (*IsPreprocEnabledFunc)(unsigned int);
+typedef int (*IsPreprocEnabledFunc)(u_int32_t);
 
 typedef int (*AlertQueueLog)(void *);
 typedef void (*AlertQueueReset)(void);
+typedef tSfPolicyId (*GetPolicyFunc)(void);
+typedef void (*SetPolicyFunc)(tSfPolicyId);
+typedef int (*GetInlineMode)(void);
 
 /* Info Data passed to dynamic preprocessor plugin must include:
  * version
@@ -145,7 +163,7 @@ typedef struct _DynamicPreprocessorData
     AlertQueueAdd alertAdd;
     ThresholdCheckFunc thresholdCheck;
 
-    InlineFunc  inlineMode;
+    GetInlineMode inlineMode;
     InlineDropFunc  inlineDrop;
 
     DetectFunc detect;
@@ -177,8 +195,8 @@ typedef struct _DynamicPreprocessorData
     PreprocStatsRegisterFunc registerPreprocStats;
     AddPreprocReset addPreprocReset;
     AddPreprocResetStats addPreprocResetStats;
-    AddPreprocGetReassemblyPktFunc addPreprocGetReassemblyPkt;
-    SetPreprocGetReassemblyPktBitFunc setPreprocGetReassemblyPktBit;
+    AddPreprocReassemblyPktFunc addPreprocReassemblyPkt;
+    SetPreprocReassemblyPktBitFunc setPreprocReassemblyPktBit;
 
     DisablePreprocessorsFunc disablePreprocessors;
 
@@ -199,16 +217,26 @@ typedef struct _DynamicPreprocessorData
     AddKeywordOverrideFunc preprocOptOverrideKeyword;
     IsPreprocEnabledFunc isPreprocEnabled;
 
+#ifdef SNORT_RELOAD
+    AddPreprocReloadVerifyFunc addPreprocReloadVerify;
+#endif
+
+    GetPolicyFunc getRuntimePolicy;
+    GetPolicyFunc getParserPolicy;
+    GetPolicyFunc getDefaultPolicy;
+    SetPolicyFunc setParserPolicy;
+    int size;
+
 } DynamicPreprocessorData;
 
 /* Function prototypes for Dynamic Preprocessor Plugins */
-void CloseDynamicPreprocessorLibs();
+void CloseDynamicPreprocessorLibs(void);
 int LoadDynamicPreprocessor(char *library_name, int indent);
 void LoadAllDynamicPreprocessors(char *path);
 typedef int (*InitPreprocessorLibFunc)(DynamicPreprocessorData *);
 
-int InitDynamicPreprocessors();
-void RemoveDuplicatePreprocessorPlugins();
+int InitDynamicPreprocessors(void);
+void RemoveDuplicatePreprocessorPlugins(void);
 
 /* This was necessary because of static code analysis not recognizing that
  * fatalMsg did not return - use instead of fatalMsg

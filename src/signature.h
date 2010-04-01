@@ -31,10 +31,15 @@
 #include <sys/types.h>
 #include <stdio.h>
 
+#include "sfutil/sfghash.h"
+#include "sf_types.h"
+
 /* Enable Port Lists */
 #define PORTLISTS
 
 struct _OptTreeNode;
+struct _SnortConfig;
+struct _RuleTreeNode;
 
 /* this contains a list of the URLs for various reference systems */
 typedef struct _ReferenceSystemNode
@@ -42,13 +47,12 @@ typedef struct _ReferenceSystemNode
     char *name;
     char *url;
     struct _ReferenceSystemNode *next;
+
 } ReferenceSystemNode;
 
-extern ReferenceSystemNode *referenceSytems;
-ReferenceSystemNode *ReferenceSystemAdd(char *name, char *id);
-ReferenceSystemNode *ReferenceSystemLookup(char *name);
+ReferenceSystemNode * ReferenceSystemAdd(ReferenceSystemNode **, char *, char *);
+ReferenceSystemNode * ReferenceSystemLookup(ReferenceSystemNode *, char *);
 void ParseReferenceSystemConfig(char *args);
-    
 
 
 /* XXX: update to point to the ReferenceURLNode in the referenceURL list */
@@ -57,12 +61,11 @@ typedef struct _ReferenceNode
     char *id;
     ReferenceSystemNode *system;
     struct _ReferenceNode *next;
+
 } ReferenceNode;
 
-ReferenceNode *AddReference(ReferenceNode *, char *system, char *id);
+ReferenceNode * AddReference(struct _SnortConfig *, ReferenceNode **, char *, char *);
 void FPrintReference(FILE *, ReferenceNode *);
-void ParseReference(char *args, struct _OptTreeNode *otn);
-void DeleteReferenceSystems();
 
 /* struct for rule classification */
 typedef struct _ClassType
@@ -74,24 +77,21 @@ typedef struct _ClassType
     struct _ClassType *next;
 } ClassType;
 
-void ParseClassificationConfig(char *args);
-void DeleteClassifications();
-void ParsePriority(char *priority, struct _OptTreeNode *otn);
-void ParseClassType(char *classtype, struct _OptTreeNode *otn);
-ClassType *ClassTypeLookupByType(char *type);
-ClassType *ClassTypeLookupById(int id);
+void ParseClassificationConfig(char *);
 
-void ParseSID(char *sid, struct _OptTreeNode *otn);
-void ParseRev(char *sid, struct _OptTreeNode *otn);
-
+/* NOTE:  These lookups can only be done during parse time */
+ClassType * ClassTypeLookupByType(struct _SnortConfig *, char *);
+ClassType * ClassTypeLookupById(struct _SnortConfig *, int);
 
 /*
  *  sid-gid -> otn mapping
  */
-typedef struct {
-   u_int32_t generator;
-   u_int32_t id;
-}sg_otn_key_t;
+typedef struct _OtnKey
+{
+   uint32_t gid;
+   uint32_t sid;
+
+} OtnKey;
 
 #define SI_RULE_FLUSHING_OFF 0
 #define SI_RULE_FLUSHING_ON  1
@@ -100,40 +100,50 @@ typedef struct {
 #define SI_RULE_TYPE_DECODE  1
 #define SI_RULE_TYPE_PREPROC 2
 
+#ifdef TARGET_BASED
+#ifdef PORTLISTS 
+typedef struct _ServiceInfo
+{
+    char *service;
+    int16_t service_ordinal;
+} ServiceInfo;
+#endif
+#endif
+
 typedef struct _SigInfo
 {
-    u_int32_t generator;
-    u_int32_t id;
-    u_int32_t rev;
-    u_int32_t class_id;
-    ClassType *classType;
-    u_int32_t priority;
-    char      *message;
+    uint32_t   generator;
+    uint32_t   id;
+    uint32_t   rev;
+    uint32_t   class_id;
+    ClassType   *classType;
+    uint32_t   priority;
+    char        *message;
     ReferenceNode *refs;
     int           shared; /* shared object rule */
     int           rule_type; /* 0-std rule, 1-decoder, rule, 3 preprocessor rule */
     int           rule_flushing; /* 0-disabled, 1-enabled */
-    sg_otn_key_t otnKey;
-#ifdef TARGET_BASED
-#ifdef PORTLISTS 
-   char          *service;
-   int16_t       service_ordinal;
-   char          *os;
-#endif
+    OtnKey otnKey;
+#if defined(TARGET_BASED) && defined(PORTLISTS)
+    unsigned int num_services;
+    ServiceInfo *services;
+    char          *os;
 #endif
 } SigInfo;
 
-int    soid_otn_lookup_init();
-void   soid_otn_lookup_add( struct _OptTreeNode * );
-void   otn_remove( struct _OptTreeNode *);
-struct _OptTreeNode * soid_sg_otn_lookup( u_int32_t gid, u_int32_t sid );
-struct _OptTreeNode * soid_sg_otn_lookup_next( u_int32_t gid, u_int32_t sid );
-void soid_otn_lookup_free();
+SFGHASH * SoRuleOtnLookupNew(void);
+void SoRuleOtnLookupAdd(SFGHASH *, struct _OptTreeNode *);
+struct _OptTreeNode * SoRuleOtnLookup(SFGHASH *, uint32_t gid, uint32_t sid);
+struct _OptTreeNode * SoRuleOtnLookupNext(uint32_t gid, uint32_t sid);
+void SoRuleOtnLookupFree(SFGHASH *);
 
-int    otn_lookup_init();
-void   otn_lookup_add( struct _OptTreeNode * );
-struct _OptTreeNode * otn_lookup( u_int32_t gid, u_int32_t sid );
-void otn_lookup_free();
-void otn_free(void *data);
+SFGHASH * OtnLookupNew(void);
+void OtnLookupAdd(SFGHASH *, struct _OptTreeNode *);
+struct _OptTreeNode * OtnLookup(SFGHASH *, uint32_t gid, uint32_t sid);
+void OtnLookupFree(SFGHASH *);
+
+void OtnRemove(SFGHASH *, SFGHASH *, struct _OptTreeNode *);
+void OtnDeleteData(void *data);
+void OtnFree(void *data);
 
 #endif /* SIGNATURE */

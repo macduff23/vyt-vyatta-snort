@@ -25,7 +25,7 @@ CONFFLAGS= --prefix=/usr \
 	--enable-smbalerts \
 	--enable-prelude \
 	--enable-inline \
-        --enable-flexresp 
+        --enable-flexresp
 
 aclocal.m4:
 	aclocal-1.9 -I m4/
