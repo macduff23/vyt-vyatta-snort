@@ -37,8 +37,10 @@
 #endif
 
 #include "rules.h"
-#include "parser.h"
+//#include "parser.h"
 #include "pcrm.h"
+
+struct _SnortConfig;
 
 /*
  *  Max Number of Protocols Supported by Rules in fpcreate.c
@@ -55,21 +57,30 @@
  */
 #define PLUGIN_MAX_FPLIST_SIZE 16
 
+#define PL_BLEEDOVER_WARNINGS_ENABLED        0x01
+#define PL_DEBUG_PRINT_NC_DETECT_RULES       0x02
+#define PL_DEBUG_PRINT_RULEGROWP_BUILD       0x04
+#define PL_DEBUG_PRINT_RULEGROUPS_UNCOMPILED 0x08
+#define PL_DEBUG_PRINT_RULEGROUPS_COMPILED   0x10
+#define PL_SINGLE_RULE_GROUP                 0x20
+
 /*
 **  This structure holds the RTN and OTN
 **  for a specific rule.  This way we can
 **  verify each rule and stay within the
 **  current snort rule architecture.
 */
-typedef struct _otnx_{
+typedef struct _otnx_
+{
 
    OptTreeNode   * otn;
-   RuleTreeNode  * rtn; 
+   //RuleTreeNode  * rtn; 
    unsigned int    content_length;
 
 } OTNX;
 
-typedef struct _pmx_ {
+typedef struct _pmx_
+{
 
    void * RuleNode;
    void * PatternMatchData;
@@ -88,90 +99,132 @@ typedef struct _NCListNode
 **  This structure holds configuration options for the 
 **  detection engine.
 */
-typedef struct _FPDETECT {
-    
+typedef struct _FastPatternConfig
+{
     int inspect_stream_insert;
     int search_method;
     int search_opt;
     int search_method_verbose;
     int debug;
-    int max_queue_events;
+    unsigned int max_queue_events;
 //PORTLISTS
-    u_int32_t bleedover_port_limit;
-    char portlists_flags;
-} FPDETECT;
+    unsigned int bleedover_port_limit;
+    int portlists_flags;
 
-#define PL_BLEEDOVER_WARNINGS_ENABLED        0x01
-#define PL_DEBUG_PRINT_NC_DETECT_RULES       0x02
-#define PL_DEBUG_PRINT_RULEGROWP_BUILD       0x04
-#define PL_DEBUG_PRINT_RULEGROUPS_UNCOMPILED 0x08
-#define PL_DEBUG_PRINT_RULEGROUPS_COMPILED   0x10
-#define PL_SINGLE_RULE_GROUP                 0x20
+} FastPatternConfig;
+
+#ifdef TARGET_BASED
+/*
+ *  Service Rule Map Master Table
+ */
+typedef struct 
+{
+  SFGHASH * tcp_to_srv;
+  SFGHASH * tcp_to_cli;
+  
+  SFGHASH * udp_to_srv;
+  SFGHASH * udp_to_cli;
+
+  SFGHASH * icmp_to_srv;
+  SFGHASH * icmp_to_cli;
+
+  SFGHASH * ip_to_srv;
+  SFGHASH * ip_to_cli;
+
+} srmm_table_t;
+
+/*
+ *  Service/Protocol Oridinal To PORT_GROUP table
+ */
+typedef struct 
+{
+  PORT_GROUP *tcp_to_srv[MAX_PROTOCOL_ORDINAL];
+  PORT_GROUP *tcp_to_cli[MAX_PROTOCOL_ORDINAL];
+  
+  PORT_GROUP *udp_to_srv[MAX_PROTOCOL_ORDINAL];
+  PORT_GROUP *udp_to_cli[MAX_PROTOCOL_ORDINAL];
+
+  PORT_GROUP *icmp_to_srv[MAX_PROTOCOL_ORDINAL];
+  PORT_GROUP *icmp_to_cli[MAX_PROTOCOL_ORDINAL];
+
+  PORT_GROUP *ip_to_srv[MAX_PROTOCOL_ORDINAL];
+  PORT_GROUP *ip_to_cli[MAX_PROTOCOL_ORDINAL];
+
+} sopg_table_t; 
+#endif
 
 /*
 **  This function initializes the detection engine configuration
 **  options before setting them.
 */
-int fpInitDetectionEngine();
+int fpInitDetectionEngine(void);
 
 /*
 **  This is the main routine to create a FastPacket inspection
 **  engine.  It reads in the snort list of RTNs and OTNs and
 **  assigns them to PORT_MAPS.
 */
-int fpCreateFastPacketDetection();
+#ifdef PORTLISTS
+int fpCreateFastPacketDetection(struct _SnortConfig *);
+#else
+int fpCreateFastPacketDetection(RuleListNode *);
+#endif
+
+FastPatternConfig * FastPatternConfigNew(void);
+void FastPatternConfigFree(FastPatternConfig *);
 
 /*
 **  Functions that allow the detection routins to 
 **  find the right classification for a given packet.
 */
-int prmFindRuleGroupTcp(int dport, int sport, PORT_GROUP ** src, PORT_GROUP **dst , PORT_GROUP ** gen);
-int prmFindRuleGroupUdp(int dport, int sport, PORT_GROUP ** src, PORT_GROUP **dst , PORT_GROUP ** gen);
-int prmFindRuleGroupIp(int ip_proto, PORT_GROUP **ip_group, PORT_GROUP ** gen);
-int prmFindRuleGroupIcmp(int type, PORT_GROUP **type_group, PORT_GROUP ** gen);
+int prmFindRuleGroupTcp(PORT_RULE_MAP *, int, int, PORT_GROUP **, PORT_GROUP **, PORT_GROUP **);
+int prmFindRuleGroupUdp(PORT_RULE_MAP *, int, int, PORT_GROUP **, PORT_GROUP **, PORT_GROUP **);
+int prmFindRuleGroupIp(PORT_RULE_MAP *, int, PORT_GROUP **, PORT_GROUP **);
+int prmFindRuleGroupIcmp(PORT_RULE_MAP *, int, PORT_GROUP **, PORT_GROUP **);
 
-int  fpSetDetectSearchMethod( char * method );
-int  fpSetDetectSearchOpt( int flag );
-int  fpSetDebugMode();
-int  fpSetStreamInsert();
-int  fpSetMaxQueueEvents(int iNum);
+int fpSetDetectSearchMethod(FastPatternConfig *, char *);
+void fpSetDetectSearchOpt(FastPatternConfig *, int flag);
+void fpSetDebugMode(FastPatternConfig *);
+void fpSetStreamInsert(FastPatternConfig *);
+void fpSetMaxQueueEvents(FastPatternConfig *, unsigned int);
 
-void fpDetectSetSingleRuleGroup();
-void fpDetectSetBleedOverPortLimit(int n);
-void fpDetectSetBleedOverWarnings();
-void fpDetectSetDebugPrintNcRules();
-void fpDetectSetDebugPrintRuleGroupBuildDetails();
-void fpDetectSetDebugPrintRuleGroupsCompiled();
-void fpDetectSetDebugPrintRuleGroupsUnCompiled();
+void fpDetectSetSingleRuleGroup(FastPatternConfig *);
+void fpDetectSetBleedOverPortLimit(FastPatternConfig *, unsigned int);
+void fpDetectSetBleedOverWarnings(FastPatternConfig *);
+void fpDetectSetDebugPrintNcRules(FastPatternConfig *);
+void fpDetectSetDebugPrintRuleGroupBuildDetails(FastPatternConfig *);
+void fpDetectSetDebugPrintRuleGroupsCompiled(FastPatternConfig *);
+void fpDetectSetDebugPrintRuleGroupsUnCompiled(FastPatternConfig *);
 
-int  fpDetectGetSingleRuleGroup(void);
-int  fpDetectGetBleedOverPortLimit(void);
-int  fpDetectGetBleedOverWarnings(void);
-int  fpDetectGetDebugPrintNcRules(void);
-int  fpDetectGetDebugPrintRuleGroupBuildDetails(void);
-int  fpDetectGetDebugPrintRuleGroupsCompiled(void);
-int  fpDetectGetDebugPrintRuleGroupsUnCompiled(void);
+int  fpDetectGetSingleRuleGroup(FastPatternConfig *);
+int  fpDetectGetBleedOverPortLimit(FastPatternConfig *);
+int  fpDetectGetBleedOverWarnings(FastPatternConfig *);
+int  fpDetectGetDebugPrintNcRules(FastPatternConfig *);
+int  fpDetectGetDebugPrintRuleGroupBuildDetails(FastPatternConfig *);
+int  fpDetectGetDebugPrintRuleGroupsCompiled(FastPatternConfig *);
+int  fpDetectGetDebugPrintRuleGroupsUnCompiled(FastPatternConfig *);
 
-#ifdef SHUTDOWN_MEMORY_CLEANUP
-void fpDeleteFastPacketDetection();
-#endif
+void fpDeleteFastPacketDetection(struct _SnortConfig *);
 void free_detection_option_tree(detection_option_tree_node_t *node);
 
 #ifdef PORTLISTS
 int OtnHasContent( OptTreeNode * p );
 int OtnHasUriContent( OptTreeNode * p );
 int OtnFlowDir( OptTreeNode * p );
+# ifdef TARGET_BASED
+PORT_GROUP * fpGetServicePortGroupByOrdinal(sopg_table_t *, int, int, int16_t);
+# endif
 #endif
-PORT_GROUP * fpGetServicePortGroupByOrdinal( int proto, int dir, int16_t proto_ordinal );
 
 /*
 **  Shows the event stats for the created FastPacketDetection
 */
-int fpShowEventStats();
-typedef int (*OtnWalkFcn)(int proto,RuleTreeNode *r,OptTreeNode *o);
-int fpWalkOtns(int enabled, OtnWalkFcn  fcn) ;
+void fpShowEventStats(struct _SnortConfig *);
+typedef int (*OtnWalkFcn)(int, RuleTreeNode *, OptTreeNode *);
+void fpWalkOtns(int, OtnWalkFcn);
 
-void fpFreeIpProtoGlobals(void);
-void fpInitIpProtoGlobals(void);
+#ifdef DYNAMIC_PLUGIN
+void fpDynamicDataFree(void *);
+#endif
 
 #endif

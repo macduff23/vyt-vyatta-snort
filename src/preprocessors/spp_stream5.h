@@ -24,8 +24,9 @@
 #define __SPP_STREAM5_H__
 
 #include "decode.h"
+#include "stream5_common.h"
 
 /* list of function prototypes for this preprocessor */
-void SetupStream5();
+void SetupStream5(void);
 
 #endif  /* __SPP_STREAM5_H__ */

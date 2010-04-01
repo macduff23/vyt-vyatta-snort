@@ -49,52 +49,27 @@
 #include "mstring.h"
 #include "parser.h"
 #include "debug.h"
+#include "snort.h"
+#include "sfPolicy.h"
 
 #include "IpAddrSet.h"
+
 #ifdef SUP_IP6
-#include "ipv6_port.h"
-#else
+# include "ipv6_port.h"
+#endif
 
-
-
+extern SnortConfig *snort_conf_for_parsing;
 extern char *file_name;     /* current rules file being processed */
 extern int line_num;        /* current rules file line */
 
-
-IpAddrSet *IpAddrSetCreate()
+#ifndef SUP_IP6
+IpAddrSet *IpAddrSetCreate(void)
 {
     IpAddrSet *tmp;
 
     tmp = (IpAddrSet *) SnortAlloc(sizeof(IpAddrSet));
 
     return tmp;
-}
-
-
-void IpAddrSetDestroy(IpAddrSet *ipAddrSet)
-{
-    IpAddrNode *node, *tmp;
-
-    if(!ipAddrSet) 
-        return;
-
-    node = ipAddrSet->iplist;
-
-    while(node)
-    {
-        tmp = node;
-        node = node->next;
-        free(tmp);
-    }
-
-    node = ipAddrSet->neg_iplist;
-
-    while(node)
-    {
-        tmp = node;
-        node = node->next;
-        free(tmp);
-    }
 }
 
 static char buffer[1024];
@@ -341,7 +316,7 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
                 }
                 else
                 {
-                    FatalError("ERROR %s(%d): Invalid CIDR block for IP addr "
+                    FatalError("%s(%d): Invalid CIDR block for IP addr "
                             "%s\n", file_name, file_line, addr);
                            
                 }
@@ -364,9 +339,9 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
                 {
                     address_data->netmask = INADDR_BROADCAST;
                 }
-                else if((address_data->netmask = inet_addr(toks[1])) == -1)
+                else if((address_data->netmask = inet_addr(toks[1])) == INADDR_NONE)
                 {
-                    FatalError("ERROR %s(%d): Unable to parse rule netmask "
+                    FatalError("%s(%d): Unable to parse rule netmask "
                             "(%s)\n", file_name, file_line, toks[1]);
                 }
                 /* Set nmask so we don't try to do a host lookup below.
@@ -376,7 +351,7 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
             break;
 
         default:
-            FatalError("ERROR %s(%d) => Unrecognized IP address/netmask %s\n",
+            FatalError("%s(%d) => Unrecognized IP address/netmask %s\n",
                     file_name, file_line, addr);
             break;
     }
@@ -411,7 +386,7 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
             if (host_info)
             {
                 /* protecting against malicious DNS servers */
-                if(host_info->h_length <= sizeof(sin.sin_addr))
+                if(host_info->h_length <= (int)sizeof(sin.sin_addr))
                 {
                     bcopy(host_info->h_addr, (char *) &sin.sin_addr, host_info->h_length);
                 }
@@ -424,7 +399,7 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
             else if(h_errno == HOST_NOT_FOUND)
             /*else if((sin.sin_addr.s_addr = inet_addr(toks[0])) == INADDR_NONE)*/
             {
-                FatalError("ERROR %s(%d): Couldn't resolve hostname %s\n",
+                FatalError("%s(%d): Couldn't resolve hostname %s\n",
                     file_name, file_line, toks[0]);
             }
         }
@@ -439,7 +414,7 @@ int ParseIP(char *paddr, IpAddrSet *ias, int negate) //, IpAddrNode *node)
         if(sin.sin_addr.s_addr == INADDR_NONE)
         {
             /* It was not a valid IP address but had a valid netmask. */
-            FatalError("ERROR %s(%d): Rule IP addr (%s) didn't translate\n",
+            FatalError("%s(%d): Rule IP addr (%s) didn't translate\n",
                 file_name, file_line, toks[0]);
         }
     }
@@ -610,6 +585,16 @@ IpAddrSet *IpAddrSetParse(char *addr)
     IpAddrSet *ret;
 #ifdef SUP_IP6
     int ret_code;
+    SnortConfig *sc = snort_conf_for_parsing;
+    vartable_t *ip_vartable;
+
+    if ((sc == NULL) || (sc->targeted_policies[getParserPolicy()] == NULL))
+    {
+        FatalError("%s(%d) Snort conf for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
+
+    ip_vartable = sc->targeted_policies[getParserPolicy()]->ip_vartable;
 #endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_CONFIGRULES,"Got address string: %s\n", 
@@ -618,7 +603,7 @@ IpAddrSet *IpAddrSetParse(char *addr)
     ret = (IpAddrSet*)SnortAlloc(sizeof(IpAddrSet));
 
 #ifdef SUP_IP6 
-    if((ret_code = sfvt_add_to_var(vartable, ret, addr)) != SFIP_SUCCESS) 
+    if((ret_code = sfvt_add_to_var(ip_vartable, ret, addr)) != SFIP_SUCCESS) 
     {
         if(ret_code == SFIP_LOOKUP_FAILURE)
             FatalError("%s(%d) => Undefined variable in the string: %s\n",
@@ -641,11 +626,43 @@ IpAddrSet *IpAddrSetParse(char *addr)
     return ret;
 }
 
+void IpAddrSetDestroy(IpAddrSet *ipAddrSet)
+{
+#ifndef SUP_IP6
+    IpAddrNode *node, *tmp;
+#endif
+
+    if(!ipAddrSet) 
+        return;
+
+#ifdef SUP_IP6
+    sfvar_free(ipAddrSet);
+#else
+    node = ipAddrSet->iplist;
+
+    while(node)
+    {
+        tmp = node;
+        node = node->next;
+        free(tmp);
+    }
+
+    node = ipAddrSet->neg_iplist;
+
+    while(node)
+    {
+        tmp = node;
+        node = node->next;
+        free(tmp);
+    }
+#endif
+}
+
 #ifndef SUP_IP6
 int IpAddrSetContains(IpAddrSet *ias, struct in_addr test_addr)
 {
     IpAddrNode *index;
-    u_int32_t raw_addr = test_addr.s_addr;
+    uint32_t raw_addr = test_addr.s_addr;
     int match = 0;
 
     if(!ias)

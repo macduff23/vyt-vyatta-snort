@@ -37,6 +37,7 @@
 #include "rules.h"
 #include "util.h"
 #include "fpcreate.h"
+#include "parser.h"
 
 #include "sp_asn1.h"
 #include "sp_byte_check.h"
@@ -59,14 +60,12 @@
 #include "sp_isdataat.h"
 #include "sp_pattern_match.h"
 #include "sp_pcre.h"
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
 #include "sp_react.h"
 #endif
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#include "sp_replace.h"
+#ifdef ENABLE_RESPOND
 #include "sp_respond.h"
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-#include "sp_respond2.h"
 #endif
 #include "sp_rpc_check.h"
 #include "sp_session.h"
@@ -76,6 +75,7 @@
 #include "sp_tcp_win_check.h"
 #include "sp_ttl_check.h"
 #include "sp_urilen_check.h"
+#include "sp_hdr_opt_wrap.h"
 
 #include "sp_preprocopt.h"
 #include "sp_dynamic.h"
@@ -83,11 +83,17 @@
 #include "fpdetect.h"
 #include "ppm.h"
 #include "profiler.h"
+#include "sfPolicy.h"
+#include "detection_filter.h"
 
-extern const u_int8_t *doe_ptr;
+extern const uint8_t *doe_ptr;
 
-SFXHASH *detection_option_hash_table = NULL;
-SFXHASH *detection_option_tree_hash_table = NULL;
+/* Used when adding detection option tree */
+extern SnortConfig *snort_conf_for_fast_pattern;
+
+/* Used when parsing detection options */
+extern SnortConfig *snort_conf_for_parsing;
+extern SnortConfig *snort_conf;
 
 typedef struct _detection_option_key
 {
@@ -98,9 +104,9 @@ typedef struct _detection_option_key
 #define HASH_RULE_OPTIONS 16384
 #define HASH_RULE_TREE 8192
 
-u_int32_t detection_option_hash_func(SFHASHFCN *p, unsigned char *k, int n)
+uint32_t detection_option_hash_func(SFHASHFCN *p, unsigned char *k, int n)
 {
-    u_int32_t hash = 0;
+    uint32_t hash = 0;
     detection_option_key_t *key = (detection_option_key_t*)k;
 
     switch (key->option_type)
@@ -172,19 +178,14 @@ u_int32_t detection_option_hash_func(SFHASHFCN *p, unsigned char *k, int n)
         case RULE_OPTION_TYPE_PCRE:
             hash = PcreHash(key->option_data);
             break;
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
         case RULE_OPTION_TYPE_REACT:
             hash = ReactHash(key->option_data);
-#endif
             break;
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#endif
+#ifdef ENABLE_RESPOND
         case RULE_OPTION_TYPE_RESPOND:
             hash = RespondHash(key->option_data);
-            break;
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-        case RULE_OPTION_TYPE_RESPOND2:
-            hash = Respond2Hash(key->option_data);
             break;
 #endif
         case RULE_OPTION_TYPE_RPC_CHECK:
@@ -212,6 +213,9 @@ u_int32_t detection_option_hash_func(SFHASHFCN *p, unsigned char *k, int n)
             hash = UriLenCheckHash(key->option_data);
             break;
 #ifdef DYNAMIC_PLUGIN
+        case RULE_OPTION_TYPE_HDR_OPT_CHECK:
+            hash = HdrOptCheckHash(key->option_data);
+            break;
         case RULE_OPTION_TYPE_PREPROCESSOR:
             hash = PreprocessorRuleOptionHash(key->option_data);
             break;
@@ -315,19 +319,14 @@ int detection_option_key_compare_func(const void *k1, const void *k2, size_t n)
         case RULE_OPTION_TYPE_PCRE:
             ret = PcreCompare(key1->option_data, key2->option_data);
             break;
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
         case RULE_OPTION_TYPE_REACT:
             ret = ReactCompare(key1->option_data, key2->option_data);
             break;
 #endif
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#ifdef ENABLE_RESPOND
         case RULE_OPTION_TYPE_RESPOND:
             ret = RespondCompare(key1->option_data, key2->option_data);
-            break;
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-        case RULE_OPTION_TYPE_RESPOND2:
-            ret = Respond2Compare(key1->option_data, key2->option_data);
             break;
 #endif
         case RULE_OPTION_TYPE_RPC_CHECK:
@@ -355,6 +354,8 @@ int detection_option_key_compare_func(const void *k1, const void *k2, size_t n)
             ret = UriLenCheckCompare(key1->option_data, key2->option_data);
             break;
 #ifdef DYNAMIC_PLUGIN
+        case RULE_OPTION_TYPE_HDR_OPT_CHECK:
+            ret = HdrOptCheckCompare(key1->option_data, key2->option_data);
         case RULE_OPTION_TYPE_PREPROCESSOR:
             ret = PreprocessorRuleOptionCompare(key1->option_data, key2->option_data);
             break;
@@ -441,18 +442,13 @@ int detection_hash_free_func(void *option_key, void *data)
         case RULE_OPTION_TYPE_PCRE:
             PcreFree(key->option_data);
             break;
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
         case RULE_OPTION_TYPE_REACT:
             ReactFree(key->option_data);
-#endif
             break;
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#endif
+#ifdef ENABLE_RESPOND
         case RULE_OPTION_TYPE_RESPOND:
-            free(key->option_data);
-            break;
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-        case RULE_OPTION_TYPE_RESPOND2:
             free(key->option_data);
             break;
 #endif
@@ -481,11 +477,13 @@ int detection_hash_free_func(void *option_key, void *data)
             free(key->option_data);
             break;
 #ifdef DYNAMIC_PLUGIN
+        case RULE_OPTION_TYPE_HDR_OPT_CHECK:
+            break;
         case RULE_OPTION_TYPE_PREPROCESSOR:
             PreprocessorRuleOptionsFreeFunc(key->option_data);
             break;
         case RULE_OPTION_TYPE_DYNAMIC:
-            free(key->option_data);
+            fpDynamicDataFree(key->option_data);
             break;
 #endif
         case RULE_OPTION_TYPE_LEAF_NODE:
@@ -494,9 +492,9 @@ int detection_hash_free_func(void *option_key, void *data)
     return 0;
 }
 
-void init_detection_hash_table()
+SFXHASH * DetectionHashTableNew(void)
 {
-    detection_option_hash_table = sfxhash_new(HASH_RULE_OPTIONS,
+    SFXHASH *doht = sfxhash_new(HASH_RULE_OPTIONS,
                                 sizeof(detection_option_key_t),
                                 0,      /* Data size == 0, just store the ptr */
                                 0,      /* Memcap */
@@ -506,33 +504,34 @@ void init_detection_hash_table()
                                 1);     /* Recycle nodes */
 
 
-    if (!detection_option_hash_table)
-    {
+    if (doht == NULL)
         FatalError("Failed to create rule detection option hash table");
-    }
 
-    sfxhash_set_keyops(detection_option_hash_table,
-                       detection_option_hash_func,
+    sfxhash_set_keyops(doht, detection_option_hash_func,
                        detection_option_key_compare_func);
+
+    return doht;
 }
 
-void delete_detection_hash_table()
+void DetectionHashTableFree(SFXHASH *doht)
 {
-    if (detection_option_hash_table)
-    {
-        sfxhash_delete(detection_option_hash_table);
-        detection_option_hash_table = NULL;
-    }
+    if (doht != NULL)
+        sfxhash_delete(doht);
 }
 
 int add_detection_option(option_type_t type, void *option_data, void **existing_data)
 {
+    SnortConfig *sc = snort_conf_for_parsing;
     detection_option_key_t key;
 
-    if (!detection_option_hash_table)
+    if (sc == NULL)
     {
-        init_detection_hash_table();
+        FatalError("%s(%d) Snort config is NULL.\n",
+                   __FILE__, __LINE__);
     }
+
+    if (sc->detection_option_hash_table == NULL)
+        sc->detection_option_hash_table = DetectionHashTableNew();
 
     if (!option_data)
     {
@@ -543,19 +542,19 @@ int add_detection_option(option_type_t type, void *option_data, void **existing_
     key.option_type = type;
     key.option_data = option_data;
 
-    *existing_data = sfxhash_find(detection_option_hash_table, &key);
+    *existing_data = sfxhash_find(sc->detection_option_hash_table, &key);
     if (*existing_data)
     {
         return DETECTION_OPTION_EQUAL;
     }
 
-    sfxhash_add(detection_option_hash_table, &key, option_data);
+    sfxhash_add(sc->detection_option_hash_table, &key, option_data);
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-u_int32_t detection_option_tree_hash(detection_option_tree_node_t *node)
+uint32_t detection_option_tree_hash(detection_option_tree_node_t *node)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     int i;
 
     if (!node)
@@ -569,13 +568,13 @@ u_int32_t detection_option_tree_hash(detection_option_tree_node_t *node)
         {
             /* Cleanup warning because of cast from 64bit ptr to 32bit int
              * warning on 64bit OSs */
-            UINT64 ptr; /* Addresses are 64bits */
-            ptr = (UINT64)node->children[i]->option_data;
+            uint64_t ptr; /* Addresses are 64bits */
+            ptr = (uint64_t)node->children[i]->option_data;
             a += (ptr << 32) & 0XFFFFFFFF;
             b += (ptr & 0xFFFFFFFF);
         }
 #else
-        a += (u_int32_t)node->children[i]->option_data;
+        a += (uint32_t)node->children[i]->option_data;
         b += 0;
 #endif
         c += detection_option_tree_hash(node->children[i]);
@@ -583,7 +582,7 @@ u_int32_t detection_option_tree_hash(detection_option_tree_node_t *node)
         a += node->children[i]->num_children;
         mix(a,b,c);
 #if 0
-        a += (u_int32_t)node->children[i]->option_data;
+        a += (uint32_t)node->children[i]->option_data;
         /* Recurse & hash up this guy's children */
         b += detection_option_tree_hash(node->children[i]);
         c += node->children[i]->num_children;
@@ -596,7 +595,7 @@ u_int32_t detection_option_tree_hash(detection_option_tree_node_t *node)
     return c;
 }
 
-u_int32_t detection_option_tree_hash_func(SFHASHFCN *p, unsigned char *k, int n)
+uint32_t detection_option_tree_hash_func(SFHASHFCN *p, unsigned char *k, int n)
 {
     detection_option_key_t *key = (detection_option_key_t *)k;
     detection_option_tree_node_t *node;
@@ -661,18 +660,15 @@ int detection_option_tree_free_func(void *option_key, void *data)
     return 0;
 }
 
-void delete_detection_tree_hash_table()
+void DetectionTreeHashTableFree(SFXHASH *dtht)
 {
-    if (detection_option_tree_hash_table)
-    {
-        sfxhash_delete(detection_option_tree_hash_table);
-        detection_option_tree_hash_table = NULL;
-    }
+    if (dtht != NULL)
+        sfxhash_delete(dtht);
 }
 
-void init_detection_tree_hash_table()
+SFXHASH * DetectionTreeHashTableNew(void)
 {
-    detection_option_tree_hash_table = sfxhash_new(HASH_RULE_TREE,
+    SFXHASH *dtht = sfxhash_new(HASH_RULE_TREE,
                                 sizeof(detection_option_key_t),
                                 0,      /* Data size == 0, just store the ptr */
                                 0,      /* Memcap */
@@ -682,14 +678,13 @@ void init_detection_tree_hash_table()
                                 1);     /* Recycle nodes */
 
 
-    if (!detection_option_tree_hash_table)
-    {
+    if (dtht == NULL)
         FatalError("Failed to create rule detection option hash table");
-    }
 
-    sfxhash_set_keyops(detection_option_tree_hash_table,
-                       detection_option_tree_hash_func,
+    sfxhash_set_keyops(dtht, detection_option_tree_hash_func,
                        detection_option_tree_compare_func);
+
+    return dtht;
 }
 
 char *option_type_str[] =
@@ -718,14 +713,11 @@ char *option_type_str[] =
     "RULE_OPTION_TYPE_CONTENT",
     "RULE_OPTION_TYPE_CONTENT_URI",
     "RULE_OPTION_TYPE_PCRE",
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
     "RULE_OPTION_TYPE_REACT",
 #endif
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#ifdef ENABLE_RESPOND
     "RULE_OPTION_TYPE_RESPOND",
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-    "RULE_OPTION_TYPE_RESPOND2",
 #endif
     "RULE_OPTION_TYPE_RPC_CHECK",
     "RULE_OPTION_TYPE_SESSION",
@@ -764,12 +756,17 @@ void print_option_tree(detection_option_tree_node_t *node, int level)
 
 int add_detection_option_tree(detection_option_tree_node_t *option_tree, void **existing_data)
 {
+    SnortConfig *sc = snort_conf_for_fast_pattern;
     detection_option_key_t key;
 
-    if (!detection_option_tree_hash_table)
+    if (sc == NULL)
     {
-        init_detection_tree_hash_table();
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
     }
+
+    if (sc->detection_option_tree_hash_table == NULL)
+        sc->detection_option_tree_hash_table = DetectionTreeHashTableNew();
 
     if (!option_tree)
     {
@@ -780,27 +777,27 @@ int add_detection_option_tree(detection_option_tree_node_t *option_tree, void **
     key.option_data = (void *)option_tree;
     key.option_type = RULE_OPTION_TYPE_LEAF_NODE;
 
-    *existing_data = sfxhash_find(detection_option_tree_hash_table, &key);
+    *existing_data = sfxhash_find(sc->detection_option_tree_hash_table, &key);
     if (*existing_data)
     {
         return DETECTION_OPTION_EQUAL;
     }
 
-    sfxhash_add(detection_option_tree_hash_table, &key, option_tree);
+    sfxhash_add(sc->detection_option_tree_hash_table, &key, option_tree);
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-extern u_int8_t DecodeBuffer[DECODE_BLEN];  /* decode.c */
+extern uint8_t DecodeBuffer[DECODE_BLEN];  /* decode.c */
 
 int detection_option_node_evaluate(detection_option_tree_node_t *node, detection_option_eval_data_t *eval_data)
 {
-    int i, result = 0;
+    int i, result = 0, prior_result = 0;
     int rval = DETECTION_OPTION_NO_MATCH;
-    const u_int8_t *start_doe_ptr = NULL, *tmp_doe_ptr, *orig_doe_ptr;
+    const uint8_t *start_doe_ptr = NULL, *tmp_doe_ptr, *orig_doe_ptr;
     char tmp_noalert_flag = 0;
     PatternMatchData dup_content_option_data;
     PcreData dup_pcre_option_data;
-    const u_int8_t *dp = NULL;
+    const uint8_t *dp = NULL;
     int dsize;
     char continue_loop = 1;
     NODE_PROFILE_VARS;
@@ -845,7 +842,7 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
         PatternMatchDuplicatePmd(node->option_data, &dup_content_option_data);
         if ((eval_data->p->packet_flags & PKT_ALT_DECODE) && (dup_content_option_data.rawbytes == 0))
         {
-            dp = (u_int8_t *)DecodeBuffer;
+            dp = (uint8_t *)DecodeBuffer;
             dsize = eval_data->p->alt_dsize;
         }
         else
@@ -871,42 +868,61 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
                     PatternMatchData *pmd = (PatternMatchData *)eval_data->pmd;
                     int pattern_size = 0;
                     int check_ports = 1;
+#ifdef TARGET_BASED
+                    unsigned int svc_idx;
+#endif
 
                     if (pmd)
                         pattern_size = pmd->pattern_size;
 #ifdef TARGET_BASED
 #ifdef PORTLISTS
-                    if ((otn->sigInfo.service_ordinal != 0) &&
-                        (eval_data->p->application_protocol_ordinal != 0))
+                    if (eval_data->p->application_protocol_ordinal != 0)
                     {
-                        if (eval_data->p->application_protocol_ordinal != otn->sigInfo.service_ordinal)
+                        for (svc_idx = 0;
+                             svc_idx < otn->sigInfo.num_services;
+                             svc_idx++)
+                        {
+                            if (otn->sigInfo.services[svc_idx].service_ordinal != 0)
+                            {
+                                if (eval_data->p->application_protocol_ordinal == otn->sigInfo.services[svc_idx].service_ordinal)
+                                {
+                                    check_ports = 0;
+                                    break; /* out of for */
+                                }
+                            }
+                        }
+
+                        if (otn->sigInfo.num_services && check_ports) /* none of the services match */
                         {
                             DEBUG_WRAP(DebugMessage(DEBUG_DETECT,
                                 "[**] SID %d not matched because of service mismatch (%d!=%d [**]\n",
                                 otn->sigInfo.id,
                                 eval_data->p->application_protocol_ordinal,
-                                otn->sigInfo.service_ordinal););
-                            break;
-                        }
-                        else
-                        {
-                            check_ports = 0;
+                                otn->sigInfo.services[0].service_ordinal););
+                            break; /* out of case */
                         }
                     }
 #endif
 #endif
-                    if (fpEvalRTN(otn->proto_node, eval_data->p, check_ports))
+                    if (fpEvalRTN(getRuntimeRtnFromOtn(otn), eval_data->p, check_ports))
                     {
-#ifdef PERF_PROFILING
-                        if (PROFILING_RULES)
-                            otn->matches++;
-#endif
-                        if (!eval_data->flowbit_noalert)
+                        if ( !otn->detection_filter ||
+                             !detection_filter_test(
+                                 otn->detection_filter,
+                                 GET_SRC_IP(eval_data->p), GET_DST_IP(eval_data->p),
+                                 eval_data->p->pkth->ts.tv_sec) )
                         {
-                            fpAddMatch(eval_data->pomd, eval_data->otnx, pattern_size, otn);
+#ifdef PERF_PROFILING
+                            if (PROFILING_RULES)
+                                otn->matches++;
+#endif
+                            if (!eval_data->flowbit_noalert)
+                            {
+                                fpAddMatch(eval_data->pomd, eval_data->otnx, pattern_size, otn);
+                            }
+                            result++;
+                            rval = DETECTION_OPTION_MATCH;
                         }
-                        result++;
-                        rval = DETECTION_OPTION_MATCH;
                     }
                 }
                 break;
@@ -988,14 +1004,11 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
             case RULE_OPTION_TYPE_IP_SAME:
             case RULE_OPTION_TYPE_IP_TOS:
             case RULE_OPTION_TYPE_IS_DATA_AT:
-#if defined(ENABLE_RESPONSE) || defined(ENABLE_REACT)
+#ifdef ENABLE_REACT
             case RULE_OPTION_TYPE_REACT:
 #endif
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#ifdef ENABLE_RESPOND
             case RULE_OPTION_TYPE_RESPOND:
-#endif
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
-            case RULE_OPTION_TYPE_RESPOND2:
 #endif
             case RULE_OPTION_TYPE_RPC_CHECK:
             case RULE_OPTION_TYPE_SESSION:
@@ -1006,6 +1019,7 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
             case RULE_OPTION_TYPE_TTL:
             case RULE_OPTION_TYPE_URILEN:
 #ifdef DYNAMIC_PLUGIN
+            case RULE_OPTION_TYPE_HDR_OPT_CHECK:
             case RULE_OPTION_TYPE_PREPROCESSOR:
             case RULE_OPTION_TYPE_DYNAMIC:
 #endif
@@ -1094,6 +1108,13 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
 #endif
             }
         }
+        if (result - prior_result > 0 
+            && node->option_type == RULE_OPTION_TYPE_CONTENT
+            && Replace_OffsetStored(&dup_content_option_data) && ScInlineMode())
+        {
+            Replace_QueueChange(&dup_content_option_data);
+            prior_result = result;
+        }
         NODE_PROFILE_TMPSTART(node);
 
         if (rval == DETECTION_OPTION_NO_ALERT)
@@ -1148,6 +1169,7 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
         node->last_check.flowbit_failed = 1;
     }
     node->last_check.result = result;
+
     if (result == DETECTION_OPTION_NO_MATCH)
     {
         NODE_PROFILE_END_NOMATCH(node);
@@ -1162,16 +1184,17 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
 #ifdef PERF_PROFILING
 typedef struct node_profile_stats
 {
-    UINT64 ticks;
-    UINT64 ticks_match;
-    UINT64 ticks_no_match;
-    UINT64 checks;
-    UINT64 disables;
+    uint64_t ticks;
+    uint64_t ticks_match;
+    uint64_t ticks_no_match;
+    uint64_t checks;
+    uint64_t disables;
 } node_profile_stats_t;
 
-static void detection_option_node_update_otn_stats(detection_option_tree_node_t *node, node_profile_stats_t *stats, UINT64 checks
+static void detection_option_node_update_otn_stats(detection_option_tree_node_t *node,
+                                                   node_profile_stats_t *stats, uint64_t checks
 #ifdef PPM_MGR
-                                                   , UINT64 disables
+                                                   , uint64_t disables
 #endif
                                                    )
 {
@@ -1229,12 +1252,15 @@ static void detection_option_node_update_otn_stats(detection_option_tree_node_t 
     }
 }
 
-void detection_option_tree_update_otn_stats()
+void detection_option_tree_update_otn_stats(SFXHASH *doth)
 {
     SFXHASH_NODE *hashnode;
 
+    if (doth == NULL)
+        return;
+
     /* Find the first tree root in the table */
-    hashnode = sfxhash_findfirst(detection_option_tree_hash_table);
+    hashnode = sfxhash_findfirst(doth);
     while (hashnode)
     {
         detection_option_tree_node_t *node = hashnode->data;
@@ -1242,11 +1268,11 @@ void detection_option_tree_update_otn_stats()
         {
             detection_option_node_update_otn_stats(node, NULL, node->checks
 #ifdef PPM_MGR
-                    , node->ppm_disable_cnt
+                                                   , node->ppm_disable_cnt
 #endif
-                    );
+                                                  );
         }
-        hashnode = sfxhash_findnext(detection_option_tree_hash_table);
+        hashnode = sfxhash_findnext(doth);
     }
 }
 #endif

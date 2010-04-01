@@ -52,9 +52,9 @@ void IcmpTypeCheckInit(char *, OptTreeNode *, int);
 void ParseIcmpType(char *, OptTreeNode *);
 int IcmpTypeCheck(void *option_data, Packet *p);
 
-u_int32_t IcmpTypeCheckHash(void *d)
+uint32_t IcmpTypeCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     IcmpTypeCheckData *data = (IcmpTypeCheckData *)d;
 
     a = data->icmp_type;
@@ -102,7 +102,7 @@ int IcmpTypeCheckCompare(void *l, void *r)
 void SetupIcmpTypeCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("itype", IcmpTypeCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("itype", IcmpTypeCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("itype", &icmpTypePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

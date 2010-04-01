@@ -42,13 +42,13 @@ extern DynamicPreprocessorData _dpd;
  ********************************************************************/
 typedef enum _DCE2_SsnFlag
 {
-    DCE2_SSN_FLAG__NONE               = 0x00000000,
-    DCE2_SSN_FLAG__SEEN_CLIENT        = 0x00000001,
-    DCE2_SSN_FLAG__SEEN_SERVER        = 0x00000002,
-    DCE2_SSN_FLAG__MISSED_PKTS        = 0x00000004,
-    DCE2_SSN_FLAG__AUTODETECTED       = 0x00000008,
-    DCE2_SSN_FLAG__NO_INSPECT         = 0x00000010,
-    DCE2_SSN_FLAG__ALL                = 0xffffffff
+    DCE2_SSN_FLAG__NONE               = 0x0000,
+    DCE2_SSN_FLAG__SEEN_CLIENT        = 0x0001,
+    DCE2_SSN_FLAG__SEEN_SERVER        = 0x0002,
+    DCE2_SSN_FLAG__MISSED_PKTS        = 0x0004,
+    DCE2_SSN_FLAG__AUTODETECTED       = 0x0008,
+    DCE2_SSN_FLAG__NO_INSPECT         = 0x0010,
+    DCE2_SSN_FLAG__ALL                = 0xffff
 
 } DCE2_SsnFlag;
 
@@ -73,6 +73,9 @@ typedef struct _DCE2_SsnData
     uint32_t srv_nseq;
     uint32_t srv_missed_bytes;
     uint16_t srv_overlap_bytes;
+
+    tSfPolicyId policy_id;
+    tSfPolicyUserContextId config;
 
 } DCE2_SsnData;
 

@@ -98,7 +98,7 @@ int  mpseSearch( void *pv, const unsigned char * T, int n,
 
 int mpseGetPatternCount(void *pv);
 
-UINT64 mpseGetPatByteCount(void);
+uint64_t mpseGetPatByteCount(void);
 void   mpseResetByteCount(void);
 
 int mpsePrintInfo( void * obj );
@@ -108,5 +108,7 @@ void   mpseVerbose( void * pvoid );
 void   mpseSetOpt( void * pvoid,int flag);
 
 void mpse_print_qinfo(void);
+void mpseInitSummary(void);
+
 #endif
 

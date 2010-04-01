@@ -1,5 +1,9 @@
 THRESHOLDING AND EVENT SUPPRESSION IN SNORT 
 
+** This document describes the 'threshold' and 'suppress' keywords.  'threshold'
+** is deprecated as of version 2.8.5.  'event_filter' should be used instead.
+** See README.filters for more information.
+
 A rule thresholding feature has been added to SNORT.  This feature is used to
 reduce the number of logged alerts for noisy rules.  This can be tuned to
 significantly reduce false alarms, and it can also be used to write a newer
@@ -18,14 +22,16 @@ either standard or global thresholding tests.
 
 There are 3 types of thresholding:
 
-	1) Limit 
-        Alert on the 1st M events during the time interval, then ignore events
-        for the rest of the time interval.
-    2) Threshold 
-        Alert every M times we see this event during the time interval.
-	3) Both 
-        Alert once per time interval after seeing M occurrences of the event,
-        then ignore any additional events during the time interval.
+1) Limit 
+   Alert on the 1st M events during the time interval, then ignore events
+   for the rest of the time interval.
+
+2) Threshold 
+   Alert every M times we see this event during the time interval.
+
+3) Both 
+   Alert once per time interval after seeing M occurrences of the event,
+   then ignore any additional events during the time interval.
  
 All tracking is by Src or by Dst IP, we do not track ports or anything else.
 
@@ -40,7 +46,7 @@ attempts.  This can be done using the 'limit' type of threshold command.  It
 makes sense that the threshold feature is an integral part of this rule.
 
 Suppression commands are standalone commands that reference generator's and
-sid's and IP addresses via a  CIDR block. This allows a rule to be completely
+sid's and IP addresses via an IP list. This allows a rule to be completely
 suppressed, or suppressed when the causative traffic is going to or coming
 from a specific IP or group of IP addresses.
 
@@ -53,7 +59,6 @@ several suppression commands to the same sid.  If you try to apply more than
 one threshold command to a sid, SNORT will terminate while reading the
 configuration information. 
 
-
  
 THRESHOLDING CONFIGURATION COMMAND:
 ----------------------------------- 
@@ -61,12 +66,14 @@ THRESHOLDING CONFIGURATION COMMAND:
 config threshold: memcap 3000000
 	
 The memcap parameter is specified in bytes.
-	
+
+
 THRESHOLD RULE FORMAT:
 ---------------------
 
 threshold: type limit|threshold|both, track by_src|by_dst, count n , seconds m ;
  
+
 THRESHOLD RULE OPTION PARAMETERS:
 --------------------------------
 
@@ -78,6 +85,7 @@ This format supports 4 threshold options - all are required.
     track		by_src , by_dst
     count		n : number events used by the thresholding
     seconds		m : time period over which count is accrued.
+
 
 EXAMPLE RULES:
 --------------
@@ -99,10 +107,12 @@ sid are fired.
 
     alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"WEB-MISC robots.txt access"; flow:to_server, established; uricontent:"/robots.txt"; nocase; reference:nessus,10302; classtype:web-application-activity; threshold: type both , track by_dst, count 10 , seconds 60 ; sid:1852; rev:1;)
 
+
 THRESHOLD COMMAND FORMAT:
 -------------------------
 
 threshold gen_id gen-id, sig_id sig-id, type limit|threshold|both, track by_src|by_dst, count n , seconds m  
+
 
 THRESHOLD COMMAND PARAMETERS:
 ----------------------------
@@ -115,7 +125,6 @@ type    limit, threshold, both
 track   by_src, by_dst
 count   n 
 seconds m
-
 
 
 GLOBAL THRESHOLDING COMMAND:
@@ -131,11 +140,17 @@ just one command specify a value of gen_id=0.
 GLOBAL THRESHOLD COMMAND FORMAT:
 --------------------------------
 
-threshold gen_id gen-id, sig_id 0, type limit|threshold|both, track by_src|by_dst, count n , seconds m  
+threshold gen_id gen-id, sig_id 0, \
+    type limit|threshold|both, \
+    track by_src|by_dst, \
+    count n , seconds m  
 
 or 
 
-threshold gen_id 0 , sig_id 0, type limit|threshold|both, track by_src|by_dst, count n , seconds m  
+threshold gen_id 0 , sig_id 0, \
+    type limit|threshold|both, \
+    track by_src|by_dst, \
+    count n , seconds m  
 
 
 THRESHOLD EXAMPLES:
@@ -164,7 +179,8 @@ threshold gen_id 0, sig_id 0, type limit, track by_src, count 1, seconds 60
  
 SUPPRESS COMMAND FORMAT:
 -----------------------
-suppress gen_id gen-id, sid_id sid-id, track by_src|by_dst, ip IP/MASK-BITS
+suppress gen_id gen-id, sid_id sid-id, track by_src|by_dst, ip ip-list
+
 
 SUPPRESS COMMAND PARAMETERS:
 ---------------------------
@@ -174,8 +190,7 @@ The suppress command supports either 2 or 4 options
 gen_id     gen-id            # always required 
 sig_id     sig-id            # always required
 track      by_src | by_dst   # optional - 4 option version
-ip         IP[/MASK-BITS]    # optional - 4 option version
-
+ip         ip-list           # optional - 4 option version
 
 
 SUPPRESS EXAMPLES:
@@ -189,3 +204,4 @@ suppress gen_id 1, sig_id 1852, track by_src, ip 10.1.1.54
 
 # Suppress this event to this CIDR block
 suppress gen_id 1, sig_id 1852, track by_dst, ip 10.1.1.0/24
+

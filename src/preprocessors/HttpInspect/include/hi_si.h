@@ -98,7 +98,7 @@ typedef struct s_HI_SESSION
     */
     HTTPINSPECT_GLOBAL_CONF *global_conf;
 
-    u_int32_t norm_flags;
+    uint32_t norm_flags;
 
 } HI_SESSION;
 

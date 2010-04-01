@@ -53,8 +53,8 @@ typedef struct _UriNormLenCheckData
 } UriNormLenCheckData;
 
 
-extern void SetupUriLenCheck();
-u_int32_t UriLenCheckHash(void *d);
+extern void SetupUriLenCheck(void);
+uint32_t UriLenCheckHash(void *d);
 int UriLenCheckCompare(void *l, void *r);
 
 #endif /* SP_URILEN_CHECK_H */

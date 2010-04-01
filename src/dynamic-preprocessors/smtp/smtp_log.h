@@ -41,8 +41,9 @@
 #define SMTP_UNKNOWN_CMD            5
 #define SMTP_ILLEGAL_CMD            6
 #define SMTP_HEADER_NAME_OVERFLOW   7
+#define SMTP_XLINK2STATE_OVERFLOW   8
 
-#define SMTP_EVENT_MAX  8
+#define SMTP_EVENT_MAX  9
 
 /* Messages for each event */
 #define SMTP_COMMAND_OVERFLOW_STR        "(smtp) Attempted command buffer overflow"
@@ -52,6 +53,7 @@
 #define SMTP_UNKNOWN_CMD_STR             "(smtp) Unknown command"
 #define SMTP_ILLEGAL_CMD_STR             "(smtp) Illegal command"
 #define SMTP_HEADER_NAME_OVERFLOW_STR    "(smtp) Attempted header name buffer overflow"
+#define SMTP_XLINK2STATE_OVERFLOW_STR    "(smtp) Attempted X-Link2State command buffer overflow"
 
 #define EVENT_STR_LEN  256
 

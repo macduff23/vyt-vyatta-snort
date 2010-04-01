@@ -76,43 +76,47 @@ int16_t ssh_app_id = SFTARGET_UNKNOWN_PROTOCOL;
 /*
  * Function prototype(s)
  */
-SSHData* GetSSHData( SFSnortPacket* );
+SSHData * SSHGetNewSession(SFSnortPacket *, tSfPolicyId);
 static void SSHInit( char* );
-static void DisplaySSHConfig( void );
+static void DisplaySSHConfig(SSHConfig *);
 static void FreeSSHData( void* );
-static void  ParseSSHArgs( u_char* );
+static void  ParseSSHArgs(SSHConfig *, u_char*);
 static void ProcessSSH( void*, void* );
-static INLINE int CheckSSHPort( u_int16_t );
+static INLINE int CheckSSHPort( uint16_t );
 static int ProcessSSHProtocolVersionExchange( SSHData*, SFSnortPacket*, 
-		u_int8_t, u_int8_t );
-static int ProcessSSHKeyExchange( SSHData*, SFSnortPacket*, u_int8_t );
-static int ProcessSSHKeyInitExchange( SSHData*, SFSnortPacket*, u_int8_t );
-static void _addPortsToStream5Filter();
+		uint8_t, uint8_t );
+static int ProcessSSHKeyExchange( SSHData*, SFSnortPacket*, uint8_t );
+static int ProcessSSHKeyInitExchange( SSHData*, SFSnortPacket*, uint8_t );
+static void _addPortsToStream5Filter(SSHConfig *, tSfPolicyId);
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter();
+static void _addServicesToStream5Filter(tSfPolicyId);
 #endif
+static void SSHFreeConfig(tSfPolicyUserContextId config);
+static void SSHCheckConfig(void);
+static void SSHCleanExit(int, void *);
 
 /* Ultimately calls SnortEventqAdd */
 /* Arguments are: gid, sid, rev, classification, priority, message, rule_info */
 #define ALERT(x,y) { _dpd.alertAdd(GENERATOR_SPP_SSH, x, 1, 0, 3, y, 0 ); }
 
-/* Convert port value into an index for the ssh_config.ports array */
+/* Convert port value into an index for the ssh_config->ports array */
 #define PORT_INDEX(port) port/8
 
 /* Convert port value into a value for bitwise operations */
 #define CONV_PORT(port) 1<<(port%8)
 
-/*
- * SSH preprocessor global configuration structure.
+/** SSH configuration per Policy
  */
-static SSHConfig ssh_config =
-	{
-		0, 				                /* Autodetection */
-		SSH_DEFAULT_MAX_ENC_PKTS, 	    /* Max enc pkts */
-		SSH_DEFAULT_MAX_CLIENT_BYTES,   /* Max client bytes */
-		0,				                /* Disable rules  */
-		SSH_ALERT_ALL,			        /* Enabled alerts */
-	};
+static tSfPolicyUserContextId ssh_config = NULL;
+static SSHConfig *ssh_eval_config = NULL;
+
+#ifdef SNORT_RELOAD
+static tSfPolicyUserContextId ssh_swap_config = NULL;
+static void SSHReload(char *);
+static int SSHReloadVerify(void);
+static void * SSHReloadSwap(void);
+static void SSHReloadSwapFree(void *);
+#endif
 
 extern DynamicPreprocessorData _dpd;
 
@@ -127,9 +131,13 @@ extern DynamicPreprocessorData _dpd;
 void SetupSSH(void)
 {
 	/* Link preprocessor keyword to initialization function 
- 	 * in the preprocessor list.
- 	 */
+ 	 * in the preprocessor list. */
+#ifndef SNORT_RELOAD
 	_dpd.registerPreproc( "ssh", SSHInit );
+#else
+	_dpd.registerPreproc("ssh", SSHInit, SSHReload,
+                         SSHReloadSwap, SSHReloadSwapFree);
+#endif
 }
 
 /* Initializes the SSH preprocessor module and registers
@@ -142,38 +150,104 @@ void SetupSSH(void)
  *
  * RETURNS:     Nothing. 
  */
-static  void
-SSHInit( char* argp )
+static void SSHInit(char *argp)
 {
-#ifdef SUP_IP6
-    _dpd.fatalMsg("SSH is not currently supported when IPv6 is enabled.");
-#endif
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    SSHConfig *pPolicyConfig = NULL;
 
-    if(!_dpd.streamAPI) 
+    if (ssh_config == NULL)
     {
-        DynamicPreprocessorFatalMessage("SetupSSH(): The Stream preprocessor must be enabled.\n");
-    }
+        //create a context
+        ssh_config = sfPolicyConfigCreate();
+        if (ssh_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Failed to allocate memory "
+                                            "for SSH config.\n");
+        }
 
-	_dpd.addPreproc( ProcessSSH, PRIORITY_APPLICATION, PP_SSH, PROTO_BIT__TCP );
+        if (_dpd.streamAPI == NULL)
+        {
+            DynamicPreprocessorFatalMessage("SetupSSH(): The Stream preprocessor must be enabled.\n");
+        }
 
-	ParseSSHArgs( (u_char *)argp );
+        _dpd.addPreprocConfCheck(SSHCheckConfig);
+        _dpd.addPreprocExit(SSHCleanExit, NULL, PRIORITY_LAST, PP_SSH);
 
 #ifdef PERF_PROFILING
-    _dpd.addPreprocProfileFunc("ssh", (void *)&sshPerfStats, 0, _dpd.totalPerfStats);
+        _dpd.addPreprocProfileFunc("ssh", (void *)&sshPerfStats, 0, _dpd.totalPerfStats);
 #endif
 
 #ifdef TARGET_BASED
-    ssh_app_id = _dpd.findProtocolReference("ssh");
-    if (ssh_app_id == SFTARGET_UNKNOWN_PROTOCOL)
-    {
-        ssh_app_id = _dpd.addProtocolReference("ssh");
-    }
-    _addServicesToStream5Filter();
-#endif
+        ssh_app_id = _dpd.findProtocolReference("ssh");
+        if (ssh_app_id == SFTARGET_UNKNOWN_PROTOCOL)
+            ssh_app_id = _dpd.addProtocolReference("ssh");
 
-    _addPortsToStream5Filter();
+#endif
+    }
+
+    sfPolicyUserPolicySet (ssh_config, policy_id);
+    pPolicyConfig = (SSHConfig *)sfPolicyUserDataGetCurrent(ssh_config);
+    if (pPolicyConfig != NULL)
+    {
+        DynamicPreprocessorFatalMessage("SSH preprocessor can only be "
+                                        "configured once.\n");
+    }
+
+    pPolicyConfig = (SSHConfig *)calloc(1, sizeof(SSHConfig));
+    if (!pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                        "SSH preprocessor configuration.\n");
+    }
+ 
+    sfPolicyUserDataSetCurrent(ssh_config, pPolicyConfig);
+
+	ParseSSHArgs(pPolicyConfig, (u_char *)argp);
+
+    _dpd.addPreproc( ProcessSSH, PRIORITY_APPLICATION, PP_SSH, PROTO_BIT__TCP );
+
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+
+#ifdef TARGET_BASED
+    _addServicesToStream5Filter(policy_id);
+#endif
 }
 
+/* Parses a single numerical value.
+ * A fatal error is made if the parsed value is out of bounds.
+ *
+ * PARAMETERS:
+ *
+ * token:       String containing argument
+ * keyword:     String containing option's name. Used when printing an error.
+ * min:         Minimum value of argument
+ * max:         Maximum value of argument
+ *
+ * RETURNS:     bounds-checked integer value of argument.
+ */
+static int
+ParseNumInRange(char *token, char *keyword, int min, int max)
+{
+    int value;
+
+    if (( !token ) || !isdigit((int)token[0]) )
+    {
+        DynamicPreprocessorFatalMessage("Bad value specified for %s. "
+                "Please specify a number between %d and %d.\n",
+                keyword, min, max);
+    }
+
+    value = atoi( token );
+
+    if (value < min || value > max)
+    {
+        DynamicPreprocessorFatalMessage("Value specified for %s is out of "
+                "bounds.  Please specify a number between %d and %d.\n",
+                keyword, min, max);
+    }
+
+    return value;
+}
 /* Parses and processes the configuration arguments 
  * supplied in the SSH preprocessor rule.
  *
@@ -184,19 +258,26 @@ SSHInit( char* argp )
  * RETURNS:     Nothing.
  */
 static void 
-ParseSSHArgs( u_char* argp )
+ParseSSHArgs(SSHConfig *config, u_char* argp)
 {
 	char* cur_tokenp = NULL;
 	char* argcpyp = NULL;
     int port;
+
+    if (config == NULL)
+        return;
+
+    config->MaxEncryptedPackets = SSH_DEFAULT_MAX_ENC_PKTS;
+    config->MaxClientBytes = SSH_DEFAULT_MAX_CLIENT_BYTES;
+    config->MaxServerVersionLen = SSH_DEFAULT_MAX_SERVER_VERSION_LEN;
     
     /* Set up default port to listen on */
-    ssh_config.ports[ PORT_INDEX( 22 ) ] |= CONV_PORT(22);
+    config->ports[ PORT_INDEX( 22 ) ] |= CONV_PORT(22);
 
 	/* Sanity check(s) */
 	if ( !argp )
 	{
-        DisplaySSHConfig();
+        DisplaySSHConfig(config);
 		return;
 	}
 
@@ -216,7 +297,7 @@ ParseSSHArgs( u_char* argp )
 		{
             /* If the user specified ports, remove '22' for now since 
              * it now needs to be set explicitely. */
-            ssh_config.ports[ PORT_INDEX( 22 ) ] = 0;
+            config->ports[ PORT_INDEX( 22 ) ] = 0;
             
 			/* Eat the open brace. */
 			cur_tokenp = strtok( NULL, " ");
@@ -247,7 +328,7 @@ ParseSSHArgs( u_char* argp )
                         //return;
                     }
                     
-                    ssh_config.ports[ PORT_INDEX( port ) ] |= CONV_PORT(port);
+                    config->ports[ PORT_INDEX( port ) ] |= CONV_PORT(port);
 				}
 
 				cur_tokenp = strtok( NULL, " ");
@@ -256,74 +337,68 @@ ParseSSHArgs( u_char* argp )
 		}
 		else if ( !strcmp( cur_tokenp, SSH_AUTODETECT_KEYWORD ))
 		{
-			ssh_config.AutodetectEnabled++;
+			config->AutodetectEnabled = 1;
 		}
 		else if ( !strcmp( cur_tokenp, SSH_MAX_ENC_PKTS_KEYWORD ))
 		{
-			cur_tokenp = strtok( NULL, " ");
-			if (( !cur_tokenp ) || !isdigit((int)cur_tokenp[0]) )
-			{
-				_dpd.logMsg("Bad value specified for %s."
-					"Reverting to default value %d. ",
-					SSH_MAX_ENC_PKTS_KEYWORD, 
-					SSH_DEFAULT_MAX_ENC_PKTS );
-			}
-			else
-			{
-				ssh_config.MaxEncryptedPackets = (u_int16_t)
-						atoi( cur_tokenp );
-			}
+            cur_tokenp = strtok( NULL, " ");
+            config->MaxEncryptedPackets = (uint16_t)ParseNumInRange(cur_tokenp,
+                                                SSH_MAX_ENC_PKTS_KEYWORD,
+                                                MIN_MAX_ENC_PKTS,
+                                                MAX_MAX_ENC_PKTS);
 		}
 		else if (!strcmp( cur_tokenp, SSH_MAX_CLIENT_BYTES_KEYWORD ))
 		{
 			cur_tokenp = strtok( NULL, " ");
-			if (( !cur_tokenp ) || !isdigit((int)cur_tokenp[0]) )
-			{
-				_dpd.logMsg("Bad value specified for %s."
-					"Reverting to default value %d. ",
-					SSH_MAX_CLIENT_BYTES_KEYWORD, 
-					SSH_DEFAULT_MAX_CLIENT_BYTES );
-			}
-			else
-			{
-				ssh_config.MaxClientBytes = (u_int16_t)
-						atoi( cur_tokenp );
-			}
+            config->MaxClientBytes = (uint16_t)ParseNumInRange(cur_tokenp,
+                                                SSH_MAX_CLIENT_BYTES_KEYWORD,
+                                                MIN_MAX_CLIENT_BYTES,
+                                                MAX_MAX_CLIENT_BYTES);
 		}
-		else if ( !strcmp( cur_tokenp, SSH_DISABLE_GOBBLES_KEYWORD ))
+        else if ( !strcmp( cur_tokenp, SSH_MAX_SERVER_VERSION_KEYWORD ))
+        {
+            cur_tokenp = strtok( NULL, " ");
+            config->MaxServerVersionLen = (uint16_t)ParseNumInRange(cur_tokenp,
+                                                SSH_MAX_SERVER_VERSION_KEYWORD,
+                                                MIN_MAX_SERVER_VERSION_LEN,
+                                                MAX_MAX_SERVER_VERSION_LEN);
+        }
+		else if ( !strcmp( cur_tokenp, SSH_ENABLE_RESPOVERFLOW_KEYWORD ))
 		{
-			ssh_config.EnabledAlerts &= ~SSH_ALERT_GOBBLES;
+			config->EnabledAlerts |= SSH_ALERT_RESPOVERFLOW;
 		}
-		else if ( !strcmp( cur_tokenp, SSH_DISABLE_CRC32_KEYWORD ))
+		else if ( !strcmp( cur_tokenp, SSH_ENABLE_CRC32_KEYWORD ))
 		{
-			ssh_config.EnabledAlerts &= ~SSH_ALERT_CRC32;
+			config->EnabledAlerts |= SSH_ALERT_CRC32;
 		}
 		else if ( 
-		   !strcmp( cur_tokenp, SSH_DISABLE_SECURECRT_KEYWORD ))
+		   !strcmp( cur_tokenp, SSH_ENABLE_SECURECRT_KEYWORD ))
 		{
-			ssh_config.EnabledAlerts &= ~SSH_ALERT_SECURECRT;
+			config->EnabledAlerts |= SSH_ALERT_SECURECRT;
 		}
 		else if ( 
-		   !strcmp( cur_tokenp, SSH_DISABLE_PROTOMISMATCH_KEYWORD ))
+		   !strcmp( cur_tokenp, SSH_ENABLE_PROTOMISMATCH_KEYWORD ))
 		{
-			ssh_config.EnabledAlerts &= ~SSH_ALERT_PROTOMISMATCH;
+			config->EnabledAlerts |= SSH_ALERT_PROTOMISMATCH;
 		}
 		else if ( 
-		   !strcmp( cur_tokenp, SSH_DISABLE_WRONGDIR_KEYWORD ))
+		   !strcmp( cur_tokenp, SSH_ENABLE_WRONGDIR_KEYWORD ))
 		{
-			ssh_config.EnabledAlerts &= ~SSH_ALERT_WRONGDIR;
+			config->EnabledAlerts |= SSH_ALERT_WRONGDIR;
 		}
+#if 0
 		else if ( !strcmp( cur_tokenp, SSH_DISABLE_RULES_KEYWORD ))
 		{
-			ssh_config.DisableRules++;	
+			config->DisableRules++;	
 		} 
-        else if( !strcmp( cur_tokenp, SSH_DISABLE_PAYLOAD_SIZE )) 
+#endif
+        else if( !strcmp( cur_tokenp, SSH_ENABLE_PAYLOAD_SIZE )) 
         {
-            ssh_config.EnabledAlerts &= ~SSH_ALERT_PAYSIZE;
+            config->EnabledAlerts |= SSH_ALERT_PAYSIZE;
         }
-        else if( !strcmp( cur_tokenp, SSH_DISABLE_UNRECOGNIZED_VER ))
+        else if( !strcmp( cur_tokenp, SSH_ENABLE_UNRECOGNIZED_VER ))
         {
-            ssh_config.EnabledAlerts &= ~SSH_ALERT_UNRECOGNIZED;
+            config->EnabledAlerts |= SSH_ALERT_UNRECOGNIZED;
         }
         else
         {
@@ -334,7 +409,7 @@ ParseSSHArgs( u_char* argp )
 		cur_tokenp = strtok( NULL, " " );
 	}
 
-	DisplaySSHConfig();
+	DisplaySSHConfig(config);
     free(argcpyp);
 }
 
@@ -345,49 +420,57 @@ ParseSSHArgs( u_char* argp )
  * RETURNS: Nothing.
  */
 static void
-DisplaySSHConfig(void)
+DisplaySSHConfig(SSHConfig *config)
 {
     int index;
     int newline;
+
+    if (config == NULL)
+        return;
     
 	_dpd.logMsg("SSH config: \n");
 	_dpd.logMsg("    Autodetection: %s\n", 
-			ssh_config.AutodetectEnabled ? 
+			config->AutodetectEnabled ? 
 			"ENABLED":"DISABLED");
-	_dpd.logMsg("    GOBBLES Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_GOBBLES ?
+	_dpd.logMsg("    Challenge-Response Overflow Alert: %s\n",
+			config->EnabledAlerts & SSH_ALERT_RESPOVERFLOW ?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    SSH1 CRC32 Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_CRC32 ?
+			config->EnabledAlerts & SSH_ALERT_CRC32 ?
 			"ENABLED" : "DISABLED" );
 
 	_dpd.logMsg("    Server Version String Overflow Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_SECURECRT ?
+			config->EnabledAlerts & SSH_ALERT_SECURECRT ?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    Protocol Mismatch Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_PROTOMISMATCH?
+			config->EnabledAlerts & SSH_ALERT_PROTOMISMATCH?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    Bad Message Direction Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_WRONGDIR ?
+			config->EnabledAlerts & SSH_ALERT_WRONGDIR ?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    Bad Payload Size Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_PAYSIZE ?
+			config->EnabledAlerts & SSH_ALERT_PAYSIZE ?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    Unrecognized Version Alert: %s\n",
-			ssh_config.EnabledAlerts & SSH_ALERT_UNRECOGNIZED ?
+			config->EnabledAlerts & SSH_ALERT_UNRECOGNIZED ?
 			"ENABLED" : "DISABLED" );
 	_dpd.logMsg("    Max Encrypted Packets: %d %s \n", 
-			ssh_config.MaxEncryptedPackets, 
-			ssh_config.MaxEncryptedPackets 
+			config->MaxEncryptedPackets, 
+			config->MaxEncryptedPackets 
 			    == SSH_DEFAULT_MAX_ENC_PKTS ?
 			    "(Default)" : "" );
+	_dpd.logMsg("    Max Server Version String Length: %d %s \n", 
+			config->MaxServerVersionLen, 
+			config->MaxServerVersionLen
+			    == SSH_DEFAULT_MAX_SERVER_VERSION_LEN ?
+			    "(Default)" : "" );
 
-	if ( ssh_config.EnabledAlerts & 
-		(SSH_ALERT_GOBBLES | SSH_ALERT_CRC32))
+	if ( config->EnabledAlerts & 
+		(SSH_ALERT_RESPOVERFLOW | SSH_ALERT_CRC32))
 	{
 		_dpd.logMsg("    MaxClientBytes: %d %s \n",   
-			ssh_config.MaxClientBytes, 
-			ssh_config.MaxClientBytes
+			config->MaxClientBytes, 
+			config->MaxClientBytes
 			    == SSH_DEFAULT_MAX_CLIENT_BYTES ?
 			    "(Default)" : "" );
 	}
@@ -397,7 +480,7 @@ DisplaySSHConfig(void)
 	_dpd.logMsg("    Ports:\n"); 
     for(index = 0; index < MAX_PORTS; index++) 
     {
-        if( ssh_config.ports[ PORT_INDEX(index) ] & CONV_PORT(index) )
+        if( config->ports[ PORT_INDEX(index) ] & CONV_PORT(index) )
         {
     	    _dpd.logMsg("\t%d", index);
             if ( !((newline++)% 5) )
@@ -423,23 +506,25 @@ static void
 ProcessSSH( void* ipacketp, void* contextp )
 {
 	SSHData* sessp = NULL;
-	u_int8_t source = 0;
-	u_int8_t dest = 0;
-	u_int8_t known_port = 0;
-	u_int8_t direction; 
+	uint8_t source = 0;
+	uint8_t dest = 0;
+	uint8_t known_port = 0;
+	uint8_t direction; 
 	SFSnortPacket* packetp;
 #ifdef TARGET_BASED
     int16_t app_id = SFTARGET_UNKNOWN_PROTOCOL;
 #endif
+    tSfPolicyId policy_id = _dpd.getRuntimePolicy();
     PROFILE_VARS;
 
 	packetp = (SFSnortPacket*) ipacketp;
+    sfPolicyUserPolicySet (ssh_config, policy_id);
 
 	/* Make sure this preprocessor should run. */
 	if (( !packetp ) ||
 	    ( !packetp->payload ) ||
 	    ( !packetp->payload_size ) ||
-	    ( !packetp->ip4_header ) ||
+        ( !IPH_IS_VALID(packetp) ) ||
 	    ( !packetp->tcp_header ) ||
         /* check if we're waiting on stream reassembly */
         ( packetp->flags & FLAG_STREAM_INSERT))
@@ -447,66 +532,113 @@ ProcessSSH( void* ipacketp, void* contextp )
  		return;
 	} 
 
-    /* If we picked up mid-stream do not process further */
-    if ( _dpd.streamAPI->get_session_flags(
-            packetp->stream_session_ptr) & SSNFLAG_MIDSTREAM )
-    {
-        return;
-    }
-
-	/* If not doing autodetection, check the ports to make sure this is 
-	 * running on an SSH port, otherwise no need to examine the traffic.
-	 */
-#ifdef TARGET_BASED
-    app_id = _dpd.streamAPI->get_application_protocol_id(packetp->stream_session_ptr);
-    if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
-    {
-        return;
-    }
-    if (app_id && (app_id != ssh_app_id))
-    {
-        return;
-    }
-    if (app_id == ssh_app_id)
-    {
-        known_port = 1;
-    }
-    if (!app_id) {
-#endif
-	source = (u_int8_t)CheckSSHPort( packetp->src_port );
-	dest = (u_int8_t)CheckSSHPort( packetp->dst_port );
-
-	if ( !ssh_config.AutodetectEnabled && !source && !dest )
-	{
-		/* Not one of the ports we care about. */
-		return;
-	}
-#ifdef TARGET_BASED
-    }
-#endif
-
     PREPROC_PROFILE_START(sshPerfStats);
 
-	/* See if a known server port is involved. */
-    if (!known_port)
+    ssh_eval_config = sfPolicyUserDataGetCurrent(ssh_config);
+
+	/* Attempt to get a previously allocated SSH block. */
+	sessp = _dpd.streamAPI->get_application_data(packetp->stream_session_ptr, PP_SSH);
+    if (sessp != NULL)
     {
-	    known_port = ( source || dest ? 1 : 0 );
+        ssh_eval_config = sfPolicyUserDataGet(sessp->config, sessp->policy_id);
+        known_port = 1;
     }
-	/* Get the direction of the packet. */
-	direction = ( (packetp->flags & FLAG_FROM_SERVER ) ? 
-			SSH_DIR_FROM_SERVER : SSH_DIR_FROM_CLIENT );
 
-	/* Check the stream session. If it does not currently
-	 * have our SSH data-block attached, create one.
-	 */
-	sessp = GetSSHData( packetp );
+    if (sessp == NULL)
+    {
+        /* If not doing autodetection, check the ports to make sure this is 
+         * running on an SSH port, otherwise no need to examine the traffic.
+         */
+#ifdef TARGET_BASED
+        app_id = _dpd.streamAPI->get_application_protocol_id(packetp->stream_session_ptr);
+        if (app_id == SFTARGET_UNKNOWN_PROTOCOL)
+        {
+            PREPROC_PROFILE_END(sshPerfStats);
+            return;
+        }
 
-	if ( !sessp )
-	{
-		/* Could not get/create the session data for this packet. */
-        PREPROC_PROFILE_END(sshPerfStats);
-		return;
-	}
+        if (app_id && (app_id != ssh_app_id))
+        {
+            PREPROC_PROFILE_END(sshPerfStats);
+            return;
+        }
+
+        if (app_id == ssh_app_id)
+        {
+            known_port = 1;
+        }
+
+        if (!app_id)
+        {
+#endif
+            source = (uint8_t)CheckSSHPort( packetp->src_port );
+            dest = (uint8_t)CheckSSHPort( packetp->dst_port );
+
+            if ( !ssh_eval_config->AutodetectEnabled && !source && !dest )
+            {
+                /* Not one of the ports we care about. */
+                PREPROC_PROFILE_END(sshPerfStats);
+                return;
+            }
+#ifdef TARGET_BASED
+        }
+#endif
+        /* Check the stream session. If it does not currently
+         * have our SSH data-block attached, create one.
+         */
+        sessp = SSHGetNewSession(packetp, policy_id);
+
+        if ( !sessp )
+        {
+            /* Could not get/create the session data for this packet. */
+            PREPROC_PROFILE_END(sshPerfStats);
+            return;
+        }
+
+        /* See if a known server port is involved. */
+        if (!known_port)
+        {
+            known_port = ( source || dest ? 1 : 0 );
+
+            /* If this is a non-SSH port, but autodetect is on, we flag this
+               session to reduce false positives later on. */
+            if (!known_port && ssh_eval_config->AutodetectEnabled)
+            {
+                sessp->state_flags |= SSH_FLG_AUTODETECTED;
+            }
+        }
+    }
+
+    /* Don't process if we've missed packets */
+    if (sessp->state_flags & SSH_FLG_MISSED_PACKETS)
+        return;
+
+    /* If we picked up mid-stream or missed any packets (midstream pick up
+     * means we've already missed packets) set missed packets flag and make
+     * sure we don't do any more reassembly on this session */
+    if ((_dpd.streamAPI->get_session_flags(packetp->stream_session_ptr) & SSNFLAG_MIDSTREAM)
+            || _dpd.streamAPI->missed_packets(packetp->stream_session_ptr, SSN_DIR_BOTH))
+    {
+        _dpd.streamAPI->set_reassembly(packetp->stream_session_ptr,
+                STREAM_FLPOLICY_IGNORE, SSN_DIR_BOTH,
+                STREAM_FLPOLICY_SET_ABSOLUTE);
+
+        sessp->state_flags |= SSH_FLG_MISSED_PACKETS;
+
+        return;
+    }
+
+    /* We're interested in this session. Turn on stream reassembly. */
+    if ( !(sessp->state_flags & SSH_FLG_REASSEMBLY_SET ))
+    {
+        _dpd.streamAPI->set_reassembly(packetp->stream_session_ptr,
+                        STREAM_FLPOLICY_FOOTPRINT, SSN_DIR_BOTH, 0);
+        sessp->state_flags |= SSH_FLG_REASSEMBLY_SET;
+    }
+
+    /* Get the direction of the packet. */
+    direction = ( (packetp->flags & FLAG_FROM_SERVER ) ?
+            SSH_DIR_FROM_SERVER : SSH_DIR_FROM_CLIENT );
 
 	if ( !(sessp->state_flags & SSH_FLG_SESS_ENCRYPTED ))
 	{
@@ -551,50 +683,50 @@ ProcessSSH( void* ipacketp, void* contextp )
 	{
 		/* Traffic on this session is currently encrypted. 
 		 * Two of the major SSH exploits, SSH1 CRC-32 and
- 		 * the GOBBLES attack occur within the encrypted 
-		 * portion of the SSH session. Therefore, the only
-		 * way to detect these attacks is by examining 
+ 		 * the Challenge-Response Overflow attack occur within
+         * the encrypted portion of the SSH session. Therefore,
+         * the only way to detect these attacks is by examining 
 		 * amounts of data exchanged for anomalies.
   		 */
 		sessp->num_enc_pkts++;
 
-		if ( sessp->num_enc_pkts <= ssh_config.MaxEncryptedPackets )
-		{
-			if ( direction == SSH_DIR_FROM_CLIENT )
-			{
-			   sessp->num_client_bytes += packetp->payload_size;
+        if ( sessp->num_enc_pkts <= ssh_eval_config->MaxEncryptedPackets )
+        {
+            if ( direction == SSH_DIR_FROM_CLIENT )
+            {
+                sessp->num_client_bytes += packetp->payload_size;
 
-			   if ( sessp->num_client_bytes >= 
-				ssh_config.MaxClientBytes ) 
-			   {
-				/* Probable exploit in progress.*/
-				if (sessp->version == SSH_VERSION_1) 
-				{
-					if ( ssh_config.EnabledAlerts & SSH_ALERT_CRC32 )
-					{
-        			    ALERT(SSH_EVENT_CRC32, SSH_EVENT_CRC32_STR);
+                if ( sessp->num_client_bytes >= 
+                     ssh_eval_config->MaxClientBytes ) 
+                {
+                    /* Probable exploit in progress.*/
+                    if (sessp->version == SSH_VERSION_1) 
+                    {
+                        if ( ssh_eval_config->EnabledAlerts & SSH_ALERT_CRC32 )
+                        {
+                            ALERT(SSH_EVENT_CRC32, SSH_EVENT_CRC32_STR);
 
-			            _dpd.streamAPI->stop_inspection( 
-            				packetp->stream_session_ptr, 
-            				packetp, 
-            				SSN_DIR_BOTH, -1, 0 ); 
-					}
-				}
-				else
-				{
-					if ( ssh_config.EnabledAlerts & SSH_ALERT_GOBBLES )
-					{
-						ALERT(SSH_EVENT_GOBBLES, SSH_EVENT_GOBBLES_STR);
+                            _dpd.streamAPI->stop_inspection( 
+                                                            packetp->stream_session_ptr, 
+                                                            packetp, 
+                                                            SSN_DIR_BOTH, -1, 0 ); 
+                        }
+                    }
+                    else
+                    {
+                        if (ssh_eval_config->EnabledAlerts & SSH_ALERT_RESPOVERFLOW )
+                        {
+                            ALERT(SSH_EVENT_RESPOVERFLOW, SSH_EVENT_RESPOVERFLOW_STR);
 
-			            _dpd.streamAPI->stop_inspection( 
-            				packetp->stream_session_ptr, 
-            				packetp, 
-            				SSN_DIR_BOTH, -1, 0 ); 
-					}
-				}
-			   }
-			}
-			else
+                            _dpd.streamAPI->stop_inspection( 
+                                                            packetp->stream_session_ptr, 
+                                                            packetp, 
+                                                            SSN_DIR_BOTH, -1, 0 ); 
+                        }
+                    }
+                }
+            }
+            else
 			{
 				/* 
 				 * Have seen a server response, so 
@@ -636,8 +768,7 @@ ProcessSSH( void* ipacketp, void* contextp )
  * RETURNS:	Pointer to an SSH data block, upon success.
  *		NULL, upon failure.
  */
-SSHData* 
-GetSSHData( SFSnortPacket* packetp )
+SSHData * SSHGetNewSession(SFSnortPacket *packetp, tSfPolicyId policy_id)
 {
 	SSHData* datap = NULL;
 
@@ -647,30 +778,45 @@ GetSSHData( SFSnortPacket* packetp )
 		return NULL;
 	}
 
-	/* Attempt to get a previously allocated SSH block. If none exists,
- 	 * allocate and register one with the stream layer.
-	 */
-	datap = _dpd.streamAPI->get_application_data( 
-			packetp->stream_session_ptr, 
-			PP_SSH );
+    datap = (SSHData *)calloc(1, sizeof(SSHData));
 
-	if ( !datap )
-	{
-		datap = malloc( sizeof( SSHData ));
+    if ( !datap )
+        return NULL;
 
-		if ( !datap )
-			return NULL;
+    /*Register the new SSH data block in the stream session. */
+    _dpd.streamAPI->set_application_data( 
+            packetp->stream_session_ptr, 
+            PP_SSH, datap, FreeSSHData );
 
-		/* Initialize to known state. */
-		memset( datap, 0, sizeof( SSHData ));
-
-		/*Register the new SSH data block in the stream session. */
-		_dpd.streamAPI->set_application_data( 
-				packetp->stream_session_ptr, 
-				PP_SSH, datap, FreeSSHData );
-	}
+    datap->policy_id = policy_id;
+    datap->config = ssh_config;
+    ((SSHConfig *)sfPolicyUserDataGetCurrent(ssh_config))->ref_count++;
 
 	return datap;
+}
+
+static int SshFreeConfigPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    SSHConfig *pPolicyConfig = (SSHConfig *)pData;
+
+    //do any housekeeping before freeing SSHConfig
+
+    sfPolicyUserDataClear (config, policyId);
+    free(pPolicyConfig);
+    return 0;
+}
+
+static void SSHFreeConfig(tSfPolicyUserContextId config)
+{
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, SshFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
 }
 
 /* Registered as a callback with our SSH data blocks when 
@@ -687,10 +833,36 @@ GetSSHData( SFSnortPacket* packetp )
 static void
 FreeSSHData( void* idatap )
 {
-	if ( idatap )
-	{
-		free( idatap );
-	}
+    SSHData *ssn = (SSHData *)idatap;
+    SSHConfig *config = NULL;
+
+    if (ssn == NULL)
+        return;
+
+    if (ssn->config != NULL)
+    {
+        config = (SSHConfig *)sfPolicyUserDataGet(ssn->config, ssn->policy_id);
+    }
+
+    if (config != NULL) 
+    {
+        config->ref_count--;
+        if ((config->ref_count == 0) &&
+            (ssn->config != ssh_config))
+        {
+            sfPolicyUserDataClear (ssn->config, ssn->policy_id);
+            free(config);
+
+            if (sfPolicyUserPolicyGetActive(ssn->config) == 0)
+            {
+                /* No more outstanding configs - free the config array */
+                SSHFreeConfig(ssn->config);
+            }
+
+        }
+    }
+
+    free(ssn);
 }
 
 /* Validates given port as an SSH server port.
@@ -703,9 +875,9 @@ FreeSSHData( void* idatap )
  *		SSH_FALSE, otherwise.
  */
 static INLINE int
-CheckSSHPort( u_int16_t port )
+CheckSSHPort( uint16_t port )
 {
-    if ( ssh_config.ports[ PORT_INDEX(port) ] & CONV_PORT( port ) )
+    if ( ssh_eval_config->ports[ PORT_INDEX(port) ] & CONV_PORT( port ) )
     {
         return SSH_TRUE;
     }
@@ -742,10 +914,10 @@ static INLINE int SSHCheckStrlen(char *str, int max) {
  */
 static int
 ProcessSSHProtocolVersionExchange( SSHData* sessionp, SFSnortPacket* packetp, 
-	u_int8_t direction, u_int8_t known_port )
+	uint8_t direction, uint8_t known_port )
 {
 	char* version_stringp = (char*) packetp->payload;	
-	u_int8_t version;
+	uint8_t version;
 
 	/* Get the version. */
 	if ( packetp->payload_size >= 6 && 
@@ -764,16 +936,16 @@ ProcessSSHProtocolVersionExchange( SSHData* sessionp, SFSnortPacket* packetp,
 
 		/* CAN-2002-0159 */
         /* Verify the version string is not greater than 
-         * SSH_MAX_PROTOVERS_STRING. 
+         * the configured maximum. 
          * We've already verified the first 6 bytes, so we'll start
          * check from &version_string[6] */
-        if( (ssh_config.EnabledAlerts & SSH_ALERT_SECURECRT ) &&
+        if( (ssh_eval_config->EnabledAlerts & SSH_ALERT_SECURECRT ) &&
             /* First make sure the payload itself is sufficiently large */
-             (packetp->payload_size > SSH_MAX_PROTOVERS_STRING) &&
+             (packetp->payload_size > ssh_eval_config->MaxServerVersionLen) &&
             /* CheckStrlen will check if the version string up to 
-             * SSH_MAX_PROTOVERS_STRING+1 since there's no reason to 
+             * MaxServerVersionLen+1 since there's no reason to 
              * continue checking after that point*/
-             (SSHCheckStrlen(&version_stringp[6], SSH_MAX_PROTOVERS_STRING-6)))
+             (SSHCheckStrlen(&version_stringp[6], ssh_eval_config->MaxServerVersionLen-6)))
         {
             ALERT(SSH_EVENT_SECURECRT, SSH_EVENT_SECURECRT_STR);
         }
@@ -788,7 +960,8 @@ ProcessSSHProtocolVersionExchange( SSHData* sessionp, SFSnortPacket* packetp,
 		/* Not SSH on SSH port, CISCO vulnerability */
 		if ((direction == SSH_DIR_FROM_CLIENT) && 
 			( known_port != 0 ) && 
-			( ssh_config.EnabledAlerts & 
+            !( sessionp->state_flags & SSH_FLG_AUTODETECTED ) &&
+			( ssh_eval_config->EnabledAlerts & 
 				SSH_ALERT_PROTOMISMATCH ))
 		{
             ALERT(SSH_EVENT_PROTOMISMATCH, SSH_EVENT_PROTOMISMATCH_STR);
@@ -830,15 +1003,15 @@ ProcessSSHProtocolVersionExchange( SSHData* sessionp, SFSnortPacket* packetp,
  */
 static int 
 ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp, 
-	u_int8_t direction )
+	uint8_t direction )
 {	
 	SSH2Packet* ssh2packetp = NULL;
 
 	if ( sessionp->version == SSH_VERSION_1 )
 	{
-		u_int32_t length;
-		u_int8_t padding_length;
-		u_int8_t message_type;
+		uint32_t length;
+		uint8_t padding_length;
+		uint8_t message_type;
 
 	    /* 
          * Validate packet payload.
@@ -847,7 +1020,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
          */
 		if ( packetp->payload_size < 4 )
         {
-            if(ssh_config.EnabledAlerts & SSH_ALERT_PAYSIZE)
+            if(ssh_eval_config->EnabledAlerts & SSH_ALERT_PAYSIZE)
             {
                 ALERT(SSH_EVENT_PAYLOAD_SIZE, SSH_PAYLOAD_SIZE_STR);
             }
@@ -860,12 +1033,12 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
  		 * consists of only two messages, a server
 		 * key and a client key message.`
 		 */
-		length = ntohl( *((u_int32_t*) packetp->payload) );
+		length = ntohl( *((uint32_t*) packetp->payload) );
 
 	    /* Packet payload should be larger than length, due to padding. */
 		if ( packetp->payload_size < length )
 		{
-            if(ssh_config.EnabledAlerts & SSH_ALERT_PAYSIZE)
+            if(ssh_eval_config->EnabledAlerts & SSH_ALERT_PAYSIZE)
             {   
                 ALERT(SSH_EVENT_PAYLOAD_SIZE, SSH_PAYLOAD_SIZE_STR);
             }
@@ -873,7 +1046,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
 			return SSH_FAILURE;
 		}
 
-		padding_length = (u_int8_t)(8 - (length % 8));
+		padding_length = (uint8_t)(8 - (length % 8));
 
         /* 
          * With the padding calculated, verify payload is sufficiently large
@@ -881,7 +1054,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
          */
         if ( packetp->payload_size < padding_length + 4 + 1)
         {
-            if(ssh_config.EnabledAlerts & SSH_ALERT_PAYSIZE)
+            if(ssh_eval_config->EnabledAlerts & SSH_ALERT_PAYSIZE)
             {
                 ALERT(SSH_EVENT_PAYLOAD_SIZE, SSH_PAYLOAD_SIZE_STR);
             }
@@ -890,7 +1063,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
         }
         
 		message_type = 
-		     *( (u_int8_t*) (packetp->payload + padding_length + 4));
+		     *( (uint8_t*) (packetp->payload + padding_length + 4));
 
 		switch( message_type )
 		{
@@ -900,7 +1073,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
 					sessionp->state_flags |= 
 						SSH_FLG_SERV_PKEY_SEEN;
 				}
-				else if ( ssh_config.EnabledAlerts & 
+				else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 				{
 					/* Server msg not from server. */
@@ -913,7 +1086,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
 					sessionp->state_flags |= 
 						SSH_FLG_CLIENT_SKEY_SEEN;
 				}
-				else if ( ssh_config.EnabledAlerts & 
+				else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 				{
 					/* Client msg not from client. */ 
@@ -971,7 +1144,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
 	}
 	else
 	{
-        if(ssh_config.EnabledAlerts & SSH_ALERT_UNRECOGNIZED)
+        if(ssh_eval_config->EnabledAlerts & SSH_ALERT_UNRECOGNIZED)
         {
 		    /* Unrecognized version. */
             ALERT(SSH_EVENT_VERSION, SSH_VERSION_STR);
@@ -998,7 +1171,7 @@ ProcessSSHKeyInitExchange( SSHData* sessionp, SFSnortPacket* packetp,
  */
 static int
 ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp, 
-	u_int8_t direction )
+	uint8_t direction )
 {
 	SSH2Packet* ssh2packetp = NULL;
 
@@ -1014,7 +1187,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 		( packetp->payload_size < ntohl(ssh2packetp->packet_length) ))
 	{
 
-        if(ssh_config.EnabledAlerts & SSH_ALERT_PAYSIZE)
+        if(ssh_eval_config->EnabledAlerts & SSH_ALERT_PAYSIZE)
         {
 		    /* Invalid packet length. */
             ALERT(SSH_EVENT_PAYLOAD_SIZE, SSH_PAYLOAD_SIZE_STR);
@@ -1031,7 +1204,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 				sessionp->state_flags |= 
 					SSH_FLG_KEXDH_INIT_SEEN;
 			}
-			else if ( ssh_config.EnabledAlerts & 
+			else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 			{
 				/* Client msg from server. */
@@ -1049,7 +1222,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 					SSH_FLG_GEX_REPLY_SEEN;
 
 			}
-			else if ( ssh_config.EnabledAlerts & 
+			else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 			{
 				/* Server msg from client. */
@@ -1062,7 +1235,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 				sessionp->state_flags |= 
 					SSH_FLG_GEX_REQ_SEEN;
 			}
-			else if ( ssh_config.EnabledAlerts & 
+			else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 			{
 				/* Server msg from client. */
@@ -1075,7 +1248,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 				sessionp->state_flags |= 
 					SSH_FLG_GEX_GRP_SEEN;
 			}
-			else if ( ssh_config.EnabledAlerts & 
+			else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 			{
 				/* Client msg from server. */
@@ -1088,7 +1261,7 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 				sessionp->state_flags |= 
 					SSH_FLG_GEX_INIT_SEEN;
 			}
-			else if ( ssh_config.EnabledAlerts & 
+			else if ( ssh_eval_config->EnabledAlerts & 
 					SSH_ALERT_WRONGDIR )
 			{
 				/* Server msg from client. */
@@ -1128,28 +1301,163 @@ ProcessSSHKeyExchange( SSHData* sessionp, SFSnortPacket* packetp,
 	return SSH_SUCCESS;
 }
 
-static void _addPortsToStream5Filter()
+static void _addPortsToStream5Filter(SSHConfig *config, tSfPolicyId policy_id)
 {
-    int portNum;
+    if (config == NULL)
+        return;
 
     if (_dpd.streamAPI)
     {
+        int portNum;
+
         for (portNum = 0; portNum < MAXPORTS; portNum++)
         {
-            if(ssh_config.ports[(portNum/8)] & (1<<(portNum%8)))
+            if(config->ports[(portNum/8)] & (1<<(portNum%8)))
             {
                 //Add port the port
-                _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, portNum, PORT_MONITOR_SESSION);
+                _dpd.streamAPI->set_port_filter_status(
+                    IPPROTO_TCP, (uint16_t)portNum, PORT_MONITOR_SESSION, policy_id, 1);
             }
         }
     }
 }
 #ifdef TARGET_BASED
-static void _addServicesToStream5Filter()
+static void _addServicesToStream5Filter(tSfPolicyId policy_id)
 {
-    if (_dpd.streamAPI)
+    _dpd.streamAPI->set_service_filter_status(ssh_app_id, PORT_MONITOR_SESSION, policy_id, 1);
+}
+#endif
+
+static int SSHCheckPolicyConfig(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    _dpd.setParserPolicy(policyId);
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
     {
-        _dpd.streamAPI->set_service_filter_status(ssh_app_id, PORT_MONITOR_SESSION);
+        DynamicPreprocessorFatalMessage("SSHCheckPolicyConfig(): The Stream preprocessor must be enabled.\n");
     }
+    return 0;
+}
+static void SSHCheckConfig(void)
+{
+    sfPolicyUserDataIterate (ssh_config, SSHCheckPolicyConfig);
+}
+
+static void SSHCleanExit(int signal, void *data)
+{
+    if (ssh_config != NULL)
+    {
+        SSHFreeConfig(ssh_config);
+        ssh_config = NULL;
+    }
+}
+
+#ifdef SNORT_RELOAD
+static void SSHReload(char *args)
+{
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+    SSHConfig * pPolicyConfig = NULL;
+
+    if (ssh_swap_config == NULL)
+    {
+        //create a context
+        ssh_swap_config = sfPolicyConfigCreate();
+        if (ssh_swap_config == NULL)
+        {
+            DynamicPreprocessorFatalMessage("Failed to allocate memory "
+                                            "for SSH config.\n");
+        }
+
+        if (_dpd.streamAPI == NULL)
+        {
+            DynamicPreprocessorFatalMessage("SetupSSH(): The Stream preprocessor must be enabled.\n");
+        }
+    }
+
+    sfPolicyUserPolicySet (ssh_swap_config, policy_id);
+    pPolicyConfig = (SSHConfig *)sfPolicyUserDataGetCurrent(ssh_swap_config);
+    if (pPolicyConfig != NULL)
+    {
+        DynamicPreprocessorFatalMessage("SSH preprocessor can only be "
+                                        "configured once.\n");
+    }
+
+    pPolicyConfig = (SSHConfig *)calloc(1, sizeof(SSHConfig));
+    if (!pPolicyConfig)
+    {
+        DynamicPreprocessorFatalMessage("Could not allocate memory for "
+                                        "SSH preprocessor configuration.\n");
+    }
+    sfPolicyUserDataSetCurrent(ssh_swap_config, pPolicyConfig);
+
+	ParseSSHArgs(pPolicyConfig, (u_char *)args);
+
+	_dpd.addPreproc( ProcessSSH, PRIORITY_APPLICATION, PP_SSH, PROTO_BIT__TCP );
+    _dpd.addPreprocReloadVerify(SSHReloadVerify);
+
+    _addPortsToStream5Filter(pPolicyConfig, policy_id);
+
+#ifdef TARGET_BASED
+    _addServicesToStream5Filter(policy_id);
+#endif
+}
+
+static int SSHReloadVerify(void)
+{
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DynamicPreprocessorFatalMessage("SetupSSH(): The Stream preprocessor must be enabled.\n");
+    }
+
+    return 0;
+}
+static int SshFreeUnusedConfigPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    SSHConfig *pPolicyConfig = (SSHConfig *)pData;
+
+    //do any housekeeping before freeing SSHConfig
+    if (pPolicyConfig->ref_count == 0)
+    {
+        sfPolicyUserDataClear (config, policyId);
+        free(pPolicyConfig);
+    }
+    return 0;
+}
+
+static void * SSHReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = ssh_config;
+
+    if (ssh_swap_config == NULL)
+        return NULL;
+
+    ssh_config = ssh_swap_config;
+    ssh_swap_config = NULL;
+
+    sfPolicyUserDataIterate (old_config, SshFreeUnusedConfigPolicy);
+
+    if (sfPolicyUserPolicyGetActive(old_config) == 0)
+    {
+        /* No more outstanding configs - free the config array */
+        return (void *)old_config;
+    }
+
+    return NULL;
+}
+
+static void SSHReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    SSHFreeConfig((tSfPolicyUserContextId)data);
 }
 #endif

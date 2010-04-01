@@ -23,7 +23,7 @@
 #define __SP_DSIZE_CHECK_H__
 
 void SetupDsizeCheck(void);
-u_int32_t DSizeCheckHash(void *d);
+uint32_t DSizeCheckHash(void *d);
 int DSizeCheckCompare(void *l, void *r);
 
 #endif  /* __SP_DSIZE_CHECK_H__ */

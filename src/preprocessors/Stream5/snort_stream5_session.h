@@ -31,9 +31,9 @@ typedef void(*Stream5SessionCleanup)(Stream5LWSession *ssn);
 typedef struct _Stream5SessionCache
 {
     SFXHASH *hashTable;
-    u_int32_t timeout;
-    u_int32_t max_sessions;
-    u_int32_t cleanup_sessions;
+    uint32_t timeout;
+    uint32_t max_sessions;
+    uint32_t cleanup_sessions;
     Stream5SessionCleanup cleanup_fcn;
 } Stream5SessionCache;
 
@@ -48,38 +48,45 @@ typedef struct _IgnoredRuleList
 
 void PrintSessionKey(SessionKey *);
 Stream5SessionCache *InitLWSessionCache(int max_sessions,
-                                        u_int32_t session_timeout,
-                                        u_int32_t cleanup_sessions,
-                                        u_int32_t cleanup_percent,
+                                        uint32_t session_timeout,
+                                        uint32_t cleanup_sessions,
+                                        uint32_t cleanup_percent,
                                         Stream5SessionCleanup clean_fcn);
 Stream5LWSession *GetLWSession(Stream5SessionCache *, Packet *, SessionKey *);
 Stream5LWSession *GetLWSessionFromKey(Stream5SessionCache *, SessionKey *);
-Stream5LWSession *NewLWSession(Stream5SessionCache *, Packet *, SessionKey *);
+Stream5LWSession *NewLWSession(Stream5SessionCache *, Packet *, SessionKey *, void *);
 int DeleteLWSession(Stream5SessionCache *, Stream5LWSession *, char *reason);
 void PrintLWSessionCache(Stream5SessionCache *);
 int DeleteLWSessionCache(Stream5SessionCache *sessionCache);
 int PurgeLWSessionCache(Stream5SessionCache *);
 int PruneLWSessionCache(Stream5SessionCache *,
-                      u_int32_t thetime,
+                      uint32_t thetime,
                       Stream5LWSession *save_me,
                       int memcheck);
 int GetLWSessionCount(Stream5SessionCache *);
 void GetLWPacketDirection(Packet *p, Stream5LWSession *ssn);
 void FreeLWApplicationData(Stream5LWSession *ssn);
 void setPortFilterList(
-        u_int8_t *portList, 
+        uint8_t *portList, 
         int isUdp,
-        int ignoreAnyAnyRules
+        int ignoreAnyAnyRules,
+        tSfPolicyId policyId
         );
 int Stream5AnyAnyFlow(
-        u_int8_t *portList, 
+        uint8_t *portList, 
+        OptTreeNode *otn,
         RuleTreeNode *rtn, 
         int any_any_flow,
         IgnoredRuleList **ppIgnoredRuleList,
         int ignoreAnyAnyRules
         );
 void s5PrintPortFilter(
-        u_int8_t portList[]
+        uint8_t portList[]
+        );
+int
+Stream5SetRuntimeConfiguration(
+        Stream5LWSession *lwssn,
+        char protocol
         );
 
 #endif /* SNORT_STREAM5_SESSION_H_ */

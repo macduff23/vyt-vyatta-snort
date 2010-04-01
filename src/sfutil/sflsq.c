@@ -44,10 +44,9 @@
 /*
 *  private alloc
 */ 
-static void * s_alloc (int n) 
+static void * s_alloc (size_t n) 
 {
-  void *p=0;
-  if( n > 0 )p = (void*) calloc( 1,n );
+  void *p = (void*) calloc( 1,n );
   return p;
 }
 
@@ -432,14 +431,44 @@ void sflist_free_all( SF_LIST * s, void (*nfree)(void*) )
   }
   s_free(s);
 }
+
 void sfqueue_free_all(SF_QUEUE * s,void (*nfree)(void*) ) 
 {
   sflist_free_all( s, nfree ); 
 }
+
 void sfstack_free_all(SF_STACK * s,void (*nfree)(void*) ) 
 {
   sflist_free_all( s, nfree ); 
 }
+
+void sflist_static_free_all( SF_LIST * s, void (*nfree)(void*) ) 
+{
+  void * p;
+  
+  if(!s)
+      return;
+  
+  while( s->count > 0 )
+  {
+     p = sflist_remove_head (s);
+    
+	 if( p && nfree ) 
+         nfree( p );
+  }
+}
+
+void sfqueue_static_free_all(SF_QUEUE * s,void (*nfree)(void*) ) 
+{
+  sflist_static_free_all( s, nfree ); 
+}
+
+void sfstack_static_free_all(SF_STACK * s,void (*nfree)(void*) ) 
+{
+  sflist_static_free_all( s, nfree ); 
+}
+
+
 /*
 *  FREE List/Queue/Stack/Dictionary
 *
@@ -462,17 +491,33 @@ void sfstack_free (SF_STACK * s)
   sflist_free ( s ); 
 }
 
+/* Use these if the SF_LIST was not dynamically allocated via
+ * sflist_new() */
+void sflist_static_free(SF_LIST *s)
+{
+    while (sflist_count(s))
+        sflist_remove_head(s);
+}
+
+void sfqueue_static_free(SF_QUEUE *s) 
+{
+  sflist_static_free(s); 
+}
+
+void sfstack_static_free(SF_STACK *s)
+{
+  sflist_static_free(s); 
+}
+
 /*
 *   Integer stack functions - for performance scenarios
 */
-int sfistack_init( SF_ISTACK * s, unsigned * a,  int n  )
+int sfistack_init( SF_ISTACK * s, unsigned * a,  unsigned n  )
 {
-   s->imalloc=0;
    if( a ) s->stack = a;
    else
    {
       s->stack = (unsigned*) calloc( n, sizeof(unsigned) );
-      s->imalloc=1;
    }
    if( !s->stack ) return -1;
    s->nstack= n;
@@ -501,14 +546,12 @@ int sfistack_pop( SF_ISTACK *s, unsigned * value)
 /*
 *  Pointer Stack Functions - for performance scenarios
 */
-int sfpstack_init( SF_PSTACK * s, void ** a,  int n  )
+int sfpstack_init( SF_PSTACK * s, void ** a,  unsigned n  )
 {
-   s->imalloc=0;
    if( a ) s->stack = a;
    else
    {
       s->stack = (void**) calloc( n , sizeof(void*) );
-      s->imalloc=1;
    }
 
    if( !s->stack ) return -1;

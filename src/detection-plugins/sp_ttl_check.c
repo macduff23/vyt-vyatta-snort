@@ -76,16 +76,16 @@ int CheckTtl(void *option_data, Packet *p);
 void SetupTtlCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("ttl", TtlCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ttl", TtlCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ttl_check", &ttlCheckPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Plugin: TTLCheck Initialized\n"););
 }
 
-u_int32_t TtlCheckHash(void *d)
+uint32_t TtlCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     TtlCheckData *data = (TtlCheckData *)d;
 
     a = data->ttl;

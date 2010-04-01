@@ -38,7 +38,7 @@ typedef enum _DceRpcBoFlag
 {
     DCERPC_BO_FLAG__NONE,
     DCERPC_BO_FLAG__BIG_ENDIAN,
-    DCERPC_BO_FLAG__LITTLE_ENDIAN,
+    DCERPC_BO_FLAG__LITTLE_ENDIAN
 
 } DceRpcBoFlag;
 

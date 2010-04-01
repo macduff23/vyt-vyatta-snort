@@ -39,7 +39,7 @@ typedef enum _DCE2_ListType
 {
     DCE2_LIST_TYPE__NORMAL = 0,  /* Don't do anything special */
     DCE2_LIST_TYPE__SORTED,      /* Sort list by key */
-    DCE2_LIST_TYPE__SPLAYED,     /* Move most recently accessed node to head */
+    DCE2_LIST_TYPE__SPLAYED      /* Move most recently accessed node to head */
 
 } DCE2_ListType;
 

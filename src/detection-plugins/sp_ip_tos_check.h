@@ -23,7 +23,7 @@
 #define __SP_IP_TOS_CHECK_H__
 
 void SetupIpTosCheck(void);
-u_int32_t IpTosCheckHash(void *d);
+uint32_t IpTosCheckHash(void *d);
 int IpTosCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_TOS_CHECK_H__ */

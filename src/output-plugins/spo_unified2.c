@@ -38,6 +38,7 @@
 #include <errno.h>
 #include <time.h>
 
+#include "spo_unified2.h"
 #include "decode.h"
 #include "rules.h"
 #include "util.h"
@@ -61,18 +62,6 @@
 #include "inline.h"
 #endif
 
-/* ----------------External variables -------------------- */
-/* From fpdetect.c, for logging reassembled packets */
-extern u_int16_t event_id;
-extern OptTreeNode *otn_tmp;
-extern int thiszone;
-
-#ifdef GIDS
-#ifndef IPFW
-extern ipq_packet_msg_t *g_m;
-#endif
-#endif
-
 /* ------------------ Data structures --------------------------*/
 typedef struct _Unified2Config
 {
@@ -86,114 +75,8 @@ typedef struct _Unified2Config
 #ifdef MPLS
     int mpls_event_types;
 #endif
+    int vlan_event_types;
 } Unified2Config;
-
-/* Each unified 2 record will start out with one of these */
-typedef struct _Unified2RecordHeader
-{
-    uint32_t type;          /* Type of header.  A set most-significant
-                               bit indicates presence of extended header */
-    uint32_t length;
-
-} Unified2RecordHeader;
-
-/* The Unified2Event and Unified2Packet structures below are copied from the 
- * original unified 2 library, sfunified2 */
-typedef struct _Unified2Event
-{
-    uint32_t sensor_id;
-    uint32_t event_id;
-    uint32_t event_second;
-    uint32_t event_microsecond;
-    uint32_t signature_id;
-    uint32_t generator_id;
-    uint32_t signature_revision;
-    uint32_t classification_id;
-    uint32_t priority_id;
-    uint32_t ip_source;
-    uint32_t ip_destination;
-    uint16_t sport_itype;
-    uint16_t dport_icode;
-    uint8_t  protocol;
-    uint8_t  packet_action;
-    uint16_t pad;  /* restore 4 byte alignment */
-} Unified2Event;
-
-typedef struct _Unified2Event6
-{
-    uint32_t sensor_id;
-    uint32_t event_id;
-    uint32_t event_second;
-    uint32_t event_microsecond;
-    uint32_t signature_id;
-    uint32_t generator_id;
-    uint32_t signature_revision;
-    uint32_t classification_id;
-    uint32_t priority_id;
-    struct in6_addr ip_source;
-    struct in6_addr ip_destination;
-    uint16_t sport_itype;
-    uint16_t dport_icode;
-    uint8_t  protocol;
-    uint8_t  packet_action;
-    uint16_t pad;  /* restore 4 byte alignment */
-} Unified2Event6;
-
-#ifdef MPLS
-typedef struct _Unified2Event_MPLS
-{
-    uint32_t sensor_id;
-    uint32_t event_id;
-    uint32_t event_second;
-    uint32_t event_microsecond;
-    uint32_t signature_id;
-    uint32_t generator_id;
-    uint32_t signature_revision;
-    uint32_t classification_id;
-    uint32_t priority_id;
-    uint32_t ip_source;
-    uint32_t ip_destination;
-    uint16_t sport_itype;
-    uint16_t dport_icode;
-    uint8_t  protocol;
-    uint8_t  packet_action;
-    uint16_t pad;  /* restore 4 byte alignment */
-    uint32_t mpls_label;
-} Unified2Event_MPLS;
-
-typedef struct _Unified2Event6_MPLS
-{
-    uint32_t sensor_id;
-    uint32_t event_id;
-    uint32_t event_second;
-    uint32_t event_microsecond;
-    uint32_t signature_id;
-    uint32_t generator_id;
-    uint32_t signature_revision;
-    uint32_t classification_id;
-    uint32_t priority_id;
-    struct in6_addr ip_source;
-    struct in6_addr ip_destination;
-    uint16_t sport_itype;
-    uint16_t dport_icode;
-    uint8_t  protocol;
-    uint8_t  packet_action;
-    uint16_t pad;  /* restore 4 byte alignment */
-    uint32_t mpls_label;
-} Unified2Event6_MPLS;
-#endif
-
-typedef struct _Unified2Packet
-{
-    uint32_t sensor_id;
-    uint32_t event_id;
-    uint32_t event_second;
-    uint32_t packet_second;
-    uint32_t packet_microsecond;
-    uint32_t linktype;
-    uint32_t packet_length;
-    uint8_t packet_data[4];   /* For debugging */
-} Unified2Packet;
 
 typedef struct _Unified2LogStreamCallbackData
 {
@@ -202,6 +85,17 @@ typedef struct _Unified2LogStreamCallbackData
     Event *event;
     int once;
 } Unified2LogStreamCallbackData;
+
+/* ----------------External variables -------------------- */
+/* From fpdetect.c, for logging reassembled packets */
+extern uint16_t event_id;
+extern OptTreeNode *otn_tmp;
+
+#ifdef GIDS
+#ifndef IPFW
+extern ipq_packet_msg_t *g_m;
+#endif
+#endif
 
 /* -------------------- Global Variables ----------------------*/
 #ifdef GIDS
@@ -215,11 +109,9 @@ static uint8_t write_pkt_buffer[sizeof(Unified2RecordHeader) +
                                 sizeof(Unified2Event6) + IP_MAXPACKET];
 #define write_pkt_end (write_pkt_buffer + sizeof(write_pkt_buffer))
 
-#ifdef MPLS
-static uint8_t write_pkt_buffer_mpls[sizeof(Unified2RecordHeader) +
-                                     sizeof(Unified2Event6_MPLS) + IP_MAXPACKET];
-#define write_pkt_end_mpls (write_pkt_buffer_mpls + sizeof(write_pkt_buffer_mpls))
-#endif  /* MPLS */
+static uint8_t write_pkt_buffer_v2[sizeof(Unified2RecordHeader) +
+                                     sizeof(Unified2Event6_v2) + IP_MAXPACKET];
+#define write_pkt_end_v2 (write_pkt_buffer_v2 + sizeof(write_pkt_buffer_v2))
 
 /* This is the buffer to use for I/O.  Try to make big enough so the system
  * doesn't potentially flush in the middle of a record.  Every write is
@@ -228,32 +120,20 @@ static uint8_t write_pkt_buffer_mpls[sizeof(Unified2RecordHeader) +
 #define UNIFIED2_SETVBUF
 #ifndef WIN32
 /* use the size of the buffer we copy record data into */
-# ifndef MPLS
-static char io_buffer[sizeof(write_pkt_buffer)];
-# else
-static char io_buffer[sizeof(write_pkt_buffer_mpls)];
-# endif  /* MPLS */
+static char io_buffer[sizeof(write_pkt_buffer_v2)];
 #else
 # ifdef _MSC_VER
 #  if _MSC_VER <= 1200
 /* use maximum size defined by VC++ 6.0 */
 static char io_buffer[32768];
 #  else
-#   ifndef MPLS
-static char io_buffer[sizeof(write_pkt_buffer)];
-#   else
-static char io_buffer[sizeof(write_pkt_buffer_mpls)];
-#   endif  /* MPLS */
+static char io_buffer[sizeof(write_pkt_buffer_v2)];
 #  endif  /* _MSC_VER <= 1200 */
 # else
 /* no _MSC_VER, don't set I/O buffer */
 #  undef UNIFIED2_SETVBUF
 # endif  /* _MSC_VER */
 #endif  /* WIN32 */
-
-static int unified2_configured = 0;
-static int unified2_alert_configured = 0;
-static int unified2_log_configured = 0;
 
 /* -------------------- Local Functions -----------------------*/
 static Unified2Config * Unified2ParseArgs(char *, char *);
@@ -271,30 +151,17 @@ static void _AlertIP6(Packet *, char *, Unified2Config *, Event *);
 static void Unified2LogPacketAlert(Packet *, char *, void *, Event *);
 static void _Unified2LogPacketAlert(Packet *, char *, Unified2Config *, Event *);
 static void _Unified2LogStreamAlert(Packet *, char *, Unified2Config *, Event *);
-static int Unified2LogStreamCallback(struct pcap_pkthdr *, u_int8_t *, void *);
+static int Unified2LogStreamCallback(struct pcap_pkthdr *, uint8_t *, void *);
 static void Unified2Write(uint8_t *, uint32_t, Unified2Config *);
 
-#ifdef MPLS
-static void _AlertIP4_mpls(Packet *, char *, Unified2Config *, Event *);
-static void _AlertIP6_mpls(Packet *, char *, Unified2Config *, Event *);
-#endif
+static void _AlertIP4_v2(Packet *, char *, Unified2Config *, Event *);
+static void _AlertIP6_v2(Packet *, char *, Unified2Config *, Event *);
 
 /* Unified2 Alert functions (deprecated) */
 static void Unified2AlertInit(char *);
 
 /* Unified2 Packet Log functions (deprecated) */
 static void Unified2LogInit(char *);
-
-/* XXX Remove these when the real Unified 2 header becomes available */
-#define UNIFIED2_EVENT 1
-#define UNIFIED2_PACKET 2
-#define UNIFIED2_IDS_EVENT 7
-#define UNIFIED2_EVENT_EXTENDED 66
-#define UNIFIED2_PERFORMANCE 67
-#define UNIFIED2_PORTSCAN 68
-#define UNIFIED2_IDS_EVENT_IPV6 72
-#define UNIFIED2_IDS_EVENT_MPLS 99
-#define UNIFIED2_IDS_EVENT_IPV6_MPLS 100
 
 #define U2_PACKET_FLAG 1
 
@@ -316,11 +183,12 @@ void Unified2Setup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("log_unified2", NT_OUTPUT_LOG, Unified2LogInit);
-    RegisterOutputPlugin("alert_unified2", NT_OUTPUT_ALERT, Unified2AlertInit);
-    RegisterOutputPlugin("unified2", NT_OUTPUT_SPECIAL, Unified2Init);
+    RegisterOutputPlugin("log_unified2", OUTPUT_TYPE_FLAG__LOG, Unified2LogInit);
+    RegisterOutputPlugin("alert_unified2", OUTPUT_TYPE_FLAG__ALERT, Unified2AlertInit);
+    RegisterOutputPlugin("unified2", OUTPUT_TYPE_FLAG__LOG | OUTPUT_TYPE_FLAG__ALERT, Unified2Init);
+
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output plugin: Unified2 "
-                "logging/alerting is setup...\n"););
+                            "logging/alerting is setup...\n"););
 }
 
 /*
@@ -338,24 +206,16 @@ static void Unified2Init(char *args)
 {
     Unified2Config *config;
 
-    if (unified2_configured || unified2_alert_configured || unified2_log_configured)
-        FatalError("Unified2 can only be instantiated once\n");
-
-    pv.log_plugin_active = 1;
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     config = Unified2ParseArgs(args, "snort-unified");
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(Unified2LogAlert, NT_OUTPUT_ALERT, config);
-    AddFuncToOutputList(Unified2LogPacketAlert, NT_OUTPUT_LOG, config);
+    AddFuncToOutputList(Unified2LogAlert, OUTPUT_TYPE__ALERT, config);
+    AddFuncToOutputList(Unified2LogPacketAlert, OUTPUT_TYPE__LOG, config);
 
     AddFuncToCleanExitList(Unified2CleanExit, config);
     AddFuncToRestartList(Unified2Restart, config);
     AddFuncToPostConfigList(Unified2PostConfig, config);
-
-    unified2_configured = 1;
 }
 
 static void Unified2PostConfig(int unused, void *data)
@@ -380,7 +240,7 @@ static void Unified2PostConfig(int unused, void *data)
 #endif
     {
         status = SnortSnprintf(config->filepath, sizeof(config->filepath),
-                               "%s/%s", pv.log_dir, config->base_filename);
+                               "%s/%s", snort_conf->log_dir, config->base_filename);
     }
 
     if (status != SNORT_SNPRINTF_SUCCESS)
@@ -448,7 +308,7 @@ static void Unified2InitFile(Unified2Config *config)
 #endif
 
     /* If test mode, close and delete the file */
-    if (pv.test_mode_flag)
+    if (ScTestMode())
     {
         fclose(config->stream);
         config->stream = NULL;
@@ -536,12 +396,12 @@ static void _AlertIP4(Packet *p, char *msg, Unified2Config *config, Event *event
 
     Unified2Write(write_pkt_buffer, write_len, config);
 }
-#ifdef MPLS
-static void _AlertIP4_mpls(Packet *p, char *msg, Unified2Config *config, Event *event)
+
+static void _AlertIP4_v2(Packet *p, char *msg, Unified2Config *config, Event *event)
 {
     Unified2RecordHeader hdr;
-    Unified2Event_MPLS alertdata;
-    uint32_t write_len = sizeof(Unified2RecordHeader) + sizeof(Unified2Event_MPLS);
+    Unified2Event_v2 alertdata;
+    uint32_t write_len = sizeof(Unified2RecordHeader) + sizeof(Unified2Event_v2);
 
     memset(&alertdata, 0, sizeof(alertdata));
     
@@ -578,36 +438,50 @@ static void _AlertIP4_mpls(Packet *p, char *msg, Unified2Config *config, Event *
                 alertdata.dport_icode = htons(p->dp);
             }
 
-            alertdata.mpls_label = p->mplsHdr.label;
+#ifdef MPLS
+            if((p->mpls) && (config->mpls_event_types))
+            {
+                alertdata.mpls_label = htonl(p->mplsHdr.label);
+            }
+#endif
+            if(config->vlan_event_types)
+            {
+                if(p->vh)
+                {
+                    alertdata.vlanId = htons(VTH_VLAN(p->vh));
+                }
+
+                alertdata.configPolicyId = htons(p->configPolicyId);
+            }
+
         }
     }
     
     if ((config->current + write_len) > config->limit)
         Unified2RotateFile(config);
 
-    hdr.length = htonl(sizeof(Unified2Event_MPLS));
-    hdr.type = htonl(UNIFIED2_IDS_EVENT_MPLS);
+    hdr.length = htonl(sizeof(Unified2Event_v2));
+    hdr.type = htonl(UNIFIED2_IDS_EVENT_V2);
 
-    if (SafeMemcpy(write_pkt_buffer_mpls, &hdr, sizeof(Unified2RecordHeader), 
-                   write_pkt_buffer_mpls, write_pkt_end_mpls) != SAFEMEM_SUCCESS)
+    if (SafeMemcpy(write_pkt_buffer_v2, &hdr, sizeof(Unified2RecordHeader), 
+                   write_pkt_buffer_v2, write_pkt_end_v2) != SAFEMEM_SUCCESS)
     {
         ErrorMessage("%s(%d) Failed to copy Unified2RecordHeader. "
                      "Not writing unified2 event.\n", __FILE__, __LINE__);
         return;
     }
     
-    if (SafeMemcpy(write_pkt_buffer_mpls + sizeof(Unified2RecordHeader),
-                   &alertdata, sizeof(Unified2Event_MPLS), 
-                   write_pkt_buffer_mpls, write_pkt_end_mpls) != SAFEMEM_SUCCESS)
+    if (SafeMemcpy(write_pkt_buffer_v2 + sizeof(Unified2RecordHeader),
+                   &alertdata, sizeof(Unified2Event_v2), 
+                   write_pkt_buffer_v2, write_pkt_end_v2) != SAFEMEM_SUCCESS)
     {
-        ErrorMessage("%s(%d) Failed to copy Unified2Event_MPLS. "
+        ErrorMessage("%s(%d) Failed to copy Unified2Event. "
                      "Not writing unified2 event.\n", __FILE__, __LINE__);
         return;
     }
 
-    Unified2Write(write_pkt_buffer_mpls, write_len, config);
+    Unified2Write(write_pkt_buffer_v2, write_len, config);
 }
-#endif
 
 static void _AlertIP6(Packet *p, char *msg, Unified2Config *config, Event *event) 
 {
@@ -686,13 +560,12 @@ static void _AlertIP6(Packet *p, char *msg, Unified2Config *config, Event *event
 #endif
 }
 
-#ifdef MPLS
-static void _AlertIP6_mpls(Packet *p, char *msg, Unified2Config *config, Event *event)
+static void _AlertIP6_v2(Packet *p, char *msg, Unified2Config *config, Event *event)
 {
 #ifdef SUP_IP6
     Unified2RecordHeader hdr;
-    Unified2Event6_MPLS alertdata;
-    uint32_t write_len = sizeof(Unified2RecordHeader) + sizeof(Unified2Event6_MPLS);
+    Unified2Event6_v2 alertdata;
+    uint32_t write_len = sizeof(Unified2RecordHeader) + sizeof(Unified2Event6_v2);
 
     memset(&alertdata, 0, sizeof(alertdata));
 
@@ -735,38 +608,50 @@ static void _AlertIP6_mpls(Packet *p, char *msg, Unified2Config *config, Event *
                 alertdata.dport_icode = htons(p->dp);
             }
 
-            alertdata.mpls_label = p->mplsHdr.label;
+#ifdef MPLS
+            if((p->mpls) && (config->mpls_event_types))
+            {
+                alertdata.mpls_label = htonl(p->mplsHdr.label);
+            }
+#endif
+            if(config->vlan_event_types)
+            {
+                if(p->vh)
+                {
+                    alertdata.vlanId = htons(VTH_VLAN(p->vh));
+                }
+
+                alertdata.configPolicyId = htons(p->configPolicyId);
+            }
         }
     }
     
     if ((config->current + write_len) > config->limit)
         Unified2RotateFile(config);
 
-    hdr.length = htonl(sizeof(Unified2Event6_MPLS));
-    hdr.type = htonl(UNIFIED2_IDS_EVENT_IPV6_MPLS);
+    hdr.length = htonl(sizeof(Unified2Event6_v2));
+    hdr.type = htonl(UNIFIED2_IDS_EVENT_IPV6_V2);
 
-    if (SafeMemcpy(write_pkt_buffer_mpls, &hdr, sizeof(Unified2RecordHeader), 
-                   write_pkt_buffer_mpls, write_pkt_end_mpls) != SAFEMEM_SUCCESS)
+    if (SafeMemcpy(write_pkt_buffer_v2, &hdr, sizeof(Unified2RecordHeader), 
+                   write_pkt_buffer_v2, write_pkt_end_v2) != SAFEMEM_SUCCESS)
     {
         ErrorMessage("%s(%d) Failed to copy Unified2RecordHeader. "
                      "Not writing unified2 event.\n", __FILE__, __LINE__);
         return;
     }
     
-    if (SafeMemcpy(write_pkt_buffer_mpls + sizeof(Unified2RecordHeader),
-                   &alertdata, sizeof(Unified2Event6_MPLS), 
-                   write_pkt_buffer_mpls, write_pkt_end_mpls) != SAFEMEM_SUCCESS)
+    if (SafeMemcpy(write_pkt_buffer_v2 + sizeof(Unified2RecordHeader),
+                   &alertdata, sizeof(Unified2Event6_v2), 
+                   write_pkt_buffer_v2, write_pkt_end_v2) != SAFEMEM_SUCCESS)
     {
-        ErrorMessage("%s(%d) Failed to copy Unified2Event6_MPLS. "
+        ErrorMessage("%s(%d) Failed to copy Unified2Event6_v2. "
                      "Not writing unified2 event.\n", __FILE__, __LINE__);
         return;
     }
 
-    Unified2Write(write_pkt_buffer_mpls, write_len, config);
+    Unified2Write(write_pkt_buffer_v2, write_len, config);
 #endif
 }
-#endif
-
 static void Unified2LogAlert(Packet *p, char *msg, void *arg, Event *event)
 {
     Unified2Config *config = (Unified2Config *)arg;
@@ -775,26 +660,34 @@ static void Unified2LogAlert(Packet *p, char *msg, void *arg, Event *event)
         return;
 
     if(!event) return;
-#ifdef MPLS
     if(IS_IP4(p))
     {
-        if((p->mpls) && (config->mpls_event_types))
-            _AlertIP4_mpls(p, msg, config, event); 
+#ifdef MPLS
+        if((config->vlan_event_types) || (config->mpls_event_types))
+#else
+        if(config->vlan_event_types)
+#endif
+        {
+            _AlertIP4_v2(p, msg, config, event); 
+        }
         else 
             _AlertIP4(p, msg, config, event);
     } 
     else 
     {
-        if((p->mpls) && (config->mpls_event_types))
-            _AlertIP6_mpls(p, msg, config, event); 
+#ifdef MPLS
+        if((config->vlan_event_types) || (config->mpls_event_types))
+#else
+        if(config->vlan_event_types)
+#endif
+        {
+            _AlertIP6_v2(p, msg, config, event); 
+        }
         else 
             _AlertIP6(p, msg, config, event);
     }
+
     return;
-#else
-    if(IS_IP4(p)) _AlertIP4(p, msg, config, event);
-    else _AlertIP6(p, msg, config, event);
-#endif
 }
 
 static void Unified2LogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
@@ -846,8 +739,8 @@ static void _Unified2LogPacketAlert(Packet *p, char *msg,
 
     if(p && p->pkt && p->pkth)
     {
-        logheader.packet_second = htonl((u_int32_t)p->pkth->ts.tv_sec);
-        logheader.packet_microsecond = htonl((u_int32_t)p->pkth->ts.tv_usec);
+        logheader.packet_second = htonl((uint32_t)p->pkth->ts.tv_sec);
+        logheader.packet_microsecond = htonl((uint32_t)p->pkth->ts.tv_usec);
         logheader.packet_length = htonl(p->pkth->caplen);
 
         pkt_length = p->pkth->caplen;
@@ -904,7 +797,7 @@ static void _Unified2LogPacketAlert(Packet *p, char *msg,
  *
  */
 static int Unified2LogStreamCallback(struct pcap_pkthdr *pkth,
-                                     u_int8_t *packet_data, void *userdata)
+                                     uint8_t *packet_data, void *userdata)
 {
     Unified2LogStreamCallbackData *unifiedData = (Unified2LogStreamCallbackData *)userdata;
     Unified2RecordHeader hdr;
@@ -922,8 +815,8 @@ static int Unified2LogStreamCallback(struct pcap_pkthdr *pkth,
 
     /* Event data will already be set */
 
-    unifiedData->logheader->packet_second = htonl((u_int32_t)pkth->ts.tv_sec);
-    unifiedData->logheader->packet_microsecond = htonl((u_int32_t)pkth->ts.tv_usec);
+    unifiedData->logheader->packet_second = htonl((uint32_t)pkth->ts.tv_sec);
+    unifiedData->logheader->packet_microsecond = htonl((uint32_t)pkth->ts.tv_usec);
     unifiedData->logheader->packet_length = htonl(pkth->caplen);
 
     if (SafeMemcpy(write_pkt_buffer, &hdr, sizeof(Unified2RecordHeader),
@@ -1031,7 +924,7 @@ static Unified2Config * Unified2ParseArgs(char *args, char *default_filename)
 
     /* This is so the if 'nostamps' option is used on the command line,
      * it will be honored by unified2, and only one variable is used. */
-    config->nostamp = pv.nostamp;
+    config->nostamp = ScNoOutputTimestamp();
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Args: %s\n", args););
 
@@ -1049,7 +942,7 @@ static Unified2Config * Unified2ParseArgs(char *args, char *default_filename)
             while(isspace((int)*index))
                 ++index;
           
-            stoks = mSplit(index, " ", 2, &num_stoks, 0);
+            stoks = mSplit(index, " \t", 2, &num_stoks, 0);
             
             if(strcasecmp("filename", stoks[0]) == 0)
             {
@@ -1088,6 +981,10 @@ static Unified2Config * Unified2ParseArgs(char *args, char *default_filename)
                 config->mpls_event_types = 1;
             }
 #endif
+            else if(strcasecmp("vlan_event_types", stoks[0]) == 0)
+            {
+                config->vlan_event_types = 1;
+            }
             else
             {
                 FatalError("Argument Error in %s(%i): %s\n",
@@ -1183,23 +1080,16 @@ static void Unified2AlertInit(char *args)
 {
     Unified2Config *config;
 
-    if (unified2_configured || unified2_alert_configured)
-        FatalError("Unified2 can only be instantiated once\n");
-
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: Unified2 Alert Initialized\n"););
-
-    pv.alert_plugin_active = 1;
 
     /* parse the argument list from the rules file */
     config = Unified2ParseArgs(args, "snort-unified.alert");
 
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(Unified2LogAlert, NT_OUTPUT_ALERT, config);
+    AddFuncToOutputList(Unified2LogAlert, OUTPUT_TYPE__ALERT, config);
     AddFuncToCleanExitList(Unified2CleanExit, config);
     AddFuncToRestartList(Unified2Restart, config);
     AddFuncToPostConfigList(Unified2PostConfig, config);
-
-    unified2_alert_configured = 1;
 }
 
 /* Unified2 Packet Log functions (deprecated) */
@@ -1207,28 +1097,18 @@ static void Unified2LogInit(char *args)
 {
     Unified2Config *config;
 
-    if (unified2_configured || unified2_log_configured)
-        FatalError("Unified2 can only be instantiated once\n");
-
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Output: Unified2 Log Initialized\n"););
-
-    /* tell command line loggers to go away */
-    pv.log_plugin_active = 1;
 
     /* parse the argument list from the rules file */
     config = Unified2ParseArgs(args, "snort-unified.log");
 
     //LogMessage("Unified2LogFilename = %s\n", Unified2Info->filename);
 
-    pv.log_bitmap |= LOG_UNIFIED2;
-
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(Unified2LogPacketAlert, NT_OUTPUT_LOG, config);
+    AddFuncToOutputList(Unified2LogPacketAlert, OUTPUT_TYPE__LOG, config);
     AddFuncToCleanExitList(Unified2CleanExit, config);
     AddFuncToRestartList(Unified2Restart, config);
     AddFuncToPostConfigList(Unified2PostConfig, config);
-
-    unified2_log_configured = 1;
 }
 
 /******************************************************************************

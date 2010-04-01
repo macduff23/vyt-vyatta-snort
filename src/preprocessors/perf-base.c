@@ -58,10 +58,14 @@
 #include "stream_api.h"
 #include "sf_types.h"
 
+extern SFPERF *perfmon_config;
+
 int GetPktDropStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats);
 int DisplayBasePerfStatsConsole(SFBASE_STATS *sfBaseStats, int iFlags);
 int CalculateBasePerfStats(SFBASE *sfPerf, SFBASE_STATS *sfBaseStats);
 int LogBasePerfStats(SFBASE_STATS *sfBaseStats,  FILE * fh );
+
+extern pcap_t *pcap_handle;
 
 /*
 **  NAME
@@ -319,7 +323,6 @@ void UpdateIPFragStats(SFBASE *sfBase, int len)
     sfBase->total_ipfragmented_packets++;
 
     len += 4; /* for the CRC */
-    sfBase->total_wire_bytes += len;
     sfBase->total_ipfragmented_bytes += len;
 }
 
@@ -342,7 +345,6 @@ void UpdateIPReassStats(SFBASE *sfBase, int len)
     sfBase->total_ipreassembled_packets++;
 
     len += 4; /* for the CRC */
-    sfBase->total_wire_bytes += len;
     sfBase->total_ipreassembled_bytes += len;
 }
 
@@ -380,7 +382,7 @@ void UpdateFilteredPacketStats(SFBASE *sfBase, unsigned int proto)
 **    int - 0 is successful
 */
 
-int AddStreamSession(SFBASE *sfBase, u_int32_t flags)
+int AddStreamSession(SFBASE *sfBase, uint32_t flags)
 {    
     sfBase->iTotalSessions++;
     sfBase->iNewSessions++;
@@ -516,7 +518,7 @@ int ProcessBaseStats(SFBASE *sfBase, int console, int file, FILE * fh)
 
 
     if( console )
-        DisplayBasePerfStatsConsole(&sfBaseStats, sfBase->iFlags);
+        DisplayBasePerfStatsConsole(&sfBaseStats, perfmon_config->base_flags);
     
     if( file )
         LogBasePerfStats(&sfBaseStats, fh );
@@ -686,7 +688,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_per_sec.realtime   = 
         (double)((double)sfBase->total_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_per_sec.usertime   = 
             (double)((double)sfBase->total_packets / 1000) / 
@@ -702,7 +704,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_wire_per_sec.realtime   = 
         (double)((double)sfBase->total_wire_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_wire_per_sec.usertime   = 
             (double)((double)sfBase->total_wire_packets / 1000) / 
@@ -718,7 +720,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_ipfrag_per_sec.realtime   = 
         (double)((double)sfBase->total_ipfragmented_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_ipfrag_per_sec.usertime   = 
             (double)((double)sfBase->total_ipfragmented_packets / 1000) / 
@@ -734,7 +736,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_ipreass_per_sec.realtime   = 
         (double)((double)sfBase->total_ipreassembled_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_ipreass_per_sec.usertime   = 
             (double)((double)sfBase->total_ipreassembled_packets / 1000) / 
@@ -750,7 +752,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_rebuilt_per_sec.realtime   = 
         (double)((double)sfBase->total_rebuilt_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_rebuilt_per_sec.usertime   = 
             (double)((double)sfBase->total_rebuilt_packets / 1000) / 
@@ -766,7 +768,7 @@ int GetPacketsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     sfBaseStats->kpackets_per_sec_mpls.realtime   = 
         (double)((double)sfBase->total_mpls_packets / 1000) / Systimes->realtime;
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->kpackets_per_sec_mpls.usertime   = 
             (double)((double)sfBase->total_mpls_packets / 1000) / 
@@ -805,7 +807,7 @@ int GetMbitsPerSecond(SFBASE *sfBase, SFBASE_STATS *sfBaseStats,
     **  that can't reliably be gotten from Linux SMP kernels.  So
     **  we don't do them.
     */
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         sfBaseStats->mbits_per_sec.usertime   = ((double)
                                                 (sfBase->total_bytes<<3) *
@@ -1023,7 +1025,7 @@ int CalculateBasePerfStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
 
     mpseResetByteCount();
 
-    if(sfBase->iFlags & MAX_PERF_STATS)
+    if(perfmon_config->base_flags & MAX_PERF_STATS)
     {
         /*
         **  uSeconds per Packet
@@ -1061,7 +1063,14 @@ int CalculateBasePerfStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
     /*
     **  Set the date string for print out
     */
-    time(&clock);
+    if (sfBase->time)
+    {
+        clock = sfBase->time;
+    }
+    else
+    {
+        time(&clock);
+    }
     sfBaseStats->time = clock;
 
     return 0;
@@ -1086,15 +1095,10 @@ int CalculateBasePerfStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
 int GetPktDropStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
 {
 #ifndef PCAP_CLOSE
-    /*
-    **  Network Interfaces.  Right now we only check
-    **  the first interface
-    */
-    extern pcap_t *pd;
-    
-    if((!pd)
+    /* Network Interfaces.  Right now we only check the first interface */
+    if ((pcap_handle == NULL)
 #ifdef WIN32
-        || (pv.readmode_flag)
+        || (ScReadMode())
 #endif
         )
     {
@@ -1116,7 +1120,7 @@ int GetPktDropStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
     if (UpdatePcapPktStats(0) == -1)
 #endif
     {
-        if (sfBase->iReset == 1)
+        if (perfmon_config->base_reset)
         {
             sfBaseStats->pkt_stats.pkts_recv = sfBase->total_wire_packets;
         }
@@ -1130,12 +1134,12 @@ int GetPktDropStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
     }
     else
     {
-        UINT64 recv, drop;
+        uint64_t recv, drop;
 
         recv = GetPcapPktStatsRecv();
         drop = GetPcapPktStatsDrop();
 
-        if( sfBase->iReset == 1 )
+        if (perfmon_config->base_reset)
         {
             sfBaseStats->pkt_stats.pkts_recv = recv - sfBase->pkt_stats.pkts_recv;
 
@@ -1244,8 +1248,8 @@ int LogBasePerfStats(SFBASE_STATS *sfBaseStats,  FILE * fh )
                 sfBaseStats->pkt_drop_percent,
                 sfBaseStats->wire_mbits_per_sec.realtime,
                 sfBaseStats->alerts_per_second,
-                sfBaseStats->kpackets_per_sec.realtime,
-                sfBaseStats->avg_bytes_per_packet,
+                sfBaseStats->kpackets_wire_per_sec.realtime,
+                sfBaseStats->avg_bytes_per_wire_packet,
                 sfBaseStats->patmatch_percent);
        
     /* Session estimation statistics */
@@ -1395,7 +1399,9 @@ int DisplayBasePerfStatsConsole(SFBASE_STATS *sfBaseStats, int iFlags)
     int iCtr;
 #endif
 
-    LogMessage("\n\nSnort Realtime Performance  : %s--------------------------\n", 
+    LogMessage("\n");
+    LogMessage("\n");
+    LogMessage("Snort Realtime Performance  : %s--------------------------\n", 
                ctime(&sfBaseStats->time));
 
     LogMessage("Pkts Recv:   " STDu64 "\n", sfBaseStats->pkt_stats.pkts_recv);

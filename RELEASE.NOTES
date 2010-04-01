@@ -1,36 +1,14 @@
-2009-04-23 - Snort 2.8.4.1
+2009-12-15 - Snort 2.8.5.2
 
 [*] Improvements
-    * Added the new DCE/RPC preprocessor to the Snort RPM files
+   * Improvements to HTTP Inspect for handling of pipelined requests
+     and chunked encodings.
 
-    * Fixed an issue with the database output plugin. Snort was
-      not inserting records into the sensor table.
+   * Updated the documentation for output plugins and log limits.
 
-    * Fixed issues with parsing of IP variables with IPv6 support.
+   * Fixed building on AIX 6.
 
-    * Fixed handling of a simultaneous ACK and RST, when require_3whs
-      was enabled and the session had timed out.
+   * Fixed reloading of auto-iface variables when privileges had been dropped.
 
-2009-04-07 - Snort 2.8.4
-
-[*] New Additions
-    * Revised DCE/RPC preprocessor to provide new rule options,
-      additional SMB command support, and updated defragmentation
-      models
-
-    * Support for IPv6 with Frag3 and all application preprocessors
-      (SMTP, FTP/Telnet, DCE/RPC, SSL, DNS, Portscan)
-
-    * Improved target-based support within application preprocessors
-
-    * Addition to automatically pre-filter traffic that is not
-      explicitly configured for inspection to improve performance.
-
-    * HttpInspect update to limit number of HTTP Header fields and
-      alert if limit is reached.
-
-    * Support for multiple IP Addresses and/or CIDRs in HTTP Inspect
-      and FTP/Telnet Server/Client specific configurations
-
-[*] Improvements
-    * Update to allow rules with only negated content
+   * Fixed issues at startup and perfstats rotation with old versions of
+     libc (2.2, 2.3) & linux threads.

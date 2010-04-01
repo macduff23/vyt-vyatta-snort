@@ -40,7 +40,7 @@
 #define DCE2_MOVE(data_ptr, data_len, amount) \
     { data_ptr = (uint8_t *)data_ptr + (amount); data_len -= (amount); }
 
-#define DCE2_PKT_SIZE  (ETHER_HDR_LEN + SUN_SPARC_TWIDDLE + IP_MAXPKT)
+#define DCE2_PKT_SIZE  (ETHER_HDR_LEN + SUN_SPARC_TWIDDLE + IP_MAXPKT + VLAN_HDR_LEN)
 #define DCE2_PKTH_SIZE (sizeof(struct pcap_pkthdr) + DCE2_PKT_SIZE)
 
 /********************************************************************

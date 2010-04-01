@@ -29,44 +29,51 @@
 #include "event.h"
 #include "decode.h"
 
-#define NT_OUTPUT_ALERT   0x1  /* output node type alert */
-#define NT_OUTPUT_LOG     0x2  /* output node type log */
-#define NT_OUTPUT_SPECIAL 0x4  /* special output node type */
+typedef enum _OutputType
+{
+    OUTPUT_TYPE__ALERT = 1,
+    OUTPUT_TYPE__LOG,
+    OUTPUT_TYPE__MAX
+
+} OutputType;
+
+typedef enum _OutputTypeFlag
+{
+    OUTPUT_TYPE_FLAG__ALERT = 0x00000001,
+    OUTPUT_TYPE_FLAG__LOG   = 0x00000002,
+    OUTPUT_TYPE_FLAG__ALL   = 0x7fffffff
+
+} OutputTypeFlag;
+
 
 /***************************** Output Plugin API  *****************************/
-typedef void (*OutputInitFunc)(char *);
-typedef struct _OutputKeywordNode
+typedef void (*OutputConfigFunc)(char *);
+typedef void (*OutputFunc)(Packet *, char *, void *, Event *);
+
+typedef struct _OutputConfigFuncNode
 {
     char *keyword;
-    char node_type;
-    OutputInitFunc func;
-} OutputKeywordNode;
+    int output_type_flags;
+    OutputConfigFunc func;
+    struct _OutputConfigFuncNode *next;
 
-typedef struct _OutputKeywordList
-{
-    OutputKeywordNode entry;
-    struct _OutputKeywordList *next;
-
-} OutputKeywordList;
+} OutputConfigFuncNode;
 
 typedef struct _OutputFuncNode
 {
-    void (*func)(Packet *, char *, void *, Event *);
     void *arg;
+    OutputFunc func;
     struct _OutputFuncNode *next;
 
 } OutputFuncNode;
 
-void InitOutputPlugins(void);
-void CleanupOutputPlugins(void);
-int ActivateOutputPlugin(char *plugin_name, char *plugin_options);
-void RegisterOutputPlugin(char *, int, OutputInitFunc);
-OutputKeywordNode *GetOutputPlugin(char *plugin_name);
+void RegisterOutputPlugins(void);
+void RegisterOutputPlugin(char *, int, OutputConfigFunc);
+OutputConfigFunc GetOutputConfigFunc(char *);
+int GetOutputTypeFlags(char *);
 void DumpOutputPlugins(void);
-void AddFuncToOutputList(void (*)(Packet *, char *, void *, Event *),
-                         char node_type, void *arg);
-void SetOutputList(void (*)(Packet *, char *, void *, Event *),
-                   char node_type, void *arg);
-/*************************** End Output Plugin API  ***************************/
+void AddFuncToOutputList(OutputFunc, OutputType, void *);
+void FreeOutputConfigFuncs(void);
+void FreeOutputList(OutputFuncNode *);
 
 #endif /* __SPO_PLUGBASE_H__ */

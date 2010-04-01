@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Portions Copyright (C) 1998-2006 Sourcefire, Inc.
+ ** Portions Copyright (C) 1998-2009 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
  ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #ifdef GIDS
+#include "snort.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pcap.h>
@@ -35,12 +36,14 @@
 #include "inline.h"
 #include "rules.h"
 #include "stream_api.h"
-#include "snort.h"
+#include "spp_frag3.h"
 
 #define PKT_BUFSIZE 65536
 
 /* Most of the code related to libnet (resets and icmp unreach) was 
  * taken from sp_respond.c */
+
+extern pcap_t *pcap_handle;
 
 /* vars */
 int libnet_nd;  /* libnet descriptor */
@@ -48,7 +51,7 @@ char errbuf[LIBNET_ERRBUF_SIZE];
 
 Packet *tmpP;
 
-char *l_tcp, *l_icmp;
+u_char *l_tcp, *l_icmp;
 
 #ifndef IPFW
 ipq_packet_msg_t *g_m = NULL;
@@ -59,28 +62,15 @@ ipq_packet_msg_t *g_m = NULL;
 void HandlePacket(ipq_packet_msg_t *);
 void TranslateToPcap(ipq_packet_msg_t *, struct pcap_pkthdr *);
 #else
-void HandlePacket();
+void HandlePacket(void);
 void TranslateToPcap(struct pcap_pkthdr *phdr, ssize_t len);
 #endif /* IPFW */
 void ResetIV(void);
 
 
-/**
- *  InlineMode - determine if we are in inline mode
- *  
- *  @returns 1 if we are in inline mode, 0 otherwise
- */
-int InlineMode()
+int InlineModeSetPrivsAllowed(void)
 {
-	if (pv.inline_flag)
-		return 1;
-
-	return 0;
-}
-
-int InlineModeSetPrivsAllowed()
-{
-	if (pv.inline_flag)
+	if (ScAdapterInlineMode())
         return 0;
 
     return 1;
@@ -120,7 +110,7 @@ void TranslateToPcap(struct pcap_pkthdr *phdr, ssize_t len)
 #endif
 
 
-void ResetIV()
+void ResetIV(void)
 {
     iv.drop = 0;
     iv.reject = 0;
@@ -148,7 +138,7 @@ void InitInlinePostConfig(void)
      * layer 2 resets mode, because we use the link
      * layer then... */
 #ifndef IPFW
-    if(pv.layer2_resets)
+    if (ScLinkLayerResets())
     {
         tcp_size = LIBNET_ETH_H + LIBNET_IP_H + LIBNET_TCP_H;
         icmp_size = 128 + LIBNET_ETH_H;
@@ -157,12 +147,12 @@ void InitInlinePostConfig(void)
 #endif
     {
         //printf("opening raw socket in IP-mode\n");
- 
-	if((libnet_nd = libnet_open_raw_sock(IPPROTO_RAW)) < 0)
-	{
-	    fprintf(stdout, "InitInline: Could not open raw socket for libnet\n");
-	    exit(-1);
-	}
+
+        if((libnet_nd = libnet_open_raw_sock(IPPROTO_RAW)) < 0)
+        {
+            fprintf(stdout, "InitInline: Could not open raw socket for libnet\n");
+            exit(-1);
+        }
 
         tcp_size = LIBNET_IP_H + LIBNET_TCP_H;
         icmp_size = 128;
@@ -184,7 +174,7 @@ void InitInlinePostConfig(void)
 
 
 #ifndef IPFW
-    if(pv.layer2_resets)  
+    if (ScLinkLayerResets())
     {    
         /* Building Layer 2 Reset Packets */
         printf("building cached link layer reset packets\n");
@@ -219,17 +209,14 @@ void InitInlinePostConfig(void)
         libnet_build_icmp_unreach(3, 3, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0,
                                   l_icmp + LIBNET_IP_H);
     }  
-
 }
 
 
 /* InitInline is called before the Snort_inline configuration file is read. */
-int InitInline()
+int InitInline(void)
 {
+#ifndef IPFW
     int status;
-
-#ifdef DEBUG_GIDS
-    printf("Initializing Inline mode \n");
 #endif
 
     printf("Initializing Inline mode \n");
@@ -255,15 +242,14 @@ int InitInline()
     ResetIV();
 
     /* Just in case someone wants to write to a pcap file
-     * using DLT_RAW because iptables does not give us datalink layer.
-     */
-    pd = pcap_open_dead(DLT_RAW, SNAPLEN);
+     * using DLT_RAW because iptables does not give us datalink layer. */
+    pcap_handle = pcap_open_dead(DLT_RAW, SNAPLEN);
 
     return 0;
 }
 
 #ifndef IPFW
-void IpqLoop()
+void IpqLoop(void)
 {
     int status;
     struct pcap_pkthdr PHdr;
@@ -289,7 +275,12 @@ void IpqLoop()
             /* Do the signal check. If we don't do this we will
              * evaluate the signal only when we receive an actual
              * packet. We don't want to depend on this. */
-            sig_check();
+            if (SignalCheck())
+            {
+#ifndef SNORT_RELOAD
+                Restart();
+#endif
+            }
         }
         else
         {
@@ -316,16 +307,19 @@ void IpqLoop()
         } /* if - else */
     } /* while() */
 }
-#else
+#else  // IPFW
 
+#ifndef IPPROTO_DIVERT
+# define IPPROTO_DIVERT 254
+#endif
 
 /* Loop reading packets from IPFW
    - borrowed mostly from the TCP-MSSD daemon in FreeBSD ports tree
     Questions, comments send to:  nick@rogness.net
 */
-void IpfwLoop()
+void IpfwLoop(void)
 {
-    char pkt[IP_MAXPACKET];
+    uint8_t pkt[IP_MAXPACKET];
     struct pcap_pkthdr PHdr;
     ssize_t pktlen, hlen;
     struct ip *pip = (struct ip *)pkt;
@@ -353,7 +347,7 @@ void IpfwLoop()
     bzero(&sin, sizeof(sin));
     sin.sin_family = PF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(pv.divert_port);
+    sin.sin_port = htons(ScDivertPort());
 
     /* Bind that biatch */
     if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) == -1) 
@@ -412,7 +406,7 @@ void IpfwLoop()
 
     } /* end while */
 }
-#endif
+#endif  // IPFW
 
 
 /*
@@ -597,7 +591,9 @@ RejectLayer2(ipq_packet_msg_t *m)
     }
     /* copy the mac: the src is set the the interface mac
      * but only if the mac wasn't supplied in the configfile */
-    if(pv.enet_src[0] == 0 && pv.enet_src[1] == 0 && pv.enet_src[2] == 0 && pv.enet_src[3] == 0 && pv.enet_src[4] == 0 && pv.enet_src[5] == 0)
+    if ((snort_conf->enet_src[0] == 0) && (snort_conf->enet_src[1] == 0) &&
+        (snort_conf->enet_src[2] == 0) && (snort_conf->enet_src[3] == 0) &&
+        (snort_conf->enet_src[4] == 0) && (snort_conf->enet_src[5] == 0))
     {
         /* either user set mac as 00:00:00:00:00:00 or it is blank */   
         for(i = 0; i < 6; i++)
@@ -605,8 +601,8 @@ RejectLayer2(ipq_packet_msg_t *m)
     }
     else
     {
-      for(i = 0; i < 6; i++)  
-        enet_src[i] = pv.enet_src[i];    
+        for(i = 0; i < 6; i++)  
+            enet_src[i] = snort_conf->enet_src[i];    
     } 
     /* copy the mac: the old src now becomes dst */
     for(i = 0; i < 6; i++)
@@ -645,7 +641,7 @@ RejectLayer2(ipq_packet_msg_t *m)
                 if (libnet_do_checksum(l_tcp + LIBNET_ETH_H, IPPROTO_IP, LIBNET_IP_H) == -1)
                 {
                     libnet_error(LIBNET_ERR_CRITICAL,
-                                 "SendEthTCPRST: libnet_do_checksum failed for LIBNET_IP_H");
+                                 "SendEthTCPRST: libnet_do_checksum failed for LIBNET_IPV4_H");
                     return;
                 }
                 /* build the ethernet packet */
@@ -731,16 +727,18 @@ RejectLayer2(ipq_packet_msg_t *m)
                    "libnet_close_link_interface error\n");
     }
 }
-#endif
+#endif  // IPFW
 
 
 #ifndef IPFW
 void HandlePacket(ipq_packet_msg_t *m)
 #else
-void HandlePacket()
+void HandlePacket(void)
 #endif
 {
+#ifndef IPFW
     int status;
+#endif
 
     if (iv.drop)
     {
@@ -754,15 +752,15 @@ void HandlePacket()
         if (iv.reject)
         {
 #ifndef IPFW
-	    if(pv.layer2_resets)
-	    {
-		RejectLayer2(m);
-	    }
-	    else
+            if (ScLinkLayerResets())
+            {
+                RejectLayer2(m);
+            }
+            else
 #endif
-	    {
-		RejectSocket();
-	    }
+            {
+                RejectSocket();
+            }
         }
     }
 #ifndef IPFW
@@ -777,7 +775,7 @@ void HandlePacket()
     else
     {
         status = ipq_set_verdict(ipqh, m->packet_id, NF_ACCEPT, 
-                 m->data_len, m->payload);
+                                 m->data_len, m->payload);
         if (status < 0)
         {
             ipq_perror("NF_ACCEPT: ");
@@ -786,7 +784,7 @@ void HandlePacket()
 #endif
 }
   
-int InlineWasPacketDropped()
+int InlineWasPacketDropped(void)
 {
     if (iv.drop)
         return 1;
@@ -796,7 +794,8 @@ int InlineWasPacketDropped()
 
 int InlineDrop(Packet *p)
 {
-    //printf("InlineDrop(): dropping\n");
+    if(!ScInlineMode())
+        return 0;
     iv.drop = 1;
     p->packet_flags |= PKT_INLINE_DROP;
 
@@ -807,6 +806,10 @@ int InlineDrop(Packet *p)
         if (!(p->packet_flags & PKT_STATELESS))
             stream_api->drop_traffic(p->ssnptr, SSN_DIR_BOTH);
     }
+
+    //drop this and all following fragments
+    frag3DropAllFragments(p);
+
     return 0;
 }
 
@@ -819,53 +822,51 @@ int InlineReject(Packet *p)
     return 0;
 }
 
-int InlineAccept()
+int InlineAccept(void)
 {
     iv.drop = 0;
     return 0;
 }
 
-int InlineReplace()
+int InlineReplace(void)
 {
     iv.replace = 1;
     return 0;
 }
 
-#else
+#else  // GIDS
 
 #include "snort.h"
 #include "stream_api.h"
+#include "spp_frag3.h"
 
+#ifndef WIN32
 extern int g_drop_pkt;
-extern PV  pv;
+#endif
 
-/*
-**  Let's define these for non-inline use.
-*/
-int InlineMode()
-{
-	if (pv.inline_flag)
-		return 1;
-
-	return 0;
-}
-
-int InlineModeSetPrivsAllowed()
+int InlineModeSetPrivsAllowed(void)
 {
     return 1;
 }
 
-int InlineWasPacketDropped()
+int InlineWasPacketDropped(void)
 {
+#ifndef WIN32
     if (g_drop_pkt)
         return 1;
+#endif
     
     return 0;
 }
 
 int InlineDrop(Packet *p)
 {
+    if(!ScInlineMode())
+        return 0;
+
+#ifndef WIN32
     g_drop_pkt = 1;
+#endif
     
     p->packet_flags |= PKT_INLINE_DROP;
 
@@ -876,6 +877,9 @@ int InlineDrop(Packet *p)
         if (!(p->packet_flags & PKT_STATELESS))
             stream_api->drop_traffic(p->ssnptr, SSN_DIR_BOTH);
     }
+    
+    //drop this and all following fragments
+    frag3DropAllFragments(p);
     return 0;
 }
 #endif /* GIDS */

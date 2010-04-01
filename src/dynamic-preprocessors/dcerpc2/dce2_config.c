@@ -47,13 +47,18 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #endif  /* WIN32 */
+#include <sfPolicy.h>
+#include <sfPolicyUserData.h>
 
 /********************************************************************
  * Global variables
  ********************************************************************/
-DCE2_GlobalConfig *dce2_gconfig = NULL;   /* Global configuration */
-DCE2_ServerConfig *dce2_dconfig = NULL;   /* Default server configuration */
-table_t *dce2_sconfigs = NULL;            /* Routing table with server configurations */
+tSfPolicyUserContextId dce2_config = NULL;
+DCE2_Config *dce2_eval_config = NULL;
+
+#ifdef SNORT_RELOAD
+tSfPolicyUserContextId dce2_swap_config = NULL;
+#endif
 
 /* Default ports */
 static const uint16_t DCE2_PORTS_SMB__DEFAULT[] = {139, 445};
@@ -114,7 +119,6 @@ extern DynamicPreprocessorData _dpd;
 #define DCE2_SMB_MAX_CHAIN__DEFAULT    3
 #define DCE2_SMB_MAX_CHAIN__MAX      255   /* uint8_t is used to store value */
 
-#define DCE2_MEMCAP__DEFAULT  (100 * 1024)  /* 100 MB */
 /*** Don't increase max memcap number or it will overflow ***/
 #define DCE2_MEMCAP__MIN      1024    /* 1 MB min */
 #define DCE2_MEMCAP__MAX      ((4 * 1024 * 1024) - 1)  /* ~ 4 GB max */
@@ -216,7 +220,7 @@ static void DCE2_GcError(const char *, ...);
 
 static DCE2_Ret DCE2_ScInitConfig(DCE2_ServerConfig *);
 static DCE2_Ret DCE2_ScInitPortArray(DCE2_ServerConfig *, DCE2_DetectFlag, int);
-static DCE2_Ret DCE2_ScParseConfig(DCE2_ServerConfig *, char *, DCE2_Queue *);
+static DCE2_Ret DCE2_ScParseConfig(DCE2_Config *, DCE2_ServerConfig *, char *, DCE2_Queue *);
 static INLINE DCE2_ScOptFlag DCE2_ScParseOption(char *, char *, int *);
 static DCE2_Ret DCE2_ScParsePolicy(DCE2_ServerConfig *, char **, char *);
 static DCE2_Ret DCE2_ScParseDetect(DCE2_ServerConfig *, char **, char *, int);
@@ -224,7 +228,7 @@ static INLINE DCE2_DetectFlag DCE2_ScParseDetectType(char *, char *, int *);
 static INLINE void DCE2_ScResetPortsArrays(DCE2_ServerConfig *, int);
 static DCE2_Ret DCE2_ScParseSmbShares(DCE2_ServerConfig *, char **, char *);
 static DCE2_Ret DCE2_ScParseSmbMaxChain(DCE2_ServerConfig *, char **, char *);
-static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_ServerConfig *, DCE2_Queue *);
+static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_Config *, DCE2_ServerConfig *, DCE2_Queue *);
 static int DCE2_ScSmbShareCompare(const void *, const void *);
 static void DCE2_ScSmbShareFree(void *);
 static void DCE2_ScPrintConfig(const DCE2_ServerConfig *, DCE2_Queue *);
@@ -232,8 +236,9 @@ static void DCE2_ScPrintPorts(const DCE2_ServerConfig *, int);
 static void DCE2_ScIpListDataFree(void *);
 static void DCE2_ScCheckTransport(void *);
 static DCE2_Ret DCE2_ScCheckPortOverlap(const DCE2_ServerConfig *);
-static void DCE2_AddPortsToStream5Filter(DCE2_ServerConfig *);
+static void DCE2_AddPortsToStream5Filter(DCE2_ServerConfig *, tSfPolicyId);
 static void DCE2_ScError(const char *, ...);
+static void DCE2_ServerConfigCleanup(void *);
 
 /********************************************************************
  * Function: DCE2_GlobalConfigure()
@@ -248,39 +253,37 @@ static void DCE2_ScError(const char *, ...);
  * Returns: None
  *
  ********************************************************************/
-void DCE2_GlobalConfigure(char *args)
+void DCE2_GlobalConfigure(DCE2_Config *config, char *args)
 {
+    if (config == NULL)
+        return;
+
     dce2_config_error[0] = '\0';
 
-    /* Can only do one global configuration */
-    if (dce2_gconfig != NULL)
-    {
-        DCE2_Die("%s(%d) \"%s\" configuration: Only one global configuration can be specified.",
-                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
-    }
+    config->gconfig = (DCE2_GlobalConfig *)
+        DCE2_Alloc(sizeof(DCE2_GlobalConfig), DCE2_MEM_TYPE__CONFIG);
 
     /* Allocate memory for global config structure */
-    dce2_gconfig = (DCE2_GlobalConfig *)DCE2_Alloc(sizeof(DCE2_GlobalConfig), DCE2_MEM_TYPE__CONFIG);
-    if (dce2_gconfig == NULL)
+    if (config->gconfig == NULL)
     {
         DCE2_Die("%s(%d) Failed to allocate memory for global configuration.",
                  __FILE__, __LINE__);
     }
 
     /* Initialize the global config structure */
-    DCE2_GcInitConfig(dce2_gconfig);
+    DCE2_GcInitConfig(config->gconfig);
 
     /* If no arguments, just use default configuration */
     if (DCE2_IsEmptyStr(args))
     {
-        DCE2_GcPrintConfig(dce2_gconfig);
+        DCE2_GcPrintConfig(config->gconfig);
         return;
     }
 
-    if (DCE2_GcParseConfig(dce2_gconfig, args) != DCE2_RET__SUCCESS)
+    if (DCE2_GcParseConfig(config->gconfig, args) != DCE2_RET__SUCCESS)
         DCE2_Die("%s", dce2_config_error);
 
-    DCE2_GcPrintConfig(dce2_gconfig);
+    DCE2_GcPrintConfig(config->gconfig);
 }
 
 /********************************************************************
@@ -1144,25 +1147,27 @@ static DCE2_Ret DCE2_ScInitPortArray(DCE2_ServerConfig *sc, DCE2_DetectFlag dfla
  * Returns: None
  *
  ********************************************************************/
-void DCE2_CreateDefaultServerConfig(void)
+void DCE2_CreateDefaultServerConfig(DCE2_Config *config, tSfPolicyId policy_id)
 {
-    if (dce2_dconfig != NULL)
+    if (config == NULL)
         return;
 
-    dce2_dconfig = (DCE2_ServerConfig *)DCE2_Alloc(sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
-    if (dce2_dconfig == NULL)
+    config->dconfig = (DCE2_ServerConfig *)
+        DCE2_Alloc(sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
+
+    if (config->dconfig == NULL)
     {
         DCE2_Die("%s(%d) Failed to allocate memory for default server "
                  "configuration.", __FILE__, __LINE__);
     }
 
-    if (DCE2_ScInitConfig(dce2_dconfig) != DCE2_RET__SUCCESS)
+    if (DCE2_ScInitConfig(config->dconfig) != DCE2_RET__SUCCESS)
     {
         DCE2_Die("%s(%d) Failed to initialize default server "
                  "configuration.", __FILE__, __LINE__);
     }
 
-    DCE2_AddPortsToStream5Filter(dce2_dconfig);
+    DCE2_AddPortsToStream5Filter(config->dconfig, policy_id);
 }
 
 /********************************************************************
@@ -1178,20 +1183,17 @@ void DCE2_CreateDefaultServerConfig(void)
  * Returns: None
  *
  ********************************************************************/
-void DCE2_ServerConfigure(char *args)
+void DCE2_ServerConfigure(DCE2_Config *config, char *args)
 {
     DCE2_ServerConfig *sc;
     DCE2_Queue *ip_queue;
     DCE2_Ret status;
+    tSfPolicyId policy_id = _dpd.getParserPolicy();
+
+    if (config == NULL)
+        return;
 
     dce2_config_error[0] = '\0';
-
-    if (dce2_gconfig == NULL)
-    {
-        DCE2_Die("%s(%d) \"%s\" configuration: \"%s\" must be configured "
-                 "before \"%s\".", *_dpd.config_file, *_dpd.config_line,
-                 DCE2_SNAME, DCE2_GNAME, DCE2_SNAME);
-    }
 
     /* Must have arguments */
     if (DCE2_IsEmptyStr(args))
@@ -1228,10 +1230,10 @@ void DCE2_ServerConfigure(char *args)
         DCE2_Die("%s(%d) Failed to allocate memory for IP queue.", __FILE__, __LINE__);
     }
 
-    status = DCE2_ScParseConfig(sc, args, ip_queue);
+    status = DCE2_ScParseConfig(config, sc, args, ip_queue);
     if (status != DCE2_RET__SUCCESS)
     {
-        if (sc != dce2_dconfig)
+        if (sc != config->dconfig)
         {
             DCE2_ListDestroy(sc->smb_invalid_shares);
             DCE2_Free((void *)sc, sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
@@ -1244,7 +1246,7 @@ void DCE2_ServerConfigure(char *args)
     /* Check for overlapping detect ports */
     if (DCE2_ScCheckPortOverlap(sc) != DCE2_RET__SUCCESS)
     {
-        if (sc != dce2_dconfig)
+        if (sc != config->dconfig)
         {
             DCE2_ListDestroy(sc->smb_invalid_shares);
             DCE2_Free((void *)sc, sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
@@ -1254,10 +1256,10 @@ void DCE2_ServerConfigure(char *args)
         DCE2_Die("%s", dce2_config_error);
     }
 
-    DCE2_AddPortsToStream5Filter(sc);
+    DCE2_AddPortsToStream5Filter(sc, policy_id);
 
-    if ((sc != dce2_dconfig) &&
-        DCE2_ScAddToRoutingTable(sc, ip_queue) != DCE2_RET__SUCCESS)
+    if ((sc != config->dconfig) &&
+        (DCE2_ScAddToRoutingTable(config, sc, ip_queue) != DCE2_RET__SUCCESS))
     {
         DCE2_ListDestroy(sc->smb_invalid_shares);
         DCE2_Free((void *)sc, sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
@@ -1289,7 +1291,8 @@ void DCE2_ServerConfigure(char *args)
  *      DCE2_RET__ERROR if an error occurred during parsing.
  *
  ********************************************************************/
-static DCE2_Ret DCE2_ScParseConfig(DCE2_ServerConfig *sc, char *args, DCE2_Queue *ip_queue)
+static DCE2_Ret DCE2_ScParseConfig(DCE2_Config *config, DCE2_ServerConfig *sc,
+                                   char *args, DCE2_Queue *ip_queue)
 {
     DCE2_ScState state = DCE2_SC_STATE__ROPT_START;
     char *ptr, *end;
@@ -1337,18 +1340,18 @@ static DCE2_Ret DCE2_ScParseConfig(DCE2_ServerConfig *sc, char *args, DCE2_Queue
                     switch (opt_flag)
                     {
                         case DCE2_SC_OPT_FLAG__DEFAULT:
-                            if (dce2_dconfig != NULL)
+                            if (config->dconfig != NULL)
                             {
                                 DCE2_ScError("Can only configure \"%s\" "
                                              "configuration once", DCE2_SOPT__DEFAULT);
                                 return DCE2_RET__ERROR;
                             }
 
-                            dce2_dconfig = sc;
+                            config->dconfig = sc;
                             break;
 
                         case DCE2_SC_OPT_FLAG__NET:
-                            if (dce2_dconfig == NULL)
+                            if (config->dconfig == NULL)
                             {
                                 DCE2_ScError("Must configure \"%s\" before any "
                                              "\"%s\" configurations",
@@ -2407,14 +2410,15 @@ static DCE2_Ret DCE2_ScParseSmbMaxChain(DCE2_ServerConfig *sc, char **ptr, char 
  *          server configuration.
  *
  ********************************************************************/
-static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_ServerConfig *sc, DCE2_Queue *ip_queue)
+static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_Config *config,
+                                         DCE2_ServerConfig *sc, DCE2_Queue *ip_queue)
 {
     sfip_t *ip;
 #ifdef SUP_IP6
     sfip_t tmp_ip;
 #endif
 
-    if ((sc == NULL) || (ip_queue == NULL))
+    if ((config == NULL) || (sc == NULL) || (ip_queue == NULL))
         return DCE2_RET__ERROR;
 
     for (ip = (sfip_t *)DCE2_QueueFirst(ip_queue);
@@ -2444,14 +2448,14 @@ static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_ServerConfig *sc, DCE2_Queue *ip_q
         }
 #endif
 
-        if (dce2_sconfigs == NULL)
+        if (config->sconfigs == NULL)
         {
 #ifdef SUP_IP6
-            dce2_sconfigs = sfrt_new(DIR_16_4x4_16x5_4x4, IPv6, 100, 20);
+            config->sconfigs = sfrt_new(DIR_16_4x4_16x5_4x4, IPv6, 100, 20);
 #else
-            dce2_sconfigs = sfrt_new(DIR_16_4x4, IPv4, 100, 20);
+            config->sconfigs = sfrt_new(DIR_16_4x4, IPv4, 100, 20);
 #endif
-            if (dce2_sconfigs == NULL)
+            if (config->sconfigs == NULL)
             {
                 DCE2_Log(DCE2_LOG_TYPE__ERROR,
                          "%s(%d): Failed to create server configuration "
@@ -2464,9 +2468,11 @@ static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_ServerConfig *sc, DCE2_Queue *ip_q
             DCE2_ServerConfig *conf;
 
 #ifdef SUP_IP6
-            conf = (DCE2_ServerConfig *)sfrt_search((void *)ip, (unsigned char)ip->bits, dce2_sconfigs);
+            conf = (DCE2_ServerConfig *)sfrt_search((void *)ip,
+                                                    (unsigned char)ip->bits, config->sconfigs);
 #else
-            conf = (DCE2_ServerConfig *)sfrt_search((void *)&addr, (unsigned char)ip->bits, dce2_sconfigs);
+            conf = (DCE2_ServerConfig *)sfrt_search((void *)&addr,
+                                                    (unsigned char)ip->bits, config->sconfigs);
 #endif
 
             if (conf != NULL)
@@ -2478,9 +2484,11 @@ static DCE2_Ret DCE2_ScAddToRoutingTable(DCE2_ServerConfig *sc, DCE2_Queue *ip_q
         }
 
 #ifdef SUP_IP6
-        rt_status = sfrt_insert((void *)ip, (unsigned char)ip->bits, (void *)sc, RT_FAVOR_SPECIFIC, dce2_sconfigs);
+        rt_status = sfrt_insert((void *)ip, (unsigned char)ip->bits,
+                                (void *)sc, RT_FAVOR_SPECIFIC, config->sconfigs);
 #else
-        rt_status = sfrt_insert((void *)&addr, (unsigned char)ip->bits, (void *)sc, RT_FAVOR_SPECIFIC, dce2_sconfigs);
+        rt_status = sfrt_insert((void *)&addr, (unsigned char)ip->bits, (void *)sc,
+                                RT_FAVOR_SPECIFIC, config->sconfigs);
 #endif
 
         if (rt_status != RT_SUCCESS)
@@ -2540,44 +2548,50 @@ static void DCE2_ScIpListDataFree(void *data)
  ********************************************************************/
 const DCE2_ServerConfig * DCE2_ScGetConfig(const SFSnortPacket *p)
 {
-    const DCE2_ServerConfig *sc;
+    const DCE2_ServerConfig *sc = NULL;
     snort_ip_p ip;
 #ifdef SUP_IP6
     sfip_t tmp_ip;
 #endif
+
+    if (dce2_eval_config == NULL)
+        return NULL;
 
     if (DCE2_SsnFromClient(p))
         ip = GET_DST_IP(((SFSnortPacket *)p));
     else
         ip = GET_SRC_IP(((SFSnortPacket *)p));
 
-#ifdef SUP_IP6
-    if (ip->family == AF_INET)
+    if (dce2_eval_config->sconfigs != NULL)
     {
-        if (sfip_set_ip(&tmp_ip, ip) != SFIP_SUCCESS)
+#ifdef SUP_IP6
+        if (ip->family == AF_INET)
         {
-            DCE2_Log(DCE2_LOG_TYPE__ERROR,
-                     "%s(%d) Failed to set IPv4 address for lookup in "
-                     "routing table", __FILE__, __LINE__);
+            if (sfip_set_ip(&tmp_ip, ip) != SFIP_SUCCESS)
+            {
+                DCE2_Log(DCE2_LOG_TYPE__ERROR,
+                         "%s(%d) Failed to set IPv4 address for lookup in "
+                         "routing table", __FILE__, __LINE__);
 
-            /* Just return default configuration */
-            return dce2_dconfig;
+                /* Just return default configuration */
+                return dce2_eval_config->dconfig;
+            }
+
+            tmp_ip.ip32[0] = ntohl(tmp_ip.ip32[0]);
+
+            /* Just set ip to tmp_ip since we don't need to modify ip */
+            ip = &tmp_ip;
         }
 
-        tmp_ip.ip32[0] = ntohl(tmp_ip.ip32[0]);
-
-        /* Just set ip to tmp_ip since we don't need to modify ip */
-        ip = &tmp_ip;
+        sc = sfrt_lookup((void *)ip, dce2_eval_config->sconfigs);
+#else
+        ip = ntohl(ip);
+        sc = sfrt_lookup((void *)&ip, dce2_eval_config->sconfigs);
+#endif
     }
 
-    sc = sfrt_lookup((void *)ip, dce2_sconfigs);
-#else
-    ip = ntohl(ip);
-    sc = sfrt_lookup((void *)&ip, dce2_sconfigs);
-#endif
-
     if (sc == NULL)
-        sc = dce2_dconfig;
+        return dce2_eval_config->dconfig;
 
     return sc;
 }
@@ -3082,12 +3096,15 @@ static void DCE2_ScCheckTransport(void *data)
  * Returns: None
  *
  *********************************************************************/
-void DCE2_ScCheckTransports(void)
+void DCE2_ScCheckTransports(DCE2_Config *config)
 {
-    if (dce2_sconfigs == NULL)
-        DCE2_ScCheckTransport(dce2_dconfig);
+    if (config == NULL)
+        return;
 
-    sfrt_iterate(dce2_sconfigs, DCE2_ScCheckTransport);
+    if (config->sconfigs == NULL)
+        DCE2_ScCheckTransport(config->dconfig);
+    else
+        sfrt_iterate(config->sconfigs, DCE2_ScCheckTransport);
 }
 
 /*********************************************************************
@@ -3169,26 +3186,41 @@ static DCE2_Ret DCE2_ScCheckPortOverlap(const DCE2_ServerConfig *sc)
  * Returns: None
  *
  *********************************************************************/
-static void DCE2_AddPortsToStream5Filter(DCE2_ServerConfig *sc)
+static void DCE2_AddPortsToStream5Filter(DCE2_ServerConfig *sc, tSfPolicyId policy_id)
 {
     unsigned int port;
 
     for (port = 0; port < DCE2_PORTS__MAX; port++)
     {
         if (DCE2_IsPortSet(sc->smb_ports, (uint16_t)port))
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION);
+        {
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION, policy_id, 1);
+        }
 
         if (DCE2_IsPortSet(sc->tcp_ports, (uint16_t)port))
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION);
+        {
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION, policy_id, 1);
+        }
 
         if (DCE2_IsPortSet(sc->udp_ports, (uint16_t)port))
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_UDP, (uint16_t)port, PORT_MONITOR_SESSION);
+        {
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_UDP, (uint16_t)port, PORT_MONITOR_SESSION, policy_id, 1);
+        }
 
         if (DCE2_IsPortSet(sc->http_proxy_ports, (uint16_t)port))
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION);
+        {
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION, policy_id, 1);
+        }
 
         if (DCE2_IsPortSet(sc->http_server_ports, (uint16_t)port))
-            _dpd.streamAPI->set_port_filter_status(IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION);
+        {
+            _dpd.streamAPI->set_port_filter_status
+                (IPPROTO_TCP, (uint16_t)port, PORT_MONITOR_SESSION, policy_id, 1);
+        }
     }
 }
 
@@ -3854,9 +3886,9 @@ DCE2_Ret DCE2_ParseValue(char **ptr, char *end, void *value, DCE2_IntType int_ty
 DCE2_Ret DCE2_GetValue(char *start, char *end, void *int_value, int negate,
                        DCE2_IntType int_type, uint8_t base)
 {
-    UINT64 value = 0;
+    uint64_t value = 0;
     int place = 1;
-    UINT64 max_value;
+    uint64_t max_value;
 
     if ((end == NULL) || (start == NULL) || (int_value == NULL))
         return DCE2_RET__ERROR;
@@ -3866,7 +3898,7 @@ DCE2_Ret DCE2_GetValue(char *start, char *end, void *int_value, int negate,
 
     for (end = end - 1; end >= start; end--)
     {
-        UINT64 add_value;
+        uint64_t add_value;
         char c = *end;
 
         if ((base == 16) && !isxdigit((int)c))
@@ -3875,11 +3907,11 @@ DCE2_Ret DCE2_GetValue(char *start, char *end, void *int_value, int negate,
             return DCE2_RET__ERROR;
 
         if (isdigit((int)c))
-            add_value = (UINT64)(c - '0') * place;
+            add_value = (uint64_t)(c - '0') * place;
         else
-            add_value = (UINT64)((toupper((int)c) - 'A') + 10) * place;
+            add_value = (uint64_t)((toupper((int)c) - 'A') + 10) * place;
 
-        if ((UINT64)(UINT64_MAX - value) < add_value)
+        if ((uint64_t)(UINT64_MAX - value) < add_value)
             return DCE2_RET__ERROR;
 
         value += add_value;
@@ -3947,10 +3979,10 @@ DCE2_Ret DCE2_GetValue(char *start, char *end, void *int_value, int negate,
             *(uint32_t *)int_value = (uint32_t)value;
             break;
         case DCE2_INT_TYPE__INT64:
-            *(INT64 *)int_value = (INT64)value;
+            *(int64_t *)int_value = (int64_t)value;
             break;
         case DCE2_INT_TYPE__UINT64:
-            *(UINT64 *)int_value = (UINT64)value;
+            *(uint64_t *)int_value = (uint64_t)value;
             break;
         default:
             return DCE2_RET__ERROR;
@@ -4023,5 +4055,114 @@ static void DCE2_ScError(const char *format, ...)
              *_dpd.config_file, *_dpd.config_line, DCE2_SNAME, buf);
 
     dce2_config_error[sizeof(dce2_config_error) - 1] = '\0';
+}
+
+/********************************************************************
+ * Function: DCE2_FreeConfig
+ *
+ * Frees a dcerpc configuration
+ *
+ * Arguments:
+ *  DCE2_Config *
+ *      The configuration to free.
+ *
+ * Returns: None
+ *
+ ********************************************************************/
+void DCE2_FreeConfig(DCE2_Config *config)
+{
+    if (config == NULL)
+        return;
+
+    if (config->gconfig != NULL)
+        DCE2_Free((void *)config->gconfig, sizeof(DCE2_GlobalConfig), DCE2_MEM_TYPE__CONFIG);
+
+    if (config->dconfig != NULL)
+    {
+        if (config->dconfig->smb_invalid_shares != NULL)
+            DCE2_ListDestroy(config->dconfig->smb_invalid_shares);
+
+        DCE2_Free((void *)config->dconfig, sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
+    }
+
+    /* Free routing tables and server configurations */
+    if (config->sconfigs != NULL)
+    {
+        /* UnRegister routing table memory */
+        DCE2_UnRegMem(sfrt_usage(config->sconfigs), DCE2_MEM_TYPE__RT);
+
+        sfrt_cleanup(config->sconfigs, DCE2_ServerConfigCleanup);
+        sfrt_free(config->sconfigs);
+    }
+
+    free(config);
+}
+
+/********************************************************************
+ * Function: DCE2_FreeConfigs
+ *
+ * Frees a dcerpc configuration
+ *
+ * Arguments:
+ *  DCE2_Config *
+ *      The configuration to free.
+ *
+ * Returns: None
+ *
+ ********************************************************************/
+static int DCE2_FreeConfigsPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DCE2_Config *pPolicyConfig = (DCE2_Config *)pData;
+
+    //do any housekeeping before freeing DCE22_Config
+
+    sfPolicyUserDataClear (config, policyId);
+    DCE2_FreeConfig(pPolicyConfig);
+
+    return 0;
+}
+
+void DCE2_FreeConfigs(tSfPolicyUserContextId config)
+{
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, DCE2_FreeConfigsPolicy);
+    sfPolicyConfigDelete(config);
+}
+
+
+/******************************************************************
+ * Function: DCE2_ServerConfigCleanup()
+ *
+ * Free server configurations in routing table.  Each server
+ * configuration keeps a reference count of the number of pointers
+ * in the routing table that are pointed to it.  The server
+ * configuration is only freed when this count reaches zero.
+ *
+ * Arguments:
+ *  void *
+ *      Pointer to server configuration.
+ *       
+ * Returns: None
+ *
+ ******************************************************************/ 
+static void DCE2_ServerConfigCleanup(void *data)
+{
+    DCE2_ServerConfig *sc = (DCE2_ServerConfig *)data;
+
+    if (sc != NULL)
+    {
+        sc->ref_count--;
+        if (sc->ref_count == 0)
+        {
+            DCE2_ListDestroy(sc->smb_invalid_shares);
+            DCE2_Free((void *)sc, sizeof(DCE2_ServerConfig), DCE2_MEM_TYPE__CONFIG);
+        }
+    }
 }
 

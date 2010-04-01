@@ -30,11 +30,11 @@
 #ifndef _PCRM_H
 #define _PCRM_H
 
+#include "decode.h"
 #include "bitop.h"
 
 typedef void * RULE_PTR;
 
-#define MAX_PORTS 64*1024
 #define ANYPORT   -1
 
 

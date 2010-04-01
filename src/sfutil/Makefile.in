@@ -55,7 +55,9 @@ am_libsfutil_a_OBJECTS = sfghash.$(OBJEXT) sfhashfcn.$(OBJEXT) \
 	sfeventq.$(OBJEXT) sfsnprintfappend.$(OBJEXT) sfrt.$(OBJEXT) \
 	sfrt_dir.$(OBJEXT) sfportobject.$(OBJEXT) sfrim.$(OBJEXT) \
 	sfprimetable.$(OBJEXT) sf_ip.$(OBJEXT) sf_ipvar.$(OBJEXT) \
-	sf_vartable.$(OBJEXT) sf_iph.$(OBJEXT) sf_textlog.$(OBJEXT)
+	sf_vartable.$(OBJEXT) sf_iph.$(OBJEXT) sf_textlog.$(OBJEXT) \
+	sfPolicy.$(OBJEXT) sfPolicyUserData.$(OBJEXT) \
+	sfActionQueue.$(OBJEXT) sfrf.$(OBJEXT)
 libsfutil_a_OBJECTS = $(am_libsfutil_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp =
@@ -225,7 +227,11 @@ libsfutil_a_SOURCES = \
     sf_ipvar.c sf_ipvar.h \
     sf_vartable.c sf_vartable.h \
     sf_iph.c sf_iph.h \
-    sf_textlog.c sf_textlog.h
+    sf_textlog.c sf_textlog.h \
+	sfPolicy.c sfPolicy.h \
+	sfPolicyUserData.c sfPolicyUserData.h \
+	sfActionQueue.c sfActionQueue.h \
+    sfrf.c sfrf.h
 
 all: all-am
 

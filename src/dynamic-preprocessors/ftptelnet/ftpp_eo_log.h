@@ -36,7 +36,7 @@
 #include "ftpp_si.h"
 #include "ftpp_return_codes.h"
 
-void ftpp_eo_event_log_init();
+void ftpp_eo_event_log_init(void);
 
 int telnet_eo_event_log(TELNET_SESSION *Session, int iEvent, void *data,
         void (*free_data)(void *));

@@ -230,6 +230,21 @@ Package=<5>
 
 Package=<4>
 {{{
+    Begin Project Dependency
+    Project_Dep_Name snort_initialize
+    End Project Dependency
+}}}
+
+###############################################################################
+
+Project: "snort_initialize"=".\snort_initialize.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
 }}}
 
 ###############################################################################

@@ -23,7 +23,7 @@
 #define __SP_TCP_FLAG_CHECK_H__
 
 void SetupTCPFlagCheck(void);
-u_int32_t TcpFlagCheckHash(void *d);
+uint32_t TcpFlagCheckHash(void *d);
 int TcpFlagCheckCompare(void *l, void *r);
 
 #endif /* __SP_TCP_FLAG_CHECK_H__ */

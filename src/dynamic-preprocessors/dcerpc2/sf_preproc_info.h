@@ -28,7 +28,7 @@
 
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   0
-#define BUILD_VERSION   1
+#define BUILD_VERSION   2
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_DCERPC2 (IPV6)"
 #else

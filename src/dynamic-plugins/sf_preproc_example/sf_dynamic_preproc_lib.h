@@ -27,12 +27,13 @@
 
 #ifdef WIN32
 #ifdef SF_SNORT_PREPROC_DLL
-#define PREPROC_LINKAGE __declspec(dllexport)
+#define BUILDING_SO
+#define PREPROC_LINKAGE SO_PUBLIC
 #else
-#define PREPROC_LINKAGE __declspec(dllimport)
+#define PREPROC_LINKAGE
 #endif
 #else /* WIN32 */
-#define PREPROC_LINKAGE
-#endif /* WIN32 */
+#define PREPROC_LINKAGE SO_PUBLIC
+#endif
 
 #endif  /* __SF_DYNAMIC_PREPROC_LIB_H_ */

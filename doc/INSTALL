@@ -1,7 +1,7 @@
 The "generic" notes for putting this thing together are below.  Here's the
 short version.
 
-1.) *** Make sure you have libpcap installed!!! ***
+1.) *** Make sure you have libpcap and libpcre installed!!! ***
 2.) ./configure
 3.) make
 4.) make install
@@ -392,49 +392,46 @@ from mysql (found in its normal location), and a 64bit library for
 libdl (dynamic loader).  Use the --with-mysql-libraries option to
 specify the location of the 64bit mysql library (e.g. /usr/lib64/mysql).
 
+
 * Linux:
 --------
-  With kernels 2.2.x and higher you may get `snort [pid] uses obsolete
-  (PF_INET, SOCK_PACKET)' warnings. This is because you use some older
-  implementation of libpcap library and you need an upgrade. The recent
-  version of libpcap could be found at www.tcpdump.org page.  On linux
-  with kernels 2.2.x and higher you may also get feature to monitor
-  several interfaces down to network level (session + TCP + IP) if you
-  link your snort with the lattest version of libpcap which incorporates
-  Sebastian Krahmer's patch for interface 'any'.
-  (Consult http://www.tcpdump.org for details).
+With kernels 2.2.x and higher you may get `snort [pid] uses obsolete
+(PF_INET, SOCK_PACKET)' warnings. This is because you use some older
+implementation of libpcap library and you need an upgrade. The recent
+version of libpcap could be found at www.tcpdump.org page.  On linux
+with kernels 2.2.x and higher you may also get feature to monitor
+several interfaces down to network level (session + TCP + IP) if you
+link your snort with the lattest version of libpcap which incorporates
+Sebastian Krahmer's patch for interface 'any'.
+(Consult http://www.tcpdump.org for details).
+
 
 * IRIX
 ------
-[ noticed by Scott A. McIntyre <scott@whoi.edu>]
- There's problem with GCC on IRIX platform which causes certain missbehaviour
+[ noticed by Scott A. McIntyre <scott@whoi.edu> ]
+There's problem with GCC on IRIX platform which causes certain missbehaviour
 of snort.
 
->From the SGI web site:
+From the SGI web site:
 
 Gcc does not correctly pass/return structures which are smaller than 16
-bytes and which are
-         not 8 bytes. The problem is very involved and difficult to fix.
-It affects a number of other targets also, but irix6 is affected
-         the most, because it is a 64 bit target, and 4 byte structures
-are common. The exact problem is that structures are being
-         padded at the wrong end, e.g. a 4 byte structure is loaded into
-the lower 4 bytes of the register when it should be loaded
-         into the upper 4 bytes of the register. 
+bytes and which are not 8 bytes. The problem is very involved and difficult
+to fix.  It affects a number of other targets also, but irix6 is affected
+the most, because it is a 64 bit target, and 4 byte structures are common.
+The exact problem is that structures are being padded at the wrong end, e.g.
+a 4 byte structure is loaded into the lower 4 bytes of the register when it
+should be loaded into the upper 4 bytes of the register. 
 
-         Gcc is consistent with itself, but not consistent with the SGI
-C compiler [and the SGI supplied runtime libraries], so the
-         only failures that can happen are when there are library
-functions that take/return such structures. There are very few
-         such library functions. I can only recall seeing a few of them:
-inet_ntoa, inet_aton, inet_lnaof,
-         inet_netof, and semctl. 
+Gcc is consistent with itself, but not consistent with the SGI C compiler
+[and the SGI supplied runtime libraries], so the only failures that can
+happen are when there are library functions that take/return such structures.
+There are very few such library functions. I can only recall seeing a few of
+them: inet_ntoa, inet_aton, inet_lnaof, inet_netof, and semctl. 
 
-         A possible workaround: if you have a program that calls
-inet_ntoa and friends or semctl, and your kernel supports
-         64-bit binaries (i.e. uname -a prints IRIX64 rather than just
-IRIX), then you may compile with gcc -mabi=64 to
-         workaround this problem. 
+A possible workaround: if you have a program that calls inet_ntoa and friends
+or semctl, and your kernel supports 64-bit binaries (i.e. uname -a prints
+IRIX64 rather than just IRIX), then you may compile with gcc -mabi=64 to
+workaround this problem. 
 
 More information is available at:
 http://freeware.sgi.com/2000Feb/Installable/gcc-2.8.1-sgipl2.html
@@ -443,7 +440,7 @@ http://freeware.sgi.com/2000Feb/Installable/gcc-2.8.1-sgipl2.html
 * MAC OSX
 ---------
 On Darwin (maybe others), the configure script shipped as part of the
-source distribution needs to be recreated.  To do this, run the
+source distribution may need to be recreated.  To do this, run the
 following commands:
 
 glibtoolize --force
@@ -459,6 +456,7 @@ configure. An example:
 $ export LD_TWOLEVEL_NAMESPACE=1
 $ ./configure
 $ make
+
 
 * MAC OSX TIGER & LEOPARD
 -------------------------
@@ -478,17 +476,9 @@ $ export MACOSX_DEPLOYMENT_TARGET=10.5
 $ ./configure
 $ make
 
-The dynamicengine line in the default snort.conf must be updated to load 
-libsf_engine.dylib, instead of libsf_engine.so. The following line:
 
-    dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.so
-
-Should be changed to:
-
-    dynamicengine /usr/local/lib/snort_dynamicengine/libsf_engine.dylib
-
-* Open BSD/Free BSD/MAC OSX
----------------------------
+* Open BSD / Free BSD / MAC OSX
+-------------------------------
 On certain BSD-based platforms, the make install may not symlink the
 version specific shared libraries to the non-versioned shared library.
 This could cause a failure to load when using dynamic libraries.
@@ -497,15 +487,8 @@ Work arounds:
 
 1) Create the symlink's by hand after make install.  The shared libraries
 can be located under /usr/local/lib/snort_dynamicengine and
-/usr/local/lib/snort_dynamicpreprocessor.  
-
-1a) For MAC OSX, the object files ending in .0 will need to be
-symlinked to .dylib. For example:
-
-ln -s libsf_smtp_preproc.0  libsf_smtp_preproc.dylib
-
-1b) FreeBSD and OpenBSD should work correctly, but if not,
-symlink the .so.0 files to a corresponding .so.
+/usr/local/lib/snort_dynamicpreprocessor.  If necessary, symlink the .so.0
+or .0.so files to a corresponding .so.
 
 2) Use the --dynamic-preprocessor-lib (rather than
 --dynamic-preprocessor-lib-dir) to load the version specific
@@ -514,6 +497,7 @@ shared library.
 3) Use the config directive dynamicpreprocessor file (rather than
 dynamicpreprocessor directory) to load the version specific
 shared library.
+
 
 * FreeBSD 6.x
 -------------

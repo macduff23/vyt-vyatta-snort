@@ -24,6 +24,6 @@
 #ifndef __SPO_LOG_NULL_H__
 #define __SPO_LOG_NULL_H__
 
-void LogNullSetup();
+void LogNullSetup(void);
 
 #endif  /* __SPO_LOG_NULL_H__ */

@@ -70,13 +70,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#if !defined(WIN32)
-    #include <sys/time.h>
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
-#elif defined(WIN32)
-    #include <time.h>
+
+#ifndef WIN32
+# include <sys/time.h>
+# include <sys/socket.h>
+# include <netinet/in.h>
+# include <arpa/inet.h>
+#else
+# include <time.h>
 #endif
 
 #include "generators.h"
@@ -93,8 +94,10 @@
 
 #include "snort.h"
 #include "profiler.h"
+#include "sfPolicy.h"
 
 #undef inet_ntoa
+
 
 /*  D E F I N E S  **************************************************/
 #define MODNAME "spp_arpspoof"
@@ -104,9 +107,9 @@
 /*  D A T A   S T R U C T U R E S  **********************************/
 typedef struct _IPMacEntry
 {
-    u_int32_t ipv4_addr;
-    u_int8_t  mac_addr[6];
-    u_int8_t  pad[2];
+    uint32_t ipv4_addr;
+    uint8_t  mac_addr[6];
+    uint8_t  pad[2];
 } IPMacEntry;
 
 typedef struct _IPMacEntryListNode
@@ -122,65 +125,126 @@ typedef struct _IPMacEntryList
     IPMacEntryListNode *tail;
 } IPMacEntryList;
 
+typedef struct _ArpSpoofConfig
+{
+    int check_unicast_arp;
+    int check_overwrite;
+    IPMacEntryList *ipmel;
+
+} ArpSpoofConfig;
+
 
 /*  G L O B A L S  **************************************************/
-int check_unicast_arp, check_overwrite;
-u_int8_t bcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-static IPMacEntryList *ipmel = NULL;
+static tSfPolicyUserContextId arp_spoof_config = NULL;
+
+static const uint8_t bcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 #ifdef PERF_PROFILING
 PreprocStats arpPerfStats;
 #endif
 
+
 /*  P R O T O T Y P E S  ********************************************/
-void ARPspoofInit(char *args);
-void ARPspoofHostInit(char *args);
-void ParseARPspoofArgs(char *args);
-void ParseARPspoofHostArgs(char *args);
-void DetectARPattacks(Packet *p, void *context);
-void ARPspoofCleanExit(int signal, void *unused);
-void FreeIPMacEntryList(IPMacEntryList *ip_mac_entry_list);
-int AddIPMacEntryToList(IPMacEntryList *ip_mac_entry_list, 
-        IPMacEntry *ip_mac_entry);
-IPMacEntry *LookupIPMacEntryByIP(IPMacEntryList *ip_mac_entry_list, 
-        u_int32_t ipv4_addr);
-#if defined(DEBUG)
-    void PrintIPMacEntryList(IPMacEntryList *ip_mac_entry_list);
+static void ARPspoofInit(char *args);
+static void ARPspoofHostInit(char *args);
+static void ParseARPspoofArgs(ArpSpoofConfig *, char *);
+static void ParseARPspoofHostArgs(IPMacEntryList *, char *);
+static void DetectARPattacks(Packet *p, void *context);
+static void ARPspoofCleanExit(int signal, void *unused);
+static void FreeIPMacEntryList(IPMacEntryList *ip_mac_entry_list);
+static int AddIPMacEntryToList(IPMacEntryList *ip_mac_entry_list, 
+                               IPMacEntry *ip_mac_entry);
+static IPMacEntry *LookupIPMacEntryByIP(IPMacEntryList *ip_mac_entry_list, 
+                                        uint32_t ipv4_addr);
+static void ArpSpoofFreeConfig(tSfPolicyUserContextId config);
+
+#ifdef DEBUG
+static void PrintIPMacEntryList(IPMacEntryList *ip_mac_entry_list);
+#endif
+
+#ifdef SNORT_RELOAD
+static tSfPolicyUserContextId arp_spoof_swap_config = NULL; 
+static void ARPspoofReload(char *);
+static void ARPspoofReloadHost(char *);
+static void * ARPspoofReloadSwap(void);
+static void ARPspoofReloadSwapFree(void *);
 #endif
 
 
 void SetupARPspoof(void)
 {
+#ifndef SNORT_RELOAD
     RegisterPreprocessor("arpspoof", ARPspoofInit);
     RegisterPreprocessor("arpspoof_detect_host", ARPspoofHostInit);
+#else
+    RegisterPreprocessor("arpspoof", ARPspoofInit, ARPspoofReload,
+                         ARPspoofReloadSwap, ARPspoofReloadSwapFree);
+    RegisterPreprocessor("arpspoof_detect_host", ARPspoofHostInit,
+                         ARPspoofReloadHost, NULL, NULL);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, 
             "Preprocessor: ARPspoof is setup...\n"););
-
-    return;
 }
 
 
-void ARPspoofInit(char *args)
+static void ARPspoofInit(char *args)
 {
+    int policy_id = (int)getParserPolicy();
+    ArpSpoofConfig *pDefaultPolicyConfig = NULL;
+    ArpSpoofConfig *pCurrentPolicyConfig = NULL;
+
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, 
             "Preprocessor: ARPspoof Initialized\n"););
 
-    /* Parse the arpspoof arguments from snort.conf */
-    ParseARPspoofArgs(args);
+    if (arp_spoof_config == NULL)
+    {
+       arp_spoof_config = sfPolicyConfigCreate();
 
 #ifdef PERF_PROFILING
-    RegisterPreprocessorProfile("arpspoof", &arpPerfStats, 0, &totalPerfStats);
+        RegisterPreprocessorProfile("arpspoof", &arpPerfStats, 0, &totalPerfStats);
 #endif
 
+        /* Restart and CleanExit are identical */
+        AddFuncToPreprocCleanExitList(ARPspoofCleanExit, NULL, PRIORITY_LAST, PP_ARPSPOOF);
+        AddFuncToPreprocRestartList(ARPspoofCleanExit, NULL, PRIORITY_LAST, PP_ARPSPOOF);
+    }
+
+    sfPolicyUserPolicySet (arp_spoof_config, policy_id);
+    pDefaultPolicyConfig = (ArpSpoofConfig *)sfPolicyUserDataGetDefault(arp_spoof_config);
+    pCurrentPolicyConfig = (ArpSpoofConfig *)sfPolicyUserDataGetCurrent(arp_spoof_config);
+
+    if ((policy_id != 0) && (pDefaultPolicyConfig == NULL))
+    {
+        ParseError("Arpspoof configuration: Must configure default policy "
+                   "if other policies are to be configured.");
+    }
+
+    if (pCurrentPolicyConfig)
+    {
+        ParseError("Arpspoof can only be configured once.\n");
+    } 
+
+    pCurrentPolicyConfig = (ArpSpoofConfig *)SnortAlloc(sizeof(ArpSpoofConfig));
+    if (!pCurrentPolicyConfig)
+    {
+        ParseError("Arpspoof preprocessor: memory allocate failed.\n");
+    }
+
+    sfPolicyUserDataSetCurrent(arp_spoof_config, pCurrentPolicyConfig);
     /* Add arpspoof to the preprocessor function list */
     AddFuncToPreprocList(DetectARPattacks, PRIORITY_NETWORK, PP_ARPSPOOF, PROTO_BIT__ARP);
 
-    /* Restart and CleanExit are identical */
-    AddFuncToPreprocCleanExitList(ARPspoofCleanExit, NULL, PRIORITY_LAST, PP_ARPSPOOF);
-    AddFuncToPreprocRestartList(ARPspoofCleanExit, NULL, PRIORITY_LAST, PP_ARPSPOOF);
+    //policy independent configuration. First policy defines actual values.
+    if (policy_id != 0)
+    {
+       pCurrentPolicyConfig->check_unicast_arp =
+           ((ArpSpoofConfig *)sfPolicyUserDataGetDefault(arp_spoof_config))->check_unicast_arp;
+        return;
+    }
 
-    return;
+    /* Parse the arpspoof arguments from snort.conf */
+    ParseARPspoofArgs(pCurrentPolicyConfig, args);
 }
 
 
@@ -191,48 +255,45 @@ void ARPspoofInit(char *args)
  * 
  * @return void function
  */
-void ParseARPspoofArgs(char *args)
+static void ParseARPspoofArgs(ArpSpoofConfig *config, char *args)
 {
-    char **toks;
-    int num_toks;
-    int num;
-
-    if (!args)
+    if ((config == NULL) || (args == NULL))
         return;
 
-    toks = mSplit(args, " ", 2, &num_toks, '\\');
-
-    if (num_toks > 1)
-    {      
-        FatalError(MODNAME ": ERROR: %s (%d) => ARPspoof configuration "
-                "format: -unicast\n", file_name, file_line);
-    } 
-
-    for (num = 0; num < num_toks; num++)
-    {
-        if (!strncasecmp(WITHUNICAST, toks[num], sizeof WITHUNICAST))
-            check_unicast_arp = 1;
-    }
-
-    mSplitFree(&toks, num_toks);
+    if (strcasecmp(WITHUNICAST, args) == 0)
+        config->check_unicast_arp = 1;
+    else
+        ParseError("Invalid option to arpspoof configuration");
 }
 
 
-void ARPspoofHostInit(char *args)
+static void ARPspoofHostInit(char *args)
 {
+    int policy_id = (int)getParserPolicy();
+    ArpSpoofConfig *pPolicyConfig = NULL;
+    sfPolicyUserPolicySet (arp_spoof_config, policy_id);
+    pPolicyConfig = (ArpSpoofConfig *)sfPolicyUserDataGetCurrent(arp_spoof_config);
+  	 
+
+    if ((arp_spoof_config == NULL) || (pPolicyConfig == NULL) )
+    {
+        ParseError("Please activate arpspoof before trying to "
+                   "use arpspoof_detect_host.");
+    }
+
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, 
             "Preprocessor: ARPspoof (overwrite list) Initialized\n"););
-
-    if (ipmel == NULL)
-        ipmel = (IPMacEntryList *)SnortAlloc(sizeof(IPMacEntryList));
+    
+    if (pPolicyConfig->ipmel == NULL)
+    {
+        pPolicyConfig->ipmel = (IPMacEntryList *)SnortAlloc(sizeof(IPMacEntryList));
+    }
 
     /* Add MAC/IP pairs to ipmel */
-    ParseARPspoofHostArgs(args);
+    ParseARPspoofHostArgs(pPolicyConfig->ipmel, args);
 
-    if (check_overwrite == 0)
-        check_overwrite = 1;
-
-    return;
+    if (pPolicyConfig->check_overwrite == 0)
+        pPolicyConfig->check_overwrite = 1;
 }
 
 
@@ -243,7 +304,7 @@ void ARPspoofHostInit(char *args)
  * 
  * @return void function
  */
-void ParseARPspoofHostArgs(char *args)
+static void ParseARPspoofHostArgs(IPMacEntryList *ipmel, char *args)
 {
     char **toks;
     char **macbytes; 
@@ -253,42 +314,35 @@ void ParseARPspoofHostArgs(char *args)
     IPMacEntry *ipme = NULL;
 
     if (ipmel == NULL)
-    {
-        FatalError("%s(%d) => Please activate arpspoof before trying to "
-                "use arpspoof_detect_host\n", file_name, file_line);
-    }
+        return;
 
-    toks = mSplit(args, " ", 2, &num_toks, '\\');
+    toks = mSplit(args, " ", 0, &num_toks, '\\');
 
     if (num_toks != 2)
-    {
-        FatalError("Arpspoof %s(%d) => Invalid arguments to "
-                   "arpspoof_detect_host\n", file_name, file_line);
-    }
+        ParseError("Invalid arguments to arpspoof_detect_host.");
 
     /* Add entries */
     ipme = (IPMacEntry *)SnortAlloc(sizeof(IPMacEntry));
 
-    if ((IP_struct.s_addr = inet_addr(toks[0])) == -1)
+    if ((IP_struct.s_addr = inet_addr(toks[0])) == INADDR_NONE)
     {
-        FatalError("Arpspoof %s(%d) => Invalid IP address as first argument of "
-                "IP/MAC pair to arpspoof_detect_host\n", file_name, file_line);
+        ParseError("Invalid IP address as first argument of "
+                   "IP/MAC pair to arpspoof_detect_host.");
     }
 
-    ipme->ipv4_addr = (u_int32_t)IP_struct.s_addr;
+    ipme->ipv4_addr = (uint32_t)IP_struct.s_addr;
 
     macbytes = mSplit(toks[1], ":", 6, &num_macbytes, '\\');
 
     if (num_macbytes < 6)
     {
-        FatalError("Arpspoof %s(%d) => Invalid MAC address as second "
-                   "argument of IP/MAC pair to arpspoof_detect_host\n", 
-                   file_name, file_line);
+        ParseError("Invalid MAC address as second argument of IP/MAC "
+                   "pair to arpspoof_detect_host.");
     }
     else
     {
         for (i = 0; i < 6; i++)
-            ipme->mac_addr[i] = (u_int8_t) strtoul(macbytes[i], NULL, 16);
+            ipme->mac_addr[i] = (uint8_t) strtoul(macbytes[i], NULL, 16);
     }
 
     AddIPMacEntryToList(ipmel, ipme);
@@ -299,8 +353,6 @@ void ParseARPspoofHostArgs(char *args)
 #if defined(DEBUG)
     PrintIPMacEntryList(ipmel);
 #endif
-
-    return;
 }
 
 
@@ -312,13 +364,16 @@ void ParseARPspoofHostArgs(char *args)
  *
  * @return void function
  */
-void DetectARPattacks(Packet *p, void *context)
+static void DetectARPattacks(Packet *p, void *context)
 {
     IPMacEntry *ipme;
+    ArpSpoofConfig *aconfig = NULL;
     PROFILE_VARS;
+    sfPolicyUserPolicySet (arp_spoof_config, getRuntimePolicy());
+    aconfig = (ArpSpoofConfig *)sfPolicyUserDataGetCurrent(arp_spoof_config);
 
     /* is the packet valid? */
-    if (p == NULL)
+    if ((p == NULL) || (aconfig == NULL))
         return;
 
     /* are the Ethernet and ARP headers present? */
@@ -335,7 +390,7 @@ void DetectARPattacks(Packet *p, void *context)
     switch(ntohs(p->ah->ea_hdr.ar_op))
     {
         case ARPOP_REQUEST:
-            if (check_unicast_arp) 
+            if (aconfig->check_unicast_arp) 
             {
                 if (memcmp((u_char *)p->eh->ether_dst, (u_char *)bcast, 6) != 0)
                 {
@@ -384,12 +439,12 @@ void DetectARPattacks(Packet *p, void *context)
     PREPROC_PROFILE_END(arpPerfStats);
 
     /* return if the overwrite list hasn't been initialized */
-    if (!check_overwrite)
+    if (!aconfig->check_overwrite)
         return;
 
     /* LookupIPMacEntryByIP() is too slow, will be fixed later */
-    if ((ipme = LookupIPMacEntryByIP(ipmel, 
-            *(u_int32_t *)&p->ah->arp_spa)) == NULL)
+    if ((ipme = LookupIPMacEntryByIP(aconfig->ipmel, 
+                                     *(uint32_t *)&p->ah->arp_spa)) == NULL)
     {
         DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, 
                 "MODNAME: LookupIPMacEntryByIp returned NULL\n"););
@@ -403,10 +458,10 @@ void DetectARPattacks(Packet *p, void *context)
         /* If the Ethernet source address or the ARP source hardware address
          * in p doesn't match the MAC address in ipme, then generate an alert
          */
-        if ((memcmp((u_int8_t *)p->eh->ether_src, 
-                (u_int8_t *)ipme->mac_addr, 6)) || 
-                (memcmp((u_int8_t *)p->ah->arp_sha, 
-                (u_int8_t *)ipme->mac_addr, 6)))
+        if ((memcmp((uint8_t *)p->eh->ether_src, 
+                (uint8_t *)ipme->mac_addr, 6)) || 
+                (memcmp((uint8_t *)p->ah->arp_sha, 
+                (uint8_t *)ipme->mac_addr, 6)))
         {
             SnortEventqAdd(GENERATOR_SPP_ARPSPOOF,
                     ARPSPOOF_ARP_CACHE_OVERWRITE_ATTACK, 1, 0, 3,
@@ -429,8 +484,8 @@ void DetectARPattacks(Packet *p, void *context)
  *
  * @return 0 if the node is added successfully, 1 otherwise
  */
-int AddIPMacEntryToList(IPMacEntryList *ip_mac_entry_list, 
-        IPMacEntry *ip_mac_entry)
+static int AddIPMacEntryToList(IPMacEntryList *ip_mac_entry_list, 
+                               IPMacEntry *ip_mac_entry)
 {
     IPMacEntryListNode *newNode;
 
@@ -464,8 +519,8 @@ int AddIPMacEntryToList(IPMacEntryList *ip_mac_entry_list,
  *
  * @return pointer to a structure node if a match is found, NULL otherwise
  */
-IPMacEntry *LookupIPMacEntryByIP(IPMacEntryList *ip_mac_entry_list, 
-        u_int32_t ipv4_addr)
+static IPMacEntry *LookupIPMacEntryByIP(IPMacEntryList *ip_mac_entry_list, 
+                                        uint32_t ipv4_addr)
 {
     IPMacEntryListNode *current;
 #if defined(DEBUG)
@@ -507,7 +562,7 @@ IPMacEntry *LookupIPMacEntryByIP(IPMacEntryList *ip_mac_entry_list,
  *
  * @return void function
  */
-void FreeIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
+static void FreeIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
 {
     IPMacEntryListNode *prev;
     IPMacEntryListNode *current;
@@ -532,20 +587,38 @@ void FreeIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
 }
 
 
-void ARPspoofCleanExit(int signal, void *unused)
+static void ARPspoofCleanExit(int signal, void *unused)
 {
-    if (ipmel != NULL)
+    ArpSpoofFreeConfig(arp_spoof_config);
+    arp_spoof_config = NULL;
+}
+
+static int ArpSpoofFreeConfigPolicy(tSfPolicyUserContextId config,tSfPolicyId policyId, void* pData )
+{
+    ArpSpoofConfig *pPolicyConfig = (ArpSpoofConfig *)pData;
+    if(pPolicyConfig->ipmel != NULL)
     {
-        FreeIPMacEntryList(ipmel);
-        free(ipmel);
-        ipmel = NULL;
+         FreeIPMacEntryList(pPolicyConfig->ipmel);
+         free(pPolicyConfig->ipmel);
     }
-    check_unicast_arp = check_overwrite = 0;
-    return;
+    sfPolicyUserDataClear (config, policyId);
+    free(pPolicyConfig);
+    return 0;
+}
+
+static void ArpSpoofFreeConfig(tSfPolicyUserContextId config)
+{
+
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, ArpSpoofFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
+
 }
 
 
-#if defined(DEBUG)
+#ifdef DEBUG
 /**
  * Print the overwrite list for debugging purposes
  *
@@ -553,7 +626,7 @@ void ARPspoofCleanExit(int signal, void *unused)
  *
  * @return void function
  */
-void PrintIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
+static void PrintIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
 {
     IPMacEntryListNode *current;
     int i;
@@ -578,5 +651,99 @@ void PrintIPMacEntryList(IPMacEntryList *ip_mac_entry_list)
         current = current->next;
     }    
     return;
+}
+#endif
+
+#ifdef SNORT_RELOAD
+static void ARPspoofReload(char *args)
+{
+    int policy_id = (int)getParserPolicy();
+    ArpSpoofConfig *pPolicyConfig = NULL;
+
+    if (arp_spoof_swap_config == NULL)
+    {
+
+         arp_spoof_swap_config = sfPolicyConfigCreate();
+    }
+
+     sfPolicyUserPolicySet (arp_spoof_swap_config, policy_id);
+
+    pPolicyConfig = (ArpSpoofConfig *)sfPolicyUserDataGetCurrent(arp_spoof_swap_config);
+    if (pPolicyConfig)
+    {
+        FatalError("Arpspoof can only be configured once.\n");
+    }
+
+    pPolicyConfig = (ArpSpoofConfig *)SnortAlloc(sizeof(ArpSpoofConfig));
+    if (!pPolicyConfig)
+    {
+        ParseError("ARPSPOOF preprocessor: memory allocate failed.\n");
+    }
+     sfPolicyUserDataSetCurrent(arp_spoof_swap_config, pPolicyConfig);
+    
+
+    /* Add arpspoof to the preprocessor function list */
+    AddFuncToPreprocList(DetectARPattacks, PRIORITY_NETWORK, PP_ARPSPOOF, PROTO_BIT__ARP);
+
+    //policy independent configuration. First policy defines actual values.
+    if (policy_id != 0)
+    {
+       pPolicyConfig->check_unicast_arp = ((ArpSpoofConfig *)sfPolicyUserDataGetDefault(arp_spoof_swap_config))->check_unicast_arp;
+        return;
+    }
+
+    /* Parse the arpspoof arguments from snort.conf */
+    ParseARPspoofArgs(pPolicyConfig, args);
+}
+
+static void ARPspoofReloadHost(char *args)
+{
+    int policy_id = (int)getParserPolicy();
+    ArpSpoofConfig *pPolicyConfig = NULL;
+    sfPolicyUserPolicySet (arp_spoof_swap_config, policy_id);
+    pPolicyConfig = (ArpSpoofConfig *)sfPolicyUserDataGetCurrent(arp_spoof_swap_config); 
+
+    if ((arp_spoof_swap_config == NULL) ||
+        (pPolicyConfig == NULL))
+    {
+        ParseError("Please activate arpspoof before trying to "
+                   "use arpspoof_detect_host.");
+    }
+
+    DEBUG_WRAP(DebugMessage(DEBUG_INIT, 
+            "Preprocessor: ARPspoof (overwrite list) Initialized\n"););
+
+    if (pPolicyConfig->ipmel == NULL)
+    {
+        pPolicyConfig->ipmel =
+            (IPMacEntryList *)SnortAlloc(sizeof(IPMacEntryList));
+    }
+
+    /* Add MAC/IP pairs to ipmel */
+    ParseARPspoofHostArgs(pPolicyConfig->ipmel, args);
+
+    if (pPolicyConfig->check_overwrite == 0)
+        pPolicyConfig->check_overwrite = 1;
+}
+
+static void * ARPspoofReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = arp_spoof_config;
+
+    if (arp_spoof_swap_config == NULL)
+        return NULL;
+
+    arp_spoof_config = arp_spoof_swap_config;
+    arp_spoof_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void ARPspoofReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    ArpSpoofFreeConfig((tSfPolicyUserContextId)data);
 }
 #endif

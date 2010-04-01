@@ -29,9 +29,9 @@
  *
  */
 
-#ifndef __SPP_SMB_H__
-#define __SPP_SMB_H__
+#ifndef __SPP_DCERPC_H__
+#define __SPP_DCERPC_H__
 
-void SetupSMB();
+void SetupDCERPC(void);
 
-#endif  /* __SPP_SMB_H__ */
+#endif  /* __SPP_DCERPC_H__ */

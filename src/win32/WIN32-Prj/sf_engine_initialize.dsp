@@ -38,8 +38,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 0
-# PROP Output_Dir "Release"
-# PROP Intermediate_Dir "Release"
+# PROP Output_Dir "SF_Engine_Initialize_Release"
+# PROP Intermediate_Dir "SF_Engine_Initialize_Release"
 # PROP Target_Dir ""
 
 !ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 Debug"
@@ -51,8 +51,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 1
-# PROP Output_Dir "Debug"
-# PROP Intermediate_Dir "Debug"
+# PROP Output_Dir "SF_Engine_Initialize_Debug"
+# PROP Intermediate_Dir "SF_Engine_Initialize_Debug"
 # PROP Target_Dir ""
 
 !ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 IPv6 Debug"
@@ -64,8 +64,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 1
-# PROP Output_Dir "sf_engine_initialize___Win32_IPv6_Debug"
-# PROP Intermediate_Dir "sf_engine_initialize___Win32_IPv6_Debug"
+# PROP Output_Dir "SF_Engine_Initialize_IPv6_Debug"
+# PROP Intermediate_Dir "SF_Engine_Initialize_IPv6_Debug"
 # PROP Target_Dir ""
 
 !ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 IPv6 Release"
@@ -77,8 +77,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 0
-# PROP Output_Dir "sf_engine_initialize___Win32_IPv6_Release"
-# PROP Intermediate_Dir "sf_engine_initialize___Win32_IPv6_Release"
+# PROP Output_Dir "SF_Engine_Initialize_IPv6_Release"
+# PROP Intermediate_Dir "SF_Engine_Initialize_IPv6_Release"
 # PROP Target_Dir ""
 
 !ENDIF 
@@ -101,7 +101,7 @@ InputName=debug
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ..\..\dynamic-plugins\sf_engine\$(InputName).h.new > ..\..\dynamic-plugins\sf_engine\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ../../dynamic-plugins\sf_engine\$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -119,7 +119,7 @@ InputName=debug
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ..\..\dynamic-plugins\sf_engine\$(InputName).h.new > ..\..\dynamic-plugins\sf_engine\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -137,7 +137,7 @@ InputName=debug
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ..\..\dynamic-plugins\sf_engine\$(InputName).h.new > ..\..\dynamic-plugins\sf_engine\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -155,7 +155,7 @@ InputName=debug
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ..\..\dynamic-plugins\sf_engine\$(InputName).h.new > ..\..\dynamic-plugins\sf_engine\$(InputName).h \
+	c:\cygwin\bin\sed -e "s/DebugMessageFile = /*_ded.debugMsgFile = /" -e "s/DebugMessageLine = /*_ded.debugMsgLine = /" -e "s/; DebugMessageFunc$/; _ded.debugMsg/" -e "s/; DebugWideMessageFunc$/; _ded.debugWideMsg/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -180,7 +180,7 @@ InputName=ipv6_port
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ..\..\dynamic-plugins\sf_engine/$(InputName).h.new > ..\..\dynamic-plugins\sf_engine/$(InputName).h \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -198,7 +198,7 @@ InputName=ipv6_port
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ..\..\dynamic-plugins\sf_engine/$(InputName).h.new > ..\..\dynamic-plugins\sf_engine/$(InputName).h \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -216,7 +216,7 @@ InputName=ipv6_port
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ..\..\dynamic-plugins\sf_engine/$(InputName).h.new > ..\..\dynamic-plugins\sf_engine/$(InputName).h \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -234,7 +234,7 @@ InputName=ipv6_port
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).h.new \
-	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ..\..\dynamic-plugins\sf_engine/$(InputName).h.new > ..\..\dynamic-plugins\sf_engine/$(InputName).h \
+	c:\cygwin\bin\sed -e "s/->iph->ip_src/->ip4_header->source/" -e "s/->iph->ip_dst/->ip4_header->destination/" -e "s/->iph->/->ip4_header->/" -e "s/->iph$$/->ip4_header/" -e "s/orig_iph/orig_ip4_header/" -e "s/ip_verhl/version_headerlength/" -e "s/ip_tos/type_service/" -e "s/ip_len/data_length/" -e "s/ip_id/identifier/" -e "s/ip_off/offset/" -e "s/ip_ttl/time_to_live/" -e "s/ip_proto/proto/" -e "s/ip_csum/checksum/" -e "s/p->iph$/p->ip4_header/" ../../dynamic-plugins/sf_engine/$(InputName).h.new > ../../dynamic-plugins/sf_engine/$(InputName).h \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -463,7 +463,7 @@ InputName=sfhashfcn
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).c.new \
-	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ..\..\dynamic-plugins\sf_engine\$(InputName).c.new > ..\..\dynamic-plugins\sf_engine\$(InputName).c \
+	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ../../dynamic-plugins/sf_engine/$(InputName).c.new > ../../dynamic-plugins/sf_engine/$(InputName).c \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -481,7 +481,7 @@ InputName=sfhashfcn
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).c.new \
-	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ..\..\dynamic-plugins\sf_engine\$(InputName).c.new > ..\..\dynamic-plugins\sf_engine\$(InputName).c \
+	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ../../dynamic-plugins/sf_engine/$(InputName).c.new > ../../dynamic-plugins/sf_engine/$(InputName).c \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -499,7 +499,7 @@ InputName=sfhashfcn
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).c.new \
-	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ..\..\dynamic-plugins\sf_engine\$(InputName).c.new > ..\..\dynamic-plugins\sf_engine\$(InputName).c \
+	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ../../dynamic-plugins/sf_engine/$(InputName).c.new > ../../dynamic-plugins/sf_engine/$(InputName).c \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -517,7 +517,7 @@ InputName=sfhashfcn
 
 BuildCmds= \
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine\$(InputName).c.new \
-	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ..\..\dynamic-plugins\sf_engine\$(InputName).c.new > ..\..\dynamic-plugins\sf_engine\$(InputName).c \
+	c:\cygwin\bin\sed -e "s/\#ifndef MODULUS_HASH/\#ifdef STATIC_HASH/" ../../dynamic-plugins/sf_engine/$(InputName).c.new > ../../dynamic-plugins/sf_engine/$(InputName).c \
 	
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).c" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
@@ -674,6 +674,57 @@ InputName=sfprimetable
 # Begin Custom Build
 InputPath=..\..\sfutil\sfprimetable.h
 InputName=sfprimetable
+
+"..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) ..\..\dynamic-plugins\sf_engine
+
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\sf_types.h
+
+!IF  "$(CFG)" == "sf_engine_initialize - Win32 Release"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) ..\..\dynamic-plugins\sf_engine
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) ..\..\dynamic-plugins\sf_engine
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 IPv6 Debug"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
+
+"..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) ..\..\dynamic-plugins\sf_engine
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "sf_engine_initialize - Win32 IPv6 Release"
+
+# Begin Custom Build
+InputPath=..\..\sf_types.h
+InputName=sf_types
 
 "..\..\dynamic-plugins\sf_engine\$(InputName).h" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
 	copy $(InputPath) ..\..\dynamic-plugins\sf_engine

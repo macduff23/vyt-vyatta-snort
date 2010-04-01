@@ -30,7 +30,7 @@ int  SearchInit(unsigned int num);
 int  SearchGetHandle(void);
 int  SearchPutHandle(unsigned int id);
 int  SearchReInit(unsigned int i);
-void SearchFree();
+void SearchFree(void);
 void SearchFreeId(unsigned id);
 void SearchAdd(unsigned int mpse_id, const char *pat, unsigned int pat_len, int id);
 void SearchPrepPatterns(unsigned int mpse_id);
@@ -49,7 +49,7 @@ typedef struct _search_api
 
     int (*search_reinit)(unsigned int);
 
-    void (*search_free)();
+    void (*search_free)(void);
 
     void (*search_add)(unsigned int, const char *, unsigned int, int);
 
@@ -63,7 +63,7 @@ typedef struct _search_api
     int (*search_get_handle)(void);
     int (*search_put_handle)(unsigned int);
 
-    void * (*search_instance_new)();
+    void * (*search_instance_new)(void);
     void   (*search_instance_free)(void * instance);
     void   (*search_instance_add) (void * instance, const char *s, unsigned int s_len, int s_id);
     void   (*search_instance_prep)(void * instance );

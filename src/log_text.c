@@ -105,6 +105,7 @@ void LogPriorityData(TextLog* log, bool doNewLine)
  * Layer 2 header stuff cloned from log.c
  *--------------------------------------------------------------------
  */
+#ifndef NO_NON_ETHER_DECODER
 /*--------------------------------------------------------------------
  * Function: LogTrHeader(TextLog*, Packet*)
  *
@@ -147,6 +148,7 @@ void LogTrHeader(TextLog* log, Packet* p)
                 p->trhmr->rseg[6], p->trhmr->rseg[7]);
     }
 }
+#endif  // NO_NON_ETHER_DECODER
 
 /*--------------------------------------------------------------------
  * Function: LogEthHeader()
@@ -182,6 +184,7 @@ static void LogMPLSHeader(TextLog* log, Packet* p)
             p->mplsHdr.label, p->mplsHdr.exp, p->mplsHdr.bos, p->mplsHdr.ttl);    
 }
 #endif
+#ifndef NO_NON_ETHER_DECODER
 /*--------------------------------------------------------------------
  * Function: LogSLLHeader(TextLog* )
  *
@@ -352,6 +355,7 @@ static void LogWifiHeader(TextLog* log, Packet * p)
   if (p->wifih->frame_control & WLAN_FLAG_ORDER)   TextLog_Puts(log," Ord");
   TextLog_NewLine(log);
 }
+#endif  // NO_NON_ETHER_DECODER
 
 /*--------------------------------------------------------------------
  * Function: Log2ndHeader(TextLog* , Packet p)
@@ -372,12 +376,13 @@ void Log2ndHeader(TextLog* log, Packet* p)
             if(p && p->eh)
                 LogEthHeader(log, p);
             break;
+#ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
         case DLT_IEEE802_11:
             if(p && p->wifih)
                 LogWifiHeader(log, p);
             break;
-#endif     
+#endif
         case DLT_IEEE802:                /* Token Ring */
             if(p && p->trh)
                 LogTrHeader(log, p);
@@ -387,11 +392,14 @@ void Log2ndHeader(TextLog* log, Packet* p)
             if (p && p->sllh)
                 LogSLLHeader(log, p);  /* Linux cooked sockets */
             break;
-#endif            
+#endif
+#endif  // NO_NON_ETHER_DECODER
         default:
-            if(pv.verbose_flag)
+            if (ScLogVerbose())
+            {
                 ErrorMessage("Datalink %i type 2nd layer display is not "
-                        "supported\n", datalink);   
+                             "supported\n", datalink);   
+            }
     }
 }
 
@@ -524,7 +532,7 @@ void LogIPHeader(TextLog*  log, Packet * p)
         }
         else
         {
-            if(!pv.obfuscation_flag)
+            if (!ScObfuscate())
             {
                 /* print the header complete with port information */
                 TextLog_Puts(log, inet_ntoa(GET_SRC_ADDR(p)));
@@ -543,7 +551,7 @@ void LogIPHeader(TextLog*  log, Packet * p)
         }
     }
 
-    if(!pv.show2hdr_flag)
+    if(!ScOutputDataLink())
     {
         TextLog_NewLine(log);
     }
@@ -556,19 +564,19 @@ void LogIPHeader(TextLog*  log, Packet * p)
             protocol_names[GET_IPH_PROTO(p)],
             GET_IPH_TTL(p),
             GET_IPH_TOS(p),
-            IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((u_int16_t)GET_IPH_ID(p)),
+            IS_IP6(p) ? ntohl(GET_IPH_ID(p)) : ntohs((uint16_t)GET_IPH_ID(p)),
             GET_IPH_HLEN(p) << 2, 
             GET_IP_DGMLEN(p));
 
     /* print the reserved bit if it's set */
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x8000) >> 15) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x8000) >> 15) == 1)
         TextLog_Puts(log, " RB");
 
     /* printf more frags/don't frag bits */
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x4000) >> 14) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x4000) >> 14) == 1)
         TextLog_Puts(log, " DF");
 
-    if((u_int8_t)((ntohs(GET_IPH_OFF(p)) & 0x2000) >> 13) == 1)
+    if((uint8_t)((ntohs(GET_IPH_OFF(p)) & 0x2000) >> 13) == 1)
         TextLog_Puts(log, " MF");
 
     TextLog_NewLine(log);
@@ -763,7 +771,7 @@ void LogTCPHeader(TextLog*  log, Packet * p)
 
     if((p->tcph->th_flags & TH_URG) != 0)
     {
-        TextLog_Print(log, "  UrgPtr: 0x%X\n", (u_int16_t) ntohs(p->tcph->th_urp));
+        TextLog_Print(log, "  UrgPtr: 0x%X\n", (uint16_t) ntohs(p->tcph->th_urp));
     }
     else
     {
@@ -890,7 +898,7 @@ static void LogICMPEmbeddedIP(TextLog* log, Packet *p)
 {
     Packet op;
     Packet *orig_p;
-    u_int32_t orig_ip_hlen;
+    uint32_t orig_ip_hlen;
 
     if (log == NULL || p == NULL)
         return;
@@ -1281,7 +1289,7 @@ void LogXrefs(TextLog* log, int doNewLine)
  *--------------------------------------------------------------------
  */
 /*--------------------------------------------------------------------
- * Function: LogCharData(TextLog*, char*, int)
+ * Function: ScOutputCharData(TextLog*, char*, int)
  *
  * Purpose: Dump the printable ASCII data from a packet
  *
@@ -1366,7 +1374,7 @@ static void LogNetData (TextLog* log, const u_char* data, const int len)
 
     if ( len > IP_MAXPACKET )
     {
-        if(pv.verbose_flag)
+        if (ScLogVerbose())
         {
             TextLog_Print(
                 log, "Got bogus buffer length (%d) for LogNetData, "
@@ -1381,7 +1389,7 @@ static void LogNetData (TextLog* log, const u_char* data, const int len)
     {
         int i = 0;
 
-        if ( pv.verbose_bytedump_flag == 1 )
+        if (ScVerboseByteDump())
         {
             TextLog_Print(log, "0x%04X: ", offset);
             offset += BYTES_PER_FRAME;
@@ -1451,7 +1459,7 @@ void LogIPPkt(TextLog* log, int type, Packet * p)
     LogTimeStamp(log, p);
 
     /* dump the ethernet header if we're doing that sort of thing */
-    if ( pv.show2hdr_flag )
+    if (ScOutputDataLink())
     {
         Log2ndHeader(log, p);
     }
@@ -1511,14 +1519,14 @@ void LogIPPkt(TextLog* log, int type, Packet * p)
     }
 
     /* dump the application layer data */
-    if ( pv.data_flag && !pv.verbose_bytedump_flag )
+    if (ScOutputAppData() && !ScVerboseByteDump())
     {
-        if ( pv.char_data_flag )
+        if (ScOutputCharData())
             LogCharData(log, (char*) p->data, p->dsize);
         else
             LogNetData(log, p->data, p->dsize);
     }
-    else if(pv.verbose_bytedump_flag)
+    else if (ScVerboseByteDump())
     {
         LogNetData(log, p->pkt, p->pkth->caplen);
     }
@@ -1526,6 +1534,7 @@ void LogIPPkt(TextLog* log, int type, Packet * p)
     TextLog_Print(log, "%s\n\n", SEPARATOR);
 }
 
+#ifndef NO_NON_ETHER_DECODER
 /*--------------------------------------------------------------------
  * ARP stuff cloned from log.c
  *--------------------------------------------------------------------
@@ -1541,8 +1550,8 @@ void LogArpHeader(TextLog* log, Packet * p)
 // XXX-IPv6 "NOT YET IMPLEMENTED - printing ARP header"
 #else
     struct in_addr ip_addr;
-    const u_int8_t *mac_src = NULL;
-    const u_int8_t *mac_dst = NULL;
+    const uint8_t *mac_src = NULL;
+    const uint8_t *mac_dst = NULL;
 
     memset((struct in_addr *) &ip_addr, 0, sizeof(struct in_addr));
 
@@ -1666,4 +1675,5 @@ void LogArpHeader(TextLog* log, Packet * p)
     TextLog_Puts(log, "\n\n");
 #endif
 }
+#endif  // NO_NON_ETHER_DECODER
 

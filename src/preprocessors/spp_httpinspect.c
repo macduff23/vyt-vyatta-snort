@@ -48,6 +48,7 @@
 #include "plugbase.h"
 #include "debug.h"
 #include "util.h"
+#include "parser.h"
 
 #include "hi_ui_config.h"
 #include "hi_ui_server_lookup.h"
@@ -65,6 +66,7 @@
 #include "sftarget_protocol_reference.h"
 #endif
 #include "snort_stream5_session.h"
+#include "sfPolicy.h"
 
 /*
 **  Defines for preprocessor initialization
@@ -85,7 +87,7 @@
 **  Variables that we need from Snort to log errors correctly and such.
 */
 extern char *file_name;
-extern char *file_line;
+extern int file_line;
 extern HttpUri UriBufs[URI_COUNT];
 
 /*
@@ -95,13 +97,20 @@ extern HttpUri UriBufs[URI_COUNT];
 **  the actual preprocessor.  There is no interaction between the
 **  two except through global variable usage.
 */
-HTTPINSPECT_GLOBAL_CONF GlobalConf;
+tSfPolicyUserContextId hi_config = NULL;
+
+#ifdef TARGET_BASED
+/* Store the protocol id received from the stream reassembler */
+int16_t hi_app_protocol_id;
+#endif
 
 #ifdef PERF_PROFILING
 PreprocStats hiPerfStats;
 PreprocStats hiDetectPerfStats;
 int hiDetectCalled = 0;
 #endif
+
+static tSfPolicyId httpCurrentPolicy = 0;
 
 /*
 ** Prototypes
@@ -112,9 +121,22 @@ static void HttpInspectCleanExit(int, void *);
 static void HttpInspectReset(int, void *);
 static void HttpInspectResetStats(int, void *);
 static void HttpInspectInit(char *);
-static void addServerConfPortsToStream5(
-        void *pData
-        );
+static void addServerConfPortsToStream5(void *);
+static void HttpInspectFreeConfigs(tSfPolicyUserContextId);
+static void HttpInspectFreeConfig(HTTPINSPECT_GLOBAL_CONF *);
+static void HttpInspectCheckConfig(void);
+static void HttpInspectAddPortsOfInterest(HTTPINSPECT_GLOBAL_CONF *, tSfPolicyId);
+#ifdef TARGET_BASED
+static void HttpInspectAddServicesOfInterest(tSfPolicyId);
+#endif
+
+#ifdef SNORT_RELOAD
+tSfPolicyUserContextId hi_swap_config = NULL;
+static void HttpInspectReload(char *);
+static int HttpInspectReloadVerify(void);
+static void * HttpInspectReloadSwap(void);
+static void HttpInspectReloadSwapFree(void *);
+#endif
 
 
 /*
@@ -136,7 +158,14 @@ static void addServerConfPortsToStream5(
 */
 static void HttpInspect(Packet *p, void *context)
 {
+    tSfPolicyId policy_id = getRuntimePolicy();
+    HTTPINSPECT_GLOBAL_CONF *pPolicyConfig = NULL ;
     PROFILE_VARS;
+    sfPolicyUserPolicySet (hi_config, policy_id);
+    pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)sfPolicyUserDataGetCurrent(hi_config);
+
+    if ( pPolicyConfig == NULL)
+        return;
 
     /*
     **  IMPORTANT:
@@ -159,7 +188,7 @@ static void HttpInspect(Packet *p, void *context)
     /*
     **  Pass in the configuration and the packet.
     */
-    SnortHttpInspect(&GlobalConf, p);
+    SnortHttpInspect(pPolicyConfig, p);
 
     p->uri_count = 0;
     UriBufs[0].decode_flags = 0;
@@ -251,11 +280,7 @@ static void HttpInspectDropStats(int exiting)
 
 static void HttpInspectCleanExit(int signal, void *data)
 {
-    /* Cleanup */
-    hi_ui_server_lookup_destroy(GlobalConf.server_lookup);
-
-    xfree(GlobalConf.iis_unicode_map_filename);
-    xfree(GlobalConf.iis_unicode_map);
+    HttpInspectFreeConfigs(hi_config);
 }
 
 static void HttpInspectReset(int signal, void *data)
@@ -293,62 +318,106 @@ static void HttpInspectResetStats(int signal, void *data)
 */
 static void HttpInspectInit(char *args)
 {
-    char ErrorString[ERRSTRLEN] = "";
+    char ErrorString[ERRSTRLEN];
     int  iErrStrLen = ERRSTRLEN;
     int  iRet;
-    static int siFirstConfig = 1;
-    int  iGlobal = 0;
+    char *pcToken;
+    HTTPINSPECT_GLOBAL_CONF *pPolicyConfig = NULL;
+    tSfPolicyId policy_id = getParserPolicy();
 
-    if(siFirstConfig)
+    ErrorString[0] = '\0';
+
+    if ((args == NULL) || (strlen(args) == 0))
+        ParseError("No arguments to HttpInspect configuration.");
+
+    /* Find out what is getting configured */
+    pcToken = strtok(args, CONF_SEPARATORS);
+    if (pcToken == NULL)
     {
+        FatalError("%s(%d)strtok returned NULL when it should not.",
+                   __FILE__, __LINE__);
+    }
+
+    if (hi_config == NULL)
+    {
+        hi_config = sfPolicyConfigCreate();
         memset(&hi_stats, 0, sizeof(HIStats)); 
-        iRet = hi_ui_config_init_global_conf(&GlobalConf);
-        if (iRet)
-        {
-            snprintf(ErrorString, iErrStrLen,
-                    "Error initializing Global Configuration.");
-            FatalError("%s(%d) => %s\n", file_name, file_line, ErrorString);
-
-            return;
-        }
-
-        iRet = hi_ui_config_default(&GlobalConf);
-        if (iRet)
-        {
-            snprintf(ErrorString, iErrStrLen,
-                    "Error configuring default global configuration.");
-            FatalError("%s(%d) => %s\n", file_name, file_line, ErrorString);
-
-            return;
-        }
-
-        iRet = hi_client_init(&GlobalConf);
-        if (iRet)
-        {
-            snprintf(ErrorString, iErrStrLen,
-                    "Error initializing client module.");
-            FatalError("%s(%d) => %s\n", file_name, file_line, ErrorString);
-
-            return;
-        }
-
-        iRet = hi_norm_init(&GlobalConf);
-        if (iRet)
-        {
-            snprintf(ErrorString, iErrStrLen,
-                     "Error initializing normalization module.");
-            FatalError("%s(%d) => %s\n", file_name, file_line, ErrorString);
-
-            return;
-        }
 
         /*
-        **  We set the global configuration variable
-        */
-        iGlobal = 1;
+         **  Remember to add any cleanup functions into the appropriate
+         **  lists.
+         */
+        AddFuncToPreprocCleanExitList(HttpInspectCleanExit, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
+        AddFuncToPreprocRestartList(HttpInspectCleanExit, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
+        AddFuncToPreprocResetList(HttpInspectReset, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
+        AddFuncToPreprocResetStatsList(HttpInspectResetStats, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
+        AddFuncToConfigCheckList(HttpInspectCheckConfig);
+
+        RegisterPreprocStats("http_inspect", HttpInspectDropStats);
+
+#ifdef PERF_PROFILING
+        RegisterPreprocessorProfile("httpinspect", &hiPerfStats, 0, &totalPerfStats);
+#endif
+
+#ifdef TARGET_BASED
+        /* Find and cache protocol ID for packet comparison */
+        hi_app_protocol_id = AddProtocolReference("http");
+#endif
+    }
+
+    /*
+    **  Global Configuration Processing
+    **  We only process the global configuration once, but always check for
+    **  user mistakes, like configuring more than once.  That's why we
+    **  still check for the global token even if it's been checked.
+    **  Force the first configuration to be the global one.
+    */
+    sfPolicyUserPolicySet (hi_config, policy_id);
+    pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)sfPolicyUserDataGetCurrent(hi_config);
+    if (pPolicyConfig == NULL)
+    {
+        if (strcasecmp(pcToken, GLOBAL) != 0) 
+        {
+            ParseError("Must configure the http inspect global "
+                       "configuration first.");
+        }
+        pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)SnortAlloc(sizeof(HTTPINSPECT_GLOBAL_CONF)); 
+        if (!pPolicyConfig)
+        {
+             ParseError("HTTP INSPECT preprocessor: memory allocate failed.\n");
+        }
+        sfPolicyUserDataSetCurrent(hi_config, pPolicyConfig);
+
+        iRet = HttpInspectInitializeGlobalConfig(pPolicyConfig,
+                                                 ErrorString, iErrStrLen);
+        if (iRet == 0)
+        {
+            iRet = ProcessGlobalConf(pPolicyConfig,
+                                     ErrorString, iErrStrLen);
+
+            if (iRet == 0)
+            {
+                PrintGlobalConf(pPolicyConfig);
+
+                /* Add HttpInspect into the preprocessor list */
+                AddFuncToPreprocList(HttpInspect, PRIORITY_APPLICATION, PP_HTTPINSPECT, PROTO_BIT__TCP);
+            }
+        }
+    }
+    else
+    {
+        if (strcasecmp(pcToken, SERVER) != 0)
+        {
+            if (strcasecmp(pcToken, GLOBAL) != 0) 
+                ParseError("Must configure the http inspect global configuration first.");
+            else
+                ParseError("Invalid http inspect token: %s.", pcToken);
+        }
+
+        iRet = ProcessUniqueServerConf(pPolicyConfig,
+                                       ErrorString, iErrStrLen);
     }
     
-    iRet = HttpInspectSnortConf(&GlobalConf, args, iGlobal, ErrorString, iErrStrLen);
     if (iRet)
     {
         if(iRet > 0)
@@ -390,39 +459,6 @@ static void HttpInspectInit(char *args)
             }
         }
     }
-
-    /*
-    **  Only add the functions one time to the preproc list.
-    */
-    if(siFirstConfig)
-    {
-        /*
-        **  Add HttpInspect into the preprocessor list
-        */
-        AddFuncToPreprocList(HttpInspect, PRIORITY_APPLICATION, PP_HTTPINSPECT, PROTO_BIT__TCP);
-        RegisterPreprocStats("http_inspect", HttpInspectDropStats);
-
-        /*
-        **  Remember to add any cleanup functions into the appropriate
-        **  lists.
-        */
-        AddFuncToPreprocCleanExitList(HttpInspectCleanExit, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
-        AddFuncToPreprocRestartList(HttpInspectCleanExit, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
-        AddFuncToPreprocResetList(HttpInspectReset, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
-        AddFuncToPreprocResetStatsList(HttpInspectResetStats, NULL, PRIORITY_APPLICATION, PP_HTTPINSPECT);
-        siFirstConfig = 0;
-
-#ifdef PERF_PROFILING
-        RegisterPreprocessorProfile("httpinspect", &hiPerfStats, 0, &totalPerfStats);
-#endif
-
-#ifdef TARGET_BASED
-        /* Find and cache protocol ID for packet comparison */
-        GlobalConf.app_protocol_id = AddProtocolReference("http");
-#endif
-    }
-
-    return;
 }
 
 /*
@@ -443,35 +479,62 @@ static void HttpInspectInit(char *args)
 **
 **  @return void
 */
-void SetupHttpInspect()
+void SetupHttpInspect(void)
 {
+#ifndef SNORT_RELOAD
     RegisterPreprocessor(GLOBAL_KEYWORD, HttpInspectInit);
     RegisterPreprocessor(SERVER_KEYWORD, HttpInspectInit);
-    AddFuncToConfigCheckList(HttpInspectCheckConfig);
+#else
+    RegisterPreprocessor(GLOBAL_KEYWORD, HttpInspectInit, HttpInspectReload,
+                         HttpInspectReloadSwap, HttpInspectReloadSwapFree);
+    RegisterPreprocessor(SERVER_KEYWORD, HttpInspectInit,
+                         HttpInspectReload, NULL, NULL);
+#endif
 
     DEBUG_WRAP(DebugMessage(DEBUG_HTTPINSPECT, "Preprocessor: HttpInspect is "
                 "setup . . .\n"););
 }
 
+
+static int HttpInspectVerifyPolicy(tSfPolicyUserContextId config,tSfPolicyId policyId, void* pData )
+{
+    HTTPINSPECT_GLOBAL_CONF *pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)pData;
+    if (pPolicyConfig->global_server == NULL)
+    {
+       FatalError("HttpInspectConfigCheck() default server configuration "
+                "not specified\n");
+    }
+
+#ifdef TARGET_BASED
+        HttpInspectAddServicesOfInterest(policyId);
+#endif
+        HttpInspectAddPortsOfInterest(pPolicyConfig, policyId);
+
+    return 0;
+}
+
+
 /** Add ports configured for http preprocessor to stream5 port filtering so that if 
  * any_any rules are being ignored them the the packet still reaches http-inspect.
  *
- * For ports in global_server configuration, server_lookup and server_lookupIpv6,
+ * For ports in global_server configuration, server_lookup,
  * add the port to stream5 port filter list.
  */
-void HttpInspectAddPortsOfInterest()
+static void HttpInspectAddPortsOfInterest(HTTPINSPECT_GLOBAL_CONF *config, tSfPolicyId policy_id)
 {
-    addServerConfPortsToStream5((void*)&GlobalConf.global_server);
-    hi_ui_server_iterate( GlobalConf.server_lookup, addServerConfPortsToStream5);
-    hi_ui_server_iterate( GlobalConf.server_lookupIpv6, addServerConfPortsToStream5);
+    if (config == NULL)
+        return;
+
+    httpCurrentPolicy = policy_id;
+
+    addServerConfPortsToStream5((void *)config->global_server);
+    hi_ui_server_iterate(config->server_lookup, addServerConfPortsToStream5);
 }
 
 /**Add server ports from http_inspect preprocessor from snort.comf file to pass through 
  * port filtering.
  */
-void addServerConfPortsToStream5(
-        void *pData
-        )
+void addServerConfPortsToStream5(void *pData)
 {
     unsigned int i;
 
@@ -480,26 +543,241 @@ void addServerConfPortsToStream5(
     {
         for (i = 0; i < MAXPORTS; i++)
         {
-            if (pConf->ports[i])
+            if (pConf->ports[i/8] & (1 << (i % 8) ))
             {
                 //Add port the port
-                stream_api->set_port_filter_status(IPPROTO_TCP, (u_int16_t)i, PORT_MONITOR_SESSION);
+                stream_api->set_port_filter_status
+                    (IPPROTO_TCP, (uint16_t)i, PORT_MONITOR_SESSION, httpCurrentPolicy, 1);
             }
         }
     }
 }
 
+#ifdef TARGET_BASED
 /**
  * @param service ordinal number of service.
  */
-void HttpInspectAddServicesOfInterest()
+void HttpInspectAddServicesOfInterest(tSfPolicyId policy_id)
 {
-#ifdef TARGET_BASED
     /* Add ordinal number for the service into stream5 */
-    if (GlobalConf.app_protocol_id != SFTARGET_UNKNOWN_PROTOCOL)
+    if (hi_app_protocol_id != SFTARGET_UNKNOWN_PROTOCOL)
     {
-        stream_api->set_service_filter_status(GlobalConf.app_protocol_id, PORT_MONITOR_SESSION);
+        stream_api->set_service_filter_status(hi_app_protocol_id, PORT_MONITOR_SESSION, policy_id, 1);
     }
+}
 #endif
+
+/*
+**  NAME
+**    HttpInspectCheckConfig::
+*/
+/**
+**  This function verifies the HttpInspect configuration is complete
+**
+**  @return none
+*/
+static void HttpInspectCheckConfig(void)
+{
+    if (hi_config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (hi_config, HttpInspectVerifyPolicy);
+
+    if (!stream_api || (stream_api->version < STREAM_API_VERSION5))
+    {
+        FatalError("HttpInspectConfigCheck() Streaming & reassembly "
+                   "must be enabled\n");
+    }
+}
+static int HttpInspectFreeConfigPolicy(tSfPolicyUserContextId config,tSfPolicyId policyId, void* pData )
+{
+    HTTPINSPECT_GLOBAL_CONF *pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)pData;
+    HttpInspectFreeConfig(pPolicyConfig);
+    sfPolicyUserDataClear (config, policyId);
+    return 0;
+}
+static void HttpInspectFreeConfigs(tSfPolicyUserContextId config)
+{
+
+    if (config == NULL)
+        return;
+    sfPolicyUserDataIterate (config, HttpInspectFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
+
 }
 
+static void HttpInspectFreeConfig(HTTPINSPECT_GLOBAL_CONF *config)
+{
+    if (config == NULL)
+        return;
+
+    hi_ui_server_lookup_destroy(config->server_lookup);
+
+    xfree(config->iis_unicode_map_filename);
+    xfree(config->iis_unicode_map);
+
+    if (config->global_server != NULL)
+        free(config->global_server);
+
+    free(config);
+}
+
+#ifdef SNORT_RELOAD
+static void HttpInspectReload(char *args)
+{
+    char ErrorString[ERRSTRLEN];
+    int  iErrStrLen = ERRSTRLEN;
+    int  iRet;
+    HTTPINSPECT_GLOBAL_CONF *pPolicyConfig = NULL;	
+    char *pcToken;
+    tSfPolicyId policy_id = getParserPolicy();
+
+    ErrorString[0] = '\0';
+
+    if ((args == NULL) || (strlen(args) == 0))
+        ParseError("No arguments to HttpInspect configuration.");
+
+    /* Find out what is getting configured */
+    pcToken = strtok(args, CONF_SEPARATORS);
+    if (pcToken == NULL)
+    {
+        FatalError("%s(%d)strtok returned NULL when it should not.",
+                   __FILE__, __LINE__);
+    }
+
+    if (hi_swap_config == NULL)
+    {
+        hi_swap_config = sfPolicyConfigCreate();
+    }
+
+    /*
+    **  Global Configuration Processing
+    **  We only process the global configuration once, but always check for
+    **  user mistakes, like configuring more than once.  That's why we
+    **  still check for the global token even if it's been checked.
+    **  Force the first configuration to be the global one.
+    */
+    sfPolicyUserPolicySet (hi_swap_config, policy_id);
+    pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)sfPolicyUserDataGetCurrent(hi_swap_config);
+    if (pPolicyConfig == NULL)
+    {
+        if (strcasecmp(pcToken, GLOBAL) != 0) 
+            ParseError("Must configure the http inspect global configuration first.");
+
+        pPolicyConfig = (HTTPINSPECT_GLOBAL_CONF *)SnortAlloc(sizeof(HTTPINSPECT_GLOBAL_CONF));
+        if (!pPolicyConfig)
+        {
+             ParseError("HTTP INSPECT preprocessor: memory allocate failed.\n");
+        }
+        sfPolicyUserDataSetCurrent(hi_swap_config, pPolicyConfig);
+        iRet = HttpInspectInitializeGlobalConfig(pPolicyConfig,
+                                                 ErrorString, iErrStrLen);
+        if (iRet == 0)
+        {
+            iRet = ProcessGlobalConf(pPolicyConfig,
+                                     ErrorString, iErrStrLen);
+
+            if (iRet == 0)
+            {
+                PrintGlobalConf(pPolicyConfig);
+
+                /* Add HttpInspect into the preprocessor list */
+                AddFuncToPreprocList(HttpInspect, PRIORITY_APPLICATION, PP_HTTPINSPECT, PROTO_BIT__TCP);
+                AddFuncToPreprocReloadVerifyList(HttpInspectReloadVerify);
+            }
+        }
+    }
+    else
+    {
+        if (strcasecmp(pcToken, SERVER) != 0)
+        {
+            if (strcasecmp(pcToken, GLOBAL) != 0) 
+                ParseError("Must configure the http inspect global configuration first.");
+            else
+                ParseError("Invalid http inspect token: %s.", pcToken);
+        }
+
+        iRet = ProcessUniqueServerConf(pPolicyConfig,
+                                       ErrorString, iErrStrLen);
+    }
+    
+    if (iRet)
+    {
+        if(iRet > 0)
+        {
+            /*
+            **  Non-fatal Error
+            */
+            if(*ErrorString)
+            {
+                ErrorMessage("%s(%d) => %s\n", 
+                        file_name, file_line, ErrorString);
+            }
+        }
+        else
+        {
+            /*
+            **  Fatal Error, log error and exit.
+            */
+            if(*ErrorString)
+            {
+                FatalError("%s(%d) => %s\n", 
+                        file_name, file_line, ErrorString);
+            }
+            else
+            {
+                /*
+                **  Check if ErrorString is undefined.
+                */
+                if(iRet == -2)
+                {
+                    FatalError("%s(%d) => ErrorString is undefined.\n", 
+                            file_name, file_line);
+                }
+                else
+                {
+                    FatalError("%s(%d) => Undefined Error.\n", 
+                            file_name, file_line);
+                }
+            }
+        }
+    }
+}
+
+static int HttpInspectReloadVerify(void)
+{
+    if (hi_swap_config == NULL)
+        return 0;
+
+    sfPolicyUserDataIterate (hi_swap_config, HttpInspectVerifyPolicy);
+
+    if (!stream_api || (stream_api->version < STREAM_API_VERSION5))
+    {
+        FatalError("HttpInspectConfigCheck() Streaming & reassembly "
+                   "must be enabled\n");
+    }
+
+    return 0;
+}
+
+static void * HttpInspectReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = hi_config;
+
+    if (hi_swap_config == NULL)
+        return NULL;
+
+    hi_config = hi_swap_config;
+    hi_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void HttpInspectReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    HttpInspectFreeConfigs((tSfPolicyUserContextId)data);
+}
+#endif

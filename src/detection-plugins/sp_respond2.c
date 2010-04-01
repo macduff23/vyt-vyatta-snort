@@ -92,7 +92,7 @@
 #include "config.h"
 #endif
 
-#if defined(ENABLE_RESPONSE2) && !defined(ENABLE_RESPONSE)
+#ifdef ENABLE_RESPONSE2
 
 #include <dnet.h>
 
@@ -109,6 +109,7 @@
 #include "checksum.h"
 #include "bounds.h"
 #include "sfxhash.h"
+#include "sp_respond.h"
 
 #define IPIDCOUNT 8192              /* number of randomly generated IP IDs */
 #define CACHETIME 2                 /* dampening interval */ 
@@ -134,55 +135,57 @@ typedef struct _RespondData
 /* response cache data structure */
 typedef struct _RESPKEY
 {
-    u_int32_t sip;                      /* source IP */
-    u_int32_t dip;                      /* dest IP */
-    u_int16_t sport;                    /* source port/ICMP type */
-    u_int16_t dport;                    /* dest   port/ICMP code */
-    u_int8_t  proto;                    /* IP protocol */
-    u_int8_t  _pad[3];                  /* empty bits for word alignment */
+    uint32_t sip;                      /* source IP */
+    uint32_t dip;                      /* dest IP */
+    uint16_t sport;                    /* source port/ICMP type */
+    uint16_t dport;                    /* dest   port/ICMP code */
+    uint8_t  proto;                    /* IP protocol */
+    uint8_t  _pad[3];                  /* empty bits for word alignment */
 } RESPKEY;
 
 typedef struct _RESPOND2_CONFIG
 {
     int rows;                           /* response cache size (in rows) */
     int memcap;                         /* response cache memcap */
-    u_int8_t respond_attempts;          /* respond attempts per trigger */
-    snort_ip *rawdev;                       /* dnet(3) raw IP handle */
+    uint8_t respond_attempts;          /* respond attempts per trigger */
+    ip_t *rawdev;                       /* dnet(3) raw IP handle */
     eth_t *ethdev;                      /* dnet(3) ethernet device handle */   
     rand_t *randh;                      /* dnet(3) rand handle */
 } RESPOND2_CONFIG;
 
 
-extern PV pv;
+extern SnortConfig *snort_conf_for_parsing;
+
 static void *ip_id_pool = NULL;         /* random IP ID buffer */
-static u_int32_t ip_id_iterator;        /* consumed IP IDs */
+static uint32_t ip_id_iterator;        /* consumed IP IDs */
 
 static void *tcp_pkt = NULL;            /* TCP packet memory placeholder */
 static void *icmp_pkt = NULL;           /* ICMP packet memory placeholder */
 
-static u_int8_t link_offset;            /* offset from L2 to L3 header */
-static u_int8_t alignment;              /* force alignment ?? */
+static uint8_t link_offset;            /* offset from L2 to L3 header */
+static uint8_t alignment;              /* force alignment ?? */
 
 SFXHASH *respcache = NULL;              /* cache responses to prevent loops */
 static RESPKEY response;
-static RESPOND2_CONFIG config;
+
+static RESPOND2_CONFIG *resp2_config = NULL;
 
 
 /* API functions */
-static void Respond2Init(char *data, OptTreeNode *otn, int protocol);
-static void Respond2Restart(int signal, void *data);
+static void RespondInit(char *data, OptTreeNode *otn, int protocol);
+static void RespondCleanup(int signal, void *data);
 static int ParseResponse2(char *type);
 
 /* CORE respond2 functions */
-static int Respond2(Packet *p, RspFpList *fp_list);
+static int Respond(Packet *p, RspFpList *fp_list);
 static INLINE void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf);
 static INLINE void SendUnreach(const int code, Packet *p, 
         RESPOND2_CONFIG *conf);
 static INLINE int IsRSTCandidate(Packet *p);
 static INLINE int IsUNRCandidate(Packet *p);
 static INLINE int IsLinkCandidate(Packet *p);
-static INLINE u_int16_t RandID(RESPOND2_CONFIG *conf);
-static INLINE u_int8_t CalcOriginalTTL(Packet *p);
+static INLINE uint16_t RandID(RESPOND2_CONFIG *conf);
+static INLINE uint8_t CalcOriginalTTL(Packet *p);
 
 /* UTILITY functions */
 static void PrecacheTCP(void);
@@ -200,14 +203,13 @@ static INLINE int respkey_make(RESPKEY *hashkey, Packet *p);
 
 
 /* ######## API section ######## */
-u_int32_t Respond2Hash(void *d)
+uint32_t RespondHash(void *d)
 {
-    u_int32_t a,b,c,tmp;
-    int i,j,k,l;
+    uint32_t a,b,c;
     RespondData *data = (RespondData *)d;
 
     a = data->response_flag;
-    b = RULE_OPTION_TYPE_RESPOND2;
+    b = RULE_OPTION_TYPE_RESPOND;
     c = 0;
 
     final(a,b,c);
@@ -215,7 +217,7 @@ u_int32_t Respond2Hash(void *d)
     return c;
 }
 
-int Respond2Compare(void *l, void *r)
+int RespondCompare(void *l, void *r)
 {
     RespondData *left = (RespondData *)l;
     RespondData *right = (RespondData *)r;
@@ -236,20 +238,17 @@ int Respond2Compare(void *l, void *r)
  *
  * @return void function
  */
-void SetupRespond2(void)
+void SetupRespond(void)
 {
-    RegisterPlugin("resp", Respond2Init, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("resp2", &respond2PerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
-    GenRandIPID(&config);  /* generate random IP ID cache */
-
-    return;
 }
 
 
 /**
- * Respond2 initialization function
+ * Respond initialization function
  *
  * @param data argument passed to the resp keyword
  * @param otn pointer to an OptTreeNode structure
@@ -257,9 +256,8 @@ void SetupRespond2(void)
  *
  * @return void function
  */
-static void Respond2Init(char *data, OptTreeNode *otn, int protocol) 
+static void RespondInit(char *data, OptTreeNode *otn, int protocol) 
 {
-    static int setup = 0;
     RespondData *rd = NULL;
     void *idx_dup;
 
@@ -269,29 +267,43 @@ static void Respond2Init(char *data, OptTreeNode *otn, int protocol)
 
     rd = (RespondData *)SnortAlloc(sizeof(RespondData));
 
-    if (!setup)
+    /* XXX XXX */
+    if (resp2_config == NULL)
     {
-        SetLinkInfo();      /* setup link-layer pointer arithmetic info */
-        SetRespAttempts(&config);       /* configure # of TCP attempts */
-        SetRespCacheRows(&config);      /* configure # of rows in cache */
-        SetRespCacheMemcap(&config);    /* configure response cache memcap */
+        resp2_config = (RESPOND2_CONFIG *)SnortAlloc(sizeof(RESPOND2_CONFIG));
+        SnortConfig *sc = snort_conf_for_parsing;
 
-        if ((respcache_init(&respcache, &config)) != 0)
+        if (sc == NULL)
+        {
+            FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                       __FILE__, __LINE__);
+        }
+
+        GenRandIPID(resp2_config);  /* generate random IP ID cache */
+        SetLinkInfo();      /* setup link-layer pointer arithmetic info */
+        SetRespAttempts(resp2_config);       /* configure # of TCP attempts */
+        SetRespCacheRows(resp2_config);      /* configure # of rows in cache */
+        SetRespCacheMemcap(resp2_config);    /* configure response cache memcap */
+
+        if ((respcache_init(&respcache, resp2_config)) != 0)
             FatalError("%s: Unable to allocate hash table memory.\n", MODNAME);
 
         /* Open raw socket or network device before Snort drops privileges */
         if (link_offset)
         {
-            if (config.ethdev == NULL)     /* open link-layer device */
+            if (resp2_config->ethdev == NULL)     /* open link-layer device */
             {
-                if ((config.ethdev = eth_open(pv.respond2_ethdev)) == NULL)
+                if ((resp2_config->ethdev = eth_open(sc->respond2_ethdev)) == NULL)
+                {
                     FatalError("%s: Unable to open link-layer device: %s.\n", 
-                            MODNAME, pv.respond2_ethdev);
+                            MODNAME, sc->respond2_ethdev);
+                }
             }
+
             DEBUG_WRAP(
                     DebugMessage(DEBUG_PLUGIN, "%s: using link-layer "
                             "injection on interface %s\n", MODNAME,
-                            pv.respond2_ethdev);
+                            sc->respond2_ethdev);
                     DebugMessage(DEBUG_PLUGIN, "%s: link_offset = %d\n", 
                             MODNAME, link_offset);
         
@@ -299,36 +311,40 @@ static void Respond2Init(char *data, OptTreeNode *otn, int protocol)
         }
         else
         {
-            if (config.rawdev == NULL)   /* open raw device if necessary */
+            if (resp2_config->rawdev == NULL)   /* open raw device if necessary */
             {
-                if ((config.rawdev = ip_open()) == NULL)
+                if ((resp2_config->rawdev = ip_open()) == NULL)
                     FatalError("%s: Unable to open raw socket.\n", 
                             MODNAME);
             }
         }
-        setup = 1;
+
         DEBUG_WRAP(
                 DebugMessage(DEBUG_PLUGIN, "%s: respond_attempts = %d\n", 
-                        MODNAME, config.respond_attempts);
-                DebugMessage(DEBUG_PLUGIN, "Plugin: Respond2 is setup\n");
+                        MODNAME, resp2_config->respond_attempts);
+                DebugMessage(DEBUG_PLUGIN, "Plugin: Respond is setup\n");
         );
+
+        AddFuncToCleanExitList(RespondCleanup, NULL);
+        AddFuncToRestartList(RespondCleanup, NULL);
     }
 
     rd->response_flag = ParseResponse2(data);
     
-    if (add_detection_option(RULE_OPTION_TYPE_RESPOND2, (void *)rd, &idx_dup) == DETECTION_OPTION_EQUAL)
+    if (add_detection_option(RULE_OPTION_TYPE_RESPOND, (void *)rd, &idx_dup) == DETECTION_OPTION_EQUAL)
     {
         free(rd);
         rd = idx_dup;
-     }
+    }
 
-    AddRspFuncToList(Respond2, otn, (void *)rd);
+    AddRspFuncToList(Respond, otn, (void *)rd);
     /* Restart and CleanExit function are identical */
-    AddFuncToCleanExitList(Respond2Restart, &config);
-    AddFuncToRestartList(Respond2Restart, &config);
-    return;
 }
 
+void RespondFree (void* d)
+{
+    free(d);
+}
 
 /**
  * respond2 signal handler
@@ -338,15 +354,23 @@ static void Respond2Init(char *data, OptTreeNode *otn, int protocol)
  *
  * @return void function
  */
-static void Respond2Restart(int signal, void *data)
+static void RespondCleanup(int signal, void *data)
 {
-    RESPOND2_CONFIG *conf = (RESPOND2_CONFIG *)data;
+    if (resp2_config != NULL)
+    {
+        /* device and raw IP handles */
+        if (resp2_config->rawdev != NULL)
+            resp2_config->rawdev = ip_close(resp2_config->rawdev);
 
-    /* device and raw IP handles */
-    if (conf->rawdev != NULL)
-        conf->rawdev = ip_close(conf->rawdev);
-    if (conf->ethdev != NULL)
-        conf->ethdev = eth_close(conf->ethdev);
+        if (resp2_config->ethdev != NULL)
+            resp2_config->ethdev = eth_close(resp2_config->ethdev);
+
+        if (resp2_config->randh != NULL)
+            resp2_config->randh = rand_close(resp2_config->randh);
+
+        free(resp2_config);
+        resp2_config = NULL;
+    }
 
     /* free packet memory */
     if (tcp_pkt != NULL)
@@ -355,6 +379,7 @@ static void Respond2Restart(int signal, void *data)
         free(tcp_pkt);
         tcp_pkt = NULL;
     }
+
     if (icmp_pkt != NULL)
     {
         icmp_pkt -= alignment;
@@ -370,8 +395,6 @@ static void Respond2Restart(int signal, void *data)
         /* reset iterator */
         ip_id_iterator = 0;
     }
-    if (conf->randh != NULL)
-        conf->randh = rand_close(conf->randh);
 
     /* destroy the response dampening hash table */
     if (respcache != NULL)
@@ -379,8 +402,6 @@ static void Respond2Restart(int signal, void *data)
         sfxhash_delete(respcache);
         respcache = NULL;
     }
-
-    return;
 }
 
 
@@ -409,7 +430,7 @@ static int ParseResponse2(char *type)
     toks = mSplit(type, ",", 6, &num_toks, 0);
 
     if (num_toks < 1)
-        FatalError("ERROR %s (%d): Bad arguments to respond2: %s.\n", file_name,
+        FatalError("%s (%d): Bad arguments to respond2: %s.\n", file_name,
                 file_line, type);
 
     i = 0;
@@ -491,7 +512,7 @@ static int ParseResponse2(char *type)
  *
  * @return void function
  */
-static int Respond2(Packet *p, RspFpList *fp_list)
+static int Respond(Packet *p, RspFpList *fp_list)
 {
     RespondData *rd;
     PROFILE_VARS;
@@ -513,23 +534,23 @@ static int Respond2(Packet *p, RspFpList *fp_list)
         if ((rd->response_flag & (RESP_RST_RCV | RESP_RST_SND)) && 
                 IsRSTCandidate(p))
         {
-            SendReset(RESP_RST_RCV, p, &config);
-            SendReset(RESP_RST_SND, p, &config);
+            SendReset(RESP_RST_RCV, p, resp2_config);
+            SendReset(RESP_RST_SND, p, resp2_config);
         }
         if ((rd->response_flag & RESP_RST_RCV) && IsRSTCandidate(p))
-            SendReset(RESP_RST_RCV, p, &config);
+            SendReset(RESP_RST_RCV, p, resp2_config);
 
         if ((rd->response_flag & RESP_RST_SND) && IsRSTCandidate(p))
-            SendReset(RESP_RST_SND, p, &config);
+            SendReset(RESP_RST_SND, p, resp2_config);
 
         if (rd->response_flag & RESP_BAD_NET && IsUNRCandidate(p))
-            SendUnreach(ICMP_UNREACH_NET, p, &config);
+            SendUnreach(ICMP_UNREACH_NET, p, resp2_config);
 
         if (rd->response_flag & RESP_BAD_HOST && IsUNRCandidate(p))
-            SendUnreach(ICMP_UNREACH_HOST, p, &config);
+            SendUnreach(ICMP_UNREACH_HOST, p, resp2_config);
 
         if (rd->response_flag & RESP_BAD_PORT && IsUNRCandidate(p))
-            SendUnreach(ICMP_UNREACH_PORT, p, &config);
+            SendUnreach(ICMP_UNREACH_PORT, p, resp2_config);
     }
     PREPROC_PROFILE_END(respond2PerfStats);
     return 1;   /* injection functions do not return an error */
@@ -550,8 +571,8 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     size_t sz = IP_HDR_LEN + TCP_HDR_LEN;
     ssize_t n;
     int reversed;
-    u_int32_t i, ack, seq;
-    u_int16_t window, dsize;
+    uint32_t i, ack, seq;
+    uint16_t window, dsize;
     EtherHdr *eh;
     IPHdr *iph;
     TCPHdr *tcp;
@@ -604,8 +625,13 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     /* Reverse the source and destination IP addr for attack-response rules */
     if (reversed)
     {
-        iph->ip_src.s_addr = GET_SRC_IP(p);
-        iph->ip_dst.s_addr = GET_DST_IP(p);
+#ifdef SUP_IP6
+    memcpy(&iph->ip_src.s_addr, &(GET_DST_IP(p))->ip32[0], 4);
+    memcpy(&iph->ip_dst.s_addr, &(GET_SRC_IP(p))->ip32[0], 4);
+#else
+    iph->ip_src.s_addr = GET_DST_IP(p);
+    iph->ip_dst.s_addr = GET_SRC_IP(p);
+#endif
 
         tcp->th_sport = p->tcph->th_dport;
         tcp->th_dport = p->tcph->th_sport;
@@ -614,8 +640,13 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     }
     else
     {
-        iph->ip_src.s_addr = GET_SRC_IP(p);
-        iph->ip_dst.s_addr = GET_DST_IP(p);
+#ifdef SUP_IP6
+    memcpy(&iph->ip_src.s_addr, &(GET_SRC_IP(p))->ip32[0], 4);
+    memcpy(&iph->ip_dst.s_addr, &(GET_DST_IP(p))->ip32[0], 4);
+#else
+    iph->ip_src.s_addr = GET_SRC_IP(p);
+    iph->ip_dst.s_addr = GET_DST_IP(p);
+#endif
 
         tcp->th_sport = p->tcph->th_sport;
         tcp->th_dport = p->tcph->th_dport;
@@ -631,7 +662,7 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
     for (i = 0; i < conf->respond_attempts; i++)
     {
         if (link_offset)
-            iph->ip_id = RandID(&config);
+            iph->ip_id = RandID(resp2_config);
 
         /* As Dug Song pointed out, if you can't determine the rate of 
          * SEQ and ACK number consumption, do the next best thing and try to
@@ -754,7 +785,7 @@ static void SendReset(const int mode, Packet *p, RESPOND2_CONFIG *conf)
  */
 static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
 {
-    u_int16_t payload_len;
+    uint16_t payload_len;
     size_t sz;
     ssize_t n;
     EtherHdr *eh;
@@ -776,8 +807,13 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
     iph = (IPHdr *)(icmp_pkt + link_offset);
     icmph = (ICMPHdr *)(icmp_pkt + IP_HDR_LEN + link_offset);
 
+#ifdef SUP_IP6
+    memcpy(&iph->ip_src.s_addr, &(GET_DST_IP(p))->ip32[0], 4);
+    memcpy(&iph->ip_dst.s_addr, &(GET_SRC_IP(p))->ip32[0], 4);
+#else
     iph->ip_src.s_addr = GET_DST_IP(p);
     iph->ip_dst.s_addr = GET_SRC_IP(p);
+#endif
     iph->ip_ttl = CalcOriginalTTL(p);
 
     icmph->code = code;
@@ -805,7 +841,7 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
              * it's 0.  With link-layer injection, an IP ID must be specified.
              * A randomly generated IP ID is used here to evade fingerprinting.
              */
-            iph->ip_id = RandID(&config);
+            iph->ip_id = RandID(resp2_config);
         }
     }
 
@@ -821,7 +857,7 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
     ip_checksum(icmp_pkt + link_offset, sz);
     sz += link_offset;
 
-#if defined(DEBUG)
+#ifdef DEBUG
     DEBUG_WRAP(
 #ifdef SUP_IP6
             source = strdup(sfip_ntoa(iph->ip_src.s_addr));
@@ -852,7 +888,7 @@ static void SendUnreach(const int code, Packet *p, RESPOND2_CONFIG *conf)
             free(source);
             free(dest);
     );
-#endif /* defined(DEBUG) */
+#endif /* DEBUG */
 
     if (link_offset)
         n = eth_send(conf->ethdev, icmp_pkt, sz);
@@ -933,14 +969,14 @@ static INLINE int IsLinkCandidate(Packet *p)
  *
  * @return random IP ID
  */
-static INLINE u_int16_t RandID(RESPOND2_CONFIG *conf)
+static INLINE uint16_t RandID(RESPOND2_CONFIG *conf)
 {
     if (ip_id_iterator >= (IPIDCOUNT - 1))
     {
-        rand_add(conf->randh, ip_id_pool, sizeof(u_int16_t) * IPIDCOUNT); 
+        rand_add(conf->randh, ip_id_pool, sizeof(uint16_t) * IPIDCOUNT); 
         ip_id_iterator = 0;
     }
-    return *(u_int16_t *)(ip_id_pool + ip_id_iterator++);
+    return *(uint16_t *)(ip_id_pool + ip_id_iterator++);
 }
 
 
@@ -951,7 +987,7 @@ static INLINE u_int16_t RandID(RESPOND2_CONFIG *conf)
  *
  * @return calculated original TTL
  */
-static INLINE u_int8_t CalcOriginalTTL(Packet *p)
+static INLINE uint8_t CalcOriginalTTL(Packet *p)
 {
     switch (p->iph->ip_ttl / 64)
     {
@@ -981,35 +1017,36 @@ static void PrecacheTCP(void)
     TCPHdr *tcp;
     int sz;
 
-    /* allocates memory for the Ethernet header only when necessary  */
-    sz = alignment + link_offset + IP_HDR_LEN + TCP_HDR_LEN;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "%s: allocating %d bytes in "
-            "PrecacheTCP().\n", MODNAME, sz););
-
-    tcp_pkt = SnortAlloc(sz);
-
-    /* force alignment */
-    tcp_pkt += alignment;
-
-    if (link_offset)
+    if (tcp_pkt == NULL)
     {
-        eth = (EtherHdr *)tcp_pkt; 
-        eth->ether_type = htons(ETH_TYPE_IP);
+        /* allocates memory for the Ethernet header only when necessary  */
+        sz = alignment + link_offset + IP_HDR_LEN + TCP_HDR_LEN;
+
+        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "%s: allocating %d bytes in "
+                                "PrecacheTCP().\n", MODNAME, sz););
+
+        tcp_pkt = SnortAlloc(sz);
+
+        /* force alignment */
+        tcp_pkt += alignment;
+
+        if (link_offset)
+        {
+            eth = (EtherHdr *)tcp_pkt; 
+            eth->ether_type = htons(ETH_TYPE_IP);
+        }
+
+        /* points to the start of the IP header */
+        iph = (IPHdr *)(tcp_pkt + link_offset);
+        SET_IP_VER(iph, 4);
+        SET_IP_HLEN(iph, (IP_HDR_LEN >> 2));
+        iph->ip_proto = IPPROTO_TCP;
+
+        /* points to the start of the TCP header */
+        tcp = (TCPHdr *)(tcp_pkt + IP_HDR_LEN + link_offset);
+        tcp->th_flags = TH_RST|TH_ACK;
+        SET_TCP_OFFSET(tcp, (TCP_HDR_LEN >> 2));
     }
-
-    /* points to the start of the IP header */
-    iph = (IPHdr *)(tcp_pkt + link_offset);
-    SET_IP_VER(iph, 4);
-    SET_IP_HLEN(iph, (IP_HDR_LEN >> 2));
-    iph->ip_proto = IPPROTO_TCP;
-
-    /* points to the start of the TCP header */
-    tcp = (TCPHdr *)(tcp_pkt + IP_HDR_LEN + link_offset);
-    tcp->th_flags = TH_RST|TH_ACK;
-    SET_TCP_OFFSET(tcp, (TCP_HDR_LEN >> 2));
-
-    return;
 }
 
 
@@ -1025,36 +1062,37 @@ static void PrecacheICMP(void)
     ICMPHdr *icmp;
     int sz;
 
-    /* allocates memory for the Ethernet header only when necessary 
-     * additional 68 bytes are allocated to accomodate an IP header with 
-     * options -Jeff */
-    sz = alignment + link_offset + IP_HDR_LEN + ICMP_LEN_MIN + 68;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "%s: allocating %d bytes in "
-                "PrecacheICMP().\n", MODNAME, sz););
-
-    icmp_pkt = SnortAlloc(sz);
-
-    /* force alignment */
-    icmp_pkt += alignment;
-
-    if (link_offset)
+    if (icmp_pkt == NULL)
     {
-        eth = (EtherHdr *)icmp_pkt; 
-        eth->ether_type = htons(ETH_TYPE_IP);
+        /* allocates memory for the Ethernet header only when necessary 
+         * additional 68 bytes are allocated to accomodate an IP header with 
+         * options -Jeff */
+        sz = alignment + link_offset + IP_HDR_LEN + ICMP_LEN_MIN + 68;
+
+        DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "%s: allocating %d bytes in "
+                                "PrecacheICMP().\n", MODNAME, sz););
+
+        icmp_pkt = SnortAlloc(sz);
+
+        /* force alignment */
+        icmp_pkt += alignment;
+
+        if (link_offset)
+        {
+            eth = (EtherHdr *)icmp_pkt; 
+            eth->ether_type = htons(ETH_TYPE_IP);
+        }
+
+        /* points to the start of the IP header */
+        iph = (IPHdr *)(icmp_pkt + link_offset);
+        SET_IP_VER(iph, 4);
+        SET_IP_HLEN(iph, (IP_HDR_LEN >> 2));
+        iph->ip_proto = IPPROTO_ICMP;
+
+        /* points to the start of the ICMP header */
+        icmp = (ICMPHdr *)(icmp_pkt + IP_HDR_LEN + link_offset);
+        icmp->type = ICMP_UNREACH;
     }
-
-    /* points to the start of the IP header */
-    iph = (IPHdr *)(icmp_pkt + link_offset);
-    SET_IP_VER(iph, 4);
-    SET_IP_HLEN(iph, (IP_HDR_LEN >> 2));
-    iph->ip_proto = IPPROTO_ICMP;
-
-    /* points to the start of the ICMP header */
-    icmp = (ICMPHdr *)(icmp_pkt + IP_HDR_LEN + link_offset);
-    icmp->type = ICMP_UNREACH;
-
-    return;
 }
 
 
@@ -1070,10 +1108,8 @@ static void GenRandIPID(RESPOND2_CONFIG *conf)
     if ((conf->randh = rand_open()) == NULL)
         FatalError("%s: Unable to open random device handle.\n", MODNAME);
 
-    ip_id_pool = SnortAlloc(sizeof(u_int16_t) * IPIDCOUNT);
-    rand_get(conf->randh, ip_id_pool, sizeof(u_int16_t) * IPIDCOUNT);
-
-    return;
+    ip_id_pool = SnortAlloc(sizeof(uint16_t) * IPIDCOUNT);
+    rand_get(conf->randh, ip_id_pool, sizeof(uint16_t) * IPIDCOUNT);
 }
 
 
@@ -1084,7 +1120,15 @@ static void GenRandIPID(RESPOND2_CONFIG *conf)
  */
 static void SetLinkInfo(void)
 {
-    if (pv.respond2_link)
+    SnortConfig *sc = snort_conf_for_parsing;
+
+    if (sc == NULL)
+    {
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
+
+    if (sc->respond2_link)
     {
         link_offset = ETH_HDR_LEN;
         alignment = 2;
@@ -1094,7 +1138,6 @@ static void SetLinkInfo(void)
         link_offset = 0;
         alignment = 0;
     }
-    return;
 }
 
 
@@ -1107,12 +1150,18 @@ static void SetLinkInfo(void)
  */
 static void SetRespAttempts(RESPOND2_CONFIG *conf)
 {
-    if (pv.respond2_attempts > 4 && pv.respond2_attempts < 21)
-        conf->respond_attempts = pv.respond2_attempts;
+    SnortConfig *sc = snort_conf_for_parsing;
+
+    if (sc == NULL)
+    {
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
+
+    if ((sc->respond2_attempts > 4) && (sc->respond2_attempts < 21))
+        conf->respond_attempts = sc->respond2_attempts;
     else
         conf->respond_attempts = 4;
-
-    return;
 }
 
 
@@ -1125,12 +1174,18 @@ static void SetRespAttempts(RESPOND2_CONFIG *conf)
  */
 static void SetRespCacheRows(RESPOND2_CONFIG *conf)
 {
+    SnortConfig *sc = snort_conf_for_parsing;
+
+    if (sc == NULL)
+    {
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
+
     conf->rows = DEFAULT_ROWS;
 
-    if (pv.respond2_rows)
-        conf->rows = pv.respond2_rows;
-
-    return;
+    if (sc->respond2_rows)
+        conf->rows = sc->respond2_rows;
 }
 
 
@@ -1143,12 +1198,18 @@ static void SetRespCacheRows(RESPOND2_CONFIG *conf)
  */
 static void SetRespCacheMemcap(RESPOND2_CONFIG *conf)
 {
+    SnortConfig *sc = snort_conf_for_parsing;
+
+    if (sc == NULL)
+    {
+        FatalError("%s(%d) Snort config for parsing is NULL.\n",
+                   __FILE__, __LINE__);
+    }
+
     conf->memcap = DEFAULT_MEMCAP;
 
-    if (pv.respond2_memcap)
-        conf->memcap = pv.respond2_memcap;
-
-    return;
+    if (sc->respond2_memcap)
+        conf->memcap = sc->respond2_memcap;
 }
 
 
@@ -1283,4 +1344,4 @@ static INLINE int dampen_response(Packet *p)
 
     return ret;
 }
-#endif /* ENABLE_RESPONSE2 && !ENABLE_RESPONSE */
+#endif /* ENABLE_RESPONSE2 */

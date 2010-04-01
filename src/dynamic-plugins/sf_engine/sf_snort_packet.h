@@ -42,7 +42,20 @@
 #include <windows.h>
 #endif
 
+#include "sf_ip.h"
+
+#define VLAN_HDR_LEN  4
+
+typedef struct _VlanHeader
+{
+    u_int16_t vth_pri_cfi_vlan;
+    u_int16_t vth_proto;  /* protocol field... */
+
+} VlanHeader;
+
+//#define NO_NON_ETHER_DECODER
 #define ETHER_HDR_LEN  14
+#define ETHERNET_TYPE_8021Q 0x8100
 
 typedef struct _EtherHeader
 {
@@ -291,12 +304,6 @@ typedef struct _IPv6Extension
     const u_int8_t *option_data;
 } IP6Extension;
 
-#ifdef SUP_IP6
-
-#include "ipv6_port.h"
-
-#define IP6_HEADER_LEN  40
-
 typedef struct _IPv4Hdr
 {
     u_int8_t ip_verhl;      /* version & header length */
@@ -325,10 +332,10 @@ typedef struct _IPv6Hdr
 
 typedef struct _IP6FragHdr 
 {
-    uint8_t   ip6f_nxt;     /* next header */
-    uint8_t   ip6f_reserved;    /* reserved field */
-    uint16_t  ip6f_offlg;   /* offset, reserved, and flag */
-    uint32_t  ip6f_ident;   /* identification */
+    u_int8_t   ip6f_nxt;     /* next header */
+    u_int8_t   ip6f_reserved;    /* reserved field */
+    u_int16_t  ip6f_offlg;   /* offset, reserved, and flag */
+    u_int32_t  ip6f_ident;   /* identification */
 } IP6FragHdr;
 
 typedef struct _ICMP6
@@ -358,7 +365,7 @@ sfip_t *    ip4_ret_dst(struct _SFSnortPacket *);
 u_int16_t   ip4_ret_tos(struct _SFSnortPacket *);
 u_int8_t    ip4_ret_ttl(struct _SFSnortPacket *);
 u_int16_t   ip4_ret_len(struct _SFSnortPacket *);
-u_int16_t   ip4_ret_id(struct _SFSnortPacket *);
+u_int32_t   ip4_ret_id(struct _SFSnortPacket *);
 u_int8_t    ip4_ret_proto(struct _SFSnortPacket *);
 u_int16_t   ip4_ret_off(struct _SFSnortPacket *);
 u_int8_t    ip4_ret_ver(struct _SFSnortPacket *);
@@ -369,7 +376,7 @@ sfip_t *    orig_ip4_ret_dst(struct _SFSnortPacket *);
 u_int16_t   orig_ip4_ret_tos(struct _SFSnortPacket *);
 u_int8_t    orig_ip4_ret_ttl(struct _SFSnortPacket *);
 u_int16_t   orig_ip4_ret_len(struct _SFSnortPacket *);
-u_int16_t   orig_ip4_ret_id(struct _SFSnortPacket *);
+u_int32_t   orig_ip4_ret_id(struct _SFSnortPacket *);
 u_int8_t    orig_ip4_ret_proto(struct _SFSnortPacket *);
 u_int16_t   orig_ip4_ret_off(struct _SFSnortPacket *);
 u_int8_t    orig_ip4_ret_ver(struct _SFSnortPacket *);
@@ -380,7 +387,7 @@ sfip_t *    ip6_ret_dst(struct _SFSnortPacket *);
 u_int16_t   ip6_ret_toc(struct _SFSnortPacket *);
 u_int8_t    ip6_ret_hops(struct _SFSnortPacket *);
 u_int16_t   ip6_ret_len(struct _SFSnortPacket *);
-u_int16_t   ip6_ret_id(struct _SFSnortPacket *);
+u_int32_t   ip6_ret_id(struct _SFSnortPacket *);
 u_int8_t    ip6_ret_next(struct _SFSnortPacket *);
 u_int16_t   ip6_ret_off(struct _SFSnortPacket *);
 u_int8_t    ip6_ret_ver(struct _SFSnortPacket *);
@@ -391,7 +398,7 @@ sfip_t *    orig_ip6_ret_dst(struct _SFSnortPacket *);
 u_int16_t   orig_ip6_ret_toc(struct _SFSnortPacket *);
 u_int8_t    orig_ip6_ret_hops(struct _SFSnortPacket *);
 u_int16_t   orig_ip6_ret_len(struct _SFSnortPacket *);
-u_int16_t   orig_ip6_ret_id(struct _SFSnortPacket *);
+u_int32_t   orig_ip6_ret_id(struct _SFSnortPacket *);
 u_int8_t    orig_ip6_ret_next(struct _SFSnortPacket *);
 u_int16_t   orig_ip6_ret_off(struct _SFSnortPacket *);
 u_int8_t    orig_ip6_ret_ver(struct _SFSnortPacket *);
@@ -404,7 +411,7 @@ typedef struct _IPH_API
     u_int16_t   (*iph_ret_tos)(struct _SFSnortPacket *);
     u_int8_t    (*iph_ret_ttl)(struct _SFSnortPacket *);
     u_int16_t   (*iph_ret_len)(struct _SFSnortPacket *);
-    u_int16_t   (*iph_ret_id)(struct _SFSnortPacket *);
+    u_int32_t   (*iph_ret_id)(struct _SFSnortPacket *);
     u_int8_t    (*iph_ret_proto)(struct _SFSnortPacket *);
     u_int16_t   (*iph_ret_off)(struct _SFSnortPacket *);
     u_int8_t    (*iph_ret_ver)(struct _SFSnortPacket *);
@@ -422,6 +429,12 @@ typedef struct _IPH_API
     u_int8_t    (*orig_iph_ret_hlen)(struct _SFSnortPacket *);
     char version;
 } IPH_API;
+
+#ifdef SUP_IP6
+
+#include "ipv6_port.h"
+
+#define IP6_HEADER_LEN  40
 
 #define IPH_API_V4 4
 #define IPH_API_V6 6
@@ -449,6 +462,101 @@ typedef struct _SFSnortPacket
     const struct pcap_pkthdr *pcap_header; /* Is this GPF'd? */
     const u_int8_t *pkt_data;
 
+    void *ether_arp_header;
+    const EtherHeader *ether_header;
+    const void *vlan_tag_header;
+    void *ether_header_llc;
+    void *ether_header_other;
+    const void *gre_header;
+    u_int32_t *mpls;
+
+    const IPV4Header *ip4_header, *orig_ip4_header;
+    const IPV4Header *inner_ip4_header;
+    const IPV4Header *outer_ip4_header;
+    const TCPHeader *tcp_header, *orig_tcp_header;
+    const UDPHeader *udp_header, *orig_udp_header;
+    const ICMPHeader *icmp_header, *orig_icmp_header;
+
+    const u_int8_t *payload;
+    const u_int8_t *ip_payload;
+    const u_int8_t *outer_ip_payload;
+    const u_int8_t *ip_frag_start;
+    const u_int8_t *ip4_options_data;
+    const u_int8_t *tcp_options_data;
+
+    void *stream_session_ptr;
+    void *fragmentation_tracking_ptr;
+    void *flow_ptr;
+    void *stream_ptr;
+
+    IP4Hdr *ip4h, *orig_ip4h;
+    IP6Hdr *ip6h, *orig_ip6h;
+    ICMP6Hdr *icmp6h, *orig_icmp6h;
+
+    IPH_API* iph_api;
+    IPH_API* orig_iph_api;
+    IPH_API* outer_iph_api;
+    IPH_API* outer_orig_iph_api;
+
+    IP4Hdr inner_ip4h, inner_orig_ip4h;
+    IP6Hdr inner_ip6h, inner_orig_ip6h;
+    IP4Hdr outer_ip4h, outer_orig_ip4h;
+    IP6Hdr outer_ip6h, outer_orig_ip6h;
+
+    MplsHdr   mplsHdr;
+
+    int family;
+    int orig_family;
+    int outer_family;
+    int number_bytes_to_check;
+
+    u_int32_t preprocessor_bit_mask;
+    u_int32_t preproc_reassembly_pkt_bit_mask;
+
+    //int ip_payload_length;
+    //int ip_payload_offset;
+
+    u_int32_t pcap_cap_len;
+    u_int32_t http_pipeline_count;
+    u_int32_t flags;
+    u_int32_t proto_bits;
+
+    u_int16_t payload_size;
+    u_int16_t ip_payload_size;
+    u_int16_t normalized_payload_size;
+    u_int16_t actual_ip_length;
+    u_int16_t outer_ip_payload_size;
+
+    u_int16_t ip_fragment_offset;
+    u_int16_t ip_frag_length;
+    u_int16_t ip4_options_length;
+    u_int16_t tcp_options_length;
+
+    u_int16_t src_port;
+    u_int16_t dst_port;
+    u_int16_t orig_src_port;
+    u_int16_t orig_dst_port;
+
+    int16_t application_protocol_ordinal;
+
+    u_int8_t ip_fragmented;
+    u_int8_t ip_more_fragments;
+    u_int8_t ip_dont_fragment;
+    u_int8_t ip_reserved;
+
+    u_int8_t num_uris;
+    u_int8_t checksums_invalid;
+    u_int8_t encapsulated;
+
+    u_int8_t num_ip_options;
+    u_int8_t num_tcp_options;
+    u_int8_t num_ip6_extensions;
+    u_int8_t ip6_frag_extension;
+
+    u_char ip_last_option_invalid_flag;
+    u_char tcp_last_option_invalid_flag;
+
+#ifndef NO_NON_ETHER_DECODER
     const void *fddi_header;
     void *fddi_saps;
     void *fddi_sna;
@@ -459,140 +567,27 @@ typedef struct _SFSnortPacket
     void *tokenring_header_llc;
     void *tokenring_header_mr;
 
-    const void *sll_header;
-
     void *pflog1_header;
     void *pflog2_header;
     void *pflog3_header;
 
-    const EtherHeader *ether_header;
-    const void *vlan_tag_header;
-
-    void *ether_header_llc;
-    void *ether_header_other;
-
+    const void *sll_header;
     const void *wifi_header;
-
-    const void *ether_arp_header;
-
-    const void *ether_eapol_header; /* 802.1x */
-    void *eapol_headear;
-    u_int8_t *eapol_type;
-    void *eapol_key;
-
     const void *ppp_over_ether_header;
 
-    const IPV4Header *ip4_header, *orig_ip4_header;
-
-    //int ip_payload_length;
-    //int ip_payload_offset;
-
-    u_int32_t ip4_options_length;
-    void *ip4_options_data;
-
-    const TCPHeader *tcp_header, *orig_tcp_header;
-    u_int32_t tcp_options_length;
-    void *tcp_options_data;
-
-    const UDPHeader *udp_header, *orig_udp_header;
-    const ICMPHeader *icmp_header, *orig_icmp_header;
-
-    const u_int8_t *payload;
-    u_int16_t payload_size;
-    u_int16_t normalized_payload_size;
-
-    u_int16_t actual_ip_length;
-
-    u_int8_t ip_fragmented;
-    u_int16_t ip_fragment_offset;
-    u_int8_t ip_more_fragments;
-    u_int8_t ip_dont_fragment;
-    u_int8_t ip_reserved;
-
-    u_int16_t src_port;
-    u_int16_t dst_port;
-    u_int16_t orig_src_port;
-    u_int16_t orig_dst_port;
-    u_int32_t pcap_cap_len;
-
-    u_int8_t num_uris;
-
-    void *stream_session_ptr;
-    void *fragmentation_tracking_ptr;
-    void *flow_ptr;
-    void *stream_ptr;
+    const void *ether_eapol_header;
+    const void *eapol_headear;
+    const u_int8_t *eapol_type;
+    void *eapol_key;
+#endif
 
     IPOptions ip_options[MAX_IP_OPTIONS];
-    u_int32_t num_ip_options;
-    u_int8_t ip_last_option_invalid_flag;
-    
     TCPOptions tcp_options[MAX_TCP_OPTIONS];
-    u_int32_t num_tcp_options;
-    u_int8_t tcp_last_option_invalid_flag;
-
-    u_int8_t checksums_invalid;
-    u_int32_t flags;
-    u_int32_t number_bytes_to_check;
-
-    void *preprocessor_bit_mask;
-    void *preproc_reassembly_pkt_bit_mask;
-    
-#ifdef GRE
-    const void *gre_header;
-    const IPV4Header *outer_ip4_header; /* if IP-in-IP, this will be the outer IP header */
-    char encapsulated;
-#endif
-
-#ifdef TARGET_BASED
-    int16_t application_protocol_ordinal;
-#endif
-
-#ifdef SUP_IP6
-    IP4Hdr inner_ip4h, inner_orig_ip4h;   /* and orig. headers for ICMP_*_UNREACH family */
-    IP6Hdr inner_ip6h, inner_orig_ip6h;   /* and orig. headers for ICMP_*_UNREACH family */
-    ICMP6Hdr *icmp6h, *orig_icmp6h;
-    int family;
-    int orig_family;
-
-    IPH_API iph_api;
-#endif
-
-    int http_pipeline_count;  /* Counter for HTTP pipelined requests */
-
-    const u_int8_t *ip_payload;
-    const u_int8_t *ip_payload_size;
-    const IPV4Header *inner_ip4_header; /* if IP-in-IP, this will be the inner IP header */
-#ifdef GRE
-    const u_int8_t *outer_ip_payload;
-    u_int16_t outer_ip_payload_size;
-#endif
-
-#ifdef MPLS
-    u_int32_t *mpls;
-    MplsHdr   mplsHdr;
-#endif
-
     IP6Extension ip6_extensions[MAX_IP6_EXTENSIONS];
-    u_int8_t  num_ip6_extensions;
-    u_int8_t  ip6_frag_extension;
-    u_int16_t ip_frag_length;
-    const u_int8_t* ip_frag_start;
-
-#ifdef SUP_IP6
-    IP4Hdr outer_ip4h, outer_orig_ip4h;   /* and orig. headers for ICMP_*_UNREACH family */
-    IP6Hdr outer_ip6h, outer_orig_ip6h;   /* and orig. headers for ICMP_*_UNREACH family */
-    IPH_API outer_iph_api;
-    int outer_family;
-
-    IP4Hdr *ip4h, *orig_ip4h;
-    IP6Hdr *ip6h, *orig_ip6h;
-    IPH_API orig_iph_api;
-    IPH_API outer_orig_iph_api;
-#endif
-
-    uint32_t proto_bits;
 
 } SFSnortPacket;
+
+#define PKT_ZERO_LEN offsetof(SFSnortPacket, ip_options)
 
 #define PROTO_BIT__IP    0x00000001
 #define PROTO_BIT__ARP   0x00000002

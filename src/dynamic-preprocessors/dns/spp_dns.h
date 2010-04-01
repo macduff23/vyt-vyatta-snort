@@ -56,24 +56,25 @@
  *                to ports other than those configured.
  * enabled_alerts:     Bit vector describing which alerts are enabled.
  */
-typedef struct _dnsConfig
+typedef struct _DNSConfig
 {
 #if 0
-    u_int8_t  autodetect;
+    uint8_t  autodetect;
 #endif
-    u_int16_t enabled_alerts;
+    uint16_t enabled_alerts;
     char      ports[MAX_PORTS/8];
+
 } DNSConfig;
 
 /****** A few data structures ******/
 typedef struct _DNSHdr
 {
-    u_int16_t id;
-    u_int16_t flags;
-    u_int16_t questions;
-    u_int16_t answers;
-    u_int16_t authorities;
-    u_int16_t additionals;
+    uint16_t id;
+    uint16_t flags;
+    uint16_t questions;
+    uint16_t answers;
+    uint16_t authorities;
+    uint16_t additionals;
 } DNSHdr;
 
 #define DNS_HDR_FLAG_REPLY_CODE_MASK        0x000F
@@ -89,28 +90,28 @@ typedef struct _DNSHdr
 
 typedef struct _DNSQuestion
 {
-    u_int16_t type;
-    u_int16_t dns_class;
+    uint16_t type;
+    uint16_t dns_class;
 } DNSQuestion;
 
 typedef struct _DNSRR
 {
-    u_int16_t type;
-    u_int16_t dns_class;
-    u_int32_t ttl;
-    u_int16_t length;
+    uint16_t type;
+    uint16_t dns_class;
+    uint32_t ttl;
+    uint16_t length;
 } DNSRR;
 
 typedef struct _DNSNameState
 {
-    u_int32_t txt_count;
-    u_int32_t total_txt_len;
-    u_int8_t txt_len;
-    u_int8_t txt_bytes_seen;
-    u_int8_t name_state;
-    u_int8_t alerted;
-    u_int16_t offset;
-    u_int8_t relative;
+    uint32_t txt_count;
+    uint32_t total_txt_len;
+    uint8_t txt_len;
+    uint8_t txt_bytes_seen;
+    uint8_t name_state;
+    uint8_t alerted;
+    uint16_t offset;
+    uint8_t relative;
 } DNSNameState;
 
 #define DNS_RR_TYPE_A                       0x0001
@@ -144,17 +145,17 @@ typedef struct _DNSNameState
  */
 typedef struct _DNSSessionData
 {
-    u_int32_t state;
-    u_int16_t curr_rec;
-    u_int16_t curr_rec_length;
-    u_int16_t bytes_seen_curr_rec;
-    u_int16_t length;
-    u_int8_t  curr_rec_state;
+    uint32_t state;
+    uint16_t curr_rec;
+    uint16_t curr_rec_length;
+    uint16_t bytes_seen_curr_rec;
+    uint16_t length;
+    uint8_t  curr_rec_state;
     DNSHdr hdr;
     DNSQuestion curr_q;
     DNSRR curr_rr;
     DNSNameState curr_txt;
-    u_int8_t flags;
+    uint8_t flags;
 } DNSSessionData;
 
 #define DNS_FLAG_NOT_DNS                0x01
@@ -244,6 +245,6 @@ typedef struct _DNSSessionData
 #define DNS_EVENT_RDATA_OVERFLOW_STR     "(spp_dns) DNS Client rdata txt Overflow"
 
 /* Prototypes for public interface */
-extern void SetupDNS();
+extern void SetupDNS(void);
 
 #endif /* SPP_DNS_H */

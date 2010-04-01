@@ -28,6 +28,7 @@ void SetupFrag3(void);
 
 int fpAddFragAlert(Packet *p, OptTreeNode *otn);
 int fpFragAlerted(Packet *p, OptTreeNode *otn);
+int  frag3DropAllFragments(Packet *p);
 
 #ifdef TARGET_BASED
 int fragGetApplicationProtocolId(Packet *p);

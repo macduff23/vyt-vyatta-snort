@@ -76,9 +76,9 @@ typedef struct _CvsRuleOption
 /* represents a CVS command with argument */
 typedef struct _CvsCommand
 {
-    const u_int8_t  *cmd_str;        /* command string */
+    const uint8_t  *cmd_str;        /* command string */
     int              cmd_str_len;
-    const u_int8_t  *cmd_arg;        /* command argument */
+    const uint8_t  *cmd_arg;        /* command argument */
     int              cmd_arg_len;
     
 } CvsCommand;
@@ -86,7 +86,7 @@ typedef struct _CvsCommand
 
 /* global function prototypes */
 void SetupCvs(void);
-u_int32_t CvsHash(void *d);
+uint32_t CvsHash(void *d);
 int CvsCompare(void *l, void *r);
 
 #endif

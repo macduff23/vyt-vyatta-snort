@@ -453,7 +453,7 @@ QUAD_T value;
 
 #if NEED_PERCENTQ
     fmtstr = "%qu";
-#elif defined(ULONGIS64BIT)
+#elif SIZEOF_UNSIGNED_LONG_INT == 8
     fmtstr = "%lu";
 #else
     fmtstr = "%llu";

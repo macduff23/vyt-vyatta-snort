@@ -102,7 +102,7 @@ static int GetProcStatCpu(USERSYS *pStatCPUs, int iCPUs)
     return 0;
 }
 
-static int GetCpuNum()
+static int GetCpuNum(void)
 {
     int iRet;
     int iCPUs = 0;
@@ -148,35 +148,35 @@ int sfInitProcPidStats(SFPROCPIDSTATS *sfProcPidStats)
     proc_stat = fopen(PROC_STAT, "r");
     if(!proc_stat)
     {
-        FatalError("PERFMONITOR ERROR: Can't open %s.", PROC_STAT);
+        FatalError("PERFMONITOR: Can't open %s.", PROC_STAT);
     }
 
     giCPUs = GetCpuNum();
     if(giCPUs <= 0)
     {
-        FatalError("PERFMONITOR ERROR: Error reading CPUs from %s.",
+        FatalError("PERFMONITOR: Error reading CPUs from %s.",
                    PROC_STAT);
     }
 
     gpStatCPUs   = (USERSYS *)calloc(giCPUs, sizeof(USERSYS));
     if(!gpStatCPUs)
-        FatalError("PERFMONITOR ERROR: Error allocating CPU mem.");
+        FatalError("PERFMONITOR: Error allocating CPU mem.");
 
     gpStatCPUs_2 = (USERSYS *)calloc(giCPUs, sizeof(USERSYS));
     if(!gpStatCPUs_2)
-        FatalError("PERFMONITOR ERROR: Error allocating CPU mem.");
+        FatalError("PERFMONITOR: Error allocating CPU mem.");
 
     /*
     **  Allocate for sfProcPidStats CPUs
     */
     sfProcPidStats->SysCPUs = (CPUSTAT *)calloc(giCPUs, sizeof(CPUSTAT));
     if(!sfProcPidStats->SysCPUs)
-        FatalError("PERFMONITOR ERROR: Error allocating SysCPU mem.");
+        FatalError("PERFMONITOR: Error allocating SysCPU mem.");
 
     sfProcPidStats->iCPUs = giCPUs;
 
     if(GetProcStatCpu(gpStatCPUs, giCPUs))
-        FatalError("PERFMONITOR ERROR: Error while reading '%s'.",
+        FatalError("PERFMONITOR: Error while reading '%s'.",
                 PROC_STAT);
 
     fclose(proc_stat);

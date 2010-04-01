@@ -23,7 +23,7 @@
 #define __SP_RPC_CHECK_H__
 
 void SetupRpcCheck(void);
-u_int32_t RpcCheckHash(void *d);
+uint32_t RpcCheckHash(void *d);
 int RpcCheckCompare(void *l, void *r);
 
 #endif  /* __SP_RPC_CHECK_H__ */

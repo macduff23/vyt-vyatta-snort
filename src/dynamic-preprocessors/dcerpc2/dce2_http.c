@@ -140,7 +140,7 @@ void DCE2_HttpProcessProxy(DCE2_HttpSsnData *hsd)
 {
     const SFSnortPacket *p = hsd->sd.wire_pkt;
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Processing RPC over HTTP proxy packet.\n");
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Processing RPC over HTTP proxy packet.\n"));
     dce2_stats.http_proxy_pkts++;
 
     if (hsd->state == DCE2_HTTP_STATE__NONE)
@@ -169,7 +169,7 @@ void DCE2_HttpProcessServer(DCE2_HttpSsnData *hsd)
 {
     const SFSnortPacket *p = hsd->sd.wire_pkt;
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Processing RPC over HTTP server packet.\n");
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Processing RPC over HTTP server packet.\n"));
     dce2_stats.http_server_pkts++;
 
     if (hsd->state == DCE2_HTTP_STATE__NONE)

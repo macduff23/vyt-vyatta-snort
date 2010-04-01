@@ -26,6 +26,6 @@
 #ifndef __SPO_LOG_ASCII_H__
 #define __SPO_LOG_ASCII_H__
 
-void LogAsciiSetup();
+void LogAsciiSetup(void);
 
 #endif  /* __SPO_LOG_ASCII_H__ */

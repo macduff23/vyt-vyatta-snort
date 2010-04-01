@@ -34,6 +34,7 @@
 #include "parser.h"
 
 #include "profiler.h"
+#include "sfPolicy.h"
 #ifdef PERF_PROFILING
 PreprocStats s5IcmpPerfStats;
 #endif
@@ -42,28 +43,24 @@ PreprocStats s5IcmpPerfStats;
 #define icmp_sender_ip lwSsn->client_ip
 #define icmp_responder_ip lwSsn->server_ip
 
+extern Stream5Config *s5_current_config;
+
+
 /*  D A T A  S T R U C T U R E S  ***********************************/
 typedef struct _IcmpSession
 {
     Stream5LWSession *lwSsn;
 
-    u_int32_t   echo_count;
+    uint32_t   echo_count;
 
     struct timeval ssn_time;
 
 } IcmpSession;
 
-typedef struct _Stream5IcmpPolicy
-{
-    u_int32_t   session_timeout;
-    //u_int16_t   flags;
-} Stream5IcmpPolicy;
 
 /*  G L O B A L S  **************************************************/
 static Stream5SessionCache *icmp_lws_cache;
 static MemPool icmp_session_mempool;
-static Stream5IcmpPolicy icmp_policy;
-static u_int8_t numIcmpPolicies = 0;
 
 /*  P R O T O T Y P E S  ********************************************/
 static void Stream5ParseIcmpArgs(char *, Stream5IcmpPolicy *);
@@ -71,13 +68,16 @@ static void Stream5PrintIcmpConfig(Stream5IcmpPolicy *);
 static int ProcessIcmpUnreach(Packet *p);
 static int ProcessIcmpEcho(Packet *p);
 
-void Stream5InitIcmp(void)
+void Stream5InitIcmp(Stream5GlobalConfig *gconfig)
 {
+    if (gconfig == NULL)
+        return;
+
     /* Finally ICMP */ 
-    if((icmp_lws_cache == NULL) && s5_global_config.track_icmp_sessions)
+    if((icmp_lws_cache == NULL) && gconfig->track_icmp_sessions)
     {
-        icmp_lws_cache = InitLWSessionCache(s5_global_config.max_icmp_sessions,
-                30, 5, 0, NULL);
+        icmp_lws_cache = InitLWSessionCache(gconfig->max_icmp_sessions,
+                                            30, 5, 0, NULL);
 
         if(!icmp_lws_cache)
         {
@@ -85,19 +85,25 @@ void Stream5InitIcmp(void)
                        "stream inspection!\n");
         }
 
-        mempool_init(&icmp_session_mempool, s5_global_config.max_icmp_sessions, sizeof(IcmpSession));
+        if (mempool_init(&icmp_session_mempool,
+                    gconfig->max_icmp_sessions, sizeof(IcmpSession)) != 0)
+        {
+            FatalError("%s(%d) Could not initialize icmp session memory pool.\n",
+                    __FILE__, __LINE__);
+        }
     }
 }
 
-void Stream5IcmpPolicyInit(char *args)
+void Stream5IcmpPolicyInit(Stream5IcmpConfig *config, char *args)
 {
-    numIcmpPolicies++;
+    if (config == NULL)
+        return;
 
-    Stream5ParseIcmpArgs(args, &icmp_policy);
+    config->num_policies++;
 
-    Stream5PrintIcmpConfig(&icmp_policy);
+    Stream5ParseIcmpArgs(args, &config->default_policy);
 
-    return;
+    Stream5PrintIcmpConfig(&config->default_policy);
 }
 
 static void Stream5ParseIcmpArgs(char *args, Stream5IcmpPolicy *s5IcmpPolicy)
@@ -105,7 +111,6 @@ static void Stream5ParseIcmpArgs(char *args, Stream5IcmpPolicy *s5IcmpPolicy)
     char **toks;
     int num_toks;
     int i;
-    char *index;
     char **stoks = NULL;
     int s_toks;
     char *endPtr = NULL;
@@ -115,17 +120,11 @@ static void Stream5ParseIcmpArgs(char *args, Stream5IcmpPolicy *s5IcmpPolicy)
 
     if(args != NULL && strlen(args) != 0)
     {
-        toks = mSplit(args, ",", 6, &num_toks, 0);
+        toks = mSplit(args, ",", 0, &num_toks, 0);
 
-        i=0;
-
-        while(i < num_toks)
+        for (i = 0; i < num_toks; i++)
         {
-            index = toks[i];
-
-            while(isspace((int)*index)) index++;
-
-            stoks = mSplit(index, " ", 2, &s_toks, 0);
+            stoks = mSplit(toks[i], " ", 2, &s_toks, 0);
 
             if (s_toks == 0)
             {
@@ -167,13 +166,10 @@ static void Stream5ParseIcmpArgs(char *args, Stream5IcmpPolicy *s5IcmpPolicy)
             }
 
             mSplitFree(&stoks, s_toks);
-            i++;
         }
 
         mSplitFree(&toks, num_toks);
     }
-
-    return;
 }
 
 static void Stream5PrintIcmpConfig(Stream5IcmpPolicy *s5IcmpPolicy)
@@ -220,13 +216,25 @@ void Stream5CleanIcmp(void)
     mempool_destroy(&icmp_session_mempool);
 }
 
-int Stream5VerifyIcmpConfig(void)
+void Stream5IcmpConfigFree(Stream5IcmpConfig *config)
 {
+    if (config == NULL)
+        return;
+
+    free(config);
+}
+
+int Stream5VerifyIcmpConfig(Stream5IcmpConfig *config, tSfPolicyId policy_id)
+{
+    if (config == NULL)
+        return -1;
+
     if (!icmp_lws_cache)
         return -1;
 
-    if (numIcmpPolicies < 1)
+    if (config->num_policies == 0)
         return -1;
+
     return 0;
 }
 
@@ -254,8 +262,8 @@ static int ProcessIcmpUnreach(Packet *p)
     /* Handle ICMP unreachable */
     SessionKey skey;
     Stream5LWSession *ssn = NULL;
-    u_int16_t sport;
-    u_int16_t dport;
+    uint16_t sport;
+    uint16_t dport;
 #ifdef SUP_IP6
     sfip_t *src;
     sfip_t *dst;
@@ -337,7 +345,7 @@ static int ProcessIcmpUnreach(Packet *p)
     }
 
     if (p->vh)
-        skey.vlan_tag = (u_int16_t)VTH_VLAN(p->vh);
+        skey.vlan_tag = (uint16_t)VTH_VLAN(p->vh);
     else
         skey.vlan_tag = 0;
 
@@ -379,7 +387,7 @@ static int ProcessIcmpEcho(Packet *p)
 }
 
 void IcmpUpdateDirection(Stream5LWSession *ssn, char dir,
-                        snort_ip_p ip, u_int16_t port)
+                        snort_ip_p ip, uint16_t port)
 {
     IcmpSession *icmpssn = ssn->proto_specific_data->data;
     snort_ip tmpIp;

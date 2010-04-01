@@ -38,9 +38,7 @@
 #include "sftarget_reader.h"
 #include "log.h"
 #include "debug.h"
-
-#define YY_ACCEPT return 1;
-#define YY_ABORT return 0;
+#include "sf_types.h"
 
 #define YYSTACK_USE_ALLOCA 0
 
@@ -54,7 +52,7 @@ extern void sfat_error(char*);
 %union
 {
   char stringValue[STD_BUF];
-  u_int32_t numericValue;
+  uint32_t numericValue;
   AttributeData data;
   MapData mapEntry;
 }
@@ -139,7 +137,7 @@ extern void sfat_error(char*);
 AttributeGrammar:
   SnortAttributes
   {
-    YY_ACCEPT;
+    YYACCEPT;
   };
 
 SnortAttributes:
@@ -219,7 +217,7 @@ HostEntry:
   {
     if (SFAT_AddHostEntryToMap() != SFAT_OK)
     {
-        YY_ABORT;
+        YYABORT;
     }
     DEBUG_WRAP(DebugMessage(DEBUG_ATTRIBUTE, "Host Added\n"););
   };
@@ -267,7 +265,7 @@ IpCidr:
     if (SFAT_SetHostIp4($2) != SFAT_OK)
 #endif
     {
-        YY_ABORT;
+        YYABORT;
     }
   };
 
@@ -354,7 +352,7 @@ AttributeInfo:
             $$.value.l_value = $1;
             //FatalError("Unknown/Invalid Attribute ID %d\n", $1);
             sfat_grammar_error = "Unknown/Invalid Attribute ID";
-            YY_ABORT;
+            YYABORT;
         }
         else
         {
@@ -374,7 +372,7 @@ AttributeInfo:
             $$.value.l_value = $1;
             //FatalError("Unknown/Invalid Attribute ID %d\n", $1);
             sfat_grammar_error = "Unknown/Invalid Attribute ID";
-            YY_ABORT;
+            YYABORT;
         }
         else
         {

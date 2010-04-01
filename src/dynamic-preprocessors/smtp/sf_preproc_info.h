@@ -24,7 +24,7 @@
 
 #define MAJOR_VERSION   1
 #define MINOR_VERSION   1
-#define BUILD_VERSION   7
+#define BUILD_VERSION   8
 #ifdef SUP_IP6
 #define PREPROC_NAME    "SF_SMTP (IPV6)"
 #else
@@ -32,6 +32,6 @@
 #endif
 
 #define DYNAMIC_PREPROC_SETUP SetupSMTP
-extern void SetupSMTP();
+extern void SetupSMTP(void);
 
 #endif /* SF_PREPROC_INFO_H */

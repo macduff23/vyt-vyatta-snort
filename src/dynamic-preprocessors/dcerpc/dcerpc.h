@@ -45,26 +45,26 @@
 
 typedef struct dcerpc_hdr
 {
-    u_int8_t  version;
-    u_int8_t  version_minor;
-    u_int8_t  packet_type;
-    u_int8_t  flags;
-    u_int8_t  byte_order;
-    u_int8_t  floating_point;
-    u_int16_t padding;
+    uint8_t  version;
+    uint8_t  version_minor;
+    uint8_t  packet_type;
+    uint8_t  flags;
+    uint8_t  byte_order;
+    uint8_t  floating_point;
+    uint16_t padding;
 
-    u_int16_t frag_length;
-    u_int16_t auth_length;
-    u_int32_t call_id;
+    uint16_t frag_length;
+    uint16_t auth_length;
+    uint32_t call_id;
 
 } DCERPC_HDR;
 
 typedef struct dcerpc_req
 {
     DCERPC_HDR  dcerpc_hdr;
-    u_int32_t   alloc_hint;
-    u_int16_t   context_id;
-    u_int16_t   opnum;
+    uint32_t   alloc_hint;
+    uint16_t   context_id;
+    uint16_t   opnum;
 
 } DCERPC_REQ;
 
@@ -81,29 +81,29 @@ typedef struct dcerpc_req
 /* PIPE function */
 #define DCERPC_PIPE     0x0026
 
-#define DCERPC_BYTE_ORDER(byte_order_flag) ((u_int8_t)byte_order_flag & 0xF0) >> 4
+#define DCERPC_BYTE_ORDER(byte_order_flag) ((uint8_t)byte_order_flag & 0xF0) >> 4
 
 #ifdef WORDS_BIGENDIAN
 
 #define dcerpc_ntohs(byte_order_flag, value) \
-(DCERPC_BYTE_ORDER(byte_order_flag) == 0 ? (u_int16_t)(value) : \
- (((u_int16_t)(value) & 0xff00) >> 8) | (((u_int16_t)(value) & 0x00ff) << 8))
+(DCERPC_BYTE_ORDER(byte_order_flag) == 0 ? (uint16_t)(value) : \
+ (((uint16_t)(value) & 0xff00) >> 8) | (((uint16_t)(value) & 0x00ff) << 8))
 
 #define dcerpc_ntohl(byte_order_flag, value) \
-(DCERPC_BYTE_ORDER(byte_order_flag) == 0 ? (u_int32_t)(value) : \
- (((u_int32_t)(value) & 0xff000000) >> 24) | (((u_int32_t)(value) & 0x00ff0000) >> 8) | \
- (((u_int32_t)(value) & 0x0000ff00) << 8) | (((u_int32_t)(value) & 0x000000ff) << 24))
+(DCERPC_BYTE_ORDER(byte_order_flag) == 0 ? (uint32_t)(value) : \
+ (((uint32_t)(value) & 0xff000000) >> 24) | (((uint32_t)(value) & 0x00ff0000) >> 8) | \
+ (((uint32_t)(value) & 0x0000ff00) << 8) | (((uint32_t)(value) & 0x000000ff) << 24))
 
 #else
 
 #define dcerpc_ntohs(byte_order_flag, value) \
-(DCERPC_BYTE_ORDER(byte_order_flag) == 1 ? (u_int16_t)(value) : \
- (((u_int16_t)(value) & 0xff00) >> 8) | (((u_int16_t)(value) & 0x00ff) << 8))
+(DCERPC_BYTE_ORDER(byte_order_flag) == 1 ? (uint16_t)(value) : \
+ (((uint16_t)(value) & 0xff00) >> 8) | (((uint16_t)(value) & 0x00ff) << 8))
 
 #define dcerpc_ntohl(byte_order_flag, value) \
-(DCERPC_BYTE_ORDER(byte_order_flag) == 1 ? (u_int32_t)(value) : \
- (((u_int32_t)(value) & 0xff000000) >> 24) | (((u_int32_t)(value) & 0x00ff0000) >> 8) | \
- (((u_int32_t)(value) & 0x0000ff00) << 8) | (((u_int32_t)(value) & 0x000000ff) << 24))
+(DCERPC_BYTE_ORDER(byte_order_flag) == 1 ? (uint32_t)(value) : \
+ (((uint32_t)(value) & 0xff000000) >> 24) | (((uint32_t)(value) & 0x00ff0000) >> 8) | \
+ (((uint32_t)(value) & 0x0000ff00) << 8) | (((uint32_t)(value) & 0x000000ff) << 24))
 
 #endif  /* WORDS_BIGENDIAN */
 
@@ -111,11 +111,11 @@ typedef struct dcerpc_req
 #define dcerpc_htonl dcerpc_ntohl
 
 
-int IsCompleteDCERPCMessage(const u_int8_t *, u_int16_t);
-int ProcessDCERPCMessage(const u_int8_t *, u_int16_t, const u_int8_t *, u_int16_t);
+int IsCompleteDCERPCMessage(const uint8_t *, uint16_t);
+int ProcessDCERPCMessage(const uint8_t *, uint16_t, const uint8_t *, uint16_t);
 
-void ReassembleDCERPCRequest(const u_int8_t *, u_int16_t, const u_int8_t *);
-int DCERPC_Fragmentation(const u_int8_t *, u_int16_t, u_int16_t);
+void ReassembleDCERPCRequest(const uint8_t *, uint16_t, const uint8_t *);
+int DCERPC_Fragmentation(const uint8_t *, uint16_t, uint16_t);
 
 
 #ifdef WIN32

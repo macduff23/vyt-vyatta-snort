@@ -38,7 +38,7 @@
 #define PROFILE_SORT_TOTAL_TICKS 7
 
 /* MACROS that handle profiling of rules and preprocessors */
-#define PROFILE_VARS UINT64 ticks_start = 0, ticks_end = 0, ticks_delta = 0
+#define PROFILE_VARS uint64_t ticks_start = 0, ticks_end = 0, ticks_delta = 0
 
 #define PROFILE_START \
     get_clockticks(ticks_start);
@@ -48,10 +48,10 @@
     ticks_delta = ticks_end - ticks_start;
 
 #ifndef PROFILING_RULES
-#define PROFILING_RULES pv.profile_rules_flag
+#define PROFILING_RULES ScProfileRules()
 #endif
 
-#define NODE_PROFILE_VARS UINT64 ticks_start = 0, ticks_end = 0, ticks_delta = 0, node_deltas = 0
+#define NODE_PROFILE_VARS uint64_t ticks_start = 0, ticks_end = 0, ticks_delta = 0, node_deltas = 0
 
 #define NODE_PROFILE_START(node) \
     if (PROFILING_RULES) { \
@@ -87,7 +87,7 @@
 #define OTN_PROFILE_ALERT(otn) otn->alerts++;
 
 #ifndef PROFILING_PREPROCS
-#define PROFILING_PREPROCS pv.profile_preprocs_flag
+#define PROFILING_PREPROCS ScProfilePreprocs()
 #endif
 
 #define PREPROC_PROFILE_START(ppstat) \
@@ -134,9 +134,9 @@ void ShowRuleProfiles(void);
 /* Preprocessor stats info */
 typedef struct _PreprocStats
 {
-    UINT64 ticks, ticks_start;
-    UINT64 checks;
-    UINT64 exits;
+    uint64_t ticks, ticks_start;
+    uint64_t checks;
+    uint64_t exits;
 } PreprocStats;
 
 typedef struct _PreprocStatsNode
@@ -148,10 +148,20 @@ typedef struct _PreprocStatsNode
     struct _PreprocStatsNode *next;
 } PreprocStatsNode;
 
+typedef struct _ProfileConfig
+{
+    int num;
+    int sort;
+    int append;
+    char *filename;
+
+} ProfileConfig;
+
 void RegisterPreprocessorProfile(char *keyword, PreprocStats *stats, int layer, PreprocStats *parent);
 void ShowPreprocProfiles(void);
 void ResetRuleProfiling(void);
 void ResetPreprocProfiling(void);
+void CleanupPreprocStatsNodeList(void);
 extern PreprocStats totalPerfStats;
 #else
 #define PROFILE_VARS

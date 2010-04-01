@@ -111,63 +111,44 @@
 #include "plugin_enum.h"
 #include "mstring.h"
 #include "sfhashfcn.h"
+#include "sp_byte_check.h"
 
-#define BT_LESS_THAN 1
-#define BT_EQUALS    2
-#define BT_GREATER_THAN 3
-#define BT_AND 4
-#define BT_OR 5
-
-#define BIG    0
-#define LITTLE 1
 #define PARSELEN 10
 #define TEXTLEN  (PARSELEN + 2)
 
 #include "snort.h"
 #include "profiler.h"
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
 #ifdef PERF_PROFILING
 PreprocStats byteTestPerfStats;
 extern PreprocStats ruleOTNEvalPerfStats;
 #endif
 
-extern const u_int8_t *doe_ptr;
-
-typedef struct _ByteTestData
-{
-    u_int32_t bytes_to_compare; /* number of bytes to compare */
-    u_int32_t cmp_value;
-    u_int32_t operator;
-    int32_t offset;
-    u_int8_t not_flag;
-    u_int8_t relative_flag;
-    u_int8_t data_string_convert_flag;
-    u_int8_t endianess;
-    u_int32_t base;
-} ByteTestData;
-
-#include "sfhashfcn.h"
-#include "detection_options.h"
-
-extern u_int8_t DecodeBuffer[DECODE_BLEN];
+extern const uint8_t *doe_ptr;
+extern uint8_t DecodeBuffer[DECODE_BLEN];
 
 typedef struct _ByteTestOverrideData
 {
     char *keyword;
     char *option;
-    RuleOverrideFunc func;
+    RuleOptOverrideFunc func;
     struct _ByteTestOverrideData *next;
+
 } ByteTestOverrideData;
 
-static void ByteTestOverride(char *keyword, char *option, RuleOverrideFunc func);
 ByteTestOverrideData *byteTestOverrideFuncs = NULL;
 
-void ByteTestInit(char *, OptTreeNode *, int);
-ByteTestOverrideData* ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn);
-int ByteTest(void *option_data, Packet *p);
+static void ByteTestOverride(char *keyword, char *option, RuleOptOverrideFunc func);
+static void ByteTestOverrideFuncsFree(void);
+static void ByteTestInit(char *, OptTreeNode *, int);
+static ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn);
+static void ByteTestOverrideCleanup(int, void *);
 
-u_int32_t ByteTestHash(void *d)
+uint32_t ByteTestHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     ByteTestData *data = (ByteTestData *)d;
 
     a = data->bytes_to_compare;
@@ -216,23 +197,44 @@ int ByteTestCompare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-static void ByteTestOverride(char *keyword, char *option, RuleOverrideFunc func)
+static void ByteTestOverride(char *keyword, char *option, RuleOptOverrideFunc func)
 {
     ByteTestOverrideData *new = SnortAlloc(sizeof(ByteTestOverrideData));
 
-    new->keyword = strdup(keyword);
-    new->option = strdup(option);
+    new->keyword = SnortStrdup(keyword);
+    new->option = SnortStrdup(option);
     new->func = func;
     
     new->next = byteTestOverrideFuncs;
     byteTestOverrideFuncs = new;
 }
 
+static void ByteTestOverrideFuncsFree(void)
+{
+    ByteTestOverrideData *node = byteTestOverrideFuncs;
+
+    while (node != NULL)
+    {
+        ByteTestOverrideData *tmp = node;
+
+        node = node->next;
+
+        if (tmp->keyword != NULL)
+            free(tmp->keyword);
+
+        if (tmp->option != NULL)
+            free(tmp->option);
+
+        free(tmp);
+    }
+
+    byteTestOverrideFuncs = NULL;
+}
+
 /****************************************************************************
- * 
  * Function: SetupByteTest()
  *
- * Purpose: Load 'er up
+ * Purpose: Register byte_test name and initialization function
  *
  * Arguments: None.
  *
@@ -242,7 +244,9 @@ static void ByteTestOverride(char *keyword, char *option, RuleOverrideFunc func)
 void SetupByteTest(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("byte_test", ByteTestInit, ByteTestOverride, OPT_TYPE_DETECTION);
+    RegisterRuleOption("byte_test", ByteTestInit, ByteTestOverride, OPT_TYPE_DETECTION);
+    AddFuncToCleanExitList(ByteTestOverrideCleanup, NULL);
+    AddFuncToRuleOptParseCleanupList(ByteTestOverrideFuncsFree);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("byte_test", &byteTestPerfStats, 3, &ruleOTNEvalPerfStats);
@@ -266,7 +270,7 @@ void SetupByteTest(void)
  * Returns: void function
  *
  ****************************************************************************/
-void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
+static void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
 {
     ByteTestData *idx;
     OptFpList *fpl;
@@ -344,7 +348,7 @@ void ByteTestInit(char *data, OptTreeNode *otn, int protocol)
  * Returns: void function
  *
  ****************************************************************************/
-ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
+static ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode *otn)
 {
     char **toks;
     char *endp;
@@ -355,7 +359,7 @@ ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode 
     toks = mSplit(data, ",", 12, &num_toks, 0);
 
     if(num_toks < 4)
-        FatalError("ERROR %s (%d): Bad arguments to byte_test: %s\n", file_name,
+        FatalError("%s (%d): Bad arguments to byte_test: %s\n", file_name,
                 file_line, data);
 
     /* set how many bytes to process from the packet */
@@ -395,21 +399,31 @@ ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTreeNode 
         switch(*cptr)
         {
             case '<': idx->operator = BT_LESS_THAN;
+                      cptr++;
+                      if (*cptr == '=')
+                          idx->operator = BT_LESS_THAN_EQUAL;
+                      else
+                          cptr--;
                       break;
 
             case '=': idx->operator = BT_EQUALS;
                       break;
 
             case '>': idx->operator = BT_GREATER_THAN;
+                      cptr++;
+                      if (*cptr == '=')
+                          idx->operator = BT_GREATER_THAN_EQUAL;
+                      else
+                          cptr--;
                       break;
 
             case '&': idx->operator = BT_AND;
                       break;
 
-            case '^': idx->operator = BT_OR;
+            case '^': idx->operator = BT_XOR;
                       break;
 
-            default: FatalError("ERROR %s(%d): byte_test unknown "
+            default: FatalError("%s(%d): byte_test unknown "
                              "operator ('%c, %s')\n", file_name, file_line, 
                              *cptr, toks[1]);
         }
@@ -540,12 +554,12 @@ int ByteTest(void *option_data, Packet *p)
 {
     ByteTestData *btd = (ByteTestData *)option_data;
     int rval = DETECTION_OPTION_NO_MATCH;
-    u_int32_t value = 0;
+    uint32_t value = 0;
     int success = 0;
     int use_alt_buffer = p->packet_flags & PKT_ALT_DECODE;
     int dsize;
     const char *base_ptr, *end_ptr, *start_ptr;
-    u_int32_t payload_bytes_grabbed = 0;
+    uint32_t payload_bytes_grabbed = 0;
     int32_t tmp = 0;
     PROFILE_VARS;
 
@@ -573,7 +587,7 @@ int ByteTest(void *option_data, Packet *p)
     if(doe_ptr)
     {
         /* @todo: possibly degrade to use the other buffer, seems non-intuitive*/        
-        if(!inBounds((const u_int8_t *)start_ptr, (const u_int8_t *)end_ptr, doe_ptr))
+        if(!inBounds((const uint8_t *)start_ptr, (const uint8_t *)end_ptr, doe_ptr))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "[*] byte test bounds check failed..\n"););
@@ -603,7 +617,7 @@ int ByteTest(void *option_data, Packet *p)
     if(!btd->data_string_convert_flag)
     {
         if(byte_extract(btd->endianess, btd->bytes_to_compare,
-                        (const u_int8_t *)base_ptr, (const u_int8_t *)start_ptr, (const u_int8_t *)end_ptr, &value))
+                        (const uint8_t *)base_ptr, (const uint8_t *)start_ptr, (const uint8_t *)end_ptr, &value))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                                     "Byte Extraction Failed\n"););
@@ -617,8 +631,8 @@ int ByteTest(void *option_data, Packet *p)
     else
     {
         payload_bytes_grabbed = tmp = string_extract(btd->bytes_to_compare, btd->base,
-                                               (const u_int8_t *)base_ptr, (const u_int8_t *)start_ptr,
-                                               (const u_int8_t *)end_ptr, &value);
+                                               (const uint8_t *)base_ptr, (const uint8_t *)start_ptr,
+                                               (const uint8_t *)end_ptr, &value);
         if (tmp < 0)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
@@ -652,9 +666,29 @@ int ByteTest(void *option_data, Packet *p)
                          success = 1;
                      break;
 
-        case BT_OR: if ((value ^ btd->cmp_value) > 0)
+        case BT_XOR: if ((value ^ btd->cmp_value) > 0)
                         success = 1;
                     break;
+
+        case BT_GREATER_THAN_EQUAL: if (value >= btd->cmp_value)
+                                        success = 1;
+                                    break;
+
+        case BT_LESS_THAN_EQUAL: if (value <= btd->cmp_value)
+                                        success = 1;
+                                 break;
+
+        case BT_CHECK_ALL: if ((value & btd->cmp_value) == btd->cmp_value)
+                               success = 1;
+                           break;
+
+        case BT_CHECK_ATLEASTONE: if ((value & btd->cmp_value) != 0)
+                                      success = 1;
+                                  break;
+
+        case BT_CHECK_NONE: if ((value & btd->cmp_value) == 0)
+                                success = 1;
+                            break;
     }
 
     if (btd->not_flag)
@@ -675,3 +709,10 @@ int ByteTest(void *option_data, Packet *p)
     PREPROC_PROFILE_END(byteTestPerfStats);
     return rval;
 }
+
+static void ByteTestOverrideCleanup(int signal, void *data)
+{
+    if (byteTestOverrideFuncs != NULL)
+        ByteTestOverrideFuncsFree();
+}
+

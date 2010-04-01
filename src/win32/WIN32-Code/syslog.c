@@ -43,6 +43,8 @@
 #define FMT_LEN         1024
 #define INTERNALLOG     LOG_ERR|LOG_CONS|LOG_PERROR|LOG_PID
 
+extern SnortConfig *snort_conf;
+
 static int      LogFile = -1;           /* fd for log */
 static int      opened;                 /* have done openlog() */
 static int      LogStat = 0;            /* status bits, set by openlog() */
@@ -67,9 +69,11 @@ void vsyslog(int pri, char *fmt, va_list ap){
 	SOCKET sockfd;
 	struct sockaddr_in sin;
     HANDLE	hEventLog;				/* handle to the Event Log. */
+    char *syslog_server = NULL;
+    char host_buf[256];
 
      /* Log to Event Log. */
-    if (!pv.syslog_remote_flag)
+    if (!ScLogSyslogRemote())
     {
         p = tbuf;
         tbuf_left = TBUF_LEN;
@@ -112,13 +116,19 @@ void vsyslog(int pri, char *fmt, va_list ap){
 		    openlog(LogTag, LogStat, 0);
 
 	
-		hEventLog = RegisterEventSource(NULL, LogTag);
+        if ((strlen(snort_conf->syslog_server) != 0)
+                && resolve_host(snort_conf->syslog_server))
+        {
+            syslog_server = snort_conf->syslog_server;
+        }
+
+        hEventLog = RegisterEventSource(syslog_server, LogTag);
 		if (hEventLog == NULL)
 			return;
 
 		/* Now, actually report it. */
 		ReportEvent( hEventLog
-                   , EVENTLOG_INFORMATION_TYPE
+                   , EVENTLOG_WARNING_TYPE
                    , 0
                    , EVMSG_SIMPLE
                    , NULL
@@ -175,8 +185,15 @@ void vsyslog(int pri, char *fmt, va_list ap){
     prlen = SnortStrnlen(p, tbuf_left);
     DEC();
 
-    prlen = strftime(p, tbuf_left, "%h %e %T ", localtime(&now));
+    prlen = strftime(p, tbuf_left, "%b %d %H:%M:%S ", localtime(&now));
     DEC();
+
+    if (gethostname(host_buf, sizeof(host_buf)) == 0)
+    {
+        SnortSnprintf(p, tbuf_left, "%s ", host_buf);
+        prlen = SnortStrnlen(p, tbuf_left);
+        DEC();
+    }
 
     if (LogStat & LOG_PERROR)
             stdp = p;
@@ -239,24 +256,29 @@ void vsyslog(int pri, char *fmt, va_list ap){
     cnt = p - tbuf;
 
 	/* Connect to Target server. */
-	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == SOCKET_ERROR){
-		ErrorMessage("[!] ERROR: Could not create the socket to send the syslog alert. Error Number: %d.\n", WSAGetLastError());	
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == SOCKET_ERROR)
+    {
+		ErrorMessage("[!] ERROR: Could not create the socket to send the "
+                     "syslog alert. Error Number: %d.\n", WSAGetLastError());	
 		return;
 	}
 
-	sin.sin_port = htons((u_short)pv.syslog_server_port);
+	sin.sin_port = htons((u_short)snort_conf->syslog_server_port);
 	sin.sin_family = AF_INET;
 
-	sin.sin_addr.s_addr = resolve_host(pv.syslog_server);
+	sin.sin_addr.s_addr = resolve_host(snort_conf->syslog_server);
 	if (!sin.sin_addr.s_addr)
     {
-		ErrorMessage("[!] ERROR: Could not resolve syslog server's hostname. Error Number: %d.\n", WSAGetLastError());		
+		ErrorMessage("[!] ERROR: Could not resolve syslog server's hostname. "
+                     "Error Number: %d.\n", WSAGetLastError());		
 		closesocket(sockfd);
 		return;
 	}
 
-	if(sendto(sockfd,tbuf,cnt,(int)NULL, (SOCKADDR *)&sin, sizeof(SOCKADDR_IN)) == SOCKET_ERROR) {
-		ErrorMessage("[!] ERROR: Could not send the alert to the syslog server. Error Number: %d.\n", WSAGetLastError());		
+	if(sendto(sockfd,tbuf,cnt,(int)NULL, (SOCKADDR *)&sin, sizeof(SOCKADDR_IN)) == SOCKET_ERROR)
+    {
+		ErrorMessage("[!] ERROR: Could not send the alert to the syslog "
+                     "server. Error Number: %d.\n", WSAGetLastError());		
 		closesocket(sockfd);
 		return;
 	}
@@ -269,7 +291,7 @@ void openlog(char *ident, int logstat, int logfac){
 	if(ident != NULL){
 		LogTag = ident;
         LogStat = logstat;
-		if (logfac != 0 && (logfac &~ LOG_FACMASK) == 0)
+		if (logfac != 0 && (logfac & ~LOG_FACMASK) == 0)
                 LogFacility = logfac;
 
 	    /* Add the registry key each time openlog is called. */

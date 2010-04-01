@@ -23,7 +23,7 @@
 #define __SP_TCP_WIN_CHECK_H__
 
 void SetupTcpWinCheck(void);
-u_int32_t TcpWinCheckHash(void *d);
+uint32_t TcpWinCheckHash(void *d);
 int TcpWinCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_TOS_CHECK_H__ */

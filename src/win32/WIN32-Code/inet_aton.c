@@ -38,6 +38,13 @@ int inet_aton(const char *cp, struct in_addr *addr)
         return(0);
     }
 
+    /* Because this and INADDR_NONE are the same */
+    if (strcmp(cp, "255.255.255.255") == 0)
+    {
+        addr->s_addr = 0xffffffff;
+        return 1;
+    }
+
     addr->s_addr = inet_addr(cp);
     return (addr->s_addr == INADDR_NONE) ? 0 : 1;
 }

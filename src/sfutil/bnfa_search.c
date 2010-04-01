@@ -150,12 +150,11 @@
 #define BNFA_TRACK_Q
 
 #ifdef BNFA_TRACK_Q
-#include "snort.h"
-extern PV pv;
+# include "snort.h"
 #endif
 
 #include "bnfa_search.h"
-
+#include "debug.h"
 #include "util.h"
 
 /*
@@ -641,7 +640,7 @@ int _bnfa_add_pattern_states (bnfa_struct_t * bnfa, bnfa_pattern_t * p)
       else
         next = _bnfa_list_get_next_state(bnfa,state,xlatcase[*pattern]);
 
-      if( next == BNFA_FAIL_STATE || next == 0 )
+      if( next == (int)BNFA_FAIL_STATE || next == 0 )
       {
          break;
       }
@@ -861,7 +860,7 @@ int _bnfa_build_nfa (bnfa_struct_t * bnfa)
 
             s = _bnfa_list_get_next_state(bnfa,r,i);
 
-            if( s == BNFA_FAIL_STATE )
+            if( s == (int)BNFA_FAIL_STATE )
                 continue;
            
             if( queue_add (queue, s) ) 
@@ -874,7 +873,7 @@ int _bnfa_build_nfa (bnfa_struct_t * bnfa)
             /* 
             *  Locate the next valid state for 'i' starting at fs 
             */ 
-            while( (next=_bnfa_list_get_next_state(bnfa,fs,i)) == BNFA_FAIL_STATE )
+            while( (next=_bnfa_list_get_next_state(bnfa,fs,i)) == (int)BNFA_FAIL_STATE )
             {
                 fs = FailState[fs];
             }
@@ -1613,7 +1612,7 @@ bnfaCompile (bnfa_struct_t * bnfa,
 *   Full Matrix Format Search
 */
 static
-inline
+INLINE
 unsigned 
 _bnfa_search_full_nfa(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                     int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -1690,7 +1689,7 @@ _bnfa_search_full_nfa(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
 *   Full Matrix Format Search - Exact matching patterns only
 */
 static
-inline
+INLINE
 unsigned 
 _bnfa_search_full_nfa_case(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                     int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -1767,7 +1766,7 @@ _bnfa_search_full_nfa_case(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
 *   Full Matrix Format Search - no case
 */
 static
-inline
+INLINE
 unsigned 
 _bnfa_search_full_nfa_nocase(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                     int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -1856,7 +1855,7 @@ _bnfa_search_full_nfa_nocase(    bnfa_struct_t * bnfa, unsigned char *Tx, int n,
     this is particular to the storage format we are using.
 */
 static
-inline 
+INLINE
 int _bnfa_binearch( bnfa_state_t * a, int a_len, int val )
 {
    int m, l, r;
@@ -1903,7 +1902,7 @@ int _bnfa_binearch( bnfa_state_t * a, int a_len, int val )
 *   word 3+: byte-value(0-255) << 24 | transition-state
 */
 static
-inline 
+INLINE
 unsigned 
 _bnfa_get_next_state_csparse_nfa_qx(bnfa_state_t * pcx, unsigned sindex, unsigned  input)
 {
@@ -1971,7 +1970,7 @@ _bnfa_get_next_state_csparse_nfa_qx(bnfa_state_t * pcx, unsigned sindex, unsigne
 *   word 3+: byte-value(0-255) << 24 | transition-state
 */
 static
-inline 
+INLINE
 unsigned 
 _bnfa_get_next_state_csparse_nfa(bnfa_state_t * pcx, unsigned sindex, unsigned  input)
 {
@@ -2035,20 +2034,20 @@ _bnfa_get_next_state_csparse_nfa(bnfa_state_t * pcx, unsigned sindex, unsigned  
  */
 
 /* Queue whole pattern groups at end states in AC */
-void bnfa_print_qinfo()
+void bnfa_print_qinfo(void)
 {
 #ifdef BNFA_TRACK_Q
-    if( pv.max_inq )
+    if( snort_conf->max_inq )
     {
-        LogMessage("ac-bnfa: queue size     = %d, max = %d\n",pv.max_inq, MAX_INQ );
-        LogMessage("ac-bnfa: queue flushes  = %d \n", (unsigned)pv.tot_inq_flush );
-        LogMessage("ac-bnfa: queue inserts  = %d \n", (unsigned)pv.tot_inq_inserts );
-        LogMessage("ac-bnfa: queue uinserts = %d \n", (unsigned)pv.tot_inq_uinserts );
+        LogMessage("ac-bnfa: queue size     = %d, max = %d\n",snort_conf->max_inq, MAX_INQ );
+        LogMessage("ac-bnfa: queue flushes  = %d \n", (unsigned)snort_conf->tot_inq_flush );
+        LogMessage("ac-bnfa: queue inserts  = %d \n", (unsigned)snort_conf->tot_inq_inserts );
+        LogMessage("ac-bnfa: queue uinserts = %d \n", (unsigned)snort_conf->tot_inq_uinserts );
     }
 #endif
 }
 static
-inline 
+INLINE
 void 
 _init_queue(bnfa_struct_t * b)
 {
@@ -2057,14 +2056,14 @@ _init_queue(bnfa_struct_t * b)
 }
 /* uniquely insert into q, should splay elements for performance */
 static  
-inline
+INLINE
 int
 _add_queue(bnfa_struct_t* b, bnfa_match_node_t * p  )
 {
     int i;
 
 #ifdef BNFA_TRACK_Q
-    pv.tot_inq_inserts++;
+    snort_conf->tot_inq_inserts++;
 #endif
 
     for(i=(int)(b->inq)-1;i>=0;i--)
@@ -2072,7 +2071,7 @@ _add_queue(bnfa_struct_t* b, bnfa_match_node_t * p  )
             return 0;
     
 #ifdef BNFA_TRACK_Q
-    pv.tot_inq_uinserts++;
+    snort_conf->tot_inq_uinserts++;
 #endif
 
     if( b->inq < MAX_INQ )
@@ -2092,7 +2091,7 @@ _add_queue(bnfa_struct_t* b, bnfa_match_node_t * p  )
 }
 
 static
-inline
+INLINE
 unsigned
 _process_queue( bnfa_struct_t * bnfa, 
               int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -2104,9 +2103,9 @@ _process_queue( bnfa_struct_t * bnfa,
     unsigned int         i;
 
 #ifdef BNFA_TRACK_Q
-    if( bnfa->inq > pv.max_inq ) 
-        pv.max_inq = bnfa->inq;
-    pv.tot_inq_flush += bnfa->inq_flush;
+    if( bnfa->inq > snort_conf->max_inq ) 
+        snort_conf->max_inq = bnfa->inq;
+    snort_conf->tot_inq_flush += bnfa->inq_flush;
 #endif 
 
     for( i=0; i<bnfa->inq; i++ )
@@ -2129,7 +2128,7 @@ _process_queue( bnfa_struct_t * bnfa,
 }
 
 static
-inline
+INLINE
 unsigned
 _bnfa_search_csparse_nfa_qx(bnfa_struct_t * bnfa, unsigned char *T, int n,
                             int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -2175,7 +2174,7 @@ _bnfa_search_csparse_nfa_qx(bnfa_struct_t * bnfa, unsigned char *T, int n,
 }
 
 static
-inline
+INLINE
 unsigned
 _bnfa_search_csparse_nfa_q(   bnfa_struct_t * bnfa, unsigned char *T, int n,
                  int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -2231,8 +2230,8 @@ _bnfa_search_csparse_nfa_q(   bnfa_struct_t * bnfa, unsigned char *T, int n,
  *  note: index is not used by snort, so it's commented
  */
 static
-inline
-    unsigned
+INLINE
+unsigned
 _bnfa_search_csparse_nfa( bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                           int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
                           void *data, unsigned sindex, int *current_state ) 
@@ -2306,7 +2305,7 @@ _bnfa_search_csparse_nfa( bnfa_struct_t * bnfa, unsigned char *Tx, int n,
  *  note: index is not used by snort, so it's commented
  */
 static
-inline
+INLINE
 unsigned
 _bnfa_search_csparse_nfa_case(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                         int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -2371,7 +2370,7 @@ _bnfa_search_csparse_nfa_case(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
  *  note: index is not used by snort, so it's commented
  */
 static
-inline
+INLINE
 unsigned
 _bnfa_search_csparse_nfa_nocase(   bnfa_struct_t * bnfa, unsigned char *Tx, int n,
                         int (*Match)(bnfa_pattern_t * id, void *tree, int index, void *data, void *neg_list), 
@@ -2597,32 +2596,32 @@ void bnfaPrintInfoEx( bnfa_struct_t * p, char * text )
 
     if( text && summary_cnt )
     {
-    printf("+-[AC-BNFA Search Info%s]------------------------------\n",text);
-    printf("| Instances        : %d\n",summary_cnt);
+    LogMessage("+-[AC-BNFA Search Info%s]------------------------------\n",text);
+    LogMessage("| Instances        : %d\n",summary_cnt);
     }
     else
     {
-    printf("+-[AC-BNFA Search Info]------------------------------\n");
+    LogMessage("+-[AC-BNFA Search Info]------------------------------\n");
     }
-    printf("| Patterns         : %d\n",p->bnfaPatternCnt);
-    printf("| Pattern Chars    : %d\n",p->bnfaMaxStates);
-    printf("| Num States       : %d\n",p->bnfaNumStates);
-    printf("| Num Match States : %d\n",p->bnfaMatchStates);
+    LogMessage("| Patterns         : %d\n",p->bnfaPatternCnt);
+    LogMessage("| Pattern Chars    : %d\n",p->bnfaMaxStates);
+    LogMessage("| Num States       : %d\n",p->bnfaNumStates);
+    LogMessage("| Num Match States : %d\n",p->bnfaMatchStates);
     if( max_memory < 1024*1024 )
     {
-        printf("| Memory           :   %.2fKbytes\n", (double)max_memory/1024 );
-        printf("|   Patterns       :   %.2fK\n",(double)p->pat_memory/1024 );
-        printf("|   Match Lists    :   %.2fK\n",(double)p->matchlist_memory/1024 );
-        printf("|   Transitions    :   %.2fK\n",(double)p->nextstate_memory/1024 );
+        LogMessage("| Memory           :   %.2fKbytes\n", (double)max_memory/1024 );
+        LogMessage("|   Patterns       :   %.2fK\n",(double)p->pat_memory/1024 );
+        LogMessage("|   Match Lists    :   %.2fK\n",(double)p->matchlist_memory/1024 );
+        LogMessage("|   Transitions    :   %.2fK\n",(double)p->nextstate_memory/1024 );
     }
     else
     {
-        printf("| Memory           :   %.2fMbytes\n", (double)max_memory/(1024*1024) );
-        printf("|   Patterns       :   %.2fM\n",(double)p->pat_memory/(1024*1024) );
-        printf("|   Match Lists    :   %.2fM\n",(double)p->matchlist_memory/(1024*1024) );
-        printf("|   Transitions    :   %.2fM\n",(double)p->nextstate_memory/(1024*1024) );
+        LogMessage("| Memory           :   %.2fMbytes\n", (double)max_memory/(1024*1024) );
+        LogMessage("|   Patterns       :   %.2fM\n",(double)p->pat_memory/(1024*1024) );
+        LogMessage("|   Match Lists    :   %.2fM\n",(double)p->matchlist_memory/(1024*1024) );
+        LogMessage("|   Transitions    :   %.2fM\n",(double)p->nextstate_memory/(1024*1024) );
     }
-    printf("+-------------------------------------------------\n");
+    LogMessage("+-------------------------------------------------\n");
 }
 void bnfaPrintInfo( bnfa_struct_t * p )
 {

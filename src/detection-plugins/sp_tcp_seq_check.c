@@ -56,9 +56,9 @@ void TcpSeqCheckInit(char *, OptTreeNode *, int);
 void ParseTcpSeq(char *, OptTreeNode *);
 int CheckTcpSeqEq(void *option_data, Packet *p);
 
-u_int32_t TcpSeqCheckHash(void *d)
+uint32_t TcpSeqCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     TcpSeqCheckData *data = (TcpSeqCheckData *)d;
 
     a = data->tcp_seq;
@@ -100,7 +100,7 @@ int TcpSeqCheckCompare(void *l, void *r)
 void SetupTcpSeqCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("seq", TcpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("seq", TcpSeqCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("seq", &tcpSeqPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

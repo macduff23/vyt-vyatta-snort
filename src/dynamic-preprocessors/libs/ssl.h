@@ -124,50 +124,50 @@
 
 typedef struct _SSL_record 
 {
-    u_int8_t type;
-    u_int8_t major;
-    u_int8_t minor;
-    u_int16_t length;
+    uint8_t type;
+    uint8_t major;
+    uint8_t minor;
+    uint16_t length;
 } SSL_record_t;
 
-#define SSL_REC_PAYLOAD_OFFSET (sizeof(u_int8_t) * 5)
+#define SSL_REC_PAYLOAD_OFFSET (sizeof(uint8_t) * 5)
 
 typedef struct _SSL_handshake 
 {
-    u_int8_t type;    
-    u_int8_t length[3];
+    uint8_t type;    
+    uint8_t length[3];
 } SSL_handshake_t;
 
 typedef struct _SSL_handshake_hello
 {
-    u_int8_t type;    
-    u_int8_t length[3];
-    u_int8_t major;
-    u_int8_t minor;
+    uint8_t type;    
+    uint8_t length[3];
+    uint8_t major;
+    uint8_t minor;
 } SSL_handshake_hello_t;
 
 typedef struct _SSLv2_record 
 {
-    u_int16_t length;
-    u_int8_t type;
+    uint16_t length;
+    uint8_t type;
 } SSLv2_record_t;
 
 typedef struct _SSLv2_chello
 {
-    u_int16_t length;
-    u_int8_t type;
-    u_int8_t minor;
-    u_int8_t major;
+    uint16_t length;
+    uint8_t type;
+    uint8_t minor;
+    uint8_t major;
 } SSLv2_chello_t;
 
 typedef struct _SSLv2_shello
 {
-    u_int16_t length;
-    u_int8_t type;
-    u_int8_t ssnid;
-    u_int8_t certtype;
-    u_int8_t minor;
-    u_int8_t major;
+    uint16_t length;
+    uint8_t type;
+    uint8_t ssnid;
+    uint8_t certtype;
+    uint8_t minor;
+    uint8_t major;
 } SSLv2_shello_t;
 
 #define SSL_V2_MIN_LEN 5
@@ -178,7 +178,7 @@ typedef struct _SSLv2_shello
 #pragma pack()
 #endif
 
-#define SSL_HS_PAYLOAD_OFFSET (sizeof(u_int8_t) * 4) /* Type and length fields */
+#define SSL_HS_PAYLOAD_OFFSET (sizeof(uint8_t) * 4) /* Type and length fields */
 
 #define SSL_BAD_HS(x) (x & SSL_BOGUS_HS_DIR_FLAG)
 #define SSL_IS_HANDSHAKE(x) (x & (SSL_CLIENT_HELLO_FLAG | SSL_SERVER_HELLO_FLAG | \
@@ -195,6 +195,6 @@ typedef struct _SSLv2_shello
                                SSL_BAD_VER_FLAG | SSL_BAD_TYPE_FLAG | \
                                SSL_TRAILING_GARB_FLAG | SSL_UNKNOWN_FLAG))
 
-u_int32_t SSL_decode(const u_int8_t *pkt, u_int32_t size, u_int32_t pktflags);
+uint32_t SSL_decode(const uint8_t *pkt, uint32_t size, uint32_t pktflags);
 
 #endif

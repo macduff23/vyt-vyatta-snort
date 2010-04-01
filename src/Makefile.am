@@ -11,7 +11,6 @@ plugin_enum.h \
 rules.h \
 sys_include.h \
 checksum.h \
-codes.c codes.h \
 debug.c debug.h \
 decode.c decode.h \
 log.c log.h \
@@ -50,7 +49,9 @@ ppm.c ppm.h \
 pcap_pkthdr32.h \
 cpuclock.h \
 sf_types.h \
-log_text.c log_text.h
+log_text.c log_text.h \
+detection_filter.c detection_filter.h \
+rate_filter.c rate_filter.h
 
 snort_LDADD = output-plugins/libspo.a \
 detection-plugins/libspd.a            \

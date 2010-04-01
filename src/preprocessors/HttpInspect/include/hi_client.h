@@ -41,6 +41,19 @@ typedef struct s_COOKIE_PTR
     struct s_COOKIE_PTR *next;
 } COOKIE_PTR;
 
+typedef struct s_CONTLEN_PTR
+{
+    const u_char *cont_len_start;
+    const u_char *cont_len_end;
+    int len;
+}CONTLEN_PTR;
+
+typedef struct s_HEADER_FIELD_PTR
+{
+    COOKIE_PTR *cookie;
+    CONTLEN_PTR *content_len;
+} HEADER_FIELD_PTR;
+
 typedef struct s_HI_CLIENT_REQ
 {
     /*

@@ -142,7 +142,7 @@ char isStreamPolicySet(HostAttributeEntry *host_entry)
     return POLICY_NOT_SET;
 }
 
-u_int16_t getFragPolicy(HostAttributeEntry *host_entry)
+uint16_t getFragPolicy(HostAttributeEntry *host_entry)
 {
     if (!host_entry)
         return SFAT_UNKNOWN_FRAG_POLICY;
@@ -153,7 +153,7 @@ u_int16_t getFragPolicy(HostAttributeEntry *host_entry)
     return host_entry->hostInfo.fragPolicy;
 }
 
-u_int16_t getStreamPolicy(HostAttributeEntry *host_entry)
+uint16_t getStreamPolicy(HostAttributeEntry *host_entry)
 {
     if (!host_entry)
         return SFAT_UNKNOWN_STREAM_POLICY;
@@ -166,7 +166,7 @@ u_int16_t getStreamPolicy(HostAttributeEntry *host_entry)
 
 int getApplicationProtocolId(HostAttributeEntry *host_entry,
                int ipprotocol,
-               u_int16_t port,
+               uint16_t port,
                char direction)
 {
     ApplicationEntry *application;
@@ -180,7 +180,7 @@ int getApplicationProtocolId(HostAttributeEntry *host_entry,
         {
             if (application->ipproto.attributeOrdinal == ipprotocol)
             {
-                if ((u_int16_t)application->port.value.l_value == port)
+                if ((uint16_t)application->port.value.l_value == port)
                 {
                     return application->protocol.attributeOrdinal;
                 }

@@ -24,8 +24,19 @@
 #ifndef __SP_ISDATAAT_H__
 #define __SP_ISDATAAT_H__
 
+#define ISDATAAT_RELATIVE_FLAG 0x01
+#define ISDATAAT_RAWBYTES_FLAG 0x02
+#define ISDATAAT_NOT_FLAG      0x04
+
+typedef struct _IsDataAtData
+{
+    uint32_t offset;        /* byte location into the packet */
+    uint8_t  flags;         /* relative to the doe_ptr? */
+                             /* rawbytes buffer? */
+} IsDataAtData;
+
 void SetupIsDataAt(void);
-u_int32_t IsDataAtHash(void *d);
+uint32_t IsDataAtHash(void *d);
 int IsDataAtCompare(void *l, void *r);
 
 #endif  /* __SP_ISDATAAT_H__ */

@@ -22,12 +22,65 @@
 #ifndef __SF_EVENTQ_H__
 #define __SF_EVENTQ_H__
 
-void *sfeventq_event_alloc(void);
-void  sfeventq_reset(void);
-int   sfeventq_add(void *event);
-int   sfeventq_action(int (*action_func)(void *event, void *user), void *user);
-int   sfeventq_init(int max_nodes, int log_nodes, int event_size, 
-                    int (*sort)(void *, void *));
-void sfeventq_free(void);
+typedef struct s_SF_EVENTQ_NODE
+{
+    void   *event;
+
+    struct s_SF_EVENTQ_NODE *prev;
+    struct s_SF_EVENTQ_NODE *next;
+
+}  SF_EVENTQ_NODE;
+
+typedef struct s_SF_EVENTQ
+{
+    /*
+    **  Handles the actual ordering and memory
+    **  of the event queue and it's nodes.
+    */
+    SF_EVENTQ_NODE *head;
+    SF_EVENTQ_NODE *last;
+
+    SF_EVENTQ_NODE *node_mem;
+    char           *event_mem;
+
+    /*
+    **  The reserve event allows us to allocate one extra node
+    **  and compare against the last event in the queue to determine
+    **  if the incoming event is a higher priority than the last 
+    **  event in the queue.
+    */
+    char           *reserve_event;
+    
+    /*
+    **  Queue configuration
+    */
+    int max_nodes;
+    int log_nodes;
+    int event_size;
+
+    /*
+    **  This function orders the events as they
+    **  arrive.
+    */
+    int (*sort)(void *event1, void *event2);
+
+    /*
+    **  This element tracks the current number of
+    **  nodes in the event queue.
+    */
+    int cur_nodes;
+    int cur_events;
+
+}  SF_EVENTQ;
+
+
+SF_EVENTQ * sfeventq_new(int max_nodes, int log_nodes, int event_size, 
+                         int (*sort)(void *, void *));
+
+void * sfeventq_event_alloc(SF_EVENTQ *);
+void sfeventq_reset(SF_EVENTQ *);
+int sfeventq_add(SF_EVENTQ *, void *event);
+int sfeventq_action(SF_EVENTQ *, int (*action_func)(void *event, void *user), void *user);
+void sfeventq_free(SF_EVENTQ *);
 
 #endif

@@ -89,7 +89,7 @@ typedef enum _DCE2_Event
     DCE2_EVENT__CL_BAD_PDU_TYPE,
     DCE2_EVENT__CL_DATA_LT_HDR,
     DCE2_EVENT__CL_BAD_SEQ_NUM,
-    DCE2_EVENT__MAX,
+    DCE2_EVENT__MAX
 
 } DCE2_Event;
 

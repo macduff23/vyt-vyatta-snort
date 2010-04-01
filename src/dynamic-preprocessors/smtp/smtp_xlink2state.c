@@ -63,14 +63,14 @@
 #define XLINK2STATE_MAX_LEN  520
 
 
-extern SMTP *_smtp;
-extern SMTPConfig _smtp_config;
+extern SMTP *smtp_ssn;
+extern SMTPConfig *smtp_eval_config;
 extern DynamicPreprocessorData _dpd;
 
 
 /* Prototypes */
-static u_int32_t get_xlink_hex_value(const u_int8_t *, const u_int8_t *);
-static char      get_xlink_keyword(const u_int8_t *, const u_int8_t *);
+static uint32_t get_xlink_hex_value(const uint8_t *, const uint8_t *);
+static char      get_xlink_keyword(const uint8_t *, const uint8_t *);
 
 /*
  * Extract a number from a string
@@ -82,11 +82,11 @@ static char      get_xlink_keyword(const u_int8_t *, const u_int8_t *);
  *
  * @note    this could be more efficient, but the search buffer should be pretty short
  */
-static u_int32_t get_xlink_hex_value(const u_int8_t *buf, const u_int8_t *end)
+static uint32_t get_xlink_hex_value(const uint8_t *buf, const uint8_t *end)
 {
     char       c;
-    u_int32_t  value = 0;
-    const u_int8_t *hex_end;
+    uint32_t  value = 0;
+    const uint8_t *hex_end;
 
     if ((end - buf) < 8)
         return 0;
@@ -128,7 +128,7 @@ static u_int32_t get_xlink_hex_value(const u_int8_t *buf, const u_int8_t *end)
  *
  * @retval  int         identifies which keyword found, if any
  */
-static char get_xlink_keyword(const u_int8_t *ptr, const u_int8_t *end)
+static char get_xlink_keyword(const uint8_t *ptr, const uint8_t *end)
 {
     int len;
 
@@ -203,18 +203,18 @@ static char get_xlink_keyword(const u_int8_t *ptr, const u_int8_t *end)
  * @retval  1           if alert raised
  * @retval  0           if no alert raised
  */
-int ParseXLink2State(SFSnortPacket *p, const u_int8_t *ptr)
+int ParseXLink2State(SFSnortPacket *p, const uint8_t *ptr)
 {
-    u_int8_t  *lf = NULL;
-    u_int32_t  len = 0;
+    uint8_t  *lf = NULL;
+    uint32_t  len = 0;
     char       x_keyword;
-    const u_int8_t  *end;
+    const uint8_t  *end;
 
     if (p == NULL || ptr == NULL)
         return 0;
 
     /* If we got a FIRST chunk on this stream, this is not an exploit */
-    if (_smtp->session_flags & SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK)
+    if (smtp_ssn->session_flags & SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK)
         return 0;
 
     /* Calculate length from pointer to end of packet data */
@@ -227,12 +227,12 @@ int ParseXLink2State(SFSnortPacket *p, const u_int8_t *ptr)
     if (x_keyword != XLINK_CHUNK)
     {
         if (x_keyword == XLINK_FIRST)
-            _smtp->session_flags |= SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK;
+            smtp_ssn->session_flags |= SMTP_FLAG_XLINK2STATE_GOTFIRSTCHUNK;
 
         return 0;
     }
 
-    ptr = (u_int8_t *)memchr((char *)ptr, '=', end - ptr);
+    ptr = (uint8_t *)memchr((char *)ptr, '=', end - ptr);
     if (ptr == NULL)
         return 0;
 
@@ -259,7 +259,7 @@ int ParseXLink2State(SFSnortPacket *p, const u_int8_t *ptr)
     }
     else
     {
-        lf = (u_int8_t *)memchr((char *)ptr, '\n', end - ptr);
+        lf = (uint8_t *)memchr((char *)ptr, '\n', end - ptr);
         if (lf == NULL)
             return 0;
 
@@ -271,19 +271,19 @@ int ParseXLink2State(SFSnortPacket *p, const u_int8_t *ptr)
         /* Need to drop the packet if we're told to
          * and we're inline mode (outside of whether its
          * thresholded). */
-        if (_smtp_config.drop_xlink2state && _dpd.inlineMode())
+        if (smtp_eval_config->drop_xlink2state && _dpd.inlineMode())
         {
             _dpd.inlineDrop(p);
         }
 
-        _dpd.alertAdd(GENERATOR_SMTP, 1, 1, 0, 3, "X-Link2State command: attempted buffer overflow", 0);
-        _smtp->session_flags |= SMTP_FLAG_XLINK2STATE_ALERTED;
+        SMTP_GenerateAlert(SMTP_XLINK2STATE_OVERFLOW, "%s", SMTP_XLINK2STATE_OVERFLOW_STR);
+        smtp_ssn->session_flags |= SMTP_FLAG_XLINK2STATE_ALERTED;
 
         return 1;
     }
 
     /* Check for more than one command in packet */
-    ptr = (u_int8_t *)memchr((char *)ptr, '\n', end - ptr);
+    ptr = (uint8_t *)memchr((char *)ptr, '\n', end - ptr);
     if (ptr == NULL)
         return 0;
 

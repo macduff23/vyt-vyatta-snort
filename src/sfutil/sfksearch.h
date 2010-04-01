@@ -32,10 +32,6 @@
 #include "config.h"
 #endif
 
-#ifdef WIN32
-#define inline __inline
-#endif
-
 #define KTRIEMETHOD_STD 0
 #define KTRIEMETHOD_QUEUE 1
 
@@ -124,6 +120,7 @@ int            KTrieSearch( KTRIE_STRUCT * ts, unsigned char * T,  int n,
                             int(*match)(void * id, void *tree, int index, void *data, void *neg_list),
                             void *data );
 unsigned int   KTrieMemUsed(void);
+void KTrieInitMemUsed(void);
 void           KTrieDelete(KTRIE_STRUCT *k);
 int            KTriePatternCount(KTRIE_STRUCT *k);
 

@@ -40,11 +40,13 @@
 #include <arpa/inet.h>
 #endif
 
-#ifdef TESTER
+#ifdef SF_IP_TEST
 #define INLINE inline
 #else
 #include "debug.h" /* for INLINE definition */
 #endif
+
+#include "sf_types.h"
 
 /* define SFIP_ROBUST to check pointers passed into the sfip libs.
  * Robustification should not be enabled if the client code is trustworthy.
@@ -85,7 +87,7 @@ typedef struct _ip {
         u_int8_t  u6_addr8[16];
         u_int16_t u6_addr16[8];
         u_int32_t u6_addr32[4];
-//        UINT64    u6_addr64[2];
+//        u_int64_t    u6_addr64[2];
     } ip;
     #define ip8  ip.u6_addr8
     #define ip16 ip.u6_addr16
@@ -192,7 +194,7 @@ static INLINE int sfip_is_set(sfip_t *ip) {
             ( (ip->family == AF_INET6) && 
               (ip->ip32[1] || 
               ip->ip32[2] || 
-              ip->ip32[3]) ) ;
+              ip->ip32[3] || ip->bits != 128)) || ((ip->family == AF_INET) && ip->bits != 32)  ;
 }
 
 /* Return 1 if the IP is a loopback IP */
@@ -203,8 +205,8 @@ int sfip_ismapped(sfip_t *ip);
 
 /* Support function for sfip_compare */
 static INLINE int _ip4_cmp(u_int32_t ip1, u_int32_t ip2) {
-    uint32_t hip1 = htonl(ip1);
-    uint32_t hip2 = htonl(ip2);
+    u_int32_t hip1 = htonl(ip1);
+    u_int32_t hip2 = htonl(ip2);
     if(hip1 < hip2) return SFIP_LESSER;
     if(hip1 > hip2) return SFIP_GREATER;
     return SFIP_EQUAL;
@@ -394,7 +396,7 @@ static INLINE int sfip_fast_cont4(sfip_t *ip1, sfip_t *ip2) {
 
 /* Checks if ip2 is equal to ip1 or contained within the CIDR ip1 */
 static INLINE int sfip_fast_cont6(sfip_t *ip1, sfip_t *ip2) {
-    uint32_t ip;
+    u_int32_t ip;
     int i, bits = sfip_bits(ip1);
     int words = bits / 32;
     bits = 32 - (bits % 32);
@@ -425,8 +427,5 @@ char *sfip_to_str(const sfip_t *ip);
 #define sfip_ntoa(x) sfip_to_str(x)
 void sfip_raw_ntop(int family, const void *ip_raw, char *buf, int bufsize);
 
-#ifndef strndup
-char *strndup(const char *s, size_t n);
-#endif
+#endif // SF_IP_H
 
-#endif

@@ -28,7 +28,7 @@
 
 #include "sf_snort_packet.h"
 
-int SMTP_NormalizeCmd(SFSnortPacket *, const u_int8_t *, const u_int8_t *, const u_int8_t *);
+int SMTP_NormalizeCmd(SFSnortPacket *, const uint8_t *, const uint8_t *, const uint8_t *);
 
 #endif
 

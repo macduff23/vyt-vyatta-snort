@@ -82,9 +82,6 @@
 #define REL_OFFSET_OPT "relative_offset"
 #define PRINT_OPT      "print"
 
-#define ABS_OFFSET 1
-#define REL_OFFSET 2
-
 #define DELIMITERS " ,\t\n"
 
 #include "snort.h"
@@ -97,9 +94,9 @@ extern PreprocStats ruleOTNEvalPerfStats;
 #include "sfhashfcn.h"
 #include "detection_options.h"
 
-u_int32_t Asn1Hash(void *d)
+uint32_t Asn1Hash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     ASN1_CTXT *data = (ASN1_CTXT *)d;
 
     a = data->bs_overflow;
@@ -144,7 +141,7 @@ int Asn1Compare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-extern const u_int8_t *doe_ptr;
+extern const uint8_t *doe_ptr;
 
 /*
 **  NAME
@@ -267,7 +264,7 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
 **  @retval 0 failed
 **  @retval 1 detected
 */
-static int Asn1Detect(void *context, Packet *p)
+int Asn1Detect(void *context, Packet *p)
 {
     ASN1_CTXT *ctxt;
     PROFILE_VARS;
@@ -303,7 +300,6 @@ static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
      * it to the rule's data struct list 
      */
     asn1 = (ASN1_CTXT *)SnortAlloc(sizeof(ASN1_CTXT));
-    memset(asn1, 0x00, sizeof(ASN1_CTXT));
 
     Asn1RuleParse(data, otn, asn1);
 
@@ -323,10 +319,10 @@ static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
 
 }
 
-void SetupAsn1()
+void SetupAsn1(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("asn1", Asn1Init, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("asn1", Asn1Init, NULL, OPT_TYPE_DETECTION);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("asn1", &asn1PerfStats, 3, &ruleOTNEvalPerfStats);

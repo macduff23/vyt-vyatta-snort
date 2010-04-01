@@ -64,8 +64,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 1
-# PROP Output_Dir "build_all___Win32_IPv6_Debug"
-# PROP Intermediate_Dir "build_all___Win32_IPv6_Debug"
+# PROP Output_Dir "BuildAll_IPv6_Debug"
+# PROP Intermediate_Dir "BuildAll_IPv6_Debug"
 # PROP Target_Dir ""
 
 !ELSEIF  "$(CFG)" == "build_all - Win32 IPv6 Release"
@@ -77,8 +77,8 @@ MTL=midl.exe
 # PROP BASE Target_Dir ""
 # PROP Use_MFC 0
 # PROP Use_Debug_Libraries 0
-# PROP Output_Dir "build_all___Win32_IPv6_Release"
-# PROP Intermediate_Dir "build_all___Win32_IPv6_Release"
+# PROP Output_Dir "BuildAll_IPv6_Release"
+# PROP Intermediate_Dir "BuildAll_IPv6_Release"
 # PROP Target_Dir ""
 
 !ENDIF 

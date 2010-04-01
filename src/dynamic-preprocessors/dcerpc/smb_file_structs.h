@@ -36,40 +36,40 @@
 
 typedef struct echo_req_hdr
 {
-    u_int8_t wordCount;        /* Count of parameter words */
-    u_int8_t echoCount;
+    uint8_t wordCount;        /* Count of parameter words */
+    uint8_t echoCount;
 
-    u_int16_t byteCount;       /* Should be 0 */
+    uint16_t byteCount;       /* Should be 0 */
 } SMB_ECHO_REQ;
 
 typedef struct close_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t fid;
+    uint8_t wordCount;
+    uint16_t fid;
     SMB_UTIME lastWriteTime;
-    u_int16_t byteCount;
+    uint16_t byteCount;
 } SMB_CLOSE_REQ;
 
 typedef struct seek_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t fid;
-    u_int16_t mode;
-    u_int32_t offset;
-    u_int16_t byteCount;
+    uint8_t wordCount;
+    uint16_t fid;
+    uint16_t mode;
+    uint32_t offset;
+    uint16_t byteCount;
 } SMB_SEEK_REQ;
 
 typedef struct flush_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t fid;
-    u_int16_t byteCount;
+    uint8_t wordCount;
+    uint16_t fid;
+    uint16_t byteCount;
 } SMB_FLUSH_REQ;
 
 typedef struct tree_disconnect_hdr
 {
-    u_int8_t wordCount;
-    u_int16_t byteCount;
+    uint8_t wordCount;
+    uint16_t byteCount;
 } SMB_TREE_DISCONNECT_REQ;
 
 

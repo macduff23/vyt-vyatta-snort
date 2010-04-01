@@ -93,8 +93,8 @@
  *  sfrt_free   - free table
 */
 
-#ifndef ROUTE_H
-#define ROUTE_H
+#ifndef _SFRT_H_
+#define _SFRT_H_
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -109,7 +109,7 @@
 #ifdef SUP_IP6
 typedef sfip_t *IP;
 #else
-typedef u_int32_t IP;
+typedef uint32_t IP;
 #endif
 typedef void* GENERIC;   /* To be replaced with a pointer to a policy */
 typedef struct
@@ -177,11 +177,11 @@ enum
 typedef struct
 {
     GENERIC *data;      /* data table. Each IP points to an entry here */
-    u_int32_t num_ent;  /* Number of entries in the policy table */
-    u_int32_t max_size; /* Max size of policies array */
+    uint32_t num_ent;  /* Number of entries in the policy table */
+    uint32_t max_size; /* Max size of policies array */
     char ip_type;       /* Only IPs of this family will be used */
     char table_type;    
-    u_int32_t allocated;
+    uint32_t allocated;
 
     void *rt;            /* Actual "routing" table */
 #ifdef SUP_IP6
@@ -191,22 +191,24 @@ typedef struct
     tuple_t (*lookup)(IP ip, GENERIC); 
     int (*insert)(IP ip, int len, word index, int behavior, GENERIC); 
     void (*free)(void *);
-    u_int32_t (*usage)(void *);
+    uint32_t (*usage)(void *);
 } table_t;
 /*******************************************************************/
 
 /* Abstracted routing table API */
-table_t * sfrt_new(char type, char ip_type, long data_size, u_int32_t mem_cap);
+table_t * sfrt_new(char type, char ip_type, long data_size, uint32_t mem_cap);
 void      sfrt_free(table_t *table);
 GENERIC sfrt_lookup(void *adr, table_t* table);
 GENERIC sfrt_search(void *adr, unsigned char len, table_t *table);
 typedef void (*sfrt_iterator_callback)(void *);
+typedef void (*sfrt_iterator_callback2)(void *, void *);
 void    sfrt_iterate(table_t* table, sfrt_iterator_callback userfunc);
 void    sfrt_cleanup(table_t* table, sfrt_iterator_callback userfunc);
+void    sfrt_cleanup2(table_t*, sfrt_iterator_callback2, void *);
 int     sfrt_insert(void *adr, unsigned char len, GENERIC ptr, 
                         int behavior, table_t *table);
-u_int32_t     sfrt_usage(table_t *table);
-u_int32_t     sfrt_num_entries(table_t *table);
+uint32_t     sfrt_usage(table_t *table);
+uint32_t     sfrt_num_entries(table_t *table);
 
 #endif
 

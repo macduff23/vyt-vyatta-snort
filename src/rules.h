@@ -43,39 +43,6 @@
 
 #include "detection_options.h"
 
-#define RULE_LOG         0
-#define RULE_PASS        1
-#define RULE_ALERT       2
-#define RULE_VAR         3
-#define RULE_INCLUDE     4
-#define RULE_PREPROCESS  5
-#define RULE_OUTPUT      6
-#define RULE_ACTIVATE    7
-#define RULE_DYNAMIC     8
-#define RULE_CONFIG      9
-#define RULE_DECLARE     10
-#define RULE_THRESHOLD   11
-#define RULE_SUPPRESS    12
-#define RULE_UNKNOWN     13
-#define RULE_DROP        14
-#define RULE_SDROP       15
-#define RULE_REJECT      16
-#define RULE_STATE       17
-#ifdef DYNAMIC_PLUGIN
-#define RULE_DYNAMICENGINE 18
-#define RULE_DYNAMICDETECTION 19
-#define RULE_DYNAMICPREPROCESSOR 20
-#endif
-#ifdef TARGET_BASED
-#define RULE_ATTRIBUTE_TABLE 21
-#endif
-#ifdef PORTLISTS
-#define RULE_PORTVAR     23 
-#endif
-#ifdef SUP_IP6
-#define RULE_IPVAR       24 
-#endif
-
 #define EXCEPT_SRC_IP  0x01
 #define EXCEPT_DST_IP  0x02
 #define ANY_SRC_PORT   0x04
@@ -134,6 +101,23 @@ struct _OptTreeNode;      /* forward declaration of OTN data struct */
 struct _RuleTreeNode;     /* forward declaration of RTN data struct */
 struct _ListHead;    /* forward decleartion of ListHead data struct */
 
+typedef enum _RuleType
+{
+    RULE_TYPE__NONE = 0,
+    RULE_TYPE__ACTIVATE,
+    RULE_TYPE__ALERT,
+    RULE_TYPE__DROP,
+    RULE_TYPE__DYNAMIC,
+    RULE_TYPE__LOG,
+    RULE_TYPE__PASS,
+#ifdef GIDS
+    RULE_TYPE__REJECT,
+    RULE_TYPE__SDROP,
+#endif
+    RULE_TYPE__MAX
+
+} RuleType;
+
 /* function pointer list for rule head nodes */
 typedef struct _RuleFpList
 {
@@ -164,7 +148,7 @@ typedef struct _OptFpList
 
 typedef struct _RspFpList
 {
-    int (* ResponseFunc)(Packet *, struct _RspFpList *);
+    int (*func)(Packet *, struct _RspFpList *);
     void *params; /* params for the plugin.. type defined by plugin */
     struct _RspFpList *next;
 } RspFpList;
@@ -197,12 +181,11 @@ typedef struct _OptTreeNode
 
     int chain_node_number;
 
-    int type;            /* what do we do when we match this rule */
     int evalIndex;       /* where this rule sits in the evaluation sets */
                             
     int proto;           /* protocol, added for integrity checks 
                             during rule parsing */
-    struct _RuleTreeNode *proto_node; /* ptr to head part... */
+
     int session_flag;    /* record session data */
 
     char *logto;         /* log file in which to write packets which 
@@ -210,12 +193,13 @@ typedef struct _OptTreeNode
     /* metadata about signature */
     SigInfo sigInfo;
 
-    u_int8_t stateless;  /* this rule can fire regardless of session state */
-    u_int8_t established; /* this rule can only fire if it is established */
-    u_int8_t unestablished;
+    uint8_t stateless;  /* this rule can fire regardless of session state */
+    uint8_t established; /* this rule can only fire if it is established */
+    uint8_t unestablished;
 
     Event event_data;
 
+    void* detection_filter; /* if present, evaluated last, after header checks */
     TagData *tag;
 
     /* stuff for dynamic rules activation/deactivation */
@@ -225,56 +209,61 @@ typedef struct _OptTreeNode
     int activates;
     int activated_by;
 
-    u_int8_t  threshold_type; /* type of threshold we're watching */
-    u_int32_t threshold;    /* number of events between alerts */
-    u_int32_t window;       /* number of seconds before threshold times out */
-
     struct _OptTreeNode *OTN_activation_ptr;
     struct _RuleTreeNode *RTN_activation_ptr;
 
     struct _OptTreeNode *next;
-    struct _RuleTreeNode *rtn;
 
     struct _OptTreeNode *nextSoid;
 
-    u_int8_t failedCheckBits;
+    /* ptr to list of RTNs (head part) */
+    struct _RuleTreeNode **proto_nodes; 
+
+    /**number of proto_nodes. */
+    unsigned short proto_node_num;
+
+    uint8_t failedCheckBits;
 
     int rule_state; /* Enabled or Disabled */
 
 #ifdef PERF_PROFILING
-    UINT64 ticks;
-    UINT64 ticks_match;
-    UINT64 ticks_no_match;
-    UINT64 checks;
-    UINT64 matches;
-    UINT64 alerts;
-    u_int8_t noalerts; 
+    uint64_t ticks;
+    uint64_t ticks_match;
+    uint64_t ticks_no_match;
+    uint64_t checks;
+    uint64_t matches;
+    uint64_t alerts;
+    uint8_t noalerts; 
 #endif
 
     int pcre_flag; /* PPM */
-    UINT64 ppm_suspend_time; /* PPM */
-    UINT64 ppm_disable_cnt; /*PPM */
+    uint64_t ppm_suspend_time; /* PPM */
+    uint64_t ppm_disable_cnt; /*PPM */
 
     char generated;
     uint32_t num_detection_opts;
 
+    /**unique index generated in ruleIndexMap.
+     */ 
+    int ruleIndex;
+
 } OptTreeNode;
 
 
-
-typedef struct _ActivateList
+typedef struct _ActivateListNode
 {
     int activated_by;
-    struct _ActivateList *next;
-} ActivateList;
+    struct _ActivateListNode *next;
 
+} ActivateListNode;
+ 
 
 #if 0 /* RELOCATED to parser/IpAddrSet.h */
 typedef struct _IpAddrSet
 {
-    u_int32_t ip_addr;   /* IP addr */
-    u_int32_t netmask;   /* netmask */
-    u_int8_t  addr_flags; /* flag for normal/exception processing */
+    uint32_t ip_addr;   /* IP addr */
+    uint32_t netmask;   /* netmask */
+    uint8_t  addr_flags; /* flag for normal/exception processing */
 
     struct _IpAddrSet *next;
 } IpAddrSet;
@@ -286,7 +275,7 @@ typedef struct _RuleTreeNode
 
     int head_node_number;
 
-    int type;
+    RuleType type;
 
     IpAddrSet *sip;
     IpAddrSet *dip;
@@ -297,31 +286,42 @@ typedef struct _RuleTreeNode
 #ifdef PORTLISTS
     PortObject * src_portobject;
     PortObject * dst_portobject;
-#endif 
-
+#else
     int not_sp_flag;     /* not source port flag */
 
-    u_short hsp;         /* hi src port */
-    u_short lsp;         /* lo src port */
+    uint16_t hsp;         /* hi src port */
+    uint16_t lsp;         /* lo src port */
 
     int not_dp_flag;     /* not dest port flag */
 
-    u_short hdp;         /* hi dest port */
-    u_short ldp;         /* lo dest port */
+    uint16_t hdp;         /* hi dest port */
+    uint16_t ldp;         /* lo dest port */
+#endif
 
-    u_int32_t flags;     /* control flags */
+    uint32_t flags;     /* control flags */
 
     /* stuff for dynamic rules activation/deactivation */
     int active_flag;
     int activation_counter;
     int countdown;
-    ActivateList *activate_list;
+    ActivateListNode *activate_list;
 
+#if 0
     struct _RuleTreeNode *right;  /* ptr to the next RTN in the list */
 
-    OptTreeNode *down;   /* list of rule options to associate with this
-                            rule node */
+    /** list of rule options to associate with this rule node */
+    OptTreeNode *down;   
+#endif
+
+    /**points to global parent RTN list (Drop/Alert) which contains this 
+     * RTN.
+     */
     struct _ListHead *listhead;
+
+    /**reference count from otn. Multiple OTNs can reference this RTN with the same
+     * policy.
+     */
+    unsigned int otnRefCount;
 
 } RuleTreeNode;
 
@@ -329,10 +329,6 @@ struct _RuleListNode;
 
 typedef struct _ListHead
 {
-    RuleTreeNode *IpList;
-    RuleTreeNode *TcpList;
-    RuleTreeNode *UdpList;
-    RuleTreeNode *IcmpList;
     struct _OutputFuncNode *LogList;
     struct _OutputFuncNode *AlertList;
     struct _RuleListNode *ruleListNode;
@@ -341,21 +337,21 @@ typedef struct _ListHead
 typedef struct _RuleListNode
 {
     ListHead *RuleList;         /* The rule list associated with this node */
-    int mode;                   /* the rule mode */
+    RuleType mode;              /* the rule mode */
     int rval;                   /* 0 == no detection, 1 == detection event */
     int evalIndex;              /* eval index for this rule set */
     char *name;                 /* name of this rule list (for debugging)  */
     struct _RuleListNode *next; /* the next RuleListNode */
 } RuleListNode;
 
-struct VarEntry
+typedef struct _RuleState
 {
-    char *name;
-    char *value;
-    unsigned char flags;
-#define VAR_STATIC      1
-    struct VarEntry *prev;
-    struct VarEntry *next;
-};
+    uint32_t sid;
+    uint32_t gid;
+    int state;
+    RuleType action;
+    struct _RuleState *next;
+
+} RuleState;
 
 #endif /* __RULES_H__ */

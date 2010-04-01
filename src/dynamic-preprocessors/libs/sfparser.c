@@ -96,7 +96,7 @@ SFP_ret_t SFP_ports(ports_tbl_t port_tbl, char *str, SFP_errstr_t errstr) {
             return SFP_ERROR;
         }
 
-        if(port < 0 || port > MAXPORTS)
+        if(port < 0 || port > MAXPORTS-1)
         {
             SET_ERR("Port out of range: %s", tok);
             return SFP_ERROR;

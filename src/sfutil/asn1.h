@@ -125,6 +125,15 @@ typedef struct s_ASN1_DATA
 
 } ASN1_DATA;
 
+typedef struct s_ASN1_CONFIG
+{
+    ASN1_TYPE *mem;
+    int num_nodes;
+    int node_index;
+
+} ASN1_CONFIG;
+
+
 /*
 **  Error Codes
 */
@@ -142,8 +151,8 @@ typedef struct s_ASN1_DATA
 #define ASN1_ERR_INVALID_ARG         -7
 #define ASN1_ERR_STACK               -8
 
-int asn1_init_mem(int iNodes);
-void asn1_free_mem();
+void asn1_init_mem(int);
+void asn1_free_mem(void);
 int asn1_decode(const unsigned char *data, unsigned int len, ASN1_TYPE **asn1_type);
 int asn1_print_types(ASN1_TYPE *asn1_type, void *user);
 int asn1_traverse(ASN1_TYPE *asn1, void * user, 

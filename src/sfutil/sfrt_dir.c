@@ -28,13 +28,17 @@
  * DIR-n-m.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdarg.h> /* For variadic */
 #include <stdio.h>
 #include <string.h> /* For memset   */
 #include "sfrt.h"
 #include "sfrt_dir.h"
 
-#ifdef ULONGIS64BIT
+#if SIZEOF_UNSIGNED_LONG_INT == 8
 #define ARCH_WIDTH 64
 #else
 #define ARCH_WIDTH 32
@@ -50,8 +54,8 @@ typedef IP IPLOOKUP;
 #endif
 
 /* Create new "sub" table of 2^width entries */
-static dir_sub_table_t *_sub_table_new(dir_table_t *root, u_int32_t dimension, 
-                                       u_int32_t prefill, u_int32_t bit_length)
+static dir_sub_table_t *_sub_table_new(dir_table_t *root, uint32_t dimension, 
+                                       uint32_t prefill, uint32_t bit_length)
 {
 
     int width = root->dimensions[dimension];   
@@ -123,10 +127,10 @@ static dir_sub_table_t *_sub_table_new(dir_table_t *root, u_int32_t dimension,
 }
 
 /* Create new dir-n-m root table with 'count' depth */
-dir_table_t *sfrt_dir_new(u_int32_t mem_cap, int count,...)
+dir_table_t *sfrt_dir_new(uint32_t mem_cap, int count,...)
 {
     va_list ap;
-    u_int32_t val;
+    uint32_t val;
     int index;
 
     dir_table_t* table = (dir_table_t*)malloc(sizeof(dir_table_t));
@@ -177,7 +181,7 @@ dir_table_t *sfrt_dir_new(u_int32_t mem_cap, int count,...)
 }
 
 /* Traverse "sub" tables, freeing each */
-static void _sub_table_free(u_int32_t *allocated, dir_sub_table_t *sub)
+static void _sub_table_free(uint32_t *allocated, dir_sub_table_t *sub)
 {
     int index;
 
@@ -241,8 +245,8 @@ void sfrt_dir_free(void *tbl)
     free(table);
 }
 
-static INLINE void _dir_fill_all(u_int32_t *allocated, u_int32_t index, u_int32_t fill, 
-                                 word length, u_int32_t val, dir_sub_table_t *table)
+static INLINE void _dir_fill_all(uint32_t *allocated, uint32_t index, uint32_t fill, 
+                                 word length, uint32_t val, dir_sub_table_t *table)
 {
 
     /* Fill entries */
@@ -261,7 +265,7 @@ static INLINE void _dir_fill_all(u_int32_t *allocated, u_int32_t index, u_int32_
 }
 
 static INLINE void _dir_fill_less_specific(int index, int fill, 
-                                           word length, u_int32_t val, dir_sub_table_t *table)
+                                           word length, uint32_t val, dir_sub_table_t *table)
 {
 
     /* Fill entries */
@@ -306,10 +310,10 @@ static int _dir_sub_insert(IPLOOKUP *ip, int length, int cur_len, GENERIC ptr,
 {
 
     word index;
-    u_int32_t fill;
+    uint32_t fill;
 #ifdef SUP_IP6
     {
-        u_int32_t local_index, i;
+        uint32_t local_index, i;
         /* need to handle bits usage across multiple 32bit vals within IPv6. */
         if (ip->ip->family == AF_INET)
         {
@@ -456,7 +460,7 @@ static tuple_t _dir_sub_lookup(IPLOOKUP *ip, dir_sub_table_t *table)
     word index;
 #ifdef SUP_IP6
     {
-        u_int32_t local_index, i;
+        uint32_t local_index, i;
         /* need to handle bits usage across multiple 32bit vals within IPv6. */
         if (ip->ip->family == AF_INET)
         {
@@ -535,7 +539,7 @@ tuple_t sfrt_dir_lookup(IP ip, void *tbl)
 }
 
 
-u_int32_t sfrt_dir_usage(void *table)
+uint32_t sfrt_dir_usage(void *table)
 {
     if(!table)
     {

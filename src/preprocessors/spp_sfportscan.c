@@ -39,11 +39,14 @@
 **      memcap { 10000000 }     # number of max bytes to allocate
 **      logfile { /tmp/ps.log } # file to log detailed portscan info
 */
+
 #include <sys/types.h>
+#include <errno.h>
+
 #ifndef WIN32
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
+# include <sys/socket.h>
+# include <netinet/in.h>
+# include <arpa/inet.h>
 #endif /* !WIN32 */
 
 #include "decode.h"
@@ -69,16 +72,14 @@
 
 #define PROTO_BUFFER_SIZE 256
 
-extern PV    pv;
 extern char *file_name;
 extern int   file_line;
+extern SnortConfig *snort_conf_for_parsing;
 
-static int     g_print_tracker = 0;
-static u_char  g_logpath[256];
+tSfPolicyUserContextId portscan_config = NULL;
+PortscanConfig *portscan_eval_config = NULL;
+static Packet *g_tmp_pkt = NULL;
 static FILE   *g_logfile = NULL;
-static Packet *g_tmp_pkt;
-
-int g_include_midstream = 0;
 
 #ifdef PERF_PROFILING
 PreprocStats sfpsPerfStats;
@@ -86,6 +87,19 @@ PreprocStats sfpsPerfStats;
 
 static void PortscanResetFunction(int signal, void *foo);
 static void PortscanResetStatsFunction(int signal, void *foo);
+static void ParsePortscan(PortscanConfig *, char *);
+static void PortscanFreeConfigs(tSfPolicyUserContextId );
+static void PortscanFreeConfig(PortscanConfig *);
+static void PortscanOpenLogFile(void *);
+static int PortscanGetProtoBits(int);
+
+#ifdef SNORT_RELOAD
+tSfPolicyUserContextId portscan_swap_config = NULL;
+static void PortscanReload(char *);
+static int PortscanReloadVerify(void);
+static void * PortscanReloadSwap(void);
+static void PortscanReloadSwapFree(void *);
+#endif
 
 /*
 **  NAME
@@ -109,13 +123,17 @@ static int PortscanPacketInit(void)
 
     p = (Packet *)SnortAlloc(sizeof(Packet));
     p->pkth = (struct pcap_pkthdr *)SnortAlloc(sizeof(struct pcap_pkthdr) +
-                    ETHERNET_HEADER_LEN + SPARC_TWIDDLE + IP_MAXPACKET);
+                    ETHERNET_HEADER_LEN + VLAN_HEADER_LEN + SPARC_TWIDDLE + IP_MAXPACKET);
     
+    /* This is a space holder in case we get a packet with a vlan header.  It
+     * is not used in the portscan packet created, but in unified2 logging */
+    p->vh   = (VlanTagHdr *)((u_char *)p->pkth + sizeof(struct pcap_pkthdr));
+
     /* Add 2 to align iph struct members on 4 byte boundaries - for sparc, etc */
-    p->pkt  = ((u_char *)p->pkth + sizeof(struct pcap_pkthdr) + SPARC_TWIDDLE);
-    p->eh   = (EtherHdr *)p->pkt;
-    p->iph  = (IPHdr *)(((u_char *)p->eh) + ETHERNET_HEADER_LEN);
-    p->data = ((u_char *)p->iph) + sizeof(IPHdr);
+    p->pkt  = (u_char *)p->vh + VLAN_HEADER_LEN + SPARC_TWIDDLE;
+    p->eh   = (EtherHdr *)((u_char *)p->pkt);
+    p->iph  = (IPHdr *)((u_char *)p->eh + ETHERNET_HEADER_LEN);
+    p->data = (u_char *)p->iph + sizeof(IPHdr);
 
     /*
     **  Set the ethernet header with our cooked values.
@@ -135,6 +153,8 @@ void PortscanCleanExitFunction(int signal, void *foo)
     free((void *)g_tmp_pkt->pkth);
     free(g_tmp_pkt);
     g_tmp_pkt = NULL;
+    PortscanFreeConfigs(portscan_config);
+    portscan_config = NULL;
 }
 
 
@@ -144,6 +164,8 @@ void PortscanRestartFunction(int signal, void *foo)
     free((void *)g_tmp_pkt->pkth);
     free(g_tmp_pkt);
     g_tmp_pkt = NULL;
+    PortscanFreeConfigs(portscan_config);
+    portscan_config = NULL;
 }
 
 static void PortscanResetFunction(int signal, void *foo)
@@ -269,8 +291,8 @@ static int MakeProtoInfo(PS_PROTO *proto, u_char *buffer, u_int *total_size)
     return 0;
 }
 
-static int LogPortscanAlert(Packet *p, char *msg, u_int32_t event_id,
-        u_int32_t event_ref, u_int32_t gen_id, u_int32_t sig_id)
+static int LogPortscanAlert(Packet *p, char *msg, uint32_t event_id,
+        uint32_t event_ref, uint32_t gen_id, uint32_t sig_id)
 {
     char timebuf[TIMEBUF_SIZE];
     snort_ip_p src_addr;
@@ -283,7 +305,7 @@ static int LogPortscanAlert(Packet *p, char *msg, u_int32_t event_id,
     src_addr = GET_SRC_IP(p);
     dst_addr = GET_DST_IP(p);
 
-    if( !sfthreshold_test(gen_id, sig_id, src_addr, dst_addr, p->pkth->ts.tv_sec) )
+    if( sfthreshold_test(gen_id, sig_id, src_addr, dst_addr, p->pkth->ts.tv_sec) )
     {
         return 0;
     }
@@ -306,11 +328,11 @@ static int LogPortscanAlert(Packet *p, char *msg, u_int32_t event_id,
     return 0;
 }
 
-static int GeneratePSSnortEvent(Packet *p,u_int32_t gen_id,u_int32_t sig_id, 
-        u_int32_t sig_rev, u_int32_t class, u_int32_t priority, char *msg)
+static int GeneratePSSnortEvent(Packet *p,uint32_t gen_id,uint32_t sig_id, 
+        uint32_t sig_rev, uint32_t class, uint32_t priority, char *msg)
 {
     unsigned int event_id;
-    
+
     event_id = GenerateSnortEvent(p,gen_id,sig_id,sig_rev,class,priority,msg);
 
     if(g_logfile)
@@ -331,9 +353,9 @@ static int GeneratePSSnortEvent(Packet *p,u_int32_t gen_id,u_int32_t sig_id,
 **
 **  @retval 0 success
 */
-static int GenerateOpenPortEvent(Packet *p, u_int32_t gen_id, u_int32_t sig_id,
-        u_int32_t sig_rev, u_int32_t class, u_int32_t pri, 
-        u_int32_t event_ref, struct timeval *event_time, char *msg)
+static int GenerateOpenPortEvent(Packet *p, uint32_t gen_id, uint32_t sig_id,
+        uint32_t sig_rev, uint32_t class, uint32_t pri, 
+        uint32_t event_ref, struct timeval *event_time, char *msg)
 {
     Event event;
 
@@ -361,7 +383,7 @@ static int GenerateOpenPortEvent(Packet *p, u_int32_t gen_id, u_int32_t sig_id,
          * here since these are tagged packets, which aren't subject to thresholding,
          * but we want to do it for open port events.
          */
-        if( !sfthreshold_test(gen_id, sig_id, GET_SRC_IP(p),
+        if( sfthreshold_test(gen_id, sig_id, GET_SRC_IP(p),
                             GET_DST_IP(p), p->pkth->ts.tv_sec) )
         {
             return 0;
@@ -435,13 +457,39 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
     unsigned int   hlen;
     unsigned int   ip_size = 0;
     struct pcap_pkthdr *pkth = (struct pcap_pkthdr *)g_tmp_pkt->pkth;
-  
+
     if(!ps_pkt && proto_type != PS_PROTO_OPEN_PORT)
        return -1;
 
     if(ps_pkt)
     { 
         p = (Packet *)ps_pkt->pkt;
+
+        /* Reset this to NULL in case previous alert had vlan and this one doesn't
+         * The packet passed in might be a g_tmp_pkt that's already been run through
+         * here with the same "wire" packet so only reset if it's not.
+         * In particular from PortscanAlertTcp where the open port logging is done
+         * after the general TCP portscan packet has been created and logged */
+        if (p != g_tmp_pkt)
+            g_tmp_pkt->vh = NULL;
+
+        //copy vlan headers if present
+        if(p->vh != NULL)
+        {
+            /* Need to do this here since if there is not a vlan header in
+             * original packet we want it to be NULL */
+            g_tmp_pkt->vh = (VlanTagHdr *)((u_char *)g_tmp_pkt->pkth + sizeof(struct pcap_pkthdr));
+            *(VlanTagHdr *)g_tmp_pkt->vh = *p->vh;
+        }
+
+        //copy ethernet headers if present
+        if(p->eh != NULL)
+        {
+            //Should copy ethernet source and destination addresses also.
+            
+            //ethernet type can be 0x8100 (VLAN) or 0x86DD (IPv6)
+            ((EtherHdr *)g_tmp_pkt->eh)->ether_type = p->eh->ether_type;
+        }
 
         if(IS_IP4(p))    
         {
@@ -458,7 +506,7 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
 
             if(ps_pkt->reverse_pkt)
             {
-                u_int32_t tmp_addr = p->iph->ip_src.s_addr;
+                uint32_t tmp_addr = p->iph->ip_src.s_addr;
                 ((IPHdr *)g_tmp_pkt->iph)->ip_src.s_addr = p->iph->ip_dst.s_addr;
                 ((IPHdr *)g_tmp_pkt->iph)->ip_dst.s_addr = tmp_addr;
             }
@@ -467,7 +515,7 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
 
             ((IPHdr *)g_tmp_pkt->iph)->ip_proto = 0xff;
             ((IPHdr *)g_tmp_pkt->iph)->ip_ttl = 0x00;
-            g_tmp_pkt->data = (u_int8_t *)((u_int8_t *)g_tmp_pkt->iph + hlen);
+            g_tmp_pkt->data = (uint8_t *)((uint8_t *)g_tmp_pkt->iph + hlen);
 
             pkth->ts.tv_sec = p->pkth->ts.tv_sec;
             pkth->ts.tv_usec = p->pkth->ts.tv_usec;
@@ -491,7 +539,7 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
             ip_size += sizeof(IP6RawHdr);
             g_tmp_pkt->inner_ip6h.next = 0xff;
             g_tmp_pkt->inner_ip6h.hop_lmt = 0x00;
-            g_tmp_pkt->data = (u_int8_t *)((u_int8_t *)g_tmp_pkt->iph + sizeof(IP6RawHdr));
+            g_tmp_pkt->data = (uint8_t *)((uint8_t *)g_tmp_pkt->iph + sizeof(IP6RawHdr));
             g_tmp_pkt->ip6h = &g_tmp_pkt->inner_ip6h;
 
             pkth->ts.tv_sec = p->pkth->ts.tv_sec;
@@ -553,8 +601,9 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
     /*
     **  And we set the pcap headers correctly so they decode.
     */
+
     pkth->caplen = ip_size + ETHERNET_HEADER_LEN;
-    pkth->len    = ip_size + ETHERNET_HEADER_LEN;
+    pkth->len    = pkth->caplen;
 
     return 0;
 }
@@ -842,7 +891,15 @@ static int PortscanAlert(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type)
 static void PortscanDetect(Packet *p, void *context)
 {
     PS_PKT ps_pkt;
+    tSfPolicyId policy_id = getRuntimePolicy();
+    PortscanConfig *pPolicyConfig = NULL;
     PROFILE_VARS;
+    sfPolicyUserPolicySet (portscan_config, policy_id);
+    pPolicyConfig = (PortscanConfig *)sfPolicyUserDataGetCurrent(portscan_config); 
+    if ( pPolicyConfig == NULL)
+        return;
+
+    portscan_eval_config = pPolicyConfig;
 
     if(!p || !IPH_IS_VALID(p) || (p->packet_flags & PKT_REBUILT_STREAM))
         return;
@@ -852,24 +909,23 @@ static void PortscanDetect(Packet *p, void *context)
     memset(&ps_pkt, 0x00, sizeof(PS_PKT));
     ps_pkt.pkt = (void *)p;
 
+    /* See if there is already an exisiting node in the hash table */
+
     ps_detect(&ps_pkt);
 
-    if(ps_pkt.scanner && ps_pkt.scanner->proto[ps_pkt.proto_idx].alerts &&
-            (ps_pkt.scanner->proto[ps_pkt.proto_idx].alerts != PS_ALERT_GENERATED))
+    if (ps_pkt.scanner && ps_pkt.scanner->proto.alerts &&
+       (ps_pkt.scanner->proto.alerts != PS_ALERT_GENERATED))
     {
-        PortscanAlert(&ps_pkt, &ps_pkt.scanner->proto[ps_pkt.proto_idx], 
-                ps_pkt.proto);
+        PortscanAlert(&ps_pkt, &ps_pkt.scanner->proto, ps_pkt.proto);
     }
 
-    if(ps_pkt.scanned && ps_pkt.scanned->proto[ps_pkt.proto_idx].alerts &&
-            (ps_pkt.scanned->proto[ps_pkt.proto_idx].alerts != PS_ALERT_GENERATED))
+    if (ps_pkt.scanned && ps_pkt.scanned->proto.alerts &&
+        (ps_pkt.scanned->proto.alerts != PS_ALERT_GENERATED))
     {
-        PortscanAlert(&ps_pkt, &ps_pkt.scanned->proto[ps_pkt.proto_idx], 
-                ps_pkt.proto);
+        PortscanAlert(&ps_pkt, &ps_pkt.scanned->proto, ps_pkt.proto);
     }
 
     PREPROC_PROFILE_END(sfpsPerfStats);
-    return;
 }
 
 NORETURN static void FatalErrorNoOption(u_char *option)
@@ -1057,44 +1113,82 @@ static void ParseMemcap(int *memcap, char **savptr)
 #ifdef SUP_IP6
 static void PrintIPPortSet(IP_PORT *p)
 {
+    char ip_str[80], output_str[80];
+    PORTRANGE *pr;
+
+    SnortSnprintf(ip_str, sizeof(ip_str), "%s", sfip_to_str(&p->ip));
+
+    if(p->notflag)
+        SnortSnprintf(output_str, sizeof(output_str), "        !%s", ip_str);
+    else
+        SnortSnprintf(output_str, sizeof(output_str), "        %s", ip_str);
+
+    if (((p->ip.family == AF_INET6) && (p->ip.bits != 128)) ||
+        ((p->ip.family == AF_INET ) && (p->ip.bits != 32 )))
+        SnortSnprintfAppend(output_str, sizeof(output_str), "/%d", p->ip.bits);
+
+    pr=(PORTRANGE*)sflist_first(&p->portset.port_list);
+    if ( pr && pr->port_lo != 0 )
+        SnortSnprintfAppend(output_str, sizeof(output_str), " : ");
+    for( ; pr != 0;
+        pr=(PORTRANGE*)sflist_next(&p->portset.port_list) )
+    {
+        if ( pr->port_lo != 0)
+        {
+            SnortSnprintfAppend(output_str, sizeof(output_str), "%d", pr->port_lo);
+            if ( pr->port_hi != pr->port_lo )
+            {
+                SnortSnprintfAppend(output_str, sizeof(output_str), "-%d", pr->port_hi);
+            }
+            SnortSnprintfAppend(output_str, sizeof(output_str), " ");
+        }
+    }
+    LogMessage("%s\n", output_str);
 }
 #else
 static void PrintCIDRBLOCK(CIDRBLOCK *p)
 {
-    char ip_str[80], mask_str[80];
+    char ip_str[80], mask_str[80], output_str[80];
     PORTRANGE *pr;
 
+    output_str[0] = '\0';
     ip4_sprintx(ip_str, sizeof(ip_str), &p->ip);
     ip4_sprintx(mask_str, sizeof(mask_str), &p->mask);
 
     if(p->notflag)
-        LogMessage("        !%s / %s", ip_str, mask_str);
+    {
+        SnortSnprintfAppend(output_str, sizeof(output_str),
+            "        !%s / %s", ip_str, mask_str);
+    }
     else
-        LogMessage("        %s / %s", ip_str, mask_str);
+    {
+        SnortSnprintfAppend(output_str, sizeof(output_str),
+            "        %s / %s", ip_str, mask_str);
+    }
 
     pr=(PORTRANGE*)sflist_first(&p->portset.port_list);
     if ( pr && pr->port_lo != 0 )
-        LogMessage(" : ");
+        SnortSnprintfAppend(output_str, sizeof(output_str), " : ");
     for( ; pr != 0;
         pr=(PORTRANGE*)sflist_next(&p->portset.port_list) )
     {
         if ( pr->port_lo != 0 )
         {
-            LogMessage("%d", pr->port_lo);
+            SnortSnprintfAppend(output_str, sizeof(output_str), "%d", pr->port_lo);
             if ( pr->port_hi != pr->port_lo )
             {
-                LogMessage("-%d", pr->port_hi);
+                SnortSnprintfAppend(output_str, sizeof(output_str), "-%d", pr->port_hi);
             }   
-            LogMessage(" ");
+            SnortSnprintfAppend(output_str, sizeof(output_str), " ");
         }
     }
-    LogMessage("\n");
+    LogMessage("%s\n", output_str);
 }
 #endif
 
 static void PrintPortscanConf(int detect_scans, int detect_scan_type,
         int sense_level, IPSET *scanner, IPSET *scanned, IPSET *watch,
-        int memcap)
+        int memcap, char *logpath)
 {
     char buf[STD_BUF + 1];
     int proto_cnt = 0;
@@ -1140,8 +1234,8 @@ static void PrintPortscanConf(int detect_scans, int detect_scan_type,
     LogMessage("    Number of Nodes:   %d\n",
             memcap / (sizeof(PS_PROTO)*proto_cnt-1));
 
-    if(g_logpath[0])
-        LogMessage("    Logfile:           %s\n", g_logpath); 
+    if (logpath != NULL)
+        LogMessage("    Logfile:           %s\n", logpath); 
 
     if(scanner)
     {
@@ -1185,7 +1279,7 @@ static void PrintPortscanConf(int detect_scans, int detect_scan_type,
 
     if(watch)
     {
-        LogMessage("    Ignore Watch IP List:\n");
+        LogMessage("    Watch IP List:\n");
 #ifdef SUP_IP6
         for(p = (IP_PORT*)sflist_first(&watch->ip_list);
             p;
@@ -1202,15 +1296,14 @@ static void PrintPortscanConf(int detect_scans, int detect_scan_type,
         }
 #endif
     }
-
-    LogMessage("\n");
-
-    return;
 }
 
-static void ParseLogFile(FILE **flog, u_char *logfile, int logfile_size, char **savptr)
+static void ParseLogFile(PortscanConfig *config, char **savptr)
 {
     char *pcTok;
+
+    if (config == NULL)
+        return;
 
     pcTok = strtok_r(NULL, DELIMITERS, savptr);
     if (pcTok == NULL)
@@ -1219,10 +1312,7 @@ static void ParseLogFile(FILE **flog, u_char *logfile, int logfile_size, char **
                    file_name, file_line, "logfile");
     }
 
-    if (pcTok[0] == '/')
-        SnortSnprintf((char *)logfile, logfile_size, "%s", pcTok);
-    else
-        SnortSnprintf((char *)logfile, logfile_size, "%s/%s", pv.log_dir, pcTok);
+    config->logfile = ProcessFileOption(snort_conf_for_parsing, pcTok);
 
     pcTok = strtok_r(NULL, DELIMITERS, savptr);
     if (pcTok == NULL)
@@ -1236,18 +1326,80 @@ static void ParseLogFile(FILE **flog, u_char *logfile, int logfile_size, char **
         FatalError("%s(%d) => Invalid argument to '%s' config option.\n", 
                    file_name, file_line, "logfile");
     }
-
-    *flog = fopen((const char *)logfile, "a+");
-    if (*flog == NULL)
-    {
-        FatalError("%s(%d) => '%s' could not be opened.\n", 
-                   file_name, file_line, logfile);
-    }
-    
-    return;
 }
     
 static void PortscanInit(char *args)
+{
+    tSfPolicyId policy_id = getParserPolicy();
+    PortscanConfig *pPolicyConfig = NULL; 
+
+    if (portscan_config == NULL)
+    {
+        portscan_config = sfPolicyConfigCreate();
+        PortscanPacketInit();
+
+        AddFuncToPreprocCleanExitList(PortscanCleanExitFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);
+        AddFuncToPreprocRestartList(PortscanRestartFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
+        AddFuncToPreprocResetList(PortscanResetFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
+        AddFuncToPreprocResetStatsList(PortscanResetStatsFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
+        AddFuncToPreprocPostConfigList(PortscanOpenLogFile, NULL);
+
+#ifdef PERF_PROFILING
+        RegisterPreprocessorProfile("sfportscan", &sfpsPerfStats, 0, &totalPerfStats);
+#endif
+    }
+
+    if ((policy_id != 0) && (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config)) == NULL))
+    {
+        ParseError("Portscan: Must configure default policy if other "
+                   "policies are going to be configured.");
+    }
+
+    sfPolicyUserPolicySet (portscan_config, policy_id);
+    pPolicyConfig = (PortscanConfig *)sfPolicyUserDataGetCurrent(portscan_config);
+    if (pPolicyConfig)
+    {
+        ParseError("Can only configure sfportscan once.\n");
+    }
+    pPolicyConfig = (PortscanConfig *)SnortAlloc(sizeof(PortscanConfig));
+    if (!pPolicyConfig)
+    {
+        ParseError("SFPORTSCAN preprocessor: memory allocate failed.\n");
+    }
+
+    sfPolicyUserDataSetCurrent(portscan_config, pPolicyConfig);
+    ParsePortscan(pPolicyConfig, args);
+
+    if (policy_id == 0)
+    {
+        ps_init_hash(pPolicyConfig->memcap);
+    }
+    else
+    {
+        pPolicyConfig->memcap = ((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config))->memcap;
+
+        if (pPolicyConfig->logfile != NULL)
+        {
+            ParseError("Portscan:  logfile can only be configured in "
+                       "default policy.\n");
+        }
+    }
+
+    AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
+                         PortscanGetProtoBits(pPolicyConfig->detect_scans));
+}
+
+void SetupSfPortscan(void)
+{
+#ifndef SNORT_RELOAD
+    RegisterPreprocessor("sfportscan", PortscanInit);
+#else
+    RegisterPreprocessor("sfportscan", PortscanInit, PortscanReload,
+                         PortscanReloadSwap, PortscanReloadSwapFree);
+#endif
+}
+
+static void ParsePortscan(PortscanConfig *config, char *args)
 {
     int    sense_level = PS_SENSE_LOW;
     int    protos      = (PS_PROTO_TCP | PS_PROTO_UDP);
@@ -1259,9 +1411,7 @@ static void PortscanInit(char *args)
     char  *pcTok, *savpcTok = NULL;
     int    iRet;
 
-    g_logpath[0] = 0x00;
-
-    if(args)
+    if (args != NULL)
     {
         pcTok = strtok_r(args, DELIMITERS, &savpcTok);
         //pcTok = strtok(args, DELIMITERS);
@@ -1318,7 +1468,7 @@ static void PortscanInit(char *args)
             }
             else if(!strcasecmp(pcTok, "print_tracker"))
             {
-                g_print_tracker = 1;
+                config->print_tracker = 1;
             }
             else if(!strcasecmp(pcTok, "memcap"))
             {
@@ -1334,12 +1484,12 @@ static void PortscanInit(char *args)
                 if(!pcTok || strcmp(pcTok, TOKEN_ARG_BEGIN))
                     FatalErrorNoOption((u_char *)"logfile");
 
-                ParseLogFile(&g_logfile, g_logpath, sizeof(g_logpath), &savpcTok);
+                ParseLogFile(config, &savpcTok);
             }
             else if(!strcasecmp(pcTok, "include_midstream"))
             {
                 /* Do not ignore packets in sessions picked up mid-stream */
-                g_include_midstream = 1;
+                config->include_midstream = 1;
             }
             else if(!strcasecmp(pcTok, "detect_ack_scans"))
             {
@@ -1347,7 +1497,7 @@ static void PortscanInit(char *args)
                  *  We will only see ack scan packets if we are looking at sessions that the
                  *    have been flagged as being picked up mid-stream
                  */
-                g_include_midstream = 1;
+                config->include_midstream = 1;
             }
             else
             {
@@ -1358,7 +1508,7 @@ static void PortscanInit(char *args)
         }
     }
 
-    iRet = ps_init(protos, scan_types, sense_level, ignore_scanners,
+    iRet = ps_init(config, protos, scan_types, sense_level, ignore_scanners,
                    ignore_scanned, watch_ip, memcap);
     if (iRet)
     {
@@ -1375,28 +1525,192 @@ static void PortscanInit(char *args)
                    "bug.\n");
     }
 
-    AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
-                         PROTO_BIT__IP | PROTO_BIT__TCP | PROTO_BIT__UDP | PROTO_BIT__ICMP);
-    AddFuncToPreprocCleanExitList(PortscanCleanExitFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);
-    AddFuncToPreprocRestartList(PortscanRestartFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
-    AddFuncToPreprocResetList(PortscanResetFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
-    AddFuncToPreprocResetStatsList(PortscanResetStatsFunction, NULL, PRIORITY_SCANNER, PP_SFPORTSCAN);    
-
     PrintPortscanConf(protos, scan_types, sense_level, ignore_scanners,
-                      ignore_scanned, watch_ip, memcap);
+                      ignore_scanned, watch_ip, memcap, config->logfile);
+}
 
-    PortscanPacketInit();
+static void PortscanOpenLogFile(void *data)
+{
+    PortscanConfig *pPolicyConfig = (PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config) ;
+    if ((  pPolicyConfig== NULL) ||
+        (pPolicyConfig->logfile == NULL))
+    {
+        return;
+    }
 
-#ifdef PERF_PROFILING
-    RegisterPreprocessorProfile("sfportscan", &sfpsPerfStats, 0, &totalPerfStats);
+    g_logfile = fopen(pPolicyConfig->logfile, "a+");
+    if (g_logfile == NULL)
+    {
+        FatalError("Portscan log file '%s' could not be opened: %s.\n", 
+                   pPolicyConfig->logfile, strerror(errno));
+    }
+}
+
+static int PortscanFreeConfigPolicy(tSfPolicyUserContextId config,tSfPolicyId policyId, void* pData )
+{
+    PortscanConfig *pPolicyConfig = (PortscanConfig *)pData;
+    sfPolicyUserDataClear (config, policyId);
+    PortscanFreeConfig(pPolicyConfig);
+    return 0;
+}
+static void PortscanFreeConfigs(tSfPolicyUserContextId config)
+{
+
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, PortscanFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
+
+}
+
+static void PortscanFreeConfig(PortscanConfig *config)
+{
+    if (config == NULL)
+        return;
+
+    if (config->logfile)
+        free(config->logfile);
+
+    if (config->ignore_scanners != NULL)
+        ipset_free(config->ignore_scanners);
+
+    if (config->ignore_scanned != NULL)
+        ipset_free(config->ignore_scanned);
+
+    if (config->watch_ip != NULL)
+        ipset_free(config->watch_ip);
+
+    free(config);
+}
+
+static int PortscanGetProtoBits(int detect_scans)
+{
+    int proto_bits = 0;
+
+    if (detect_scans & PS_PROTO_IP)
+        proto_bits |= PROTO_BIT__IP;
+
+    if (detect_scans & PS_PROTO_UDP)
+        proto_bits |= PROTO_BIT__UDP;
+
+    if (detect_scans & PS_PROTO_ICMP)
+        proto_bits |= PROTO_BIT__ICMP;
+
+    if (detect_scans & PS_PROTO_TCP)
+        proto_bits |= PROTO_BIT__TCP;
+
+    return proto_bits;
+}
+
+#ifdef SNORT_RELOAD
+static void PortscanReload(char *args)
+{
+    tSfPolicyId policy_id = getParserPolicy();
+    PortscanConfig *pPolicyConfig = NULL;
+
+    if (portscan_swap_config == NULL)
+    {
+         portscan_swap_config = sfPolicyConfigCreate();
+    }
+
+    if ((policy_id != 0) && (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config)) == NULL))
+    {
+        ParseError("Portscan: Must configure default policy if other "
+                   "policies are going to be configured.");
+    }
+
+       
+    sfPolicyUserPolicySet (portscan_swap_config, policy_id);
+
+    pPolicyConfig = (PortscanConfig *)sfPolicyUserDataGetCurrent(portscan_swap_config);
+    if (pPolicyConfig)
+    { 
+	ParseError("Can only configure sfportscan once.\n");
+    }
+
+    pPolicyConfig = (PortscanConfig *)SnortAlloc(sizeof(PortscanConfig));
+    if (!pPolicyConfig)
+    {
+        ParseError("SFPORTSCAN preprocessor: memory allocate failed.\n");
+    }
+ 
+
+    sfPolicyUserDataSetCurrent(portscan_swap_config, pPolicyConfig);
+    ParsePortscan(pPolicyConfig, args);
+
+    if (policy_id != 0)
+    {
+        pPolicyConfig->memcap = ((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config))->memcap;
+
+        if (pPolicyConfig->logfile != NULL)
+        {
+            ParseError("Portscan:  logfile can only be configured in "
+                       "default policy.\n");
+        }
+    }
+
+    AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
+                         PortscanGetProtoBits(pPolicyConfig->detect_scans));
+
+    AddFuncToPreprocReloadVerifyList(PortscanReloadVerify);
+}
+
+static int PortscanReloadVerify(void)
+{
+    if ((portscan_swap_config == NULL) || (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config)) == NULL) ||
+        (portscan_config == NULL) || (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config)) == NULL))
+    {
+        return 0;
+    }
+
+    if (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config))->memcap != ((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config))->memcap)
+    {
+        PortscanFreeConfigs(portscan_swap_config);
+        portscan_swap_config = NULL;
+        return -1;
+    }
+
+    if ((((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config))->logfile != NULL) &&
+        (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config))->logfile != NULL))
+    {
+        if (strcasecmp(((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config))->logfile,
+                       ((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config))->logfile) != 0)
+        {
+            PortscanFreeConfigs(portscan_swap_config);
+            portscan_swap_config = NULL;
+            return -1;
+        }
+    }
+    else if (((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_swap_config))->logfile != ((PortscanConfig *)sfPolicyUserDataGetDefault(portscan_config))->logfile)
+    {
+        PortscanFreeConfigs(portscan_swap_config);
+        portscan_swap_config = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+static void * PortscanReloadSwap(void)
+{
+    tSfPolicyUserContextId old_config = portscan_config;
+
+    if (portscan_swap_config == NULL)
+        return NULL;
+
+    portscan_config = portscan_swap_config;
+    portscan_swap_config = NULL;
+
+    return (void *)old_config;
+}
+
+static void PortscanReloadSwapFree(void *data)
+{
+    if (data == NULL)
+        return;
+
+    PortscanFreeConfigs((tSfPolicyUserContextId)data);
+}
 #endif
 
-    return;
-}
-
-void SetupPsng(void)
-{
-    RegisterPreprocessor("sfportscan", PortscanInit);
-
-    return;
-}

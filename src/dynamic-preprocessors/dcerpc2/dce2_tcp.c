@@ -76,7 +76,7 @@ void DCE2_TcpProcess(DCE2_TcpSsnData *tsd)
     uint16_t data_len = p->payload_size;
     uint16_t overlap_bytes = DCE2_SsnGetOverlap(&tsd->sd);
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__MAIN, "Processing TCP packet.\n");
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__MAIN, "Processing TCP packet.\n"));
     dce2_stats.tcp_pkts++;
 
     if (overlap_bytes != 0)

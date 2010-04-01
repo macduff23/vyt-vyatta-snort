@@ -52,8 +52,8 @@ extern PreprocStats ruleOTNEvalPerfStats;
 
 typedef struct _TcpWinCheckData
 {
-    u_int16_t tcp_win;
-    u_int8_t not_flag;
+    uint16_t tcp_win;
+    uint8_t not_flag;
 
 } TcpWinCheckData;
 
@@ -61,9 +61,9 @@ void TcpWinCheckInit(char *, OptTreeNode *, int);
 void ParseTcpWin(char *, OptTreeNode *);
 int TcpWinCheckEq(void *option_data, Packet *p);
 
-u_int32_t TcpWinCheckHash(void *d)
+uint32_t TcpWinCheckHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     TcpWinCheckData *data = (TcpWinCheckData *)d;
 
     a = data->tcp_win;
@@ -108,7 +108,7 @@ int TcpWinCheckCompare(void *l, void *r)
 void SetupTcpWinCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterPlugin("window", TcpWinCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("window", TcpWinCheckInit, NULL, OPT_TYPE_DETECTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("window", &tcpWinPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -179,7 +179,7 @@ void ParseTcpWin(char *data, OptTreeNode *otn)
 {
     TcpWinCheckData *ds_ptr;  /* data struct pointer */
     void *ds_ptr_dup;
-    u_int16_t win_size;
+    uint16_t win_size;
 
     /* set the ds pointer to make it easier to reference the option's
        particular data struct */
@@ -204,11 +204,11 @@ void ParseTcpWin(char *data, OptTreeNode *otn)
     {
         if(index(data,(int)'x'))
         {
-            win_size = (u_int16_t) strtol((index(data, (int)'x')+1), NULL, 16);
+            win_size = (uint16_t) strtol((index(data, (int)'x')+1), NULL, 16);
         }
         else
         {
-            win_size = (u_int16_t) strtol((index(data, (int)'X')+1), NULL, 16);
+            win_size = (uint16_t) strtol((index(data, (int)'X')+1), NULL, 16);
         }
     }
 

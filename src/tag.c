@@ -39,22 +39,13 @@
 #include "generators.h"
 #include "log.h"
 #include "snort.h"
+#include "tag.h"
 
 #include "sfxhash.h"
 
 #include "ipv6_port.h"
 
 /*  D E F I N E S  **************************************************/
-#define TAG_SESSION   1
-#define TAG_HOST      2
-#define TAG_HOST_SRC  3
-#define TAG_HOST_DST  4
-
-#define TAG_METRIC_SECONDS    0x1
-#define TAG_METRIC_PACKETS    0x2
-#define TAG_METRIC_BYTES      0x4
-#define TAG_METRIC_UNLIMITED  0x8
-
 #define MAX_TAG_NODES   256
 
 /* by default we'll set a 5 minute timeout if we see no activity 
@@ -73,8 +64,8 @@ typedef struct _tagSessionKey
     snort_ip dip;  ///destination IP address
 
     /* ports */
-    u_int16_t sp; ///source port
-    u_int16_t dp; ///destination port
+    uint16_t sp; ///source port
+    uint16_t dp; ///destination port
 
 } tTagSessionKey;
 
@@ -86,7 +77,7 @@ typedef struct _TagNode
     tTagSessionKey key;    
 
     /** transport proto */
-    u_int8_t proto;
+    uint8_t proto;
 
     /** number of packets/seconds/bytes to tag for */
     int seconds;
@@ -104,10 +95,10 @@ typedef struct _TagNode
     int mode;
 
     /** last UNIX second that this node had a successful match */
-    u_int32_t last_access;
+    uint32_t last_access;
 
     /** event id number for correlation with trigger events */
-    u_int16_t event_id;
+    uint16_t event_id;
     struct timeval event_time;
 
     /** for later expansion... */
@@ -122,24 +113,22 @@ static SFXHASH *host_tag_cache_ptr;
 /**session tag cache */
 static SFXHASH *ssn_tag_cache_ptr;
 
-static u_int32_t last_prune_time;
-static u_int32_t tag_alloc_faults;
-static u_int32_t tag_memory_usage;
+static uint32_t last_prune_time;
+static uint32_t tag_alloc_faults;
+static uint32_t tag_memory_usage;
 
 extern char check_tags_flag;
-extern char *file_name;
-extern int file_line;
 
 /*  P R O T O T Y P E S  ********************************************/
 static TagNode * TagAlloc(SFXHASH *);
 static void TagFree(SFXHASH *, TagNode *);
 static int TagFreeSessionNodeFunc(void *key, void *data);
 static int TagFreeHostNodeFunc(void *key, void *data);
-static int PruneTagCache(u_int32_t, int);
-static int PruneTime(SFXHASH* tree, u_int32_t thetime);
-static void TagSession(Packet *, TagData *, u_int32_t, u_int16_t);
-static void TagHost(Packet *, TagData *, u_int32_t, u_int16_t);
-static void AddTagNode(Packet *, TagData *, int, u_int32_t, u_int16_t);
+static int PruneTagCache(uint32_t, int);
+static int PruneTime(SFXHASH* tree, uint32_t thetime);
+static void TagSession(Packet *, TagData *, uint32_t, uint16_t);
+static void TagHost(Packet *, TagData *, uint32_t, uint16_t);
+static void AddTagNode(Packet *, TagData *, int, uint32_t, uint16_t);
 static INLINE void SwapTag(TagNode *);
 
 /**Calculated memory needed per node insertion into respective cache. Its includes
@@ -194,7 +183,7 @@ static TagNode * TagAlloc(
 
         gettimeofday(&tv, &tz);
 
-        pruned_nodes = PruneTagCache((u_int32_t)tv.tv_sec, 0);
+        pruned_nodes = PruneTagCache((uint32_t)tv.tv_sec, 0);
 
         if(pruned_nodes == 0)
         {
@@ -330,7 +319,7 @@ static void PrintTagNode(TagNode *np)
 static INLINE void SwapTag(TagNode *np)
 {
     snort_ip tip;
-    u_int16_t tport;
+    uint16_t tport;
 
     tip = np->key.sip;
     np->key.sip = np->key.dip;
@@ -366,7 +355,7 @@ void InitTag(void)
                 0);                  /* recycle node flag */
 }
 
-void CleanupTag()
+void CleanupTag(void)
 {
     if (ssn_tag_cache_ptr)
     {
@@ -379,7 +368,7 @@ void CleanupTag()
     }
 }
 
-static void TagSession(Packet *p, TagData *tag, u_int32_t time, u_int16_t event_id)
+static void TagSession(Packet *p, TagData *tag, uint32_t time, uint16_t event_id)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_FLOW, "TAGGING SESSION\n"););
 
@@ -387,7 +376,7 @@ static void TagSession(Packet *p, TagData *tag, u_int32_t time, u_int16_t event_
 }
 
 
-static void TagHost(Packet *p, TagData *tag, u_int32_t time, u_int16_t event_id)
+static void TagHost(Packet *p, TagData *tag, uint32_t time, uint16_t event_id)
 {
     int mode; 
 
@@ -409,8 +398,8 @@ static void TagHost(Packet *p, TagData *tag, u_int32_t time, u_int16_t event_id)
     AddTagNode(p, tag, mode, time, event_id);
 }
 
-static void AddTagNode(Packet *p, TagData *tag, int mode, u_int32_t now, 
-                u_int16_t event_id)
+static void AddTagNode(Packet *p, TagData *tag, int mode, uint32_t now, 
+                uint16_t event_id)
 {
     TagNode *idx;  /* index pointer */
     TagNode *returned;
@@ -648,8 +637,8 @@ int CheckTagList(Packet *p, Event *event)
         {
             /* Use the global max. */
             /* If its non-0, check count for this tag node */
-            if (pv.tagged_packet_limit &&
-                returned->pkt_count > pv.tagged_packet_limit)
+            if (ScTaggedPacketLimit() &&
+                returned->pkt_count > ScTaggedPacketLimit())
             {
                 create_event = 0;
             }
@@ -663,7 +652,7 @@ int CheckTagList(Packet *p, Event *event)
             /* set event reference details */
             event->ref_time.tv_sec = returned->event_time.tv_sec;
             event->ref_time.tv_usec = returned->event_time.tv_usec;
-            event->event_reference = returned->event_id | pv.event_log_id;
+            event->event_reference = returned->event_id | ScEventLogId();
         }
         
         if(returned->bytes == 0 && returned->packets == 0 && 
@@ -695,7 +684,7 @@ int CheckTagList(Packet *p, Event *event)
 }
 
 
-static int PruneTagCache(u_int32_t thetime, int mustdie)
+static int PruneTagCache(uint32_t thetime, int mustdie)
 {
     int pruned = 0;
 
@@ -740,7 +729,7 @@ static int PruneTagCache(u_int32_t thetime, int mustdie)
     return pruned;
 }
 
-static int PruneTime(SFXHASH* tree, u_int32_t thetime)
+static int PruneTime(SFXHASH* tree, uint32_t thetime)
 {
     int pruned = 0;
     TagNode *lru_node = NULL;
@@ -764,7 +753,7 @@ static int PruneTime(SFXHASH* tree, u_int32_t thetime)
     return pruned;
 }
 
-void SetTags(Packet *p, OptTreeNode *otn, u_int16_t event_id)
+void SetTags(Packet *p, OptTreeNode *otn, uint16_t event_id)
 {
    DEBUG_WRAP(DebugMessage(DEBUG_FLOW, "Setting tags\n"););
 
@@ -823,105 +812,3 @@ void SetTags(Packet *p, OptTreeNode *otn, u_int16_t event_id)
     return;
 }
 
-
-
-void ParseTag(char *args, OptTreeNode *otn)
-{
-    char *arg = NULL;
-    int type = 0;
-    int count = 0;
-    int metric = 0;
-    int packets = 0;
-    int seconds = 0;
-    int bytes = 0;
-    int direction = 0;
-    int i = 0;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_RULES, "Parsing tag args: %s\n", args););
-
-    for (arg = strtok(args, " ,"); arg != NULL; arg = strtok(NULL, " ,"))
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_RULES, "parsing tag tok: \"%s\"\n", arg););
-
-        while(isspace((int)*arg))
-            arg++;
-
-        if(!strncasecmp(arg, "session", 7))
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_FLOW, "Setting type to SESSION\n"););
-            type = TAG_SESSION;
-        }
-        else if(!strncasecmp(arg, "host", 4))
-        {
-            type = TAG_HOST;
-        }
-        else if(!strncasecmp(arg, "src", 3))
-        {
-            direction = TAG_HOST_SRC;
-        }
-        else if(!strncasecmp(arg, "dst", 3))
-        {
-            direction = TAG_HOST_DST;
-        }
-        else if(!strncasecmp(arg, "seconds", 7))
-        {
-            metric |= TAG_METRIC_SECONDS;
-            seconds = count;
-        }
-        else if (!strncasecmp(arg, "packets", 7))
-        {
-            if (count)
-            {
-                metric |= TAG_METRIC_PACKETS;
-                packets = count;
-            }
-            else
-            {
-                metric |= TAG_METRIC_UNLIMITED;
-                /* Set count in case 'packets' is the last
-                 * option parsed since 0 is a valid value now */
-                count = -1;
-            }
-        }
-        else if(!strncasecmp(arg, "bytes", 5))
-        {
-            metric |= TAG_METRIC_BYTES;
-            bytes = count;
-        }
-        else if(isdigit((int) *arg))
-        {
-            count = atoi(arg);
-        }
-        else
-        {
-            FatalError("%s(%d) Unable to Parse Tag option: %s\n", file_name, file_line, arg);
-        }
-
-        i++;
-    }
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Set type: %d  metric: %x count: %d\n", type, 
-                metric, count););
-
-    /* check that we've got enough to set a tag with */
-    if(type && metric && count)
-    {
-        otn->tag = (TagData *)SnortAlloc(sizeof(TagData));
-
-        otn->tag->tag_type = type;
-        otn->tag->tag_metric = metric;
-        otn->tag->tag_seconds = seconds;
-        otn->tag->tag_bytes = bytes;
-        otn->tag->tag_packets = packets;
-        otn->tag->tag_direction = direction;
-    }
-
-    if ((metric & TAG_METRIC_UNLIMITED) &&
-        !(metric & (TAG_METRIC_BYTES|TAG_METRIC_SECONDS)))
-    {
-        FatalError("%s(%d) Invalid Tag options. 'packets' parameter '0' but\n"
-                "neither seconds or bytes specified: %s\n",
-                file_name, file_line, arg);
-    }
-    return;
-}

@@ -24,6 +24,7 @@
 #define _MEMPOOL_H
 
 #include "sf_sdlist.h"
+#include "debug.h"
 
 typedef unsigned int PoolCount;
 
@@ -58,6 +59,26 @@ int mempool_destroy(MemPool *mempool);
 MemBucket *mempool_alloc(MemPool *mempool);
 void mempool_free(MemPool *mempool, MemBucket *obj);
 int mempool_clean(MemPool *mempool);
+
+static INLINE MemBucket* mempool_oldestUsedBucket(
+        MemPool *mempool
+        )
+{
+    SDListItem *li = mempool->used_list.head;
+
+    if (li)
+    {
+        return li->data;
+    }
+
+    return NULL;
+}
+static INLINE unsigned int mempool_numUsedBucket(
+        MemPool *mempool
+        )
+{
+    return mempool->used;
+}
 
 #endif /* _MEMPOOL_H */
 

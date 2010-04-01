@@ -49,6 +49,7 @@
 #include "hi_si.h"
 #include "hi_util.h"
 #include "hi_util_xmalloc.h"
+#include "sfPolicy.h"
 
 #define MAX_DIRS        2048
 
@@ -84,8 +85,8 @@ typedef struct s_URI_NORM_STATE
 typedef int (*DECODE_FUNC)(HI_SESSION *, const u_char *,
                           const u_char *, const u_char **, URI_NORM_STATE *);
 
-static int hex_lookup[256];
-static int valid_lookup[256];
+int hex_lookup[256] = {0};
+int valid_lookup[256] = {0};
 
 /*
 **  NAME

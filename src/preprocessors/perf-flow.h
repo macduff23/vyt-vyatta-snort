@@ -50,29 +50,28 @@ typedef struct _icmpflow {
 
 typedef struct _sfflow {
 
-    UINT64   *pktLenCnt;
-    UINT64    pktTotal;
+    uint64_t   *pktLenCnt;
+    uint64_t    pktTotal;
 
-    UINT64   byteTotal;
+    uint64_t   byteTotal;
 
-    UINT64   *pktLenPercent;
+    uint64_t   *pktLenPercent;
     
-    UINT64   *portTcpSrc;
-    UINT64   *portTcpDst;
-    UINT64   *portUdpSrc;
-    UINT64   *portUdpDst;
+    uint64_t   *portTcpSrc;
+    uint64_t   *portTcpDst;
+    uint64_t   *portUdpSrc;
+    uint64_t   *portUdpDst;
 
-    UINT64   *typeIcmp;
+    uint64_t   *typeIcmp;
 
-    UINT64    portTcpHigh;
-    UINT64    portTcpTotal;
+    uint64_t    portTcpHigh;
+    uint64_t    portTcpTotal;
 
-    UINT64    portUdpHigh;
-    UINT64    portUdpTotal;
+    uint64_t    portUdpHigh;
+    uint64_t    portUdpTotal;
 
-    UINT64    typeIcmpTotal;
+    uint64_t    typeIcmpTotal;
 
-    int       maxPortToTrack;
 }  SFFLOW;
 
 typedef struct _sfflow_stats {
@@ -108,9 +107,9 @@ int ProcessFlowStats(SFFLOW *sfFlow);
 **  decode.c so we don't have to decode the packet for our
 **  own stats.  Helps speed.
 */
-int UpdateUDPFlowStatsEx(int sport, int dport, int len );
-int UpdateTCPFlowStatsEx(int sport, int dport, int len );
-int UpdateICMPFlowStatsEx(int type, int len);
+int UpdateUDPFlowStatsEx(SFFLOW *, int sport, int dport, int len );
+int UpdateTCPFlowStatsEx(SFFLOW *, int sport, int dport, int len );
+int UpdateICMPFlowStatsEx(SFFLOW *, int type, int len);
 
 #endif
 

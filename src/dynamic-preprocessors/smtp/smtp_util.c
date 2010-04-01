@@ -48,21 +48,21 @@
 #include "sf_snort_packet.h"
 
 extern DynamicPreprocessorData _dpd;
-extern SMTP *_smtp;
-extern char _smtp_normalizing;
+extern SMTP *smtp_ssn;
+extern char smtp_normalizing;
 
-void SMTP_GetEOL(const u_int8_t *ptr, const u_int8_t *end,
-                 const u_int8_t **eol, const u_int8_t **eolm)
+void SMTP_GetEOL(const uint8_t *ptr, const uint8_t *end,
+                 const uint8_t **eol, const uint8_t **eolm)
 {
-    const u_int8_t *tmp_eol;
-    const u_int8_t *tmp_eolm;
+    const uint8_t *tmp_eol;
+    const uint8_t *tmp_eolm;
 
     /* XXX maybe should fatal error here since none of these 
      * pointers should be NULL */
     if (ptr == NULL || end == NULL || eol == NULL || eolm == NULL)
         return;
 
-    tmp_eol = (u_int8_t *)memchr(ptr, '\n', end - ptr);
+    tmp_eol = (uint8_t *)memchr(ptr, '\n', end - ptr);
     if (tmp_eol == NULL)
     {
         tmp_eol = end;
@@ -89,17 +89,17 @@ void SMTP_GetEOL(const u_int8_t *ptr, const u_int8_t *end,
     *eolm = tmp_eolm;
 }
 
-int SMTP_CopyToAltBuffer(SFSnortPacket *p, const u_int8_t *start, int length)
+int SMTP_CopyToAltBuffer(SFSnortPacket *p, const uint8_t *start, int length)
 {
-    u_int8_t *alt_buf;
+    uint8_t *alt_buf;
     int alt_size;
-    u_int16_t *alt_len;
+    uint16_t *alt_len;
     int ret;
 
     /* if we make a call to this it means we want to use the alt buffer
      * regardless of whether we copy any data into it or not - barring a failure */
     p->flags |= FLAG_ALT_DECODE;
-    _smtp_normalizing = 1;
+    smtp_normalizing = 1;
 
     /* if start and end the same, nothing to copy */
     if (length == 0)
@@ -114,7 +114,7 @@ int SMTP_CopyToAltBuffer(SFSnortPacket *p, const u_int8_t *start, int length)
     if (ret != SAFEMEM_SUCCESS)
     {
         p->flags &= ~FLAG_ALT_DECODE;
-        _smtp_normalizing = 0;
+        smtp_normalizing = 0;
         *alt_len = 0;
 
         return -1;
@@ -130,11 +130,11 @@ char smtp_print_buffer[65537];
 
 const char * SMTP_PrintBuffer(SFSnortPacket *p)
 {
-    const u_int8_t *ptr = NULL;
+    const uint8_t *ptr = NULL;
     int len = 0;
     int iorig, inew;
 
-    if (_smtp_normalizing)
+    if (smtp_normalizing)
     {
         ptr = &_dpd.altBuffer[0];
         len = p->normalized_payload_size;

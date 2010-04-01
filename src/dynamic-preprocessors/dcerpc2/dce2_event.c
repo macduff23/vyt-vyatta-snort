@@ -26,6 +26,7 @@
 #include "dce2_event.h"
 #include "dce2_memory.h"
 #include "dce2_config.h"
+#include "dce2_stats.h"
 #include "smb.h"
 #include "dcerpc.h"
 #include "sf_dynamic_preprocessor.h"
@@ -52,6 +53,7 @@ char *dce2_pdu_types[DCERPC_PDU_TYPE__MAX];
  * Extern variables
  ********************************************************************/
 extern DynamicPreprocessorData _dpd;
+extern DCE2_Stats dce2_stats;
 
 /******************************************************************
  * Function: DCE2_EventsInit()
@@ -534,6 +536,8 @@ void DCE2_Alert(DCE2_SsnData *sd, DCE2_Event e, ...)
     if (!DCE2_GcAlertOnEvent(dce2_events[e].eflag))
         return;
 
+    dce2_stats.events++;
+
     va_start(ap, e);
     vsnprintf(dce2_event_bufs[e], sizeof(dce2_event_bufs[e]) - 1, dce2_events[e].format, ap);
     va_end(ap);
@@ -541,7 +545,7 @@ void DCE2_Alert(DCE2_SsnData *sd, DCE2_Event e, ...)
     /* Make sure it's NULL terminated */
     dce2_event_bufs[e][sizeof(dce2_event_bufs[e]) - 1] = '\0';
 
-    DCE2_DEBUG_MSG(DCE2_DEBUG__ALL, "DCE2 Alert => %s\n", dce2_event_bufs[e]);
+    DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "DCE2 Alert => %s\n", dce2_event_bufs[e]));
 
     _dpd.alertAdd(GENERATOR_DCE2, e, 1, 0, 3, dce2_event_bufs[e], 0);
 }
@@ -563,19 +567,28 @@ void DCE2_EventsFree(void)
     for (i = 0; i < DCE2_EVENT__MAX; i++)
     {
         if (dce2_events[i].format != NULL)
+        {
             DCE2_Free((void *)dce2_events[i].format, strlen(dce2_events[i].format) + 1, DCE2_MEM_TYPE__INIT);
+            dce2_events[i].format = NULL;
+        }
     }
 
     for (i = 0; i < (sizeof(dce2_smb_coms) / sizeof(char *)); i++)
     {
         if (dce2_smb_coms[i] != NULL)
+        {
             DCE2_Free((void *)dce2_smb_coms[i], strlen(dce2_smb_coms[i]) + 1, DCE2_MEM_TYPE__INIT);
+            dce2_smb_coms[i] = NULL;
+        }
     }
 
     for (i = 0; i < (sizeof(dce2_pdu_types) / sizeof(char *)); i++)
     {
         if (dce2_pdu_types[i] != NULL)
+        {
             DCE2_Free((void *)dce2_pdu_types[i], strlen(dce2_pdu_types[i]) + 1, DCE2_MEM_TYPE__INIT);
+            dce2_pdu_types[i] = NULL;
+        }
     }
 }
 

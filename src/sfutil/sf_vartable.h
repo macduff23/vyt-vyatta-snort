@@ -32,10 +32,8 @@
 #include "ipv6_port.h"
 #include "sf_ipvar.h"
 
-extern vartable_t *vartable;
-
 /* Allocates new variable table */
-vartable_t *sfvt_alloc_table();
+vartable_t * sfvt_alloc_table(void);
 void sfvt_free_table(vartable_t *table);
 
 /* Adds the variable described by "str" to the table "table" */

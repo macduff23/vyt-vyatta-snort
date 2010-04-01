@@ -3,16 +3,16 @@
 /* Define if AIX */
 #undef AIX
 
-/* Define if BROKEN_SIOCGIFMTU */
+/* Define if broken SIOCGIFMTU */
 #undef BROKEN_SIOCGIFMTU
 
-/* Define if BSDI */
+/* Define if BSDi */
 #undef BSDI
 
-/* Define if ERRLIST_PREDEFINED */
+/* Define if errlist is predefined */
 #undef ERRLIST_PREDEFINED
 
-/* Define if FREEBSD */
+/* Define if FreeBSD */
 #undef FREEBSD
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
@@ -20,6 +20,18 @@
 
 /* Define to 1 if you have the <dnet.h> header file. */
 #undef HAVE_DNET_H
+
+/* Define to 1 if the system has the type `int16_t'. */
+#undef HAVE_INT16_T
+
+/* Define to 1 if the system has the type `int32_t'. */
+#undef HAVE_INT32_T
+
+/* Define to 1 if the system has the type `int64_t'. */
+#undef HAVE_INT64_T
+
+/* Define to 1 if the system has the type `int8_t'. */
+#undef HAVE_INT8_T
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -41,10 +53,6 @@
 
 /* Define to 1 if you have the `net' library (-lnet). */
 #undef HAVE_LIBNET
-
-/* Define to 1 if you have the `netfilter_queue_libipq' library
-   (-lnetfilter_queue_libipq). */
-#undef HAVE_LIBNETFILTER_QUEUE_LIBIPQ
 
 /* Define to 1 if you have the <libnet.h> header file. */
 #undef HAVE_LIBNET_H
@@ -75,6 +83,9 @@
 
 /* Define whether linuxthreads is being used */
 #undef HAVE_LINUXTHREADS
+
+/* Define to 1 if you have the <math.h> header file. */
+#undef HAVE_MATH_H
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
@@ -124,8 +135,35 @@
 /* Define to 1 if you have the <sys/types.h> header file. */
 #undef HAVE_SYS_TYPES_H
 
+/* Define to 1 if the system has the type `uint16_t'. */
+#undef HAVE_UINT16_T
+
+/* Define to 1 if the system has the type `uint32_t'. */
+#undef HAVE_UINT32_T
+
+/* Define to 1 if the system has the type `uint64_t'. */
+#undef HAVE_UINT64_T
+
+/* Define to 1 if the system has the type `uint8_t'. */
+#undef HAVE_UINT8_T
+
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
+
+/* Define to 1 if the system has the type `u_int16_t'. */
+#undef HAVE_U_INT16_T
+
+/* Define to 1 if the system has the type `u_int32_t'. */
+#undef HAVE_U_INT32_T
+
+/* Define to 1 if the system has the type `u_int64_t'. */
+#undef HAVE_U_INT64_T
+
+/* Define to 1 if the system has the type `u_int8_t'. */
+#undef HAVE_U_INT8_T
+
+/* Define if the compiler supports visibility declarations. */
+#undef HAVE_VISIBILITY
 
 /* Define to 1 if you have the `vsnprintf' function. */
 #undef HAVE_VSNPRINTF
@@ -145,25 +183,25 @@
 /* Define if the compiler understands __func__. */
 #undef HAVE___func__
 
-/* Define if HPUX */
+/* Define if HP-UX 10 or 11 */
 #undef HPUX
 
 /* For INADDR_NONE definition */
 #undef INADDR_NONE
 
-/* Define if IRIX */
+/* Define if Irix 6 */
 #undef IRIX
 
 /* For libpcap versions that accumulate stats */
 #undef LIBPCAP_ACCUMULATES
 
-/* Define if LINUX */
+/* Define if Linux */
 #undef LINUX
 
 /* For Linux libpcap versions 0.9.0 to 0.9.4 */
 #undef LINUX_LIBPCAP_DOUBLES_STATS
 
-/* Define if MACOS */
+/* Define if MacOS */
 #undef MACOS
 
 /* For MySQL versions 5.0.13 and greater */
@@ -172,10 +210,10 @@
 /* For MySQL versions 5.0.13 to 5.0.18 */
 #undef MYSQL_HAS_OPT_RECONNECT_BUG
 
-/* Define if OPENBSD */
+/* Define if OpenBSD < 2.3 */
 #undef OPENBSD
 
-/* Define if OSF1 */
+/* Define if Tru64 */
 #undef OSF1
 
 /* Name of package */
@@ -196,10 +234,34 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define if PCAP_TIMEOUT_IGNORED */
+/* Define if pcap timeout is ignored */
 #undef PCAP_TIMEOUT_IGNORED
 
-/* Define if SOLARIS */
+/* The size of `char', as computed by sizeof. */
+#undef SIZEOF_CHAR
+
+/* The size of `int', as computed by sizeof. */
+#undef SIZEOF_INT
+
+/* The size of `long int', as computed by sizeof. */
+#undef SIZEOF_LONG_INT
+
+/* The size of `long long int', as computed by sizeof. */
+#undef SIZEOF_LONG_LONG_INT
+
+/* The size of `short', as computed by sizeof. */
+#undef SIZEOF_SHORT
+
+/* The size of `unsigned int', as computed by sizeof. */
+#undef SIZEOF_UNSIGNED_INT
+
+/* The size of `unsigned long int', as computed by sizeof. */
+#undef SIZEOF_UNSIGNED_LONG_INT
+
+/* The size of `unsigned long long int', as computed by sizeof. */
+#undef SIZEOF_UNSIGNED_LONG_LONG_INT
+
+/* Define if Solaris */
 #undef SOLARIS
 
 /* For sparc v9 with %time register */
@@ -208,30 +270,17 @@
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
-/* Define if SUNOS */
+/* Define if SunOS */
 #undef SUNOS
-
-/* If unsigned long is 64 bits */
-#undef ULONGIS64BIT
 
 /* Version number of package */
 #undef VERSION
 
-/* Define to 1 if your processor stores words with the most significant byte
-   first (like Motorola and SPARC, unlike Intel and VAX). */
+/* Define if words are big endian */
 #undef WORDS_BIGENDIAN
 
-/* Define if WORDS_MUSTALIGN */
+/* Define if words must align */
 #undef WORDS_MUSTALIGN
 
 /* Define __FUNCTION__ as required. */
 #undef __FUNCTION__
-
-/* Define to `uint16_t' if <sys/types.h> does not define. */
-#undef u_int16_t
-
-/* Define to `uint32_t' if <sys/types.h> does not define. */
-#undef u_int32_t
-
-/* Define to `uint8_t' if <sys/types.h> does not define. */
-#undef u_int8_t

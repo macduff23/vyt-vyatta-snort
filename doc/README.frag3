@@ -94,17 +94,21 @@ Engine Configuration
      timeout <seconds> - Timeout for fragments, fragments in the engine for 
                          longer than this period will be automatically dropped.
                          Default is 60 seconds.
-     ttl_limit <hops> - Max TTL delta acceptable for packets based on the first
-                        packet in the fragment.  Default is 5.
-                        NOTE: ttl_limit is only available for backwards
-                        compatibility, and its value will be ignored.  ttl_limit
-                        will be deprecated in a future release.
      min_ttl <value> - Minimum acceptable TTL value for a fragment packet.  
                        Default is 1.
      detect_anomalies - Detect fragment anomalies 
      bind_to <ip_list> - IP List to bind this engine to.  This engine will only
                          run for packets with destination addresses contained
                          within the IP List.  Default value is "all".
+     overlap_limit <number> - Limits the number of overlapping fragments per packet.  The default 
+                       is "0" (unlimited), the minimum is "0", and the maximum is "255". This is an 
+                       optional parameter. detect_anomalies option must be configured for this option 
+                       to take effect.
+     min_fragment_length <number> - Defines smallest fragment size (payload size) that should be considered valid.
+                    Fragments smaller than or equal to this limit are considered malicious and an event is raised, 
+                    if detect_anomalies is also configured.  The default is "0" (check is disabled), the minimum is "0", 
+                    and the maximum is "255". 
+                    This is an optional parameter. detect_anomalies option must be configured for this option to take effect.
      policy <type> - Select a target-based defragmentation mode.  Available 
                      types are first, last, bsd, bsd-right, linux, windows
                      and solaris.  Default type is bsd.
@@ -187,3 +191,5 @@ SID   Description
 9     IPv6 BSD mbufs remote kernel buffer overflow
 10    Bogus fragmentation packet. Possible BSD attack
 11    TTL value less than configured minimum, not using for reassembly
+12    Number of overlapping fragments exceed configured limit
+13    Fragments smaller than configured min_fragment_length

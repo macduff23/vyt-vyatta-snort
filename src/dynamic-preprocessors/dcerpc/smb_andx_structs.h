@@ -40,125 +40,125 @@
 
 typedef struct sess_setupx_req_hdr
 { 
-    u_int8_t wordCount;        /* Count of parameter words */
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;        /* Count of parameter words */
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t maxBufSize;
-    u_int16_t maxMPXCount;
-    u_int16_t vcNumber;
-    u_int32_t sessionKey;
+    uint16_t maxBufSize;
+    uint16_t maxMPXCount;
+    uint16_t vcNumber;
+    uint32_t sessionKey;
 } SMB_SESS_SETUPX_REQ_HDR;
 
 typedef struct sess_setupx_req_auth_old
 {
-    u_int16_t passwdLen;
-    u_int32_t reserved2;
-    u_int16_t byteCount;
+    uint16_t passwdLen;
+    uint32_t reserved2;
+    uint16_t byteCount;
 } SMB_SESS_SETUPX_REQ_AUTH_OLD;
 
 typedef struct sess_setupx_req_auth_ntlm12
 {
-    u_int16_t secBlobLength;
-    u_int32_t reserved2;
-    u_int32_t capabilities;
-    u_int16_t byteCount;
+    uint16_t secBlobLength;
+    uint32_t reserved2;
+    uint32_t capabilities;
+    uint16_t byteCount;
 } SMB_SESS_SETUPX_REQ_AUTH_NTLM12;
 
 typedef struct sess_setupx_req_auth_ntlm12_noext
 {
-    u_int16_t iPasswdLen;
-    u_int16_t passwdLen;
-    u_int32_t reserved2;
-    u_int32_t capabilities;
-    u_int16_t byteCount;
+    uint16_t iPasswdLen;
+    uint16_t passwdLen;
+    uint32_t reserved2;
+    uint32_t capabilities;
+    uint16_t byteCount;
 } SMB_SESS_SETUPX_REQ_AUTH_NTLM12_NOEXT;
 
 typedef struct tree_connx_req_hdr
 {
-    u_int8_t wordCount;        /* Count of parameter words */
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;        /* Count of parameter words */
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t flags;
-    u_int16_t passwdLen;
-    u_int16_t byteCount;
+    uint16_t flags;
+    uint16_t passwdLen;
+    uint16_t byteCount;
 } SMB_TREE_CONNECTX_REQ;
 
 typedef struct logoffx_req_hdr
 {
-    u_int8_t wordCount;        /* Count of parameter words */
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;        /* Count of parameter words */
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t byteCount;       /* Should be 0 */
+    uint16_t byteCount;       /* Should be 0 */
 } SMB_LOGOFFX_REQ;
 
 typedef struct ntcreatex_req_hdr
 {
-    u_int8_t wordCount;        /* Count of parameter words */
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;        /* Count of parameter words */
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int8_t reserved2;
-    u_int16_t nameLength;
-    u_int32_t flags;
+    uint8_t reserved2;
+    uint16_t nameLength;
+    uint32_t flags;
 
-    u_int32_t rootDirFid;
+    uint32_t rootDirFid;
     SMB_ACCESS_MASK desiredAccess;
     SMB_LARGE_INTEGER allocationSize;
 
-    u_int32_t extFileAttributes;
-    u_int32_t shareAccess;
-    u_int32_t createDisposition;
-    u_int32_t createOptions;
-    u_int32_t impersonationLevel;
+    uint32_t extFileAttributes;
+    uint32_t shareAccess;
+    uint32_t createDisposition;
+    uint32_t createOptions;
+    uint32_t impersonationLevel;
 
-    u_int8_t securityFlags;
-    u_int16_t byteCount;
+    uint8_t securityFlags;
+    uint16_t byteCount;
 
 } SMB_NTCREATEX_REQ;
 
 typedef struct readx_hdr
 {
-    u_int8_t wordCount;
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t fid;
-    u_int32_t offset;
+    uint16_t fid;
+    uint32_t offset;
 
-    u_int16_t maxCount;
-    u_int16_t minCount;
-    u_int32_t maxCountHigh;
+    uint16_t maxCount;
+    uint16_t minCount;
+    uint32_t maxCountHigh;
 
-    u_int16_t remaining;
-    u_int32_t highOffset;
-    u_int16_t byteCount;
+    uint16_t remaining;
+    uint32_t highOffset;
+    uint16_t byteCount;
 
 } SMB_READX_REQ;
 
 typedef struct lockingx_hdr
 {
-    u_int8_t wordCount;
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t fid;
-    u_int8_t lockType;
-    u_int8_t oplockLevel;
-    u_int32_t timeout;
+    uint16_t fid;
+    uint8_t lockType;
+    uint8_t oplockLevel;
+    uint32_t timeout;
 
-    u_int16_t numUnlocks;
-    u_int16_t numLocks;
+    uint16_t numUnlocks;
+    uint16_t numLocks;
 
-    u_int16_t byteCount;
+    uint16_t byteCount;
 
 } SMB_LOCKINGX_REQ;
 
@@ -170,67 +170,67 @@ typedef struct lockingx_hdr
 
 typedef struct lockingx_range
 {
-    u_int16_t pid;
-    u_int32_t offset;
-    u_int32_t length;
+    uint16_t pid;
+    uint32_t offset;
+    uint32_t length;
 } SMB_LOCKINGX_RANGE;
 
 typedef struct largefile_lockingx_range
 {
-    u_int16_t pid;
-    u_int16_t pad;
+    uint16_t pid;
+    uint16_t pad;
 
-    u_int32_t offsetHigh;
-    u_int32_t offsetLow;
-    u_int32_t lengthHigh;
-    u_int32_t lengthLow;
+    uint32_t offsetHigh;
+    uint32_t offsetLow;
+    uint32_t lengthHigh;
+    uint32_t lengthLow;
 } SMB_LARGEFILE_LOCKINGX_RANGE;
 
 typedef struct writex_hdr
 {
-    u_int8_t wordCount;
-    u_int8_t andXCommand;
-    u_int8_t andXReserved;
-    u_int16_t andXOffset;
+    uint8_t wordCount;
+    uint8_t andXCommand;
+    uint8_t andXReserved;
+    uint16_t andXOffset;
 
-    u_int16_t fid;
-    u_int32_t offset;
-    u_int32_t reserved;
+    uint16_t fid;
+    uint32_t offset;
+    uint32_t reserved;
 
-    u_int16_t writeMode;
+    uint16_t writeMode;
 
-    u_int16_t remaining;
-    u_int16_t dataLengthHigh;
-    u_int16_t dataLength;
-    u_int16_t dataOffset;
-    u_int32_t highOffset;
-    u_int16_t byteCount;
+    uint16_t remaining;
+    uint16_t dataLengthHigh;
+    uint16_t dataLength;
+    uint16_t dataOffset;
+    uint32_t highOffset;
+    uint16_t byteCount;
 
 } SMB_WRITEX_REQ;
 
 typedef struct trans_hdr
 {
-    u_int8_t  wordCount;
-    u_int16_t totalParamCount;
-    u_int16_t totalDataCount;
-    u_int16_t maxParamCount;
-    u_int16_t maxDataCount;
-    u_int8_t  maxSetupCount;
-    u_int8_t  transReserved;
+    uint8_t  wordCount;
+    uint16_t totalParamCount;
+    uint16_t totalDataCount;
+    uint16_t maxParamCount;
+    uint16_t maxDataCount;
+    uint8_t  maxSetupCount;
+    uint8_t  transReserved;
 
-    u_int16_t flags;
-    u_int32_t timeout;
-    u_int16_t reserved;
+    uint16_t flags;
+    uint32_t timeout;
+    uint16_t reserved;
 
-    u_int16_t parameterCount;
-    u_int16_t parameterOffset;
-    u_int16_t dataCount;
-    u_int16_t dataOffset;
-    u_int8_t  setupCount;
-    u_int8_t  reserved2;
-    u_int16_t function;
-    u_int16_t fid;
-    u_int16_t byteCount;
+    uint16_t parameterCount;
+    uint16_t parameterOffset;
+    uint16_t dataCount;
+    uint16_t dataOffset;
+    uint8_t  setupCount;
+    uint8_t  reserved2;
+    uint16_t function;
+    uint16_t fid;
+    uint16_t byteCount;
 
 } SMB_TRANS_REQ;
 

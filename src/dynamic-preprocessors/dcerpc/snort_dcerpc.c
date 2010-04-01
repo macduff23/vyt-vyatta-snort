@@ -59,19 +59,7 @@ extern PreprocStats dcerpcDetectPerfStats;
 extern PreprocStats dcerpcIgnorePerfStats;
 #endif
 
-extern char SMBPorts[MAX_PORT_INDEX];
-extern char DCERPCPorts[MAX_PORT_INDEX];
-extern u_int8_t _debug_print;
-
-extern u_int8_t _autodetect;
-extern int _reassemble_increment;
-
-extern u_int32_t _memcap;
-extern u_int8_t _alert_memcap;
-extern u_int8_t _disable_smb_fragmentation;
-extern u_int8_t _disable_dcerpc_fragmentation;
-
-u_int32_t _total_memory = 0;
+uint32_t _total_memory = 0;
 
 #ifdef TARGET_BASED
 DCERPC_ProtoIds _dce_proto_ids;
@@ -82,28 +70,31 @@ DCERPC    *_dcerpc;
 /* Save packet so we don't have to pass it around */
 SFSnortPacket *_dcerpc_pkt;
 
-u_int8_t *dce_reassembly_buf = NULL;
-const u_int16_t dce_reassembly_buf_size = IP_MAXPKT - (IP_HDR_LEN + TCP_HDR_LEN);
+uint8_t *dce_reassembly_buf = NULL;
+const uint16_t dce_reassembly_buf_size = IP_MAXPKT - (IP_HDR_LEN + TCP_HDR_LEN);
 
 /* this is used to store one of the below */
 SFSnortPacket *real_dce_mock_pkt = NULL;
 
 SFSnortPacket *dce_mock_pkt = NULL;
-const u_int16_t dce_mock_pkt_payload_len = IP_MAXPKT - (IP_HDR_LEN + TCP_HDR_LEN);
+const uint16_t dce_mock_pkt_payload_len = IP_MAXPKT - (IP_HDR_LEN + TCP_HDR_LEN);
 #ifdef SUP_IP6
 SFSnortPacket *dce_mock_pkt_6 = NULL;
-const u_int16_t dce_mock_pkt_6_payload_len = IP_MAXPKT - (IP6_HDR_LEN + TCP_HDR_LEN);
+const uint16_t dce_mock_pkt_6_payload_len = IP_MAXPKT - (IP6_HDR_LEN + TCP_HDR_LEN);
 #endif
 
-static DCERPC_TransType DCERPC_AutoDetect(SFSnortPacket *, const u_int8_t *, u_int16_t);
+extern tSfPolicyUserContextId dcerpc_config;
+extern DceRpcConfig *dcerpc_eval_config;
+
+static DCERPC_TransType DCERPC_AutoDetect(SFSnortPacket *, const uint8_t *, uint16_t);
 static void DCERPC_DataFree(DCERPC *);
-static int ProcessRawDCERPC(SFSnortPacket *, const u_int8_t *, u_int16_t);
-static int ProcessRawSMB(SFSnortPacket *, const u_int8_t *, u_int16_t);
+static int ProcessRawDCERPC(SFSnortPacket *, const uint8_t *, uint16_t);
+static int ProcessRawSMB(SFSnortPacket *, const uint8_t *, uint16_t);
 static DCERPC_TransType DCERPC_GetTransport(SFSnortPacket *, char *);
 
 void DCERPC_BufferReassemble(DCERPC_Buffer *sbuf)
 {
-    u_int16_t len;
+    uint16_t len;
     int status;
 
     if (DCERPC_BufferIsEmpty(sbuf))
@@ -125,21 +116,21 @@ void DCERPC_BufferReassemble(DCERPC_Buffer *sbuf)
         return;
     }
 
-    if (_debug_print)
+    if (dcerpc_eval_config->debug_print)
     {
         PrintBuffer("DCE/RPC reassembled fragment",
-                    (u_int8_t *)dce_reassembly_buf, (u_int16_t)len);
+                    (uint8_t *)dce_reassembly_buf, (uint16_t)len);
     }
 
     /* create pseudo packet */
     real_dce_mock_pkt = DCERPC_SetPseudoPacket(_dcerpc_pkt, dce_reassembly_buf, len);
 }
 
-void DCERPC_EarlyFragReassemble(DCERPC *dce_ssn_data, const u_int8_t *smb_hdr,
-                                u_int16_t smb_hdr_len, u_int16_t opnum)
+void DCERPC_EarlyFragReassemble(DCERPC *dce_ssn_data, const uint8_t *smb_hdr,
+                                uint16_t smb_hdr_len, uint16_t opnum)
 {
     dce_ssn_data->num_inc_reass++;
-    if (_reassemble_increment == dce_ssn_data->num_inc_reass)
+    if (dcerpc_eval_config->reassemble_increment == dce_ssn_data->num_inc_reass)
     {
         dce_ssn_data->num_inc_reass = 0;
 
@@ -168,12 +159,13 @@ void * DCERPC_GetReassemblyPkt(void)
     return NULL;
 }
  
-SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u_int16_t data_len)
+SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const uint8_t *data, uint16_t data_len)
 {
     SFSnortPacket *ret_pkt = dce_mock_pkt;
-    u_int16_t payload_len = dce_mock_pkt_payload_len;
-    u_int16_t ip_len;
+    uint16_t payload_len = dce_mock_pkt_payload_len;
+    uint16_t ip_len;
     int result;
+    int vlanHeaderLen = 0;
 
 #ifdef SUP_IP6
     if (p->family == AF_INET)
@@ -207,13 +199,13 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
     ret_pkt->dst_port = p->dst_port;
     ret_pkt->proto_bits = p->proto_bits;
 
-    if(p->ether_header != NULL)
+    if (p->ether_header != NULL)
     {
         result = SafeMemcpy((void *)((EtherHeader *)ret_pkt->ether_header)->ether_source,
                             (void *)p->ether_header->ether_source,
                             (size_t)6,
                             (void *)ret_pkt->ether_header->ether_source,
-                            (void *)((u_int8_t *)ret_pkt->ether_header->ether_source + 6));
+                            (void *)((uint8_t *)ret_pkt->ether_header->ether_source + 6));
 
         if (result != SAFEMEM_SUCCESS)
             return NULL;
@@ -222,10 +214,26 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
                             (void *)p->ether_header->ether_destination,
                             (size_t)6,
                             (void *)ret_pkt->ether_header->ether_destination,
-                            (void *)((u_int8_t *)ret_pkt->ether_header->ether_destination + 6));
+                            (void *)((uint8_t *)ret_pkt->ether_header->ether_destination + 6));
 
         if (result != SAFEMEM_SUCCESS)
             return NULL;
+
+        ((EtherHeader *)ret_pkt->ether_header)->ethernet_type = ((EtherHeader *)p->ether_header)->ethernet_type;
+
+        if (((EtherHeader *)p->ether_header)->ethernet_type == htons(ETHERNET_TYPE_8021Q))
+        {
+            result = SafeMemcpy((void *)ret_pkt->vlan_tag_header,
+                    (void *)p->vlan_tag_header,
+                    (size_t)VLAN_HDR_LEN,
+                    (void *)ret_pkt->vlan_tag_header,
+                    (void *)((uint8_t *)ret_pkt->vlan_tag_header + VLAN_HDR_LEN));
+
+            if (result != SAFEMEM_SUCCESS)
+                return NULL;
+
+            vlanHeaderLen = VLAN_HDR_LEN;
+        }
     }
 
     if (data_len > payload_len)
@@ -233,7 +241,7 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
 
     result = SafeMemcpy((void *)ret_pkt->payload, (void *)data, (size_t)data_len,
                         (void *)ret_pkt->payload,
-                        (void *)((u_int8_t *)ret_pkt->payload + payload_len));
+                        (void *)((uint8_t *)ret_pkt->payload + payload_len));
 
     if (result != SAFEMEM_SUCCESS)
         return NULL;
@@ -241,12 +249,12 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
     ret_pkt->payload_size = data_len;
 
     ((struct pcap_pkthdr *)ret_pkt->pcap_header)->caplen =
-        ret_pkt->payload_size + IP_HDR_LEN + TCP_HDR_LEN + ETHER_HDR_LEN;
+        ret_pkt->payload_size + IP_HDR_LEN + TCP_HDR_LEN + ETHER_HDR_LEN + vlanHeaderLen;
     ((struct pcap_pkthdr *)ret_pkt->pcap_header)->len = ret_pkt->pcap_header->caplen;
     ((struct pcap_pkthdr *)ret_pkt->pcap_header)->ts.tv_sec = p->pcap_header->ts.tv_sec;
     ((struct pcap_pkthdr *)ret_pkt->pcap_header)->ts.tv_usec = p->pcap_header->ts.tv_usec;
 
-    ip_len = (u_int16_t)(ret_pkt->payload_size + IP_HDR_LEN + TCP_HDR_LEN);
+    ip_len = (uint16_t)(ret_pkt->payload_size + IP_HDR_LEN + TCP_HDR_LEN);
 #ifdef SUP_IP6
     if (p->family == AF_INET)
     {
@@ -254,7 +262,7 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
     }
     else
     {
-        ip_len = (u_int16_t)(ret_pkt->payload_size + IP6_HDR_LEN + TCP_HDR_LEN);
+        ip_len = (uint16_t)(ret_pkt->payload_size + IP6_HDR_LEN + TCP_HDR_LEN);
         ret_pkt->ip6h->len = htons(ip_len);
     }
 #else
@@ -268,7 +276,7 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
 
     /* Set bit in wire packet to indicate a reassembled packet needs to
      * be detected upon */
-    _dpd.setPreprocGetReassemblyPktBit(_dcerpc_pkt, PP_DCERPC);
+    _dpd.setPreprocReassemblyPktBit(_dcerpc_pkt, PP_DCERPC);
 
     return ret_pkt;
 }
@@ -276,7 +284,7 @@ SFSnortPacket * DCERPC_SetPseudoPacket(SFSnortPacket *p, const u_int8_t *data, u
 void DCERPC_InitPacket(void)
 {
     /* Alloc for global reassembly buffers */
-    dce_reassembly_buf = (u_int8_t *)calloc(1, dce_reassembly_buf_size);
+    dce_reassembly_buf = (uint8_t *)calloc(1, dce_reassembly_buf_size);
     if (dce_reassembly_buf == NULL)
     {
         DynamicPreprocessorFatalMessage("Failed to allocate memory for "
@@ -293,7 +301,7 @@ void DCERPC_InitPacket(void)
 
     dce_mock_pkt->pcap_header = calloc(1, sizeof(struct pcap_pkthdr) +
                                              ETHER_HDR_LEN +
-                                             SUN_SPARC_TWIDDLE + IP_MAXPKT);
+                                             SUN_SPARC_TWIDDLE + IP_MAXPKT + VLAN_HDR_LEN);
     if (dce_mock_pkt->pcap_header == NULL)
     {
         DynamicPreprocessorFatalMessage("Failed to allocate memory "
@@ -301,15 +309,17 @@ void DCERPC_InitPacket(void)
     }
 
     dce_mock_pkt->pkt_data =
-        ((u_int8_t *)dce_mock_pkt->pcap_header) + sizeof(struct pcap_pkthdr);
+        ((uint8_t *)dce_mock_pkt->pcap_header) + sizeof(struct pcap_pkthdr);
+    dce_mock_pkt->vlan_tag_header = 
+        (void *)((uint8_t *)dce_mock_pkt->pkt_data + SUN_SPARC_TWIDDLE);
     dce_mock_pkt->ether_header = 
-        (void *)((u_int8_t *)dce_mock_pkt->pkt_data + SUN_SPARC_TWIDDLE);
+        (void *)((uint8_t *)dce_mock_pkt->vlan_tag_header + VLAN_HDR_LEN);
     dce_mock_pkt->ip4_header =
-        (IPV4Header *)((u_int8_t *)dce_mock_pkt->ether_header + ETHER_HDR_LEN);
+        (IPV4Header *)((uint8_t *)dce_mock_pkt->ether_header + ETHER_HDR_LEN);
     dce_mock_pkt->tcp_header =
-        (TCPHeader *)((u_int8_t *)dce_mock_pkt->ip4_header + IP_HDR_LEN);
+        (TCPHeader *)((uint8_t *)dce_mock_pkt->ip4_header + IP_HDR_LEN);
 
-    dce_mock_pkt->payload = (u_int8_t *)dce_mock_pkt->tcp_header + TCP_HDR_LEN;
+    dce_mock_pkt->payload = (uint8_t *)dce_mock_pkt->tcp_header + TCP_HDR_LEN;
 
     ((EtherHeader *)dce_mock_pkt->ether_header)->ethernet_type = htons(0x0800);
     SET_IP4_VER((IPV4Header *)dce_mock_pkt->ip4_header, 0x4);
@@ -334,7 +344,7 @@ void DCERPC_InitPacket(void)
 
     dce_mock_pkt_6->pcap_header = calloc(1, sizeof(struct pcap_pkthdr) +
                                                ETHER_HDR_LEN +
-                                               SUN_SPARC_TWIDDLE + IP_MAXPKT);
+                                               SUN_SPARC_TWIDDLE + IP_MAXPKT + VLAN_HDR_LEN);
     if (dce_mock_pkt_6 == NULL)
     {
         DynamicPreprocessorFatalMessage("Failed to allocate memory for "
@@ -342,15 +352,18 @@ void DCERPC_InitPacket(void)
     }
 
     dce_mock_pkt_6->pkt_data =
-        ((u_int8_t *)dce_mock_pkt_6->pcap_header) + sizeof(struct pcap_pkthdr);
-    dce_mock_pkt_6->ether_header =
-        (void *)((u_int8_t *)dce_mock_pkt_6->pkt_data + SUN_SPARC_TWIDDLE);
-    dce_mock_pkt_6->ip4_header =
-        (IPV4Header *)((u_int8_t *)dce_mock_pkt_6->ether_header + ETHER_HDR_LEN);
-    dce_mock_pkt_6->tcp_header =
-        (TCPHeader *)((u_int8_t *)dce_mock_pkt_6->ip4_header + IP6_HEADER_LEN);
+        ((uint8_t *)dce_mock_pkt_6->pcap_header) + sizeof(struct pcap_pkthdr);
 
-    dce_mock_pkt_6->payload = (u_int8_t *)dce_mock_pkt_6->tcp_header + TCP_HDR_LEN;
+    dce_mock_pkt_6->vlan_tag_header = 
+        (void *)((uint8_t *)dce_mock_pkt_6->pkt_data + SUN_SPARC_TWIDDLE);
+    dce_mock_pkt_6->ether_header = 
+        (void *)((uint8_t *)dce_mock_pkt_6->vlan_tag_header + VLAN_HDR_LEN);
+    dce_mock_pkt_6->ip4_header =
+        (IPV4Header *)((uint8_t *)dce_mock_pkt_6->ether_header + ETHER_HDR_LEN);
+    dce_mock_pkt_6->tcp_header =
+        (TCPHeader *)((uint8_t *)dce_mock_pkt_6->ip4_header + IP6_HEADER_LEN);
+
+    dce_mock_pkt_6->payload = (uint8_t *)dce_mock_pkt_6->tcp_header + TCP_HDR_LEN;
 
     ((EtherHeader *)dce_mock_pkt_6->ether_header)->ethernet_type = htons(0x0800);
     SET_IP4_VER((IPV4Header *)dce_mock_pkt_6->ip4_header, 0x4);
@@ -370,13 +383,13 @@ void DCERPC_InitPacket(void)
 }
 
 
-static int ProcessRawSMB(SFSnortPacket *p, const u_int8_t *data, u_int16_t size)
+static int ProcessRawSMB(SFSnortPacket *p, const uint8_t *data, uint16_t size)
 {
     /* Must remember to convert stuff to host order before using it... */
     SMB_HDR *smbHdr;
-    u_int16_t nbt_data_size;
-    u_int8_t *smb_command;
-    u_int16_t smb_data_size;
+    uint16_t nbt_data_size;
+    uint8_t *smb_command;
+    uint16_t smb_data_size;
 
     while (size > 0)
     {
@@ -395,7 +408,7 @@ static int ProcessRawSMB(SFSnortPacket *p, const u_int8_t *data, u_int16_t size)
             nbt_data_size = size - sizeof(NBT_HDR);
 
         smbHdr = (SMB_HDR *)(data + sizeof(NBT_HDR));
-        smb_command = (u_int8_t *)smbHdr + sizeof(SMB_HDR);
+        smb_command = (uint8_t *)smbHdr + sizeof(SMB_HDR);
         smb_data_size = nbt_data_size - sizeof(SMB_HDR);
 
         if (memcmp(smbHdr->protocol, "\xffSMB", 4) != 0)
@@ -413,7 +426,7 @@ static int ProcessRawSMB(SFSnortPacket *p, const u_int8_t *data, u_int16_t size)
     return 1;
 }
 
-static int ProcessRawDCERPC(SFSnortPacket *p, const u_int8_t *data, u_int16_t size)
+static int ProcessRawDCERPC(SFSnortPacket *p, const uint8_t *data, uint16_t size)
 {
     DCERPC_Buffer *sbuf = &_dcerpc->tcp_seg_buf;
     int status = ProcessDCERPCMessage(NULL, 0, data, size);
@@ -426,10 +439,10 @@ static int ProcessRawDCERPC(SFSnortPacket *p, const u_int8_t *data, u_int16_t si
         DCERPC_BufferReassemble(sbuf);
         DCERPC_BufferEmpty(sbuf);
     }
-    else if ((status == DCERPC_SEGMENTED) && _reassemble_increment)
+    else if ((status == DCERPC_SEGMENTED) && dcerpc_eval_config->reassemble_increment)
     {
         _dcerpc->num_inc_reass++;
-        if (_reassemble_increment == _dcerpc->num_inc_reass)
+        if (dcerpc_eval_config->reassemble_increment == _dcerpc->num_inc_reass)
         {
             _dcerpc->num_inc_reass = 0;
             DCERPC_BufferReassemble(sbuf);
@@ -449,12 +462,30 @@ static int ProcessRawDCERPC(SFSnortPacket *p, const u_int8_t *data, u_int16_t si
 void DCERPC_SessionFree(void * v)
 {
     DCERPC *x = (DCERPC *) v;
+    DceRpcConfig *pPolicyConfig = NULL;
 
-    if (x != NULL)
+    if (x == NULL)
+        return;
+
+    pPolicyConfig = (DceRpcConfig *)sfPolicyUserDataGet(x->config, x->policy_id);
+
+    if (pPolicyConfig != NULL)
     {
-        DCERPC_DataFree(x);
-        free(x);
+        pPolicyConfig->ref_count--;
+        if ((pPolicyConfig->ref_count == 0) &&
+            (x->config != dcerpc_config))
+        {
+            sfPolicyUserDataClear (x->config, x->policy_id);
+            free(pPolicyConfig);
+
+            /* No more outstanding configs - free the config array */
+            if (sfPolicyUserPolicyGetActive(x->config) == 0)
+                DceRpcFreeConfig(x->config);
+        }
     }
+
+    DCERPC_DataFree(x);
+    free(x);
 }
 
 static void DCERPC_DataFree(DCERPC *dssn)
@@ -464,13 +495,13 @@ static void DCERPC_DataFree(DCERPC *dssn)
     DCERPC_BufferFreeData(&dssn->dce_frag_buf);
 }
 
-static DCERPC_TransType DCERPC_AutoDetect(SFSnortPacket *p, const u_int8_t *data, u_int16_t size)
+static DCERPC_TransType DCERPC_AutoDetect(SFSnortPacket *p, const uint8_t *data, uint16_t size)
 {
     NBT_HDR *nbtHdr;
     SMB_HDR *smbHdr;
     DCERPC_HDR *dcerpc;
 
-    if ( !_autodetect )
+    if ( !dcerpc_eval_config->autodetect )
     {
         return DCERPC_TRANS_TYPE__NONE;
     }
@@ -562,23 +593,27 @@ static DCERPC_TransType DCERPC_GetTransport(SFSnortPacket *p, char *autodetected
         DEBUG_WRAP(DebugMessage(DEBUG_DCERPC, "DCE/RPC: Target-based: Unknown protocol for "
                                 "this session.  See if we're configured or can autodetect.\n"););
 
-        if (((p->flags & FLAG_FROM_CLIENT) && (SMBPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
-            ((p->flags & FLAG_FROM_SERVER) && (SMBPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
+        if (((p->flags & FLAG_FROM_CLIENT) &&
+             (dcerpc_eval_config->SMBPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
+            ((p->flags & FLAG_FROM_SERVER) &&
+             (dcerpc_eval_config->SMBPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_DCERPC, "DCE/RPC: Target-based: SMB port is configured. "
                                     "Set protocol to NBSS/SMB for session.\n"););
 
             return DCERPC_TRANS_TYPE__SMB;
         }
-        else if (((p->flags & FLAG_FROM_CLIENT) && (DCERPCPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
-                 ((p->flags & FLAG_FROM_SERVER) && (DCERPCPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
+        else if (((p->flags & FLAG_FROM_CLIENT) &&
+                  (dcerpc_eval_config->DCERPCPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
+                 ((p->flags & FLAG_FROM_SERVER) &&
+                  (dcerpc_eval_config->DCERPCPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_DCERPC, "DCE/RPC: Target-based: DCE/RPC port is configured. "
                                     "Set protocol to DCE/RPC for session.\n"););
 
             return DCERPC_TRANS_TYPE__DCERPC;
         }
-        else if (_autodetect)
+        else if (dcerpc_eval_config->autodetect)
         {
             DCERPC_TransType trans = DCERPC_AutoDetect(p, p->payload, p->payload_size);
 
@@ -622,17 +657,21 @@ static DCERPC_TransType DCERPC_GetTransport(SFSnortPacket *p, char *autodetected
     *autodetected = 0;
 
     /* check the port list */
-    if (((p->flags & FLAG_FROM_CLIENT) && (SMBPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
-        ((p->flags & FLAG_FROM_SERVER) && (SMBPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
+    if (((p->flags & FLAG_FROM_CLIENT) &&
+         (dcerpc_eval_config->SMBPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
+        ((p->flags & FLAG_FROM_SERVER) &&
+         (dcerpc_eval_config->SMBPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
     {
         return DCERPC_TRANS_TYPE__SMB;
     }
-    else if (((p->flags & FLAG_FROM_CLIENT) && (DCERPCPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
-             ((p->flags & FLAG_FROM_SERVER) && (DCERPCPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
+    else if (((p->flags & FLAG_FROM_CLIENT) &&
+              (dcerpc_eval_config->DCERPCPorts[PORT_INDEX(p->dst_port)] & CONV_PORT(p->dst_port))) ||
+             ((p->flags & FLAG_FROM_SERVER) &&
+              (dcerpc_eval_config->DCERPCPorts[PORT_INDEX(p->src_port)] & CONV_PORT(p->src_port))))
     {
         return DCERPC_TRANS_TYPE__DCERPC;
     }
-    else if (_autodetect)
+    else if (dcerpc_eval_config->autodetect)
     {
         DCERPC_TransType trans = DCERPC_AutoDetect(p, p->payload, p->payload_size);
         *autodetected = 1;
@@ -649,10 +688,22 @@ int DCERPCDecode(void *pkt)
     SFSnortPacket *p = (SFSnortPacket *) pkt;
     DCERPC *x = NULL;
     DCERPC_TransType trans = DCERPC_TRANS_TYPE__NONE;
+    tSfPolicyId policy_id = _dpd.getRuntimePolicy();
+    DceRpcConfig *pPolicyConfig = NULL;
 
     real_dce_mock_pkt = NULL;
 
+    sfPolicyUserPolicySet (dcerpc_config, policy_id);
+    pPolicyConfig = (DceRpcConfig *)sfPolicyUserDataGetCurrent(dcerpc_config);
+    dcerpc_eval_config = pPolicyConfig;
+
     x = (DCERPC *)_dpd.streamAPI->get_application_data(p->stream_session_ptr, PP_DCERPC);
+    if (x != NULL)
+        dcerpc_eval_config = (DceRpcConfig *)sfPolicyUserDataGet(x->config, x->policy_id);
+
+    if (dcerpc_eval_config == NULL)
+        return 0;
+
     if (x == NULL)
     {
         char autodetected = 0;
@@ -669,6 +720,10 @@ int DCERPCDecode(void *pkt)
         }
         else
         {
+            x->policy_id = policy_id;
+            x->config = dcerpc_config;
+            pPolicyConfig->ref_count++;
+
             _dpd.streamAPI->set_application_data(p->stream_session_ptr, PP_DCERPC,
                                                  (void *)x, &DCERPC_SessionFree);        
         }
@@ -708,7 +763,6 @@ int DCERPCDecode(void *pkt)
         /* Should be doing reassembly at this point */
         return 0;
     }
-
 
     _dcerpc = x;
     _dcerpc_pkt = p;
@@ -774,8 +828,8 @@ void DCERPC_Exit(void)
 }
 
 
-int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
-                          u_int8_t *data, u_int16_t size, u_int16_t total_size)
+int ProcessNextSMBCommand(uint8_t command, SMB_HDR *smbHdr,
+                          uint8_t *data, uint16_t size, uint16_t total_size)
 {
     switch (command)
     {
@@ -837,7 +891,7 @@ int ProcessNextSMBCommand(u_int8_t command, SMB_HDR *smbHdr,
     return 0;
 }
 
-int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const u_int8_t *data, u_int16_t data_size)
+int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const uint8_t *data, uint16_t data_size)
 {
     int status;
 
@@ -847,14 +901,14 @@ int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const u_int8_t *d
     if (data_size == 0)
         return 0;
 
-    if ((sbuf == &dce_ssn->smb_seg_buf) && _disable_smb_fragmentation)
+    if ((sbuf == &dce_ssn->smb_seg_buf) && dcerpc_eval_config->disable_smb_fragmentation)
         return 0;
-    else if (_disable_dcerpc_fragmentation)
+    else if (dcerpc_eval_config->disable_dcerpc_fragmentation)
         return 0;
 
     if (sbuf->data == NULL)
     {
-        u_int16_t alloc_size = data_size;
+        uint16_t alloc_size = data_size;
 
         if (dce_ssn->fragmentation & SUSPEND_FRAGMENTATION)
             return -1;
@@ -866,7 +920,7 @@ int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const u_int8_t *d
         if (DCERPC_IsMemcapExceeded(alloc_size))
             return -1;
 
-        sbuf->data = (u_int8_t *)calloc(alloc_size, 1);
+        sbuf->data = (uint8_t *)calloc(alloc_size, 1);
         if (sbuf->data == NULL)
             DynamicPreprocessorFatalMessage("Failed to allocate space for TCP seg buf\n");
 
@@ -875,12 +929,12 @@ int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const u_int8_t *d
     }
     else
     {
-        u_int16_t buf_size_left = sbuf->size - sbuf->len;
+        uint16_t buf_size_left = sbuf->size - sbuf->len;
 
         if (data_size > buf_size_left)
         {
-            u_int16_t alloc_size = data_size - buf_size_left;
-            u_int8_t *tmp_data;
+            uint16_t alloc_size = data_size - buf_size_left;
+            uint8_t *tmp_data;
 
             if (dce_ssn->fragmentation & SUSPEND_FRAGMENTATION)
                 return -1;
@@ -897,7 +951,7 @@ int DCERPC_BufferAddData(DCERPC *dce_ssn, DCERPC_Buffer *sbuf, const u_int8_t *d
             if (DCERPC_IsMemcapExceeded(alloc_size))
                 return -1;
 
-            tmp_data = (u_int8_t *)realloc(sbuf->data, sbuf->size + alloc_size);
+            tmp_data = (uint8_t *)realloc(sbuf->data, sbuf->size + alloc_size);
             if (tmp_data == NULL)
                 DynamicPreprocessorFatalMessage("Failed to allocate space for TCP seg buf\n");
 
@@ -943,14 +997,14 @@ void DCERPC_BufferFreeData(DCERPC_Buffer *sbuf)
     }
 }
 
-int DCERPC_IsMemcapExceeded(u_int16_t alloc_size)
+int DCERPC_IsMemcapExceeded(uint16_t alloc_size)
 {
-    if ((alloc_size + _total_memory) > _memcap)
+    if ((alloc_size + _total_memory) > ((DceRpcConfig *)sfPolicyUserDataGetDefault(dcerpc_config))->memcap)
     {
-        if (_alert_memcap)
+        if (dcerpc_eval_config->alert_memcap)
         {
             DCERPC_GenerateAlert(DCERPC_EVENT_MEMORY_OVERFLOW, 
-                                    DCERPC_EVENT_MEMORY_OVERFLOW_STR);
+                                 DCERPC_EVENT_MEMORY_OVERFLOW_STR);
         }
 
         return 1;
@@ -959,4 +1013,27 @@ int DCERPC_IsMemcapExceeded(u_int16_t alloc_size)
     return 0;
 }
 
+static int DceFreeConfigPolicy(
+        tSfPolicyUserContextId config,
+        tSfPolicyId policyId, 
+        void* pData
+        )
+{
+    DceRpcConfig *pPolicyConfig = (DceRpcConfig *)pData;
+
+    //do any housekeeping before freeing DceRpcConfig
+
+    sfPolicyUserDataClear (config, policyId);
+    free(pPolicyConfig);
+    return 0;
+}
+
+void DceRpcFreeConfig(tSfPolicyUserContextId config)
+{
+    if (config == NULL)
+        return;
+
+    sfPolicyUserDataIterate (config, DceFreeConfigPolicy);
+    sfPolicyConfigDelete(config);
+}
 

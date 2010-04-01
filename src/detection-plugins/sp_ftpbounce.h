@@ -24,7 +24,7 @@
 #define __SP_FTP_BOUNCE_H__
 
 void SetupFTPBounce(void);
-u_int32_t FTPBounceHash(void *d);
+uint32_t FTPBounceHash(void *d);
 int FTPBounceCompare(void *l, void *r);
 
 #endif  /* __SP_FTP_BOUNCE_H__ */

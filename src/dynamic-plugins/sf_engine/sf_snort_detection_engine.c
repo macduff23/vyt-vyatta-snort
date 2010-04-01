@@ -39,20 +39,25 @@
 #include "sf_snort_plugin_api.h"
 #include "sf_dynamic_meta.h"
 #include "sf_dynamic_engine.h"
+#include "sfghash.h"
+#include "bmh.h"
 
 #define MAJOR_VERSION   1
-#define MINOR_VERSION   10
-#define BUILD_VERSION   16
+#define MINOR_VERSION   11
+#define BUILD_VERSION   17  
 #define DETECT_NAME     "SF_SNORT_DETECTION_ENGINE"
 
 #ifdef WIN32
+#ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
+#endif
 #else
 #include <sys/param.h>
 #include <limits.h>
 #endif
 
 DynamicEngineData _ded;
+static void FreeOneRule(void *);
 
 #define STD_BUF 1024
 
@@ -101,7 +106,7 @@ ENGINE_LINKAGE int InitializeEngine(DynamicEngineData *ded)
     _ded.logMsg = ded->logMsg;
     _ded.errMsg = ded->errMsg;
     _ded.fatalMsg = ded->fatalMsg;
-    _ded.getPreprocOptFuncs = ded->getPreprocOptFuncs;
+    _ded.preprocRuleOptInit = ded->preprocRuleOptInit;
     _ded.setRuleData = ded->setRuleData;
     _ded.getRuleData = ded->getRuleData;
 
@@ -132,29 +137,19 @@ ENGINE_LINKAGE int LibVersion(DynamicPluginMeta *dpm)
 
 /*
  * Function: CheckCompatibility
- * Return values: 0 -- no compatibility issue detected; 1 -- otherwise.
+ * eng = current engine version (as configured above in LibVersion())
+ * req = required engine version (as obtained from the detection library)
+ * Return values: 0 -- no compatibility issue detected; >0 -- incompatible.
  */
-ENGINE_LINKAGE int CheckCompatibility(DynamicPluginMeta *meta, DynamicPluginMeta *lib)
+ENGINE_LINKAGE int CheckCompatibility(DynamicPluginMeta* eng, DynamicPluginMeta* req)
 {
-    int ret = 0;
-	
-    /* types match */
-    if(((void *)meta != NULL ) && ((void *)lib != NULL) && (lib->type == meta->type))
-    {
-        /* names match */
-        if (!strcmp(meta->uniqueName, lib->uniqueName) )
-        {
-            if (((meta->major == 1) && (meta->minor >= 7)) || (meta->major > 1))
-            {
-                if( (lib->major == 1) && (lib->minor < 7 ))
-                {              			                			
-                    ret = 1;
-                }               		
-            }
-        }          
-    }
-    
-    return( ret );
+    if ( !eng || !req ) return 1;
+    if ( eng->type != req->type ) return 2;
+    if ( strcmp(eng->uniqueName, req->uniqueName) ) return 3;
+    if ( eng->major < req->major ) return 4;
+    if ( eng->major > req->major ) return 0;
+    if ( eng->minor < req->minor ) return 5;
+    return 0;
 }
 
 /* Variables to check type of InitializeEngine and LibVersion */
@@ -185,7 +180,7 @@ static int CheckRule(void *p, void *r)
         return ruleMatch(p, rule);
 }
 
-static int HasOption (void *r, enum DynamicOptionType optionType, int flowFlag)
+static int HasOption (void *r, DynamicOptionType optionType, int flowFlag)
 {
     Rule *rule = (Rule *)r;
     RuleOption *option;
@@ -492,170 +487,129 @@ int RegisterOneRule(Rule *rule, int registerRule)
     RuleOption *option;
     unsigned long longestContent = 0;
     int longestContentIndex = -1;
+
+
     for (i=0;rule->options[i] != NULL; i++)
     {
         option = rule->options[i];
         switch (option->optionType)
         {
-        case OPTION_TYPE_CONTENT:
-            {
-                ContentInfo *content = option->option_u.content;
-                DecodeContentPattern(rule, content);
-                BoyerContentSetup(rule, content);
-                content->incrementLength =
-                    getNonRepeatingLength((char *)content->patternByteForm, content->patternByteFormLength);
-
-                if (!(content->flags & NOT_FLAG))
+            case OPTION_TYPE_CONTENT:
                 {
-                    if (content->flags & CONTENT_FAST_PATTERN)
+                    ContentInfo *content = option->option_u.content;
+
+                    if (!content->patternByteForm)
+                        DecodeContentPattern(rule, content);
+                    if (!content->boyer_ptr)
+                        BoyerContentSetup(rule, content);
+
+                    content->incrementLength =
+                        getNonRepeatingLength((char *)content->patternByteForm, content->patternByteFormLength);
+
+                    if (!(content->flags & NOT_FLAG))
                     {
-                        if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD))
-                            fpContentFlags |= FASTPATTERN_URI;
-                        else
-                            fpContentFlags |= FASTPATTERN_NORMAL;
+                        if (content->flags & CONTENT_FAST_PATTERN)
+                        {
+                            if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST |
+                                                  CONTENT_BUF_HEADER | CONTENT_BUF_METHOD))
+                            {
+                                fpContentFlags |= FASTPATTERN_URI;
+                            }
+                            else
+                            {
+                                fpContentFlags |= FASTPATTERN_NORMAL;
+                            }
+                        }
+
+                        if (content->patternByteFormLength > longestContent)
+                        {
+                            longestContent = content->patternByteFormLength;
+                            longestContentIndex = i;
+                        }
                     }
+                }
+                break;
+            case OPTION_TYPE_PCRE:
+                {
+                    PCREInfo *pcre = option->option_u.pcre;
 
-                    if (content->patternByteFormLength > longestContent)
+                    if (pcre->compiled_expr == NULL)
                     {
-                        longestContent = content->patternByteFormLength;
-                        longestContentIndex = i;
+                        if (PCRESetup(rule, pcre))
+                        {
+                            rule->initialized = 0;
+                            return -1;
+                        }
                     }
                 }
-            }
-            break;
-        case OPTION_TYPE_PCRE:
-            {
-                PCREInfo *pcre = option->option_u.pcre;
-                if (PCRESetup(rule, pcre))
+                break;
+            case OPTION_TYPE_FLOWBIT:
                 {
-                    break;
+                    FlowBitsInfo *flowbits = option->option_u.flowBit;
+                    flowbits->id = _ded.flowbitRegister(flowbits->flowBitsName, flowbits->operation);
+                    if (flowbits->operation & FLOWBIT_NOALERT)
+                        rule->noAlert = 1;
                 }
-            }
-            break;
-        case OPTION_TYPE_FLOWBIT:
-            {
-                FlowBitsInfo *flowbits = option->option_u.flowBit;
-                flowbits->id = _ded.flowbitRegister(flowbits->flowBitsName, flowbits->operation);
-                if (flowbits->operation & FLOWBIT_NOALERT)
-                    rule->noAlert = 1;
-            }
-            break;
-        case OPTION_TYPE_ASN1:
-            /*  Call asn1_init_mem(512); if linking statically to asn source */
-            break;
-        case OPTION_TYPE_HDR_CHECK:
-            {
-                HdrOptCheck *optData = option->option_u.hdrData;
-                result = ValidateHeaderCheck(rule, optData);
-                if (result)
+                break;
+            case OPTION_TYPE_ASN1:
+                /*  Call asn1_init_mem(512); if linking statically to asn source */
+                break;
+            case OPTION_TYPE_HDR_CHECK:
                 {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return result;
-                }
-            }
-            break;
-        case OPTION_TYPE_BYTE_EXTRACT:
-            {
-                ByteExtract *extractData = option->option_u.byteExtract;
-                result = ByteExtractInitialize(rule, extractData);
-                if (result)
-                {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return result;
-                }
-            }
-            break;
-        case OPTION_TYPE_LOOP:
-            {
-                LoopInfo *loopInfo = option->option_u.loop;
-                result = LoopInfoInitialize(rule, loopInfo);
-                if (result)
-                {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return result;
-                }
-                loopInfo->initialized = 1;
-            }
-            break;
-        case OPTION_TYPE_PREPROCESSOR:
-            {
-                PreprocessorOption *preprocOpt = option->option_u.preprocOpt;
-                PreprocOptionInit optionInit;
-                char *option_name = NULL;
-                char *option_params = NULL;
-                char *tmp;
-
-                if (preprocOpt->optionName == NULL)
-                {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return -1;
-                }
-
-                result = _ded.getPreprocOptFuncs((char *)preprocOpt->optionName,
-                                                 &preprocOpt->optionInit,
-                                                 &preprocOpt->optionEval);
-                if (!result)
-                {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return -1;
-                }
-
-                optionInit = (PreprocOptionInit)preprocOpt->optionInit;
-
-                option_name = strdup(preprocOpt->optionName);
-                if (option_name == NULL)
-                {
-                    DynamicEngineFatalMessage("Failed to allocate memory "
-                        "for so detection rule preprocessor rule option "
-                        "option name\n");
-                }
-
-                /* XXX Hack right now for override options where the rule
-                 * option is stored as <option> <override>, e.g.
-                 * "byte_test dce"
-                 * Since name is passed in to init function, the function
-                 * is expecting the first word in the option name and not
-                 * the whole string */
-                tmp = option_name;
-                while ((*tmp != '\0') && !isspace((int)*tmp)) tmp++;
-                *tmp = '\0';
-
-                if (preprocOpt->optionParameters != NULL)
-                {
-                    option_params = strdup(preprocOpt->optionParameters);
-                    if (option_params == NULL)
+                    HdrOptCheck *optData = option->option_u.hdrData;
+                    result = ValidateHeaderCheck(rule, optData);
+                    if (result)
                     {
-                        DynamicEngineFatalMessage("Failed to allocate memory "
-                            "for so detection rule preprocessor rule option "
-                            "parameters\n");
+                        /* Don't initialize this rule */
+                        rule->initialized = 0;
+                        return result;
+                    }
+                }
+                break;
+            case OPTION_TYPE_BYTE_EXTRACT:
+                {
+                    ByteExtract *extractData = option->option_u.byteExtract;
+                    result = ByteExtractInitialize(rule, extractData);
+                    if (result)
+                    {
+                        /* Don't initialize this rule */
+                        rule->initialized = 0;
+                        return result;
+                    }
+                }
+                break;
+            case OPTION_TYPE_LOOP:
+                {
+                    LoopInfo *loopInfo = option->option_u.loop;
+                    result = LoopInfoInitialize(rule, loopInfo);
+                    if (result)
+                    {
+                        /* Don't initialize this rule */
+                        rule->initialized = 0;
+                        return result;
+                    }
+                    loopInfo->initialized = 1;
+                }
+                break;
+            case OPTION_TYPE_PREPROCESSOR:
+                {
+                    PreprocessorOption *preprocOpt = option->option_u.preprocOpt;
+
+                    if (_ded.preprocRuleOptInit((void *)preprocOpt) == -1)
+                    {
+                        /* Don't initialize this rule */
+                        rule->initialized = 0;
+                        return -1;
                     }
                 }
 
-                result = optionInit(option_name, option_params, &preprocOpt->dataPtr);
+                break;
 
-                if (option_name != NULL) free(option_name);
-                if (option_params != NULL) free(option_params);
-
-                if (!result)
-                {
-                    /* Don't initialize this rule */
-                    rule->initialized = 0;
-                    return -1;
-                }
-            }
-
-            break;
-
-        case OPTION_TYPE_BYTE_TEST:
-        case OPTION_TYPE_BYTE_JUMP:
-        default:
-            /* nada */
-            break;
+            case OPTION_TYPE_BYTE_TEST:
+            case OPTION_TYPE_BYTE_JUMP:
+            default:
+                /* nada */
+                break;
         }
     }
 
@@ -679,24 +633,119 @@ int RegisterOneRule(Rule *rule, int registerRule)
         }
     }
 
-    if (registerRule)
-    {
-        /* Allocate an OTN and link it in with snort */
-        _ded.ruleRegister(rule->info.sigID,
-                                   rule->info.genID,
-                                   (void *)rule,
-                                   &CheckRule,
-                                   &HasOption,
-                                   fpContentFlags,
-                                   &GetFPContent);
-    }
-
-    rule->initialized = 1;
-
     /* Index less one since we've iterated through them already */
     rule->numOptions = i;
 
+    /* Might not be a stub for it, but it has been initialized.  If there is
+     * not a stub for it, it will never make it's way into the rule chain and
+     * will thus not be evaluated.  Important to call it initialized in case
+     * the rule was initially disabled, meaning the stub was not present and
+     * the otn lookup failed, then enabled on a reload.  The "initialized" is
+     * only relevant to if the rule was correctly parsed, not if we were able
+     * to find the relevant stub rule for it.  Being initialized and registered
+     * are effectively separate processes. */
+    rule->initialized = 1;
+
+    if (registerRule)
+    {
+        /* Allocate an OTN and link it in with snort */
+        if (_ded.ruleRegister(rule->info.sigID,
+                          rule->info.genID,
+                          (void *)rule,
+                          &CheckRule,
+                          &HasOption,
+                          fpContentFlags,
+                          &GetFPContent,
+                          &FreeOneRule) == -1)
+        {
+            return -1;
+        }
+    }
+
     return 0;
+}
+
+static void FreeOneRule(void *data)
+{
+    int i;
+    Rule *rule = (Rule *)data;
+
+    if (rule == NULL)
+        return;
+
+    /* More than one rule may use the same rule option so make sure anything
+     * free'd is set to NULL to avoid potential double free */
+    for (i = 0; rule->options[i] != NULL; i++)
+    {
+        RuleOption *option = rule->options[i];
+
+        switch (option->optionType)
+        {
+            case OPTION_TYPE_CONTENT:
+                {
+                    ContentInfo *content = option->option_u.content;
+
+                    if (content->patternByteForm != NULL)
+                    {
+                        free(content->patternByteForm);
+                        content->patternByteForm = NULL;
+                    }
+
+                    if (content->boyer_ptr != NULL)
+                    {
+                        hbm_free((HBM_STRUCT *)content->boyer_ptr);
+                        content->boyer_ptr = NULL;
+                    }
+                }
+
+                break;
+
+            case OPTION_TYPE_PCRE:
+                {
+                    PCREInfo *pcre = option->option_u.pcre;
+
+                    if (pcre->compiled_expr != NULL)
+                    {
+                        free(pcre->compiled_expr);
+                        pcre->compiled_expr = NULL;
+                    }
+
+                    if (pcre->compiled_extra != NULL)
+                    {
+                        free(pcre->compiled_extra);
+                        pcre->compiled_extra = NULL;
+                    }
+                }
+
+                break;
+
+            case OPTION_TYPE_BYTE_EXTRACT:
+                if (rule->ruleData != NULL)
+                {
+                    sfghash_delete(rule->ruleData);
+                    rule->ruleData = NULL;
+                }
+
+                break;
+
+            case OPTION_TYPE_LOOP:
+                {
+                    LoopInfo *loopInfo = option->option_u.loop;
+                    FreeOneRule((void *)loopInfo->subRule);
+                }
+
+                break;
+
+            case OPTION_TYPE_HDR_CHECK:
+            case OPTION_TYPE_ASN1:
+            case OPTION_TYPE_FLOWBIT:
+            case OPTION_TYPE_PREPROCESSOR:
+            case OPTION_TYPE_BYTE_TEST:
+            case OPTION_TYPE_BYTE_JUMP:
+            default:
+                break;
+        }
+    }
 }
 
 #define TCP_STRING "tcp"
@@ -739,6 +788,45 @@ static int DumpRule(FILE *fp, Rule *rule)
     if (rule->info.priority != 0)
         fprintf(fp, "priority:%d; ", rule->info.priority);
 
+    for (i = 0; rule->options[i] != NULL; i++)
+    {
+        if( rule->options[i]->optionType == OPTION_TYPE_FLOWBIT )
+        {
+            FlowBitsInfo *flowbit = rule->options[i]->option_u.flowBit;
+            int print_name = 1;
+
+            fprintf(fp, "flowbits:");
+            switch (flowbit->operation)
+            {
+                case FLOWBIT_SET:
+                    fprintf(fp, "set,");
+                    break;
+                case FLOWBIT_UNSET:
+                    fprintf(fp, "unset,");
+                    break;
+                case FLOWBIT_ISSET:
+                    fprintf(fp, "isset,");
+                    break;
+                case FLOWBIT_ISNOTSET:
+                    fprintf(fp, "isnotset,");
+                    break;
+                case FLOWBIT_RESET:
+                    fprintf(fp, "reset; ");
+                    print_name = 0;
+                    break;
+                case FLOWBIT_NOALERT:
+                    fprintf(fp, "noalert; ");
+                    print_name = 0;
+                    break;
+                default:
+                    /* XXX: Can't call FatalError here! */
+                    break;
+            }
+            if (print_name)
+                fprintf(fp, "%s; ", flowbit->flowBitsName);
+        }
+    }
+
     if (rule->info.references)
     {
         for (i=0,ref = rule->info.references[i];
@@ -774,9 +862,7 @@ ENGINE_LINKAGE int RegisterRules(Rule **rules)
     for (i=0; rules[i] != NULL; i++)
     {
         if (rules[i]->initialized == 0)
-        {
             RegisterOneRule(rules[i], REGISTER_RULE);
-        }
     }
 
     return 0;
@@ -814,6 +900,7 @@ ENGINE_LINKAGE int DumpRules(char *rulesFileName, Rule **rules)
     }
     else
     {
+        _ded.errMsg("Unable to open the directory %s for writing \n", _ded.dataDumpDirectory);
         return -1;
     }
 

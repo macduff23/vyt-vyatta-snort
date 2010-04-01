@@ -31,7 +31,7 @@
 
 #include "sf_snort_packet.h"
 
-int ParseXLink2State(SFSnortPacket *, const u_int8_t *);
+int ParseXLink2State(SFSnortPacket *, const uint8_t *);
 
 #endif  /* __SMTP_XLINK2STATE_H__ */
 

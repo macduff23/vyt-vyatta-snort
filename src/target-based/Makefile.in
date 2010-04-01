@@ -485,10 +485,8 @@ sf_attribute_table.h: sf_attribute_table.y
 .l.c:
 	$(LEX) -i -o$@ $?
 
-sf_attribute_table_parser.l: sf_attribute_table.h
-
-sf_attribute_table_parser.c: sf_attribute_table_parser.l
-	$(LEX) -i -Psfat -o$@ $?
+sf_attribute_table_parser.c: sf_attribute_table_parser.l sf_attribute_table.h
+	$(LEX) -i -Psfat -o$@ $<
 
 clean-local:
 	rm -f \

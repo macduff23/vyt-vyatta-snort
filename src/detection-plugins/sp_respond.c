@@ -34,8 +34,7 @@
 #include "config.h"
 #endif
 
-
-#if defined(ENABLE_RESPONSE) && !defined(ENABLE_RESPONSE2)
+#ifdef ENABLE_RESPONSE
 #include <libnet.h>
 
 #include "decode.h"
@@ -43,10 +42,12 @@
 #include "plugbase.h"
 #include "parser.h"
 #include "debug.h"
-#include "util.h"
 #include "log.h"
 #include "plugin_enum.h"
 #include "snort.h"
+#include "util.h"
+#include "sp_respond.h"
+#include "sp_react.h"
 
 #include "snort.h"
 #include "profiler.h"
@@ -63,16 +64,9 @@ typedef struct _RespondData
     u_int response_flag;
 } RespondData;
 
-void RespondInit(char *, OptTreeNode *, int ); 
-void RespondRestartFunction(int, void *);
-int ParseResponse(char *);
-int SendICMP_UNREACH(int, snort_ip_p, snort_ip_p, Packet *);
-int SendTCPRST(snort_ip_p, snort_ip_p, u_short, u_short, u_long, u_long, u_short);
-int Respond(Packet *, RspFpList *);
-
-u_int32_t RespondHash(void *d)
+uint32_t RespondHash(void *d)
 {
-    u_int32_t a,b,c;
+    uint32_t a,b,c;
     RespondData *data = (RespondData *)d;
 
     a = data->response_flag;
@@ -100,14 +94,22 @@ int RespondCompare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
-int nd; /* raw socket descriptor */
-u_int8_t ttl;   /* placeholder for randomly generated TTL */
+static uint8_t ttl = 0;  /* placeholder for randomly generated TTL */
 
-u_int8_t *tcp_pkt;
-u_int8_t *icmp_pkt;
+static uint8_t *tcp_pkt = NULL;
+static uint8_t *icmp_pkt = NULL;
 
-void PrecacheTcp(void);
-void PrecacheIcmp(void);
+static void PrecacheTcp(void);
+static void PrecacheIcmp(void);
+
+static void RespondInit(char *, OptTreeNode *, int ); 
+static void RespondCleanupFunction(int, void *);
+
+static int ParseResponse(char *);
+
+static int SendICMP_UNREACH(int, snort_ip_p, snort_ip_p, Packet *);
+static int SendTCPRST(snort_ip_p, snort_ip_p, u_short, u_short, u_long, u_long, u_short, int);
+static int Respond(Packet *, RspFpList *);
 
 /**************************************************************************
  *
@@ -122,27 +124,28 @@ void PrecacheIcmp(void);
 
 void SetupRespond(void)
 {
-    RegisterPlugin("resp", RespondInit, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("resp", &respondPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN,"Plugin: Respond Setup\n"););
-    nd = -1;
 }
 
-void RespondRestartFunction(int signal, void *foo)
+void RespondCleanupFunction(int signal, void *foo)
 {
-    if (nd != -1)
-    {
-        libnet_close_raw_sock(nd);
-        nd = -1;
-    }
-    if (tcp_pkt != NULL)
-        libnet_destroy_packet((u_char **)&tcp_pkt);
-    if (icmp_pkt != NULL)
-        libnet_destroy_packet((u_char **)&icmp_pkt);
+    RawSocket_Close();
 
-    return;
+    if (tcp_pkt != NULL)
+    {
+        libnet_destroy_packet((u_char **)&tcp_pkt);
+        tcp_pkt = NULL;
+    }
+
+    if (icmp_pkt != NULL)
+    {
+        libnet_destroy_packet((u_char **)&icmp_pkt);
+        icmp_pkt = NULL;
+    }
 }
 
 void RespondInit(char *data, OptTreeNode *otn, int protocol) 
@@ -156,20 +159,23 @@ void RespondInit(char *data, OptTreeNode *otn, int protocol)
         FatalError("%s(%d): Can't respond to IP protocol rules\n", 
                    file_name, file_line);
     }
-    if(nd == -1) /* need to open it only once */
+
+    /* If it hasn't been opened yet, there are no rules currently using this
+     * rule option, so on a reload, setting this during parsing won't step
+     * on runtime evaluation */
+    RawSocket_Open();
+
+    // depending on reloads and ordering of inits/cleans, 
+    // opening module may not be same as closing module.
+    AddFuncToCleanExitList(RespondCleanupFunction, NULL);
+
+    /* Same as above as far as reload goes */
+    if (ttl == 0)
     {
-        if((nd = libnet_open_raw_sock(IPPROTO_RAW)) < 0)
-        {
-            FatalError("cannot open raw socket for libnet, exiting...\n");
-        }
+        ttl = (uint8_t)libnet_get_prand(PR8);
+        if (ttl < 64)
+            ttl += 64;
     }
-
-    ttl = (u_int8_t)libnet_get_prand(PR8);
-
-    if(ttl < 64)
-    {
-        ttl += 64;
-    } 
 
     rd = (RespondData *)SnortAlloc(sizeof(RespondData));
     
@@ -182,9 +188,11 @@ void RespondInit(char *data, OptTreeNode *otn, int protocol)
      }
 
     AddRspFuncToList(Respond, otn, (void *)rd );
-    AddFuncToRestartList(RespondRestartFunction, NULL);
+}
 
-    return;
+void RespondFree (void* d)
+{
+    free(d);
 }
 
 /****************************************************************************
@@ -278,8 +286,15 @@ int ParseResponse(char *type)
 void PrecacheTcp(void)
 {
     int sz = IP_H + TCP_H + 1;  /* extra octet required to avoid crash - why? */
+    TCPHdr *tcphdr;
 
-    if((tcp_pkt = calloc(sz, sizeof(u_int8_t))) == NULL)
+    if (tcp_pkt != NULL)
+        return;
+
+    /* If it hasn't been alloced yet, there are no rules currently using this
+     * rule option, so on a reload, setting this during parsing won't step
+     * on runtime evaluation */
+    if((tcp_pkt = calloc(sz, sizeof(uint8_t))) == NULL)
     {
         FatalError("PrecacheTCP() calloc failed!\n");
     }
@@ -296,26 +311,41 @@ void PrecacheTcp(void)
                    , 0                                 /* Packet payload size */
                    , tcp_pkt                           /* Pointer to packet header memory */
                    );
+    /* this call fails in libent1.0.x*/
+    //libnet_build_tcp( 0              /* Source port */
+                    //, 0              /* Destination port */
+                    //, 0              /* Sequence Number */
+                    //, 0              /* Acknowledgement Number */
+                    //, TH_RST|TH_ACK  /* Control bits */
+                    //, 0              /* Advertised Window Size */
+                    //, 0              /* Urgent Pointer */
+                    //, NULL           /* Pointer to packet data (or NULL) */
+                    //, 0              /* Packet payload size */
+                    //, tcp_pkt + IP_H /* Pointer to packet header memory */
+                    //);
+    tcphdr = (TCPHdr*)(tcp_pkt + IP_H);
+    tcphdr->th_sport = 0;
+    tcphdr->th_dport = 0;
+    tcphdr->th_seq = 0;
+    tcphdr->th_ack = 0;
+    tcphdr->th_offx2 = 0x50;
+    tcphdr->th_flags = TH_RST|TH_ACK;
+    tcphdr->th_win = 0;
+    tcphdr->th_sum = 0;
+    tcphdr->th_urp = 0;
 
-    libnet_build_tcp( 0              /* Source port */
-                    , 0              /* Destination port */
-                    , 0              /* Sequence Number */
-                    , 0              /* Acknowledgement Number */
-                    , TH_RST|TH_ACK  /* Control bits */
-                    , 0              /* Advertised Window Size */
-                    , 0              /* Urgent Pointer */
-                    , NULL           /* Pointer to packet data (or NULL) */
-                    , 0              /* Packet payload size */
-                    , tcp_pkt + IP_H /* Pointer to packet header memory */
-                    );
-
-    return;
 }
 
 void PrecacheIcmp(void)
 {
     int sz = IP_H + ICMP_UNREACH_H + 68;    /* plan for IP options */
 
+    if (icmp_pkt != NULL)
+        return;
+
+    /* If it hasn't been alloced yet, there are no rules currently using this
+     * rule option, so on a reload, setting this during parsing won't step
+     * on runtime evaluation */
     if((icmp_pkt = calloc(sz, sizeof(char))) == NULL)
     {
         FatalError("PrecacheIcmp() calloc failed!\n");
@@ -402,7 +432,7 @@ int Respond(Packet *p, RspFpList *fp_list)
                                    p->tcph->th_dport, p->tcph->th_sport,
                                    p->tcph->th_ack, 
                                    htonl(ntohl(p->tcph->th_seq) + p->dsize),
-                                   p->tcph->th_win);
+                                   p->tcph->th_win,IS_IP4(p));
                     }
 
                     if(rd->response_flag & RESP_RST_RCV)
@@ -412,7 +442,7 @@ int Respond(Packet *p, RspFpList *fp_list)
                                    p->tcph->th_sport, p->tcph->th_dport, 
                                    p->tcph->th_seq, 
                                    htonl(ntohl(p->tcph->th_ack) + p->dsize),
-                                   p->tcph->th_win);
+                                   p->tcph->th_win,IS_IP4(p));
                     }
                 }
             }
@@ -459,7 +489,7 @@ int SendICMP_UNREACH(int code, snort_ip_p saddr, snort_ip_p daddr, Packet * p)
     /* don't send ICMP port unreachable errors in response to ICMP messages */
     if (GET_IPH_PROTO(p) == 1 && code == ICMP_UNREACH_PORT)
     {
-        if (pv.verbose_flag)
+        if (ScLogVerbose())
         {
             ErrorMessage("ignoring icmp_port set on ICMP packet.\n");
         }
@@ -471,7 +501,12 @@ int SendICMP_UNREACH(int code, snort_ip_p saddr, snort_ip_p daddr, Packet * p)
     icmph = (ICMPHdr *) (icmp_pkt + IP_H);
 
 #ifdef SUP_IP6
-// XXX-IPv6 Not yet implemented - sp_respond.c
+    if (IS_IP4(p))
+    {
+        memcpy(&iph->ip_src.s_addr, &saddr->ip32[0], 4);
+        memcpy(&iph->ip_dst.s_addr, &daddr->ip32[0], 4);
+    }
+
 #else
     iph->ip_src.s_addr = saddr;
     iph->ip_dst.s_addr = daddr;
@@ -505,7 +540,7 @@ int SendICMP_UNREACH(int code, snort_ip_p saddr, snort_ip_p daddr, Packet * p)
 
 
 int SendTCPRST(snort_ip_p saddr, snort_ip_p daddr, u_short sport, u_short dport, 
-        u_long seq, u_long ack, u_short win)
+        u_long seq, u_long ack, u_short win, int ip4family)
 {
     int sz = IP_H + TCP_H;
     IPHdr *iph;
@@ -515,6 +550,12 @@ int SendTCPRST(snort_ip_p saddr, snort_ip_p daddr, u_short sport, u_short dport,
     tcph = (TCPHdr *) (tcp_pkt + IP_H);
 
 #ifdef SUP_IP6
+    if (ip4family)
+    {
+        memcpy(&iph->ip_src.s_addr, &saddr->ip32[0], 4);
+        memcpy(&iph->ip_dst.s_addr, &daddr->ip32[0], 4);
+    }
+
 #else
     iph->ip_src.s_addr = saddr;
     iph->ip_dst.s_addr = daddr;
@@ -544,5 +585,5 @@ int SendTCPRST(snort_ip_p saddr, snort_ip_p daddr, u_short sport, u_short dport,
 
     return 0;
 }
+#endif /* ENABLE_RESPONSE */
 
-#endif /* ENABLE_RESPONSE && !ENABLE_RESPONSE2 */

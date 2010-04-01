@@ -48,16 +48,18 @@
 #include "event_wrapper.h"
 #include "fpdetect.h"
 #include "debug.h"
+#include "sfPolicy.h"
 
 OptTreeNode * GenerateSnortEventOtn(
-                            u_int32_t gen_id,
-                            u_int32_t sig_id,
-                            u_int32_t sig_rev,
-                            u_int32_t classification,
-                            u_int32_t priority,
+                            uint32_t gen_id,
+                            uint32_t sig_id,
+                            uint32_t sig_rev,
+                            uint32_t classification,
+                            uint32_t priority,
                             char *msg )
 {
    OptTreeNode * p;
+   RuleTreeNode *rtn = NULL;
 
    p = calloc( 1, sizeof(OptTreeNode) );
    if(!p )
@@ -81,15 +83,23 @@ OptTreeNode * GenerateSnortEventOtn(
    p->event_data.classification = classification;
    p->event_data.priority = priority;
 
-   p->rtn = calloc( 1, sizeof(RuleTreeNode) );
-   if( !p->rtn )
+   rtn = calloc( 1, sizeof(RuleTreeNode) );
+   if( !rtn )
    {
        free(p);
        return NULL;
    }
 
-   p->rtn->type = RULE_ALERT;
-  
+   rtn->type = RULE_TYPE__ALERT;
+
+   if (addRtnToOtn(p, getRuntimePolicy(), rtn) != 0)
+   {
+       //unsuccessful adding rtn
+       free(p);
+       free(rtn);
+       return NULL;
+   }
+
    DEBUG_WRAP(
            LogMessage("Generating OTN for GID: %u, SID: %u\n",gen_id,sig_id););
    
@@ -103,16 +113,16 @@ OptTreeNode * GenerateSnortEventOtn(
  * SnortEventqAdd() and SnortEventLog() functions - whichalready  route the events to 
  * the fpLogEvent()function.
  */
-u_int32_t GenerateSnortEvent(Packet *p,
-                            u_int32_t gen_id,
-                            u_int32_t sig_id,
-                            u_int32_t sig_rev,
-                            u_int32_t classification,
-                            u_int32_t priority,
-                            char *msg)
+uint32_t GenerateSnortEvent(Packet *p,
+                             uint32_t gen_id,
+                             uint32_t sig_id,
+                             uint32_t sig_rev,
+                             uint32_t classification,
+                             uint32_t priority,
+                             char *msg)
 {
     struct _OptTreeNode * potn;    
-    
+
     if(!msg)
     {
         return 0;
@@ -128,25 +138,24 @@ u_int32_t GenerateSnortEvent(Packet *p,
      */
     
      /* every event should have a rule/otn  */
-     potn = otn_lookup( gen_id, sig_id );
+     potn = OtnLookup(snort_conf->otn_map, gen_id, sig_id);
      /* 
      * if no rule otn exists for this event, than it was 
      * not enabled via rules 
      */
-     if( !potn ) 
+     if (potn == NULL)
      {
 #ifdef PREPROCESSOR_AND_DECODER_RULE_EVENTS
-        if (pv.generate_preprocessor_decoder_otn)
+        if (ScAutoGenPreprocDecoderOtns())
         {
             /* If configured to generate preprocessor and decoder OTNs,
              * do so... */
-            potn = GenerateSnortEventOtn(
-                            gen_id,
-                            sig_id,
-                            sig_rev,
-                            classification,
-                            priority,
-                            msg);
+            potn = GenerateSnortEventOtn(gen_id,
+                                         sig_id,
+                                         sig_rev,
+                                         classification,
+                                         priority,
+                                         msg);
         }
 #else
         /* 
@@ -156,27 +165,24 @@ u_int32_t GenerateSnortEvent(Packet *p,
          * event fires we generate the otn, and next time it's found
          * above in otn_lookup.
          */
-        potn = GenerateSnortEventOtn(
-                        gen_id,
-                        sig_id,
-                        sig_rev,
-                        classification,
-                        priority,
-                        msg);
+        potn = GenerateSnortEventOtn(gen_id,
+                                     sig_id,
+                                     sig_rev,
+                                     classification,
+                                     priority,
+                                     msg);
 #endif
-        if( potn )  
-        {
-            otn_lookup_add(potn);
-        }
+        if (potn != NULL)  
+            OtnLookupAdd(snort_conf->otn_map, potn);
      }
 
-     if (!potn)
+     if (potn == NULL)
      {
          /* no otn found - do not add it to the queue */
          return 0;
      }
 
-     fpLogEvent( potn->rtn, potn,  p );
+     fpLogEvent( getRuntimeRtnFromOtn(potn), potn,  p );
 
      return potn->event_data.event_id;
 }
@@ -197,12 +203,12 @@ u_int32_t GenerateSnortEvent(Packet *p,
  * @return 1 on success, 0 on FAILURE ( note this is to stay the same as GenerateSnortEvent() )
  */
 int LogTagData(Packet *p,
-               u_int32_t gen_id,
-               u_int32_t sig_id,
-               u_int32_t sig_rev,
-               u_int32_t classification,
-               u_int32_t priority,
-               u_int32_t event_ref,
+               uint32_t gen_id,
+               uint32_t sig_id,
+               uint32_t sig_rev,
+               uint32_t classification,
+               uint32_t priority,
+               uint32_t event_ref,
                time_t ref_sec,
                char *msg)
    
@@ -214,7 +220,7 @@ int LogTagData(Packet *p,
 
     SetEvent(&event, gen_id, sig_id, sig_rev, classification, priority, event_ref);
 
-    event.ref_time.tv_sec = (u_int32_t)ref_sec;
+    event.ref_time.tv_sec = (uint32_t)ref_sec;
     
     if(p)
         CallLogFuncs(p, msg, NULL, &event);

@@ -49,7 +49,6 @@
 #include "util.h"
 #include "log.h"
 #include "mstring.h"
-
 #include "snort.h"
 
 #include <stdio.h>
@@ -70,6 +69,7 @@
 
 #include "sfutil/sf_textlog.h"
 #include "log_text.h"
+#include "sf_textlog.h"
 
 /* full buf was chosen to allow printing max size packets
  * in hex/ascii mode:
@@ -85,10 +85,13 @@
  */
 #define DEFAULT_LIMIT (128*M_BYTES)
 
+extern char *pcap_interface;
+extern SnortConfig *snort_conf_for_parsing;
+
 typedef struct _SpoAlertFastData
 {
     TextLog* log;
-    u_int8_t packet_flag;
+    uint8_t packet_flag;
 } SpoAlertFastData;
 
 static void AlertFastInit(char *);
@@ -113,7 +116,7 @@ void AlertFastSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
-    RegisterOutputPlugin("alert_fast", NT_OUTPUT_ALERT, AlertFastInit);
+    RegisterOutputPlugin("alert_fast", OUTPUT_TYPE_FLAG__ALERT, AlertFastInit);
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output plugin: AlertFast is setup...\n"););
 }
 
@@ -135,15 +138,13 @@ static void AlertFastInit(char *args)
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertFast Initialized\n"););
 
-    pv.alert_plugin_active = 1;
-
     /* parse the argument list from the rules file */
     data = ParseAlertFastArgs(args);
 
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Linking AlertFast functions to call lists...\n"););
     
     /* Set the preprocessor function into the function list */
-    AddFuncToOutputList(AlertFast, NT_OUTPUT_ALERT, data);
+    AddFuncToOutputList(AlertFast, OUTPUT_TYPE__ALERT, data);
     AddFuncToCleanExitList(AlertFastCleanExitFunc, data);
     AddFuncToRestartList(AlertFastRestartFunc, data);
 }
@@ -178,9 +179,9 @@ static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
                     (unsigned long) event->sig_rev);
         }
 
-        if(pv.alert_interface_flag)
+        if (ScAlertInterface())
         {
-            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pv.interface));
+            TextLog_Print(data->log, " <%s> ", PRINT_INTERFACE(pcap_interface));
             TextLog_Puts(data->log, msg);
         }
         else
@@ -231,7 +232,7 @@ static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
     {
         /* Log whether or not this is reassembled data - only indicate
          * if we're actually going to show any of the payload */
-        if (pv.data_flag && (p->dsize > 0))
+        if (ScOutputAppData() && (p->dsize > 0))
         {
             if (p->packet_flags &
                 (PKT_DCE_RPKT | PKT_REBUILT_STREAM | PKT_REBUILT_FRAG |
@@ -260,8 +261,10 @@ static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
 
         if(IPH_IS_VALID(p))
             LogIPPkt(data->log, GET_IPH_PROTO(p), p);
+#ifndef NO_NON_ETHER_DECODER
         else if(p->ah)
             LogArpHeader(data->log, p);
+#endif
     }
     TextLog_NewLine(data->log);
     TextLog_Flush(data->log);
@@ -297,7 +300,7 @@ static SpoAlertFastData *ParseAlertFastArgs(char *args)
         FatalError("alert_fast: unable to allocate memory!\n");
     }
     if ( !args ) args = "";
-    toks = mSplit((char *)args, " ", 4, &num_toks, '\\');
+    toks = mSplit((char *)args, " \t", 0, &num_toks, '\\');
 
     for (i = 0; i < num_toks; i++)
     {
@@ -311,7 +314,7 @@ static SpoAlertFastData *ParseAlertFastArgs(char *args)
                     filename = SnortStrdup(tok);
 
                 else
-                    filename = ProcessFileOption(tok);
+                    filename = ProcessFileOption(snort_conf_for_parsing, tok);
                 break;
 
             case 1:
@@ -351,7 +354,7 @@ static SpoAlertFastData *ParseAlertFastArgs(char *args)
     mSplitFree(&toks, num_toks);
 
 #ifdef DEFAULT_FILE
-    if ( !filename ) filename = ProcessFileOption(DEFAULT_FILE);
+    if ( !filename ) filename = ProcessFileOption(snort_conf_for_parsing, DEFAULT_FILE);
 #endif
 
     DEBUG_WRAP(DebugMessage(

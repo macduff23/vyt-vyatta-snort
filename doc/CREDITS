@@ -2,9 +2,14 @@ $Id$
 
 Dilbagh Chahal
     * HTTP & FTP/Telnet Multiple IP/CIDR configuration support
+    * Detection filters, Event Filters, Rate Based Filters
+    * Multiple Policy support
 
 Ryan Jordan
     * Application preprocessor adaptive support
+    * SSH preprocessor updates
+    * Shared library rule processing performance improvements
+    * CVS repository maintenance
 
 Kevin Liu
     * MPLS Support
@@ -15,6 +20,8 @@ Kevin Liu
 Russ Combs
     * Major cleanup of pedantic warnings and compiler issues
     * FTP/Telnet preprocessor IPv6 support
+    * Overall Performance improvements
+    * Detection filters, Event Filters, Rate Based Filters
 
 Todd Wease
     * DCE/RPC preprocessor updates and improvements
@@ -24,6 +31,7 @@ Todd Wease
     * CVS repository maintenance
     * 64 bit compilation cleanup
     * Snort Manual preprocessor documentation
+    * Reconfiguration without interruption of detection
 
 Adam Keeton
     * IPv6 support
@@ -82,6 +90,10 @@ Jeremy Hewlett <jh@sourcefire.com>
 
 Sebastian    <scut@nb.in-berlin.de>
     * Added TOS decoding and logging
+
+Franck Debieve    <rmkml@free.fr>
+    * Numerous bug reports and feature testing
+    * Documentation
 
 Ron Gula    <rjg@network-defense.com>
     * Provided lots of signatures

@@ -23,7 +23,7 @@
 #define __SP_ICMP_CODE_CHECK_H__
 
 void SetupIcmpCodeCheck(void);
-u_int32_t IcmpCodeCheckHash(void *d);
+uint32_t IcmpCodeCheckHash(void *d);
 int IcmpCodeCheckCompare(void *l, void *r);
 
 #endif  /* __SP_ICMP_CODE_CHECK_H__ */

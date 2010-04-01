@@ -55,7 +55,8 @@ libsf_dcerpc_preproc_la_LIBADD =
 am_libsf_dcerpc_preproc_la_OBJECTS = dcerpc.lo dcerpc_util.lo \
 	dcerpc_config.lo smb_andx_decode.lo smb_file_decode.lo \
 	snort_dcerpc.lo spp_dcerpc.lo
-nodist_libsf_dcerpc_preproc_la_OBJECTS = sf_dynamic_preproc_lib.lo
+nodist_libsf_dcerpc_preproc_la_OBJECTS = sf_dynamic_preproc_lib.lo \
+	sfPolicyUserData.lo
 libsf_dcerpc_preproc_la_OBJECTS =  \
 	$(am_libsf_dcerpc_preproc_la_OBJECTS) \
 	$(nodist_libsf_dcerpc_preproc_la_OBJECTS)
@@ -202,12 +203,14 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 lib_LTLIBRARIES = libsf_dcerpc_preproc.la
-libsf_dcerpc_preproc_la_LDFLAGS = -export-dynamic
+libsf_dcerpc_preproc_la_LDFLAGS = -module
 BUILT_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c  \
+sfPolicyUserData.c 
 
 nodist_libsf_dcerpc_preproc_la_SOURCES = \
-sf_dynamic_preproc_lib.c 
+sf_dynamic_preproc_lib.c  \
+sfPolicyUserData.c 
 
 libsf_dcerpc_preproc_la_SOURCES = \
 dcerpc.c \
@@ -501,11 +504,14 @@ uninstall-am: uninstall-libLTLIBRARIES
 sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 	cp $? $@
 
+sfPolicyUserData.c: ../include/sfPolicyUserData.c
+	cp $? $@
+
 all-local:
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:
-	rm -f sf_dynamic_preproc_lib.c
+	rm -f sf_dynamic_preproc_lib.c sfPolicyUserData.c 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

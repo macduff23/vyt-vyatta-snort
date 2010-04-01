@@ -24,7 +24,7 @@
 #define __SP_IP_SAME_CHECK_H__
 
 void SetupIpSameCheck(void);
-u_int32_t IpSameCheckHash(void *d);
+uint32_t IpSameCheckHash(void *d);
 int IpSameCheckCompare(void *l, void *r);
 
 #endif  /* __SP_IP_SAME_CHECK_H__ */
