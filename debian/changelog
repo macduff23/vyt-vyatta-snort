@@ -1,3 +1,14 @@
+vyatta-snort (2.8.5.2-vyatta-2) unstable; urgency=low
+
+  * Merge in snort-2.8.5.2
+  * create consistent pidfile
+  * Add vyatta section to snort.conf
+  * comment out loopback rule
+  * Revert "comment out loopback rule"
+  * add init pidfile
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Fri, 02 Apr 2010 11:07:21 -0700
+
 vyatta-snort (2.8.4.1-vyatta-5) unstable; urgency=low
 
   * UNRELEASED
