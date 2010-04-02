@@ -5190,6 +5190,13 @@ static void SnortPostInit(void)
 
     fpCreateFastPacketDetection(snort_conf);
 
+    if (ScAdapterInlineMode())
+    {
+        /* in inline mode, create this file to signal the completion of
+         * initialization. */
+        CreatePidFile("inline_init");
+    }
+
 #ifdef PPM_MGR
     PPM_PRINT_CFG(&snort_conf->ppm_cfg);
 #endif
