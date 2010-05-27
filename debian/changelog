@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-1+kenwood2) unstable; urgency=low
+
+  * fix for bug 5626: disable conffiles
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Wed, 26 May 2010 17:07:24 -0700
+
 vyatta-snort (2.8.5.2-vyatta-1+kenwood1) unstable; urgency=low
 
   * Merge in snort-2.8.5.2
