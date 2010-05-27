@@ -177,6 +177,7 @@ binary-indep: build-indep install-indep
 	dh_fixperms -i
 	dh_makeshlibs -i
 	dh_installdeb -i
+	find $(TMP) -name conffiles | xargs --no-run-if-empty rm
 	dh_perl -i
 	dh_shlibdeps -i
 	if [ -f "../.VYATTA_DEV_BUILD" ]; then \
@@ -209,6 +210,7 @@ binary-arch: build-arch install-arch
 	dh_fixperms -a
 	dh_makeshlibs -a
 	dh_installdeb -a
+	find $(TMP) -name conffiles | xargs --no-run-if-empty rm
 	dh_perl -a
 	dh_shlibdeps -a
 	if [ -f "../.VYATTA_DEV_BUILD" ]; then \
