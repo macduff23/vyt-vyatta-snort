@@ -151,6 +151,7 @@ install-indep:
 	cp etc/community-sid-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
 	cp etc/classification.config $(TMP)/vyatta-snort-rules-default/etc/snort/
 	cp etc/reference.config $(TMP)/vyatta-snort-rules-default/etc/snort/
+	cp preproc_rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/preproc_rules
 
 # Remove useless directories
 	rm -rf $(TMP)/vyatta-snort-common/etc/ppp
