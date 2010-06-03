@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-7) unstable; urgency=low
+
+  * Modify preproc_rules with p[1234]actions.
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Wed, 02 Jun 2010 17:49:39 -0700
+
 vyatta-snort (2.8.5.2-vyatta-6) unstable; urgency=low
 
   * Create /etc/snort/preproc_rules directory.
