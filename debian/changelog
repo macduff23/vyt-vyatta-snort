@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-9) unstable; urgency=low
+
+  * build with shared libipq
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Tue, 06 Jul 2010 16:05:46 -0700
+
 vyatta-snort (2.8.5.2-vyatta-8) unstable; urgency=low
 
   * Enable preproc_rules in ips.conf.
