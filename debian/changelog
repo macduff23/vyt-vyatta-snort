@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-10+larkspur1) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Thu, 22 Jul 2010 17:19:50 -0700
+
 vyatta-snort (2.8.5.2-vyatta-10) unstable; urgency=low
 
   * Set datalink to DLT_RAW for snort inline mode since there's no L2
