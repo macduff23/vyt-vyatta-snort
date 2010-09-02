@@ -27,11 +27,6 @@ CONFFLAGS= --prefix=/usr \
 	--enable-inline \
         --enable-flexresp
 
-aclocal.m4:
-	aclocal-1.9 -I m4/
-	automake-1.9 -i
-	autoconf
-
 clean-sources:
 	# Clean the sources
 	[ ! -f Makefile ] ||  $(MAKE) distclean
@@ -47,16 +42,14 @@ clean: clean-sources
 # Clean binaries we create when building the packages
 	rm -f src/snort-basic
 	rm -f src/snort
-# Clean documents
-	cd doc && [ ! -f Makefile ] || $(MAKE) distclean
-	rm -f doc/snort_manual.pdf doc/snort_manual.ps doc/snort_manual.aux \
-	    doc/snort_manual.log doc/snort_manual.toc
-	rm -f doc/faq.idx doc/faq.out doc/faq.log doc/faq.toc doc/faq.aux \
-	    doc/faq.pdf doc/faq.ps
 	dh_clean
 
+Makefile.in: Makefile.am configure.in
+	export ACLOCAL='aclocal -I m4'; \
+		autoreconf --force --install --symlink
+
 configure: configure-stamp
-configure-stamp:
+configure-stamp: Makefile.in
 	dh_testdir
 # Standard package support
 	./configure $(CONFFLAGS) \

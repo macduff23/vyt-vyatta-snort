@@ -2,16 +2,14 @@ Source: vyatta-snort
 Section: net
 Priority: optional
 Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
-Build-Depends: libnet0-dev, 
- libpcap0.8-dev, 
- libpcre3-dev, 
- debhelper (>= 4.1.13), 
- po-debconf (>= 0.5.0), 
- libprelude-dev, 
- libclamav-dev,
- iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], 
+Build-Depends: libnet0-dev,
+ libpcap0.8-dev,
+ libpcre3-dev,
+ debhelper (>= 5),
+ po-debconf (>= 0.5.0),
+ libprelude-dev,
+ iptables-dev,
  libgnutls-dev
-Build-Depends-Indep: texlive, texlive-latex-base, gs-common
 Standards-Version:  3.8.0
 Homepage: http://www.snort.org/
 
