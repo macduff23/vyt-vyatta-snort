@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-12) unstable; urgency=low
+
+  * clean up build
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Wed, 01 Sep 2010 18:37:38 -0700
+
 vyatta-snort (2.8.5.2-vyatta-11) unstable; urgency=low
 
   * UNRELEASED
