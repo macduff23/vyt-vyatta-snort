@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-14) unstable; urgency=low
+
+  * Fix 6168: Remove Snort rules from distro
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Wed, 22 Sep 2010 18:51:46 -0700
+
 vyatta-snort (2.8.5.2-vyatta-13) unstable; urgency=low
 
   * UNRELEASED
