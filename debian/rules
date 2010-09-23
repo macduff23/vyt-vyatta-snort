@@ -137,8 +137,7 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
 
 #  Install files of the arch-independent packages
-	cp rules/*.rules $(TMP)/vyatta-snort-rules-default/etc/snort/rules/
-	
+	mkdir -p $(TMP)/vyatta-snort-rules-default/etc/snort/preproc_rules
 	cp etc/sid-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
 	cp etc/gen-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
 	cp etc/community-sid-msg.map $(TMP)/vyatta-snort-rules-default/etc/snort/
