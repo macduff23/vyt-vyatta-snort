@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-15) unstable; urgency=low
+
+  * Fully remove snort rules that can't be redistributed.
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 23 Sep 2010 12:53:29 -0700
+
 vyatta-snort (2.8.5.2-vyatta-14) unstable; urgency=low
 
   * Fix 6168: Remove Snort rules from distro
