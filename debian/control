@@ -18,7 +18,7 @@ Architecture: any
 Pre-Depends: adduser (>= 3.11)
 Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  debconf (>= 0.2.80) | debconf-2.0, 
- syslogd | system-log-daemon, 
+ rsyslog | system-log-daemon, 
  ${shlibs:Depends}, 
  vyatta-snort-common (>= ${source:Version}), 
  logrotate
@@ -43,7 +43,7 @@ Architecture: all
 Pre-Depends: adduser (>= 3.11)
 Depends: perl-modules, 
  debconf (>= 0.2.80) | debconf-2.0, 
- syslogd | system-log-daemon, 
+ rsyslog | system-log-daemon, 
  ${shlibs:Depends}, 
  lsb-base
 Conflicts: snort (<< ${binary:Version})
