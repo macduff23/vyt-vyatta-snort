@@ -5,7 +5,7 @@
 #ifdef GIDS
 
 #ifndef IPFW
-#include <libipq.h>
+#include <libnetfilter_queue/libnetfilter_queue.h>
 #include <linux/netfilter.h>
 #else
 #include <sys/types.h>
@@ -25,14 +25,17 @@ typedef struct _inline_vals
 } IV;
 
 #ifndef IPFW
-struct ipq_handle *ipqh;
+u_int16_t nfqueue_num;
+struct nfq_handle *nfq_h;
+struct nfq_q_handle *nfq_q_h;
 #endif
+
 IV iv;
 
 int InitInline(void);
 void InitInlinePostConfig(void);
 #ifndef IPFW
-void IpqLoop(void);
+void nfqLoop(void);
 #else
 void IpfwLoop(void);
 #endif /* IPFW */

@@ -9,7 +9,8 @@ Build-Depends: libnet0-dev,
  po-debconf (>= 0.5.0),
  libprelude-dev,
  iptables-dev,
- libgnutls-dev
+ libgnutls-dev,
+ libnetfilter-queue-dev,
 Standards-Version:  3.8.0
 Homepage: http://www.snort.org/
 

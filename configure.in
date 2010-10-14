@@ -671,32 +671,40 @@ if test "$enable_inline" != "no"; then
         if test "$enable_ipfw" = "yes"; then
             CPPFLAGS="$CPPFLAGS -DIPFW"
         else
-           AC_ARG_WITH(libipq_includes,
-                      [  --with-libipq-includes=DIR     libipq include directory],
-                      [with_libipq_includes="$withval"],[with_libipq_includes="no"])
-           AC_ARG_WITH(libipq_libraries,
-                      [  --with-libipq-libraries=DIR    libipq library directory],
-                      [with_libipq_libraries="$withval"],[with_libipq_libraries="no"])
-           if test "$with_libipq_includes" != "no"; then
-                CPPFLAGS="${CPPFLAGS} -I${with_libipq_includes}"
-           fi
+            CFLAGS="${CFLAGS} -DNFNETLINKQ -DGIDS"
+            LDFLAGS="${LDFLAGS} -lnetfilter_queue -lnfnetlink"
 
-           AC_CHECK_HEADER(libipq.h,,[AC_MSG_ERROR([libipq.h not found ...])])
-           if test "$with_libipq_libraries" != "no"; then
-                LDFLAGS="${LDFLAGS}  -L${with_libipq_libraries}"
-           fi
+            AC_CHECK_HEADER(libnetfilter_queue/libnetfilter_queue.h,,[AC_ERROR(libnetfilter_queue/libnetfilter_queue.h not found ...)])
 
-           LIPQ=""
-           AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
+            NFQ=""
+            AC_CHECK_LIB(netfilter_queue, nfqnl_open,, NFQ="no")
 
-           if test "$LIPQ" = "no"; then
-               echo
-               echo "   ERROR!  Libipq library/headers not found, go get it from"
-               echo "   www.netfilter.org or use the --with-libipq-* options, "
-               echo "   if you have it installed in unusual place"
-               echo
-               exit 1
-           fi
+            if test "NFQ" = "no"; then
+                echo
+                echo "   ERROR!  netfilter_queue library not found, go get it"
+                echo "   from www.netfilter.org."
+                echo
+                exit 1
+            fi
+                
+            # look for nfq_set_queue_maxlen
+            NFQ_MAXLEN=""
+            AC_CHECK_LIB(netfilter_queue, nfq_set_queue_maxlen,, NFQ_MAXLEN="no")
+
+            if test "$NFQ_MAXLEN" != "no"; then
+                 CFLAGS="$CFLAGS -DHAVE_NFQ_MAXLEN"
+            fi
+
+            NFNL=""
+            AC_CHECK_LIB(nfnetlink, nfnl_fd,, NFNL="no")
+
+            if test "NFNL" = "no"; then
+                echo
+                echo "   ERROR!  nfnetlink library not found, go get it"
+                echo "   from www.netfilter.org."
+                echo
+                exit 1
+            fi
         fi
 
         LIBNET_INC_DIR=""

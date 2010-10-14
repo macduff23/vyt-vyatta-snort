@@ -34,6 +34,7 @@
 
 #include "decode.h"
 #include "inline.h"
+#include "inline_extern.h"
 #include "rules.h"
 #include "stream_api.h"
 #include "spp_frag3.h"
@@ -54,13 +55,13 @@ Packet *tmpP;
 u_char *l_tcp, *l_icmp;
 
 #ifndef IPFW
-ipq_packet_msg_t *g_m = NULL;
+pkt_msg_t *g_m = NULL;
 #endif
 
 /* predeclarations */
 #ifndef IPFW
-void HandlePacket(ipq_packet_msg_t *);
-void TranslateToPcap(ipq_packet_msg_t *, struct pcap_pkthdr *);
+void HandlePacket(int pkt_id);
+void TranslateToPcap(struct nfq_data *nfa, struct pcap_pkthdr *);
 #else
 void HandlePacket(void);
 void TranslateToPcap(struct pcap_pkthdr *phdr, ssize_t len);
@@ -77,23 +78,24 @@ int InlineModeSetPrivsAllowed(void)
 }
 
 #ifndef IPFW
-void TranslateToPcap(ipq_packet_msg_t *m, struct pcap_pkthdr *phdr)
+void TranslateToPcap(struct nfq_data *nfa, struct pcap_pkthdr *phdr)
 {
-    static struct timeval t;
-    if (!m->timestamp_sec) 
-    {
-        memset (&t, 0, sizeof(struct timeval));
-        gettimeofday(&t, NULL);
-        phdr->ts.tv_sec = t.tv_sec;
-        phdr->ts.tv_usec = t.tv_usec;
+    static struct timeval ts;
+    int iret;
+    char *payload;
+
+    iret = nfq_get_timestamp(nfa, &ts); 
+    if (!iret) {
+       phdr->ts.tv_sec = (long)(ts.tv_sec);
+       phdr->ts.tv_usec = (long)(ts.tv_usec);
+    } else {
+       memset (&ts, 0, sizeof(struct timeval));
+       gettimeofday(&ts, NULL);
+       phdr->ts.tv_sec = ts.tv_sec;
+       phdr->ts.tv_usec = ts.tv_usec;
     }
-    else 
-    {
-        phdr->ts.tv_sec = m->timestamp_sec;
-        phdr->ts.tv_usec = m->timestamp_usec;
-    }
-    phdr->caplen = m->data_len;
-    phdr->len = m->data_len;
+    
+    phdr->caplen = phdr->len = nfq_get_payload(nfa, &payload);
 }
 #else
 void TranslateToPcap(struct pcap_pkthdr *phdr, ssize_t len)
@@ -211,32 +213,78 @@ void InitInlinePostConfig(void)
     }  
 }
 
+#ifndef IPFW
+static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
+              struct nfq_data *nfa, void *data)
+{  
+   struct pcap_pkthdr PHdr;
+   char   *payload;
+   struct nfqnl_msg_packet_hdr *ph;
+   struct nfqnl_msg_packet_hw *hw;
+   int pkt_id;
+   pkt_msg_t pkt_msg;
+
+   nfq_get_payload(nfa, &payload);
+
+   ph = nfq_get_msg_packet_hdr(nfa);
+   pkt_id = ntohl(ph->packet_id);
+
+   hw = nfq_get_packet_hw(nfa);
+   if (hw) {
+       pkt_msg.hw_addrlen = ntohs(hw->hw_addrlen);
+       memcpy(pkt_msg.hw_addr, hw->hw_addr,  pkt_msg.hw_addrlen);
+   } else {
+       memset (&pkt_msg, 0, sizeof(pkt_msg_t));
+   }
+   g_m = &pkt_msg;
+
+   TranslateToPcap(nfa, &PHdr);
+   ProcessPacket(NULL, &PHdr, (u_char *)payload, NULL);
+   HandlePacket(pkt_id);
+
+   return(0);
+}
+#endif 
 
 /* InitInline is called before the Snort_inline configuration file is read. */
 int InitInline(void)
 {
-#ifndef IPFW
-    int status;
-#endif
-
-    printf("Initializing Inline mode \n");
+    LogMessage("Initializing Inline mode \n");
 
 #ifndef IPFW
-    ipqh = ipq_create_handle(0, PF_INET);
-    if (!ipqh)
-    {
-        ipq_perror("InlineInit: ");
-        ipq_destroy_handle(ipqh);
-        exit(1);
+    nfq_h = nfq_open();
+    if (!nfq_h) {
+        FatalError("[%d] error during nfq_open()\n", getpid());
     }
- 
-    status = ipq_set_mode(ipqh, IPQ_COPY_PACKET, PKT_BUFSIZE);
-    if (status < 0)
-    {
-        ipq_perror("InitInline: ");
-        ipq_destroy_handle(ipqh);
-        exit(1);
+
+    if (nfq_unbind_pf(nfq_h, AF_INET) < 0) {
+        FatalError("[%d] error during nfq_unbind_pf()\n", getpid());
     }
+
+    if (nfq_bind_pf(nfq_h, AF_INET) < 0) {
+        FatalError("[%d] error during nfq_bind_pf()\n", getpid());
+    }
+
+#ifdef SUP_IP6
+    if (nfq_unbind_pf(nfq_h, AF_INET6) < 0) {
+        FatalError("[%d] error during nfq_unbind_pf() AF_INET6\n", getpid());
+    }
+
+    if (nfq_bind_pf(nfqh, AF_INET6) < 0) {
+        FatalError("[%d] error during nfq_bind_pf() AF_INET6\n", getpid());
+    }
+#endif /* SUP_IP6 */
+
+    nfq_q_h = nfq_create_queue(nfq_h, nfqueue_num, &cb, NULL);
+    if (!nfq_q_h) {
+        FatalError("[%d] error during nfq_create_queue() (queue %d busy ?)\n",
+            getpid(), nfqueue_num);
+    }
+
+    if (nfq_set_mode(nfq_q_h, NFQNL_COPY_PACKET, 0xffff) < 0) {
+        FatalError("[%d] can't set packet_copy mode\n", getpid());
+    }
+
 #endif /* IPFW */
 
     ResetIV();
@@ -249,24 +297,29 @@ int InitInline(void)
 }
 
 #ifndef IPFW
-void IpqLoop(void)
+void nfqLoop(void)
 {
     int status;
-    struct pcap_pkthdr PHdr;
-    unsigned char buf[PKT_BUFSIZE];
-    static ipq_packet_msg_t *m;
-
+    char buf[PKT_BUFSIZE];
+    int nfq_sd;
+    
 #ifdef DEBUG_GIDS
-    printf("Reading Packets from ipq handle \n");
+    printf("Reading Packets from nfq handle \n");
 #endif
+
+    nfq_sd = nfq_fd(nfq_h);
 
     while(1)
     {
         ResetIV();
-        status = ipq_read(ipqh, buf, PKT_BUFSIZE, 1000000);
+        status = recv(nfq_sd, buf, sizeof(buf), 0);
         if (status < 0)
         {
-            ipq_perror("IpqLoop: ");
+            if (errno == EINTR || errno == EWOULDBLOCK) {
+                SignalCheck();
+            } else {
+                LogMessage("[%d] packet recv contents failure: %s\n",getpid(), strerror(errno));
+            }
         }
         /* man ipq_read tells us that when a timeout is specified
          * ipq_read will return 0 when it is interupted. */
@@ -284,26 +337,7 @@ void IpqLoop(void)
         }
         else
         {
-            switch(ipq_message_type(buf))
-            {
-                case NLMSG_ERROR:
-                    fprintf(stderr, "Received error message %d\n", 
-                            ipq_get_msgerr(buf));
-                    break;
-
-                case IPQM_PACKET: 
-                    m = ipq_get_packet(buf);
-                    g_m = m;
-#ifdef DEBUG_INLINE
-                    printf("%02X:%02X:%02X:%02X:%02X:%02X\n", m->hw_addr[0], m->hw_addr[1],
-                           m->hw_addr[2], m->hw_addr[3], m->hw_addr[4], m->hw_addr[5]);
-#endif              
-
-                    TranslateToPcap(m, &PHdr);
-                    PcapProcessPacket(NULL, &PHdr, (u_char *)m->payload);
-                    HandlePacket(m);
-                    break;
-            } /* switch */
+           nfq_handle_packet(nfq_h, buf, status);
         } /* if - else */
     } /* while() */
 }
@@ -527,6 +561,7 @@ RejectSocket(void)
  *
  *    TODO: make it also work on *BSD.
  */
+#ifdef SUPPORT_REJECT
 #ifndef IPFW
 static void
 RejectLayer2(ipq_packet_msg_t *m)
@@ -729,9 +764,10 @@ RejectLayer2(ipq_packet_msg_t *m)
 }
 #endif  // IPFW
 
+#endif // SUPPORT_REJECT
 
 #ifndef IPFW
-void HandlePacket(ipq_packet_msg_t *m)
+void HandlePacket(int pkt_id)
 #else
 void HandlePacket(void)
 #endif
@@ -743,12 +779,14 @@ void HandlePacket(void)
     if (iv.drop)
     {
 #ifndef IPFW
-        status = ipq_set_verdict(ipqh, m->packet_id, NF_DROP, 0, NULL);
+        status = nfq_set_verdict(nfq_q_h, pkt_id, NF_DROP, 0, NULL);
         if (status < 0)
         {
-            ipq_perror("NF_DROP: ");
+            fprintf(stderr,"NF_DROP: ");
         }
 #endif
+
+#ifdef SUPPORT_REJECT
         if (iv.reject)
         {
 #ifndef IPFW
@@ -762,23 +800,24 @@ void HandlePacket(void)
                 RejectSocket();
             }
         }
+#endif // SUPPORT_REJECT
     }
 #ifndef IPFW
     else if (!iv.replace)
     {
-        status = ipq_set_verdict(ipqh, m->packet_id, NF_ACCEPT, 0, NULL);
+        status = nfq_set_verdict(nfq_q_h, pkt_id, NF_ACCEPT, 0, NULL);
         if (status < 0)
         {
-            ipq_perror("NF_ACCEPT: ");
+            fprintf(stderr, "NF_ACCEPT: ");
         }
     }
+
     else
     {
-        status = ipq_set_verdict(ipqh, m->packet_id, NF_ACCEPT, 
-                                 m->data_len, m->payload);
+        status = nfq_set_verdict(nfq_q_h, pkt_id, NF_ACCEPT, 0, NULL);
         if (status < 0)
         {
-            ipq_perror("NF_ACCEPT: ");
+            fprintf(stderr, "NF_ACCEPT: ");
         }
     }
 #endif

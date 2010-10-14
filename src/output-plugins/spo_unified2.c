@@ -59,7 +59,7 @@
 #include "stream_api.h"
 
 #ifdef GIDS
-#include "inline.h"
+#include "inline_extern.h"
 #endif
 
 /* ------------------ Data structures --------------------------*/
@@ -90,12 +90,6 @@ typedef struct _Unified2LogStreamCallbackData
 /* From fpdetect.c, for logging reassembled packets */
 extern uint16_t event_id;
 extern OptTreeNode *otn_tmp;
-
-#ifdef GIDS
-#ifndef IPFW
-extern ipq_packet_msg_t *g_m;
-#endif
-#endif
 
 /* -------------------- Global Variables ----------------------*/
 #ifdef GIDS
