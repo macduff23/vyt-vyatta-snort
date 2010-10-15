@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-17) unstable; urgency=low
+
+  * Remove #include of rules since the rules no longer exist.
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 14 Oct 2010 18:17:43 -0700
+
 vyatta-snort (2.8.5.2-vyatta-16) unstable; urgency=low
 
   [ Stephen Hemminger ]
