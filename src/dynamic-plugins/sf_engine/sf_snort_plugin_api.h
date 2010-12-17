@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -96,6 +96,14 @@
 #define CONTENT_BUF_HEADER      0x2000
 #define CONTENT_BUF_METHOD      0x4000
 #define CONTENT_BUF_COOKIE      0x8000
+#define CONTENT_BUF_RAW_URI     0x10000
+#define CONTENT_BUF_RAW_HEADER  0x20000
+#define CONTENT_BUF_RAW_COOKIE  0x40000
+#define CONTENT_BUF_STAT_CODE   0x80000
+#define CONTENT_BUF_STAT_MSG    0x100000
+
+/* This option implies the fast pattern flag */
+#define CONTENT_FAST_PATTERN_ONLY  0x200000
 
 #define BYTE_LITTLE_ENDIAN      0x0000
 #define BYTE_BIG_ENDIAN         0x1000
@@ -124,6 +132,14 @@
 #define CHECK_ATLEASTONE    9
 #define CHECK_NONE          10
 
+#define NORMAL_CONTENT_BUFS ( CONTENT_BUF_NORMALIZED | CONTENT_BUF_RAW )
+#define URI_CONTENT_BUFS  ( CONTENT_BUF_URI | CONTENT_BUF_POST \
+        | CONTENT_BUF_COOKIE | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD \
+        | CONTENT_BUF_RAW_URI | CONTENT_BUF_RAW_HEADER | CONTENT_BUF_RAW_COOKIE \
+        | CONTENT_BUF_STAT_CODE | CONTENT_BUF_STAT_MSG )
+#define URI_FAST_PATTERN_BUFS ( CONTENT_BUF_URI | CONTENT_BUF_METHOD \
+        | CONTENT_BUF_HEADER | CONTENT_BUF_POST )
+
 typedef struct _ContentInfo
 {
     const u_int8_t *pattern;
@@ -134,6 +150,9 @@ typedef struct _ContentInfo
     u_int8_t *patternByteForm;
     u_int32_t patternByteFormLength;
     u_int32_t incrementLength;
+    u_int16_t fp_offset;
+    u_int16_t fp_length;
+    u_int8_t fp_only;
 } ContentInfo;
 
 typedef struct _CursorInfo
@@ -290,6 +309,7 @@ typedef struct _PreprocessorOption
     PreprocOptionInit optionInit;
     PreprocOptionEval optionEval;
     void *dataPtr;
+    PreprocOptionFastPatternFunc optionFpFunc;
 } PreprocessorOption;
 
 typedef struct _RuleOption

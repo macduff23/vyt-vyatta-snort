@@ -98,6 +98,7 @@
 
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 #include "parser.h"
 #include "debug.h"
@@ -153,8 +154,6 @@ typedef struct _RESPOND2_CONFIG
     rand_t *randh;                      /* dnet(3) rand handle */
 } RESPOND2_CONFIG;
 
-
-extern SnortConfig *snort_conf_for_parsing;
 
 static void *ip_id_pool = NULL;         /* random IP ID buffer */
 static uint32_t ip_id_iterator;        /* consumed IP IDs */
@@ -240,7 +239,7 @@ int RespondCompare(void *l, void *r)
  */
 void SetupRespond(void)
 {
-    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("resp2", &respond2PerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

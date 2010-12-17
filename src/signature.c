@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Author(s):   Andrew R. Baker <andrewb@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include "signature.h"
 #include "util.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "mstring.h"
 #include "sfutil/sfghash.h"
 #include "snort.h"
@@ -36,8 +37,6 @@
 
 /* for eval and free functions */
 #include "detection-plugins/sp_pattern_match.h"
-
-extern SnortConfig *snort_conf_for_parsing;
 
 static OptTreeNode *soidOTN = NULL;
 
@@ -352,7 +351,6 @@ void OtnFree(void *data)
             free(otn->sigInfo.message);
     }
 #ifdef TARGET_BASED 
-#ifdef PORTLISTS
     for (svc_idx = 0; svc_idx < otn->sigInfo.num_services; svc_idx++)
     {
         if (otn->sigInfo.services[svc_idx].service)
@@ -360,7 +358,6 @@ void OtnFree(void *data)
     }
     if (otn->sigInfo.services)
         free(otn->sigInfo.services);
-#endif
 #endif
 
     ref_node = otn->sigInfo.refs;
@@ -395,6 +392,9 @@ void OtnFree(void *data)
 
     if (otn->detection_filter)
         free(otn->detection_filter);
+
+    if (otn->preproc_fp_list != NULL)
+        FreePmdList(otn->preproc_fp_list);
 
     free(otn);
 }

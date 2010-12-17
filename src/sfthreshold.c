@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2003-2009 Sourcefire, Inc.
+ ** Copyright (C) 2003-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -59,7 +59,6 @@
 
 /* Data */
 THD_STRUCT *thd_runtime = NULL;
-extern SnortConfig *snort_conf;
 
 static int thd_checked = 0;
 static int thd_answer = 0;
@@ -190,7 +189,7 @@ static int print_thd_node( THD_NODE *p , PrintFormat type )
 /*
  * 
  */
-static int print_thd_local(ThresholdObjects *thd_objs, int type)
+static int print_thd_local(ThresholdObjects *thd_objs, PrintFormat type)
 {
     SFGHASH  * sfthd_hash; 
     THD_ITEM * sfthd_item;

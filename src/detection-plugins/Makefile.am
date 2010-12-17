@@ -47,7 +47,8 @@ sp_tcp_flag_check.h sp_tcp_flag_check.c \
 sp_tcp_seq_check.c sp_tcp_seq_check.h \
 sp_tcp_win_check.c sp_tcp_win_check.h \
 sp_ttl_check.c sp_ttl_check.h \
-sp_urilen_check.c sp_urilen_check.h
+sp_urilen_check.c sp_urilen_check.h \
+sp_file_data.c sp_file_data.h
 
 copy_files = \
 	if test -f $$dst_file; then \

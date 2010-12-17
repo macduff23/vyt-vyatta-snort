@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@
 #include <ctype.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "debug.h"
 #include "plugbase.h"
@@ -76,7 +77,7 @@ int CheckTtl(void *option_data, Packet *p);
 void SetupTtlCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("ttl", TtlCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ttl", TtlCheckInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ttl_check", &ttlCheckPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

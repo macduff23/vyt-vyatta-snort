@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2007-2009 Sourcefire, Inc.
+** Copyright (C) 2007-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -35,6 +35,7 @@
 #include "sfutil/sfhashfcn.h"
 #include "detection_options.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "util.h"
 #include "fpcreate.h"
 #include "parser.h"
@@ -88,13 +89,6 @@
 
 extern const uint8_t *doe_ptr;
 
-/* Used when adding detection option tree */
-extern SnortConfig *snort_conf_for_fast_pattern;
-
-/* Used when parsing detection options */
-extern SnortConfig *snort_conf_for_parsing;
-extern SnortConfig *snort_conf;
-
 typedef struct _detection_option_key
 {
     option_type_t option_type;
@@ -134,6 +128,8 @@ uint32_t detection_option_hash_func(SFHASHFCN *p, unsigned char *k, int n)
             hash = FlowBitsHash(key->option_data);
             break;
         case RULE_OPTION_TYPE_FTPBOUNCE:
+            break;
+        case RULE_OPTION_TYPE_FILE_DATA:
             break;
         case RULE_OPTION_TYPE_ICMP_CODE:
             hash = IcmpCodeCheckHash(key->option_data);
@@ -276,6 +272,8 @@ int detection_option_key_compare_func(const void *k1, const void *k2, size_t n)
             break;
         case RULE_OPTION_TYPE_FTPBOUNCE:
             break;
+        case RULE_OPTION_TYPE_FILE_DATA:
+            break;
         case RULE_OPTION_TYPE_ICMP_CODE:
             ret = IcmpCodeCheckCompare(key1->option_data, key2->option_data);
             break;
@@ -398,6 +396,8 @@ int detection_hash_free_func(void *option_key, void *data)
             break;
         case RULE_OPTION_TYPE_FTPBOUNCE:
             /* Data is NULL, nothing to free */
+            break;
+        case RULE_OPTION_TYPE_FILE_DATA:
             break;
         case RULE_OPTION_TYPE_ICMP_CODE:
             free(key->option_data);
@@ -756,7 +756,7 @@ void print_option_tree(detection_option_tree_node_t *node, int level)
 
 int add_detection_option_tree(detection_option_tree_node_t *option_tree, void **existing_data)
 {
-    SnortConfig *sc = snort_conf_for_fast_pattern;
+    SnortConfig *sc = snort_conf_for_parsing;
     detection_option_key_t key;
 
     if (sc == NULL)
@@ -814,7 +814,7 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
             (node->last_check.packet_number == pc.total_from_pcap) &&
             (node->last_check.pipeline_number == eval_data->p->http_pipeline_count) &&
             (node->last_check.rebuild_flag == (eval_data->p->packet_flags & REBUILD_FLAGS)) &&
-            (!(eval_data->p->packet_flags & PKT_DCE_PKT)))
+            (!(eval_data->p->packet_flags & (PKT_DCE_PKT|PKT_RPC_PKT))))
         {
             /* eval'd this rule option before on this packet,
              * use the cached result. */
@@ -875,7 +875,6 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
                     if (pmd)
                         pattern_size = pmd->pattern_size;
 #ifdef TARGET_BASED
-#ifdef PORTLISTS
                     if (eval_data->p->application_protocol_ordinal != 0)
                     {
                         for (svc_idx = 0;
@@ -902,7 +901,6 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
                             break; /* out of case */
                         }
                     }
-#endif
 #endif
                     if (fpEvalRTN(getRuntimeRtnFromOtn(otn), eval_data->p, check_ports))
                     {
@@ -992,6 +990,7 @@ int detection_option_node_evaluate(detection_option_tree_node_t *node, detection
             case RULE_OPTION_TYPE_DSIZE:
             case RULE_OPTION_TYPE_FLOWBIT:
             case RULE_OPTION_TYPE_FTPBOUNCE:
+            case RULE_OPTION_TYPE_FILE_DATA:
             case RULE_OPTION_TYPE_ICMP_CODE:
             case RULE_OPTION_TYPE_ICMP_ID:
             case RULE_OPTION_TYPE_ICMP_SEQ:

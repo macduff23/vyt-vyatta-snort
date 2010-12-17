@@ -45,6 +45,7 @@ README.PerfProfiling \
 README.PLUGINS \
 README.ppm \
 README.reload \
+README.sensitive_data \
 README.sfportscan \
 README.SMTP \
 README.ssh \

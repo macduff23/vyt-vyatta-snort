@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -332,6 +332,28 @@ static INLINE int ResetSession(HI_SESSION *Session)
     Session->client.request.post_norm_size      = 0;
 
     Session->client.request.pipeline_req        = NULL;
+
+    Session->client.request.uri_encode_type     = 0;
+    Session->client.request.header_encode_type  = 0;
+    Session->client.request.cookie_encode_type  = 0;
+
+    Session->server.response.status_code         = NULL;
+    Session->server.response.status_msg          = NULL;
+    Session->server.response.header_raw          = NULL;
+    Session->server.response.header_norm         = NULL;
+    Session->server.response.cookie.cookie       = NULL;
+    Session->server.response.cookie.cookie_end   = NULL;
+    Session->server.response.cookie_norm         = NULL;
+    Session->server.response.cookie_norm_size    = 0;
+    Session->server.response.body                = NULL;
+    Session->server.response.body_size           = 0; 
+    Session->server.response.status_code_size    = 0;
+    Session->server.response.status_msg_size     = 0;
+    Session->server.response.header_raw_size     = 0;
+    Session->server.response.header_norm_size    = 0;
+    Session->server.response.cookie_norm_size    = 0;
+    Session->server.response.header_encode_type  = 0;
+    Session->server.response.cookie_encode_type  = 0;
 
     return HI_SUCCESS;
 }

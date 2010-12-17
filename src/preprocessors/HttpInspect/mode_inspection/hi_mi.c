@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -35,12 +35,9 @@
 **    - 3.2.03:  Initial development.  DJR
 */
 
-#include "sys/types.h"
-
 #include "hi_si.h"
 #include "hi_client.h"
 #include "hi_server.h"
-#include "hi_ad.h"
 #include "hi_return_codes.h"
 
 /*
@@ -65,57 +62,32 @@
 **  @retval HI_INVALID_ARG  argument(s) was invalid or NULL
 */
 
-int hi_mi_mode_inspection(HI_SESSION *Session, int iInspectMode, 
-        const u_char *data, int dsize)
+int hi_mi_mode_inspection(HI_SESSION *Session, int iInspectMode,
+        Packet *p, HttpSessionData *hsd)
 {
-    int iRet;
-
-    
-    if(!Session || !data || dsize < 0)
-    {
+    if (!Session || !p->data || (p->dsize == 0))
         return HI_INVALID_ARG;
-    }
 
     /*
     **  Depending on the mode, we inspect the packet differently.
     **  
-    **  HI_SI_NO_MODE:
-    **    This means that the packet is neither an HTTP client or server,
-    **    so we can do what we want with the packet, like look for rogue
-    **    HTTP servers or HTTP tunneling.
-    **
     **  HI_SI_CLIENT_MODE:
     **    Inspect for HTTP client communication.
     **
     **  HI_SI_SERVER_MODE:
     **    Inspect for HTTP server communication.
     */
-    if(iInspectMode == HI_SI_NO_MODE)
+    if(iInspectMode == HI_SI_CLIENT_MODE)
     {
-        /*
-        **  Let's look for rogue HTTP servers and stuff
-        */
-        iRet = hi_server_anomaly_detection(Session, data, dsize);
+        int iRet = hi_client_inspection((void *)Session, p->data, p->dsize);
         if (iRet)
-        {
             return iRet;
-        }
-    }
-    else if(iInspectMode == HI_SI_CLIENT_MODE)
-    {
-        iRet = hi_client_inspection((void *)Session, data, dsize);
-        if (iRet)
-        {
-            return iRet;
-        }
     }
     else if(iInspectMode == HI_SI_SERVER_MODE)
     {
-        iRet = hi_server_inspection((void *)Session, data, dsize);
+        int iRet = hi_server_inspection((void *)Session, p, hsd);
         if (iRet)
-        {
             return iRet;
-        }
     }
     else
     {

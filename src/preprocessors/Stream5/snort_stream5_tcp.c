@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -86,6 +86,8 @@
 #include "sfActionQueue.h"
 
 extern SFBASE sfBase;
+extern SFFLOW sfFlow;
+extern SFPERF *perfmon_config;
 extern tSfPolicyUserContextId s5_config;
 extern Stream5GlobalConfig *s5_global_eval_config;
 extern Stream5TcpConfig *s5_tcp_eval_config;
@@ -141,8 +143,12 @@ extern tSfPolicyUserContextId s5_swap_config;
 #define SEQ_GEQ(a,b) ((int)((a) - (b)) >= 0)
 #define SEQ_EQ(a,b)  ((int)((a) - (b)) == 0)
 
-#define MIN(a,b)  (((a)<(b)) ? (a):(b))
-#define MAX(a,b)  (((a)>(b)) ? (a):(b))
+#ifndef MIN
+# define MIN(a,b)  (((a)<(b)) ? (a):(b))
+#endif
+#ifndef MAX
+# define MAX(a,b)  (((a)>(b)) ? (a):(b))
+#endif
 
 #define PAWS_WINDOW         60
 #define PAWS_24DAYS         2073600         /* 24 days in seconds */
@@ -180,6 +186,8 @@ extern tSfPolicyUserContextId s5_swap_config;
 #define EVENT_SESSION_HIJACK_CLIENT     0x00000100
 #define EVENT_SESSION_HIJACK_SERVER     0x00000200
 #define EVENT_DATA_WITHOUT_FLAGS        0x00000400
+#define EVENT_4WHS                      0x00000800
+#define EVENT_NO_TIMESTAMP              0x00001000
 
 #define TF_NONE                     0x00
 #define TF_WSCALE                   0x01
@@ -219,6 +227,10 @@ extern tSfPolicyUserContextId s5_swap_config;
 #define STREAM_MAX_PACKET (IP_MAXPACKET - (IP_HEADER_LEN + TCP_HEADER_LEN))
 #define STREAM_MAX_PACKET6 (IP_MAXPACKET - (IP6_HDR_LEN + TCP_HEADER_LEN))
 
+#define SUB_SYN_SENT  0x01
+#define SUB_ACK_SENT  0x02
+#define SUB_SETUP_OK  0x03
+
 //#define DEBUG_STREAM5 1
 #ifdef DEBUG_STREAM5
 #define STREAM5_DEBUG_WRAP(x) DEBUG_WRAP(x)
@@ -246,6 +258,7 @@ typedef struct _TcpDataBlock
 typedef struct _StateMgr
 {
     uint8_t    state;
+    uint8_t    sub_state;
     uint8_t    state_queue;
     uint8_t    expected_flags;
     uint32_t   transition_seq;
@@ -652,6 +665,8 @@ void Stream5UpdatePerfBaseState(SFBASE *sf_base,
         if (!(lwssn->session_flags & SSNFLAG_COUNTED_ESTABLISH))
         {
             sf_base->iSessionsEstablished++;
+            if (perfmon_config && (perfmon_config->perf_flags & SFPERF_FLOWIP))
+                UpdateFlowIPState(&sfFlow, IP_ARG(lwssn->client_ip), IP_ARG(lwssn->server_ip), SFS_STATE_TCP_ESTABLISHED); 
             lwssn->session_flags |= SSNFLAG_COUNTED_ESTABLISH;
             if (lwssn->session_flags & SSNFLAG_COUNTED_INITIALIZE)
             {
@@ -667,6 +682,8 @@ void Stream5UpdatePerfBaseState(SFBASE *sf_base,
             if (lwssn->session_flags & SSNFLAG_COUNTED_ESTABLISH)
             {
                 sf_base->iSessionsEstablished--;
+                if (perfmon_config && (perfmon_config->perf_flags & SFPERF_FLOWIP))
+                    UpdateFlowIPState(&sfFlow, IP_ARG(lwssn->client_ip), IP_ARG(lwssn->server_ip), SFS_STATE_TCP_CLOSED); 
             }
             else if (lwssn->session_flags & SSNFLAG_COUNTED_INITIALIZE)
             {
@@ -682,6 +699,8 @@ void Stream5UpdatePerfBaseState(SFBASE *sf_base,
         else if (lwssn->session_flags & SSNFLAG_COUNTED_ESTABLISH)
         {
             sf_base->iSessionsEstablished--;
+            if (perfmon_config && (perfmon_config->perf_flags & SFPERF_FLOWIP))
+                UpdateFlowIPState(&sfFlow, IP_ARG(lwssn->client_ip), IP_ARG(lwssn->server_ip), SFS_STATE_TCP_CLOSED); 
         }
         else if (lwssn->session_flags & SSNFLAG_COUNTED_INITIALIZE)
         {
@@ -715,9 +734,9 @@ void Stream5InitTcp(Stream5GlobalConfig *gconfig)
             FatalError("%s(%d) Could not initialize tcp session memory pool.\n",
                     __FILE__, __LINE__);
         }
-    }
 
-    Stream5TcpRegisterPreprocProfiles();
+        Stream5TcpRegisterPreprocProfiles();
+    }
 }
 
 void Stream5TcpRegisterPreprocProfiles(void)
@@ -739,7 +758,8 @@ void Stream5TcpRegisterRuleOptions(void)
 #ifdef DYNAMIC_PLUGIN
     /* Register the 'stream_size' rule option */
     RegisterPreprocessorRuleOption("stream_size", &s5TcpStreamSizeInit,
-                                   &s5TcpStreamSizeEval, &s5TcpStreamSizeCleanup, NULL, NULL);
+                                   &s5TcpStreamSizeEval, &s5TcpStreamSizeCleanup,
+                                   NULL, NULL, NULL, NULL);
 #endif
 }
 
@@ -944,8 +964,6 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
     s5TcpPolicy->policy = STREAM_POLICY_DEFAULT;
     s5TcpPolicy->reassembly_policy = REASSEMBLY_POLICY_DEFAULT;
     s5TcpPolicy->session_timeout = S5_DEFAULT_SSN_TIMEOUT;
-    //s5TcpPolicy->ttl_delta_limit = S5_DEFAULT_TTL_LIMIT;
-    s5TcpPolicy->min_ttl = S5_DEFAULT_MIN_TTL;
     s5TcpPolicy->max_window = 0;
     s5TcpPolicy->flags = 0;
     //s5TcpPolicy->flags |=  STREAM5_CONFIG_STATEFUL_INSPECTION;
@@ -1000,59 +1018,16 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
                         file_name, file_line);
                 }
             }
-#if 0
-            else if(!strcasecmp(stoks[0], "ttl_limit"))
-            {
-                if(stoks[1])
-                {
-                    s5TcpPolicy->ttl_delta_limit = strtoul(stoks[1], &endPtr, 10);
-                }
-                
-                if (!stoks[1] || (endPtr == &stoks[1][0]))
-                {
-                    FatalError("%s(%d) => Invalid TTL Limit in config file.  Integer parameter required\n",
-                            file_name, file_line);
-                }
-            }
-#endif
             else if(!strcasecmp(stoks[0], "min_ttl"))
             {
-                if(stoks[1])
-                {
-                    long_val = strtol(stoks[1], &endPtr, 10);
-                    if (errno == ERANGE)
-                    {
-                        errno = 0;
-                        long_val = -1;
-                    }
-                    s5TcpPolicy->min_ttl = (uint8_t)long_val;
-                }
-
-                if (!stoks[1] || (endPtr == &stoks[1][0]))
-                {
-                    FatalError("%s(%d) => Invalid min TTL in config file.  Integer parameter required\n",
-                            file_name, file_line);
-                }
-
-                if ((long_val > S5_MAX_MIN_TTL) ||
-                    (long_val < S5_MIN_MIN_TTL))
-                {
-                    FatalError("%s(%d) => Invalid min TTL in config file.  "
-                        "Must be between %d and %d\n",
-                        file_name, file_line,
-                        S5_MIN_MIN_TTL, S5_MAX_MIN_TTL);
-                }
-                if (s_toks > 2)
-                {
-                    FatalError("%s(%d) => Invalid Stream5 TCP Policy option.  Missing comma?\n",
-                        file_name, file_line);
-                }
+                LogMessage("%s(%d) => stream5 min_ttl is deprecated. "
+                    "Use config min_ttl instead.\n", file_name, file_line);
             }
             else if(!strcasecmp(stoks[0], "overlap_limit"))
             {
                 if(stoks[1])
                 {
-                    long_val = strtol(stoks[1], &endPtr, 10);
+                    long_val = SnortStrtol(stoks[1], &endPtr, 10);
                     if (errno == ERANGE)
                     {
                         errno = 0;
@@ -1118,7 +1093,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
 
                 if (s_toks > 1)
                 {
-                    s5TcpPolicy->hs_timeout = strtoul(stoks[1], &endPtr, 10);
+                    s5TcpPolicy->hs_timeout = SnortStrtoul(stoks[1], &endPtr, 10);
 
                     if ((endPtr == &stoks[1][0]) || (*endPtr != '\0') || (errno == ERANGE))
                     {
@@ -1168,7 +1143,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
             {
                 if(stoks[1])
                 {
-                    long_val = strtol(stoks[1], &endPtr, 10);
+                    long_val = SnortStrtol(stoks[1], &endPtr, 10);
                     if (errno == ERANGE)
                     {
                         errno = 0;
@@ -1244,7 +1219,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
             {
                 if(stoks[1])
                 {
-                    long_val = strtol(stoks[1], &endPtr, 10);
+                    long_val = SnortStrtol(stoks[1], &endPtr, 10);
                     if (errno == ERANGE)
                     {
                         errno = 0;
@@ -1279,7 +1254,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
             {
                 if(stoks[1])
                 {
-                    long_val = strtol(stoks[1], &endPtr, 10);
+                    long_val = SnortStrtol(stoks[1], &endPtr, 10);
                     if (errno == ERANGE)
                     {
                         errno = 0;
@@ -1326,7 +1301,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
                 }
 
                 /* first the number of consecutive segments */
-                long_val = strtol(stoks[1], &endPtr, 10);
+                long_val = SnortStrtol(stoks[1], &endPtr, 10);
                 if (errno == ERANGE)
                 {
                     errno = 0;
@@ -1357,7 +1332,7 @@ static void Stream5ParseTcpArgs(Stream5TcpConfig *config, char *args, Stream5Tcp
                 }
 
                 /* the minimum bytes for a segment to be considered "small" */
-                long_val = strtol(ptoks[1], &endPtr, 10);
+                long_val = SnortStrtol(ptoks[1], &endPtr, 10);
                 if (errno == ERANGE)
                 {
                     errno = 0;
@@ -1719,8 +1694,6 @@ static void Stream5PrintTcpConfig(Stream5TcpPolicy *s5TcpPolicy)
     LogMessage("    Reassembly Policy: %s\n",
         reassembly_policy_names[s5TcpPolicy->reassembly_policy]);
     LogMessage("    Timeout: %d seconds\n", s5TcpPolicy->session_timeout);
-    LogMessage("    Min ttl:  %d\n", s5TcpPolicy->min_ttl);
-    //LogMessage("    Stream ttl_limit: %d\n", s5TcpPolicy->ttl_delta_limit);
     if (s5TcpPolicy->max_window != 0)
         LogMessage("    Max TCP Window: %u\n", s5TcpPolicy->max_window);
     if (s5TcpPolicy->overlap_limit)
@@ -2283,6 +2256,38 @@ static INLINE void EventMaxSmallSegsExceeded(Stream5TcpPolicy *s5TcpPolicy)
             NULL);                              /* rule info ptr */
 }
 
+static INLINE void Event4whs(Stream5TcpPolicy *s5TcpPolicy)
+{
+    if(!(s5TcpPolicy->flags & STREAM5_CONFIG_ENABLE_ALERTS))
+        return;
+
+    s5stats.events++;
+
+    SnortEventqAdd(GENERATOR_SPP_STREAM5,       /* GID */
+            STREAM5_4WAY_HANDSHAKE,             /* SID */
+            1,                                  /* rev */
+            0,                                  /* class */
+            3,                                  /* priority */
+            STREAM5_4WAY_HANDSHAKE_STR,         /* event msg */
+            NULL);                              /* rule info ptr */
+}
+
+static INLINE void EventNoTimestamp(Stream5TcpPolicy *s5TcpPolicy)
+{
+    if(!(s5TcpPolicy->flags & STREAM5_CONFIG_ENABLE_ALERTS))
+        return;
+
+    s5stats.events++;
+
+    SnortEventqAdd(GENERATOR_SPP_STREAM5,       /* GID */
+            STREAM5_NO_TIMESTAMP,               /* SID */
+            1,                                  /* rev */
+            0,                                  /* class */
+            3,                                  /* priority */
+            STREAM5_NO_TIMESTAMP_STR,           /* event msg */
+            NULL);                              /* rule info ptr */
+}
+
 static INLINE void EventInternal (uint32_t eventSid)
 {
     if ( !InternalEventIsEnabled(snort_conf->rate_filter_config, eventSid) )
@@ -2415,6 +2420,9 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
     if (!eventcode || !got_ts)
         return ACTION_NOTHING;
 
+    if(p->tcph->th_flags & TH_RST)
+        return ACTION_NOTHING;
+
     /*
      * check PAWS
      */
@@ -2523,7 +2531,7 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
              * still ack the packet with the missing timestamp.  Log an alert,
              * but continue to process the packet
              */
-            *eventcode |= EVENT_BAD_TIMESTAMP;
+            *eventcode |= EVENT_NO_TIMESTAMP;
             STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                         "packet no timestamp, had one earlier from this side...ok for now...\n"););
 
@@ -3052,7 +3060,7 @@ static INLINE int _flush_ackd_4(TcpSession *tcpssn, StreamTracker *st, Packet *p
         }
 
         s5_pkt->dsize = (uint16_t)flushed_bytes;
-        
+
         ((struct pcap_pkthdr *)s5_pkt->pkth)->caplen = s5_pkt->dsize + IP_HEADER_LEN + 
             TCP_HEADER_LEN + ETHERNET_HEADER_LEN + vlanHeaderLen;
         ((struct pcap_pkthdr *)s5_pkt->pkth)->len = s5_pkt->pkth->caplen;
@@ -3109,7 +3117,9 @@ static INLINE int _flush_ackd_4(TcpSession *tcpssn, StreamTracker *st, Packet *p
             PREPROC_PROFILE_START(s5TcpProcessRebuiltPerfStats);
             tmp_do_detect = do_detect;
             tmp_do_detect_content = do_detect_content;
+            SnortEventqPush();
             event = Preprocess(s5_pkt);
+            SnortEventqPop();
             do_detect = tmp_do_detect;
             do_detect_content = tmp_do_detect_content;
             PREPROC_PROFILE_END(s5TcpProcessRebuiltPerfStats);
@@ -3317,7 +3327,9 @@ static INLINE int _flush_ackd_6(TcpSession *tcpssn, StreamTracker *st, Packet *p
             PREPROC_PROFILE_START(s5TcpProcessRebuiltPerfStats);
             tmp_do_detect = do_detect;
             tmp_do_detect_content = do_detect_content;
+            SnortEventqPush();
             event = Preprocess(s5_pkt_6);
+            SnortEventqPop();
             do_detect = tmp_do_detect;
             do_detect_content = tmp_do_detect_content;
             PREPROC_PROFILE_END(s5TcpProcessRebuiltPerfStats);
@@ -3563,7 +3575,9 @@ static INLINE int flush_ackd(TcpSession *tcpssn, StreamTracker *st, Packet *p,
             PREPROC_PROFILE_START(s5TcpProcessRebuiltPerfStats);
             tmp_do_detect = do_detect;
             tmp_do_detect_content = do_detect_content;
+            SnortEventqPush();
             event = Preprocess(s5_pkt);
+            SnortEventqPop();
             do_detect = tmp_do_detect;
             do_detect_content = tmp_do_detect_content;
             PREPROC_PROFILE_END(s5TcpProcessRebuiltPerfStats);
@@ -4025,8 +4039,11 @@ void TcpSessionCleanup(Stream5LWSession *lwssn)
             tmp_pcap_hdr.ts.tv_usec = tcpssn->client.seglist->pkth.ts.tv_usec;
             tmp_pcap_hdr.caplen = tcpssn->client.seglist->pkth.caplen;
             tmp_pcap_hdr.len = tcpssn->client.seglist->pkth.len;
+
+            SnortEventqPush();
             (*grinder)(&p, &tmp_pcap_hdr,
                        tcpssn->client.seglist->pktOrig + SPARC_TWIDDLE);
+            SnortEventqPop();
             p.ssnptr = lwssn;
 
             //set policy id for this packet
@@ -4059,6 +4076,13 @@ void TcpSessionCleanup(Stream5LWSession *lwssn)
 #endif
             if (flushed)
                 purge_ackd(tcpssn, &tcpssn->client);
+            else
+            {
+                SnortEventqPush();
+                SnortEventqLog(snort_conf->event_queue, &p);
+                SnortEventqReset();
+                SnortEventqPop();
+            }
 
             tcpssn->client.flags &= ~TF_FORCE_FLUSH;
         }
@@ -4072,8 +4096,11 @@ void TcpSessionCleanup(Stream5LWSession *lwssn)
             tmp_pcap_hdr.ts.tv_usec = tcpssn->server.seglist->pkth.ts.tv_usec;
             tmp_pcap_hdr.caplen = tcpssn->server.seglist->pkth.caplen;
             tmp_pcap_hdr.len = tcpssn->server.seglist->pkth.len;
+
+            SnortEventqPush();
             (*grinder)(&p, &tmp_pcap_hdr,
                        tcpssn->server.seglist->pktOrig + SPARC_TWIDDLE);
+            SnortEventqPop();
 
             //set policy id for this packet
             {
@@ -4106,6 +4133,13 @@ void TcpSessionCleanup(Stream5LWSession *lwssn)
 #endif
             if (flushed)
                 purge_ackd(tcpssn, &tcpssn->server);
+            else
+            {
+                SnortEventqPush();
+                SnortEventqLog(snort_conf->event_queue, &p);
+                SnortEventqReset();
+                SnortEventqPop();
+            }
 
             tcpssn->server.flags &= ~TF_FORCE_FLUSH;
         }
@@ -4269,6 +4303,115 @@ Stream5TcpPolicy *Stream5PolicyLookup(struct in_addr ip)
     }
 #endif /* SUP_IP6 */
 
+#ifdef REG_TEST
+#define LCL(p, x)    (p->x - p->isn)
+#define RMT(p, x, q) (p->x - (q ? q->isn : 0))
+
+static void TraceEvent (
+    const TCPHdr* h, uint32_t txd, uint32_t rxd, uint32_t len
+) {
+    static unsigned pkt = 1; 
+
+    int i;
+    char flags[7] = "UAPRSF";
+
+    for ( i = 0; i < 6; i++) 
+        if ( !((1<<(5-i)) & h->th_flags) ) flags[i] = '-'; 
+
+    // force relative ack to zero if not conveyed
+    if ( flags[1] != 'A' ) rxd = ntohl(h->th_ack);
+
+    fprintf(stdout,
+        "\n%-3u %s=0x%02x Seq=%-4u Ack=%-4u Win=%-4u Len=%-4u\n",
+        pkt++, flags, h->th_flags,
+        ntohl(h->th_seq)-txd, ntohl(h->th_ack)-rxd,
+        ntohs(h->th_win), len
+    );   
+}
+
+static const char* statext[] = {
+    "NON", "LST", "SYR", "SYS", "EST", "CLW",
+    "LAK", "FW1", "CLG", "FW2", "TWT", "CLD"
+};
+
+static void TraceState (
+    const StreamTracker* a, const StreamTracker* b, const char* s)
+{
+    uint32_t why = a->l_nxt_seq ? LCL(a, l_nxt_seq) : 0;
+
+    fprintf(stdout,
+        "    %s: ST=%s SS=%x "
+        "UA=%-4u NS=%-4u LW=%-5u "
+        "RN=%-4u RW=%-4u ",
+        s, statext[a->s_mgr.state], a->s_mgr.sub_state,
+        LCL(a, l_unackd), why, a->l_window,
+        RMT(a, r_nxt_ack, b), RMT(a, r_win_base, b)
+    );
+    if ( a->s_mgr.state_queue )
+        fprintf(stdout,
+            "QS=%s QC=0x%02x QA=%-4u",
+            statext[a->s_mgr.state_queue], a->s_mgr.expected_flags,
+            RMT(a, s_mgr.transition_seq, b)
+        );
+    fprintf(stdout, "\n");
+}
+
+static void TraceTCP (
+    const Packet* p, const Stream5LWSession* lws, int event
+) {
+    const TCPHdr* h = p ? p->tcph : NULL;
+    const TcpSession* ssn = (lws && lws->proto_specific_data) ?
+         (TcpSession*)lws->proto_specific_data->data : NULL;
+    const StreamTracker* srv = ssn ? &ssn->server : NULL;
+    const StreamTracker* cli = ssn ? &ssn->client : NULL;
+
+    const char* cdir = "?", *sdir = "?";
+    uint32_t txd = 0, rxd = 0;
+
+    if ( !h ) return;
+
+    if ( p->packet_flags & PKT_FROM_SERVER )
+    {
+        sdir = "SRV>";
+        cdir = "CLI<";
+        if ( srv ) txd = srv->isn;
+        if ( cli ) rxd = cli->isn;
+    }
+    else if ( p->packet_flags & PKT_FROM_CLIENT )
+    {
+        sdir = "SRV<";
+        cdir = "CLI>";
+        if ( cli ) txd = cli->isn;
+        if ( srv ) rxd = srv->isn;
+    }
+    TraceEvent(h, txd, rxd, p->dsize);
+
+    if ( !event )
+    {
+        if ( cli ) TraceState(cli, srv, cdir);
+        if ( srv ) TraceState(srv, cli, sdir);
+    }
+}
+
+static int s5_trace_enabled = -1;
+
+static INLINE void S5TraceTCP (
+    const Packet* p, const Stream5LWSession* lws, int event
+) {
+    if ( !s5_trace_enabled ) 
+        return;
+
+    if ( s5_trace_enabled < 0 )
+    {
+        if ( !getenv("S5_TRACE") ) {
+            s5_trace_enabled = 0;
+            return;
+        }
+        s5_trace_enabled = 1;
+    }
+    TraceTCP(p, lws, event);
+}
+#endif  // REG_TEST
 
 /*
  * Main entry point for TCP
@@ -4378,6 +4521,9 @@ int Stream5ProcessTcp(Packet *p, Stream5LWSession *lwssn,
                  * Do nothing with this packet since we require a 3-way.
                  * Wow that just sounds cool... Require a 3-way.  Hehe.
                  */
+#ifdef REG_TEST
+                S5TraceTCP(p, lwssn, 1);
+#endif
                 return 0;
             }
         }
@@ -4427,6 +4573,9 @@ midstream_pickup_allowed:
 #endif
 
                 PREPROC_PROFILE_END(s5TcpPerfStats);
+#ifdef REG_TEST
+                S5TraceTCP(p, lwssn, 1);
+#endif
                 return 0;
             }
         }
@@ -4441,6 +4590,9 @@ midstream_pickup_allowed:
     {
         LogMessage("Stream5: Failed to retrieve session object.  Out of memory?\n");
         PREPROC_PROFILE_END(s5TcpPerfStats);
+#ifdef REG_TEST
+        S5TraceTCP(p, lwssn, 1);
+#endif
         return -1;
     }
 
@@ -4504,6 +4656,9 @@ midstream_pickup_allowed:
     }
 
     PREPROC_PROFILE_END(s5TcpPerfStats);
+#ifdef REG_TEST
+    S5TraceTCP(p, lwssn, 0);
+#endif
     return 0;
 }
 
@@ -6740,6 +6895,12 @@ static void LogTcpEvents(Stream5TcpPolicy *s5TcpPolicy, int eventcode)
 
     if (eventcode & EVENT_DATA_WITHOUT_FLAGS)
         EventDataWithoutFlags(s5TcpPolicy);
+
+    if (eventcode & EVENT_4WHS)
+        Event4whs(s5TcpPolicy);
+
+    if (eventcode & EVENT_NO_TIMESTAMP)
+        EventNoTimestamp(s5TcpPolicy);
 }
 
 static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb, 
@@ -6749,6 +6910,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
     int eventcode = 0;
     char ignore = 0;
     int got_ts = 0;
+    int new_ssn = 0;
     int ts_action = ACTION_NOTHING;
     int aligned = S5_UNALIGNED;
     TcpSession *tcpssn = NULL;
@@ -6759,6 +6921,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
     char *t = NULL;
     char *l = NULL;
 #endif
+    int16_t protoId = 0;
     PROFILE_VARS;
 
     if (lwssn->protocol != IPPROTO_TCP)
@@ -6838,6 +7001,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                  */
                 NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
                 tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+                new_ssn = 1;
             }
 
             /* Nothing left todo here */
@@ -6862,6 +7026,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
             {
                 NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
                 tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+                new_ssn = 1;
             }
 
             /* Nothing left todo here */
@@ -6876,6 +7041,8 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
             lwssn->session_state |= STREAM5_STATE_ACK | STREAM5_STATE_ESTABLISHED;
             NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
             tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+            new_ssn = 1;
+
             Stream5UpdatePerfBaseState(&sfBase, tcpssn->lwssn, TCP_STATE_ESTABLISHED);
         }
         else if ((p->dsize > 0) && (!require3Way || midstream_allowed))
@@ -6935,6 +7102,8 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
 
             NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
             tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+            new_ssn = 1;
+
             if (lwssn->session_state & STREAM5_STATE_ESTABLISHED)
                 Stream5UpdatePerfBaseState(&sfBase, tcpssn->lwssn, TCP_STATE_ESTABLISHED);
         }
@@ -6995,6 +7164,11 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 t = "Server";
                 l = "Client");
 
+        if ( talker && talker->s_mgr.state == TCP_STATE_LISTEN &&
+            ((p->tcph->th_flags & (TH_SYN|TH_ACK)) == TH_SYN) )
+        {
+            eventcode |= EVENT_4WHS;
+        }
         /* If we picked this guy up midstream, finish the initialization */
         if ((lwssn->session_state & STREAM5_STATE_MIDSTREAM) &&
             !(lwssn->session_state & STREAM5_STATE_ESTABLISHED))
@@ -7008,6 +7182,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
             
             if (lwssn->session_flags & SSNFLAG_SEEN_CLIENT)
             {
+                // should TCP state go to established too?
                 lwssn->session_state |= STREAM5_STATE_ESTABLISHED;
                 lwssn->session_flags |= SSNFLAG_ESTABLISHED;
                 Stream5UpdatePerfBaseState(&sfBase, tcpssn->lwssn, TCP_STATE_ESTABLISHED);
@@ -7081,6 +7256,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
 
                 tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+                new_ssn = 1;
 
                 if (tcpssn)
                 {
@@ -7100,6 +7276,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 NewTcpSession(p, lwssn, tdb, s5TcpPolicy);
 
                 tcpssn = (TcpSession *)lwssn->proto_specific_data->data;
+                new_ssn = 1;
 
                 if (tcpssn)
                 {
@@ -7138,7 +7315,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
     }
 
     /* Check if the session is to be ignored */
-    ignore = CheckIgnoreChannel(p);
+    ignore = CheckIgnoreChannel(p, &protoId);
     if (ignore)
     {
         /* Set the directions to ignore... */
@@ -7151,7 +7328,13 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
         PREPROC_PROFILE_END(s5TcpStatePerfStats);
         return ACTION_NOTHING;
     }
-
+    else if (protoId != 0)
+    {
+#ifdef TARGET_BASED
+        if (IsAdaptiveConfigured(getRuntimePolicy(), 0))
+            lwssn->application_protocol = protoId;
+#endif
+    }
 
     /* Handle data on SYN */
     if ((p->dsize) && TCP_ISFLAGSET(p->tcph, TH_SYN))
@@ -7185,10 +7368,17 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 listener->s_mgr.state););
     STREAM5_DEBUG_WRAP(PrintFlushMgr(&listener->flush_mgr););
 
+    // may find better placement to eliminate redundant flag checks
+    if(p->tcph->th_flags & TH_SYN)
+        talker->s_mgr.sub_state |= SUB_SYN_SENT;
+    if(p->tcph->th_flags & TH_ACK)
+        talker->s_mgr.sub_state |= SUB_ACK_SENT;
+
     /*
      * process SYN ACK on unestablished sessions
      */
-    if(TCP_STATE_SYN_SENT == listener->s_mgr.state)
+    if( (TCP_STATE_SYN_SENT == listener->s_mgr.state) &&
+        (TCP_STATE_LISTEN == talker->s_mgr.state) )
     {
         if(p->tcph->th_flags & TH_ACK)
         {
@@ -7380,7 +7570,8 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
     /*
      * check for repeat SYNs 
      */
-    if(p->tcph->th_flags & TH_SYN)
+    if ( !new_ssn && 
+        ((p->tcph->th_flags & (TH_SYN|TH_ACK)) == TH_SYN) )
     {
         int action = RepeatedSyn(listener, talker, tdb, tcpssn);
 
@@ -7434,12 +7625,20 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                     "   %s [listener] state: %s\n", l, 
                     state_names[listener->s_mgr.state]););
+
         switch(listener->s_mgr.state)
         {
+            case TCP_STATE_SYN_SENT:
+                if ( !require3Way )
+                    break;
+                // fall thru ...
             case TCP_STATE_SYN_RCVD:
                 STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                             "listener state is SYN_SENT...\n"););
-                if(IsBetween(listener->l_unackd, listener->l_nxt_seq, tdb->ack))
+                if(IsBetween(listener->l_unackd, listener->l_nxt_seq, tdb->ack) &&
+                    ( !require3Way ||
+                        ((talker->s_mgr.sub_state == SUB_SETUP_OK) &&
+                        (listener->s_mgr.sub_state == SUB_SETUP_OK)) )) 
                 {
                     UpdateSsn(listener, talker, tdb);
                     lwssn->session_flags |= SSNFLAG_ESTABLISHED;
@@ -7447,8 +7646,6 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                     listener->s_mgr.state = TCP_STATE_ESTABLISHED;
                     talker->s_mgr.state = TCP_STATE_ESTABLISHED;
                     Stream5UpdatePerfBaseState(&sfBase, tcpssn->lwssn, TCP_STATE_ESTABLISHED);
-                    //ssn_rate.est_rate++;
-
                     /* Indicate this packet completes 3-way handshake */
                     p->packet_flags |= PKT_STREAM_TWH;
                 }
@@ -7480,35 +7677,33 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                             "tdb->ack %X >= talker->r_nxt_ack %X\n",
                             tdb->ack, talker->r_nxt_ack););
-                if(SEQ_GEQ(tdb->ack, talker->r_nxt_ack) &&
-                    (p->tcph->th_flags & TH_FIN))
+                if ( SEQ_EQ(tdb->ack, listener->l_nxt_seq) )
                 {
-                    STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
+                    listener->s_mgr.state = TCP_STATE_FIN_WAIT_2;
+
+                    if ( (p->tcph->th_flags & TH_FIN) )
+                    {
+                        STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                                 "seq ok, setting state!\n"););
 
-                    if (talker->s_mgr.state_queue == TCP_STATE_NONE)
-                    {
-                        talker->s_mgr.state = TCP_STATE_LAST_ACK;
-                        if (listener->s_mgr.state_queue == TCP_STATE_NONE)
+                        if (talker->s_mgr.state_queue == TCP_STATE_NONE)
                         {
-                            listener->s_mgr.state = TCP_STATE_FIN_WAIT_2;
-                        }
-                    }                  
+                            talker->s_mgr.state = TCP_STATE_LAST_ACK;
+                        }                  
+                        listener->s_mgr.state_queue = TCP_STATE_TIME_WAIT;
+                        listener->s_mgr.transition_seq = tdb->end_seq;
+                        listener->s_mgr.expected_flags = TH_ACK;
+                    }
+                    else if ( TCP_STATE_CLOSING == listener->s_mgr.state_queue )
+                    {
+                        // already got the fin ...
+                        listener->s_mgr.state_queue = TCP_STATE_TIME_WAIT;
+                    }
                 }
                 else
                 {
                     STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                                 "seq bad!\n"););
-                }
-                break;
-
-            case TCP_STATE_FIN_WAIT_2:
-                if(SEQ_GEQ(tdb->end_seq, listener->r_nxt_ack))
-                {
-                    if (listener->s_mgr.state_queue == TCP_STATE_NONE)
-                    {
-                        listener->s_mgr.state = TCP_STATE_TIME_WAIT;
-                    }
                 }
                 break;
 
@@ -7542,14 +7737,14 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                     state_names[listener->s_mgr.state], 
                     listener->s_mgr.state););
 
-        if(TCP_STATE_CLOSE_WAIT == listener->s_mgr.state || 
-           TCP_STATE_LAST_ACK == listener->s_mgr.state   || 
-           TCP_STATE_CLOSING == listener->s_mgr.state    || 
-           TCP_STATE_TIME_WAIT == listener->s_mgr.state)
+        // FIN means only that sender is done talking,
+        // other side may continue yapping.
+        if(TCP_STATE_FIN_WAIT_2 == talker->s_mgr.state || 
+           TCP_STATE_TIME_WAIT == talker->s_mgr.state)
         {
             /* data on a segment when we're not accepting data any more */
             /* alert! */
-            //EventDataOnClosed(listener->tcp_policy);
+            //EventDataOnClosed(talker->tcp_policy);
             eventcode |= EVENT_DATA_ON_CLOSED;
             retcode |= ACTION_BAD_PKT;
         }
@@ -7593,6 +7788,10 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
 
     if(p->tcph->th_flags & TH_FIN)
     {
+        // r_nxt_ack includes fin iff data present
+        uint32_t seq = tdb->end_seq;
+        if ( !p->dsize ) seq--;
+
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                     "Got an FIN...\n"););
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
@@ -7602,57 +7801,48 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
 
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                     "checking ack (0x%X) vs nxt_ack (0x%X)\n",
-                    tdb->seq, listener->r_nxt_ack););
-        if(SEQ_LT(tdb->seq,listener->r_nxt_ack))
+                    seq, listener->r_nxt_ack););
+        if(SEQ_LT(seq,listener->r_nxt_ack))
         {
             STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                         "FIN inside r_last_ack, bailing\n"););
             goto dupfin;
         }
-        else
+        else if(SEQ_EQ(seq,listener->r_nxt_ack))
         {
-            listener->r_nxt_ack++;
-
             switch(talker->s_mgr.state)
             {
                 case TCP_STATE_SYN_RCVD:
                 case TCP_STATE_ESTABLISHED:
+                    if ( !p->dsize ) seq++;
 
                     if (talker->s_mgr.state_queue == TCP_STATE_CLOSE_WAIT)
                     {
-                        /* Talker sent a FIN.  Move him to transition
-                         * to closed when he receives the ACK of this FIN.
-                         * CLOSED */
-                        talker->s_mgr.state_queue = TCP_STATE_CLOSED;
-                        talker->s_mgr.transition_seq = tdb->ack + 1;
-                        talker->s_mgr.expected_flags = TH_ACK;
+                        talker->s_mgr.state_queue = TCP_STATE_CLOSING;
                     }
-                    else
-                    {
-                        talker->s_mgr.state = TCP_STATE_FIN_WAIT_1;
-                    }
+                    talker->s_mgr.state = TCP_STATE_FIN_WAIT_1;
+
                     Stream5UpdatePerfBaseState(&sfBase, tcpssn->lwssn, TCP_STATE_CLOSING);
 
-                    /* this transition should be queued! */
-                    //QueueState(CLOSE_WAIT, listener, TH_ACK, tdb->seq, 1);
-
-                    //listener->s_mgr.state = TCP_STATE_CLOSE_WAIT;
                     if (listener->s_mgr.state == TCP_STATE_FIN_WAIT_1)
                     {
                         /* Simultaneous Close */
-                        listener->s_mgr.state_queue = TCP_STATE_TIME_WAIT;
-                        listener->s_mgr.transition_seq = tdb->seq + 1;
+                        listener->s_mgr.state_queue = TCP_STATE_CLOSING;
+                        listener->s_mgr.transition_seq = seq;
                         listener->s_mgr.expected_flags = TH_ACK;
                     }
                     else if ((listener->s_mgr.state != TCP_STATE_CLOSED) &&
                              (listener->s_mgr.state != TCP_STATE_TIME_WAIT))
                     {
                         listener->s_mgr.state_queue = TCP_STATE_CLOSE_WAIT;
-                        listener->s_mgr.transition_seq = tdb->seq + 1;
+                        listener->s_mgr.transition_seq = seq;
                         listener->s_mgr.expected_flags = TH_ACK;
                     }
                     break;
-
+/*
+                // state transitions need tweaking here ...
+                // don't want to move listener to TWT just because
+                // talker sent FIN in these states.
                 case TCP_STATE_FIN_WAIT_1:
                     listener->s_mgr.state = TCP_STATE_TIME_WAIT;
                     break;
@@ -7664,11 +7854,16 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 case TCP_STATE_LAST_ACK:
                     listener->s_mgr.state = TCP_STATE_TIME_WAIT;
                     break;
-
+*/
                     /* all other states stay where they are */
                 default:
                     break;
             }
+        }
+        else
+        {
+            STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
+                "FIN beyond r_last_ack, ignoring\n"););
         }
     }
 
@@ -8064,6 +8259,43 @@ int GetTcpRebuiltPackets(Packet *p, Stream5LWSession *ssn,
     for (ss = st->seglist; ss && ss->buffered; ss = ss->next)
     {
         callback(&ss->pkth, ss->pkt, userdata);
+        packets++;
+    }
+
+    return packets;
+}
+
+/* Iterates through the packets that were reassembled for
+ * logging of tagged packets.
+ */
+int GetTcpStreamSegments(Packet *p, Stream5LWSession *ssn,
+        StreamSegmentIterator callback, void *userdata)
+{
+    int packets = 0;
+    TcpSession *tcpssn = (TcpSession *)ssn->proto_specific_data->data;
+    StreamTracker *st;
+    StreamSegment *ss;
+
+    if (tcpssn == NULL)
+        return -1;
+
+    /* StreamTracker is the opposite of the ip of the reassembled
+     * packet --> it came out the queue for the other side */
+#ifdef SUP_IP6
+    if (IP_EQUALITY(GET_SRC_IP(p), &tcpssn->tcp_client_ip))
+#else
+    if (IP_EQUALITY(GET_SRC_IP(p), tcpssn->tcp_client_ip))
+#endif
+        st = &tcpssn->server;
+    else
+        st = &tcpssn->client;
+
+    /* Can stop when we hit a packet that wasn't "buffered"
+     * since the segments should be in seq number order */
+    for (ss = st->seglist; (ss != NULL) && ss->buffered; ss = ss->next)
+    {
+        if (callback(&ss->pkth, ss->pkt, ss->data, ss->seq, userdata) != 0)
+            return -1;
         packets++;
     }
 
@@ -8525,7 +8757,7 @@ int s5TcpStreamSizeInit(char *name, char *parameters, void **dataPtr)
             file_name, file_line, toks[1], name);
     }
 
-    ssod->size = strtoul(toks[2], &endp, 0);
+    ssod->size = SnortStrtoul(toks[2], &endp, 0);
     if ((endp == toks[2]) || (errno == ERANGE))
     {
         FatalError("%s(%d): Invalid size: %s for option %s\n", 

@@ -2,9 +2,9 @@
 
 %latex2html -info 0 -local_icons -show_section_numbers -link 2 -split +1 faq.tex
 \documentclass{article}
-\usepackage{hyperref}
+\usepackage{html}
 \usepackage{graphicx}
-\usepackage{fancyhdr}
+\usepackage{fancyheadings}
 \usepackage{makeidx}
 
 %% Margins
@@ -98,11 +98,11 @@ book. (route++)
 
 \newpage
 
-%\begin{latexonly}
+\begin{latexonly}
 \tableofcontents
 
 \newpage
-%\end{latexonly}
+\end{latexonly}
 
 \section{Background}
 

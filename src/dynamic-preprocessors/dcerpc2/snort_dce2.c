@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -1608,14 +1608,19 @@ SFSnortPacket * DCE2_GetRpkt(const SFSnortPacket *wire_pkt, DCE2_RpktType rpkt_t
 
         if (((EtherHeader *)wire_pkt->ether_header)->ethernet_type == htons(ETHERNET_TYPE_8021Q))
         {
-            status = SafeMemcpy((void *)rpkt->vlan_tag_header,
+            status = DCE2_Memcpy((void *)rpkt->vlan_tag_header,
                     (void *)wire_pkt->vlan_tag_header,
                     (size_t)VLAN_HDR_LEN,
                     (void *)rpkt->vlan_tag_header,
                     (void *)((uint8_t *)rpkt->vlan_tag_header + VLAN_HDR_LEN));
 
-            if (status != SAFEMEM_SUCCESS)
+            if (status != DCE2_RET__SUCCESS)
+            {
+                DCE2_Log(DCE2_LOG_TYPE__ERROR,
+                        "%s(%d) Failed to copy vlan header into reassembly packet.",
+                        __FILE__, __LINE__);
                 return NULL;
+            }
 
             vlanHeaderLen = VLAN_HDR_LEN;
         }
@@ -1794,8 +1799,10 @@ DCE2_Ret DCE2_PushPkt(SFSnortPacket *p)
 
         PREPROC_PROFILE_START(dce2_pstat_log);
 
+        _dpd.pushAlerts();
         _dpd.logAlerts((void *)top_pkt);
         _dpd.resetAlerts();
+        _dpd.popAlerts();
 
         PREPROC_PROFILE_END(dce2_pstat_log);
     }
@@ -1832,8 +1839,10 @@ void DCE2_PopPkt(void)
         return;
     }
 
+    _dpd.pushAlerts();
     _dpd.logAlerts((void *)pop_pkt);
     _dpd.resetAlerts();
+    _dpd.popAlerts();
 
     PREPROC_PROFILE_END(dce2_pstat_log);
 }
@@ -1869,7 +1878,9 @@ void DCE2_Detect(DCE2_SsnData *sd)
 
     PREPROC_PROFILE_START(dce2_pstat_detect);
 
+    _dpd.pushAlerts();
     _dpd.detect(top_pkt);
+    _dpd.popAlerts();
 
     PREPROC_PROFILE_END(dce2_pstat_detect);
 

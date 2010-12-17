@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -329,7 +329,7 @@ int     ipset_add     ( IPSET * ipset, sfip_t *ip, void * vport, int notflag)
 
         sfip_set_ip(&p->ip, ip);
         p->portset = *portset;
-        p->notflag = notflag;
+        p->notflag = (char)notflag;
 
         if( notflag )sflist_add_head( &ipset->ip_list, p ); // test NOT items 1st
         else         sflist_add_tail( &ipset->ip_list, p );

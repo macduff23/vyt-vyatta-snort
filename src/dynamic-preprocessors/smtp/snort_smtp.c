@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -1300,6 +1300,7 @@ static const uint8_t * SMTP_HandleData(SFSnortPacket *p, const uint8_t *ptr, con
 #endif
 
         ptr = SMTP_HandleHeader(p, ptr, data_end_marker);
+        _dpd.setFileDataPtr(ptr);
         if (ptr == NULL)
             return NULL;
     }
@@ -2118,6 +2119,7 @@ static void SMTP_DisableDetect(SFSnortPacket *p)
     _dpd.setPreprocBit(p, PP_SFPORTSCAN);
     _dpd.setPreprocBit(p, PP_PERFMONITOR);
     _dpd.setPreprocBit(p, PP_STREAM5);
+    _dpd.setPreprocBit(p, PP_SDF);
 }
 
 

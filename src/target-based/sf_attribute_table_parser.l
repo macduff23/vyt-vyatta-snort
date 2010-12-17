@@ -52,7 +52,7 @@ extern ServiceClient sfat_client_or_service;
 static int sfat_linenumber = 0;
 static char* sfat_filename;
 void sfat_error(char *err);
-int sfat_parse();
+int sfat_parse(void);
 
 /* Change flex buffer size from default 8K to STD_BUF bytes */
 #ifdef YY_BUF_SIZE
@@ -69,6 +69,7 @@ int sfat_parse();
 
 /* Not using this functionality */
 %option nounput
+%option noinput
 
 /* Optimise lexer for interactive use */
 %option never-interactive
@@ -256,6 +257,13 @@ int ParseTargetMap(char *filename)
     sfat_saved_file_set = 1;
 
     return ret;
+}
+
+void DestroyBufferStack(void)
+{
+#ifdef HAVE_YYLEX_DESTROY
+    sfatlex_destroy();
+#endif
 }
 
 void sfat_error(char *err)

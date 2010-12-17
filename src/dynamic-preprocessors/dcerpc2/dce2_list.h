@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -78,7 +78,7 @@ typedef struct _DCE2_List
     DCE2_ListKeyCompare compare;
     DCE2_ListDataFree data_free;
     DCE2_ListKeyFree key_free;
-    DCE2_ListFlags flags;
+    int flags;
     struct _DCE2_ListNode *head;
     struct _DCE2_ListNode *tail;
     struct _DCE2_ListNode *current;

@@ -9,7 +9,7 @@
  */
 
 /*
- ** Copyright (C) 2004-2009 Sourcefire, Inc.
+ ** Copyright (C) 2004-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -255,6 +255,7 @@ typedef struct _fragkey
 /* global configuration data struct for this preprocessor */
 typedef struct _Frag3Config
 {
+    int disabled;
     uint32_t   max_frags;            /* max frags to track */
     uint32_t   memcap;               /* memcap for frag3 */
     int ten_percent;                  /* holder for self preservation data */
@@ -1074,7 +1075,8 @@ void Frag3GlobalInit(char *args)
     Frag3PrintGlobalConfig(pCurrentPolicyConfig);
 
     /* register the preprocessor func node */
-    AddFuncToPreprocList(Frag3Defrag, PRIORITY_NETWORK, PP_FRAG3, PROTO_BIT__IP);
+    if ( !pCurrentPolicyConfig->disabled )
+        AddFuncToPreprocList(Frag3Defrag, PRIORITY_NETWORK, PP_FRAG3, PROTO_BIT__IP);
 }
 
 /**
@@ -1230,9 +1232,12 @@ static int Frag3VerifyConfigPolicy(
 {
     Frag3Config *pPolicyConfig = (Frag3Config *)pData;
 
+    if ( pPolicyConfig->disabled )
+        return 0;
+
     //do any housekeeping before processingFrag3Config
     if ((policyId != getDefaultPolicy()) 
-            && (pPolicyConfig->numFrag3Contexts == 0))
+        && (pPolicyConfig->numFrag3Contexts == 0))
     {
         FatalError("Frag3VerifyConfig: PolicyId %d, policy engine required "
                 "but not configured.\n", policyId);
@@ -1420,6 +1425,10 @@ static void Frag3ParseGlobalArgs(Frag3Config *gconfig, char *args)
                            file_line);
             }
         }
+        else if(!strcasecmp(stoks[0], "disabled"))
+        {
+            gconfig->disabled = 1;
+        }
         else
         {
             FatalError("%s(%d) => Invalid Frag3 global option (%s)\n",
@@ -1468,7 +1477,7 @@ static void Frag3ParseArgs(char *args, Frag3Context *context)
             }
             else
             {
-                value = strtol(arg, &endptr, 10);
+                value = SnortStrtol(arg, &endptr, 10);
                 if ((errno == ERANGE) || (*endptr != '\0') || (value < 0))
                     error = 1;
             }
@@ -1490,7 +1499,7 @@ static void Frag3ParseArgs(char *args, Frag3Context *context)
             }
             else
             {
-                value = strtol(arg, &endptr, 10);
+                value = SnortStrtol(arg, &endptr, 10);
                 if ((errno == ERANGE) || (*endptr != '\0')
                         || (value < 0) || (value > UINT8_MAX))
                 {
@@ -1548,7 +1557,7 @@ static void Frag3ParseArgs(char *args, Frag3Context *context)
             }
             else
             {
-                value = strtol(arg, &endptr, 10);
+                value = SnortStrtol(arg, &endptr, 10);
                 if ((errno == ERANGE) || (*endptr != '\0') || (value < 0))
                     error = 1;
             }
@@ -1570,7 +1579,7 @@ static void Frag3ParseArgs(char *args, Frag3Context *context)
             }
             else
             {
-                value = strtol(arg, &endptr, 10);
+                value = SnortStrtol(arg, &endptr, 10);
                 if ((errno == ERANGE) || (*endptr != '\0') || (value < 0))
                     error = 1;
             }
@@ -4200,7 +4209,9 @@ static void Frag3Rebuild(FragTracker *ft, Packet *p)
         //ClearDumpBuf();
     }
 #endif
+    SnortEventqPush();
     ProcessPacket(NULL, defrag_pkt.pkth, defrag_pkt.pkt, ft);
+    SnortEventqPop();
 
     DEBUG_WRAP(DebugMessage(DEBUG_FRAG, 
                 "Done with rebuilt packet, marking rebuilt...\n"););
@@ -5040,7 +5051,8 @@ static void Frag3ReloadGlobal(char *args)
 
     Frag3PrintGlobalConfig(pCurrentPolicyConfig);
 
-    AddFuncToPreprocList(Frag3Defrag, PRIORITY_NETWORK, PP_FRAG3, PROTO_BIT__IP);
+    if ( !pCurrentPolicyConfig->disabled )
+        AddFuncToPreprocList(Frag3Defrag, PRIORITY_NETWORK, PP_FRAG3, PROTO_BIT__IP);
 }
 
 static void Frag3ReloadEngine(char *args)

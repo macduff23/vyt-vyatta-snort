@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2005-2009 Sourcefire, Inc.
+ ** Copyright (C) 2005-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -65,6 +65,7 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
 
     _dpd.version = dpd->version;
     _dpd.size = dpd->size;
+
     _dpd.altBuffer = dpd->altBuffer;
     _dpd.altBufferLen = dpd->altBufferLen;
     for (i=0;i<MAX_URIINFOS;i++)
@@ -87,6 +88,7 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
     _dpd.totalPerfStats = dpd->totalPerfStats;
 
     _dpd.alertAdd = dpd->alertAdd;
+    _dpd.genSnortEvent = dpd->genSnortEvent;
     _dpd.thresholdCheck = dpd->thresholdCheck;
 
     _dpd.inlineMode = dpd->inlineMode;
@@ -128,6 +130,8 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
 
     _dpd.logAlerts = dpd->logAlerts;
     _dpd.resetAlerts = dpd->resetAlerts;
+    _dpd.pushAlerts = dpd->pushAlerts;
+    _dpd.popAlerts = dpd->popAlerts;
 
 #ifdef TARGET_BASED
     _dpd.findProtocolReference = dpd->findProtocolReference;
@@ -146,6 +150,14 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
     _dpd.getParserPolicy = dpd->getParserPolicy;
     _dpd.getDefaultPolicy = dpd->getDefaultPolicy;
     _dpd.setParserPolicy = dpd->setParserPolicy;
+    _dpd.setFileDataPtr = dpd->setFileDataPtr;
+    _dpd.SnortStrtol = dpd->SnortStrtol;
+    _dpd.SnortStrtoul = dpd->SnortStrtoul; 
+
+    _dpd.fpEvalRTN = dpd->fpEvalRTN;
+    _dpd.portObjectCharPortArray = dpd->portObjectCharPortArray;
+
+    _dpd.obApi = dpd->obApi;
 
     DYNAMIC_PREPROC_SETUP();
     return 0;

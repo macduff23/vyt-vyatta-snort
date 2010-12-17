@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -37,20 +37,28 @@ int RegisterPreprocessorRuleOption(
     PreprocOptionEval evalFunc,
     PreprocOptionCleanup cleanupFunc,
     PreprocOptionHash hashFunc,
-    PreprocOptionKeyCompare keyCompareFunc
+    PreprocOptionKeyCompare keyCompareFunc,
+    PreprocOptionOtnHandler otnHandler,
+    PreprocOptionFastPatternFunc fpFunc
 );
+
 void RegisterPreprocessorRuleOptionOverride(
     char *keyword, char *option,
     PreprocOptionInit initFunc,
     PreprocOptionEval evalFunc,
     PreprocOptionCleanup cleanupFunc,
     PreprocOptionHash hashFunc,
-    PreprocOptionKeyCompare keyCompareFunc
+    PreprocOptionKeyCompare keyCompareFunc,
+    PreprocOptionOtnHandler otnHandler,
+    PreprocOptionFastPatternFunc fpFunc
 );
+
 int GetPreprocessorRuleOptionFuncs(
     char *optionName,
     PreprocOptionInit* initFunc,
-    PreprocOptionEval* evalFunc
+    PreprocOptionEval* evalFunc,
+    PreprocOptionOtnHandler* otnHandler,
+    PreprocOptionFastPatternFunc* fpFunc
 );
 
 int AddPreprocessorRuleOption(char *, OptTreeNode *, void *, PreprocOptionEval);
@@ -58,6 +66,7 @@ int AddPreprocessorRuleOption(char *, OptTreeNode *, void *, PreprocOptionEval);
 u_int32_t PreprocessorRuleOptionHash(void *d);
 int PreprocessorRuleOptionCompare(void *l, void *r);
 void PreprocessorRuleOptionsFreeFunc(void *);
+int GetPreprocFastPatterns(void *, int, int, FPContentInfo **);
 
 #endif  /* __SP_PREPROCOPT_H_ */
 

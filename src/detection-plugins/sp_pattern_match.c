@@ -1,5 +1,6 @@
+/* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -18,93 +19,708 @@
 ** Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
-/* $Id$ */
-
 /* 
  * 06/07/2007 - tw
  * Commented out 'content-list' code since it's considered broken and there
  * are no plans to fix it
  */
 
-#include <errno.h>
-
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+# include "config.h"
 #endif
 
+#include <errno.h>
 #ifdef HAVE_STRINGS_H
-#include <strings.h>
+# include <strings.h>
 #endif
-
 #ifdef DEBUG
-#include <assert.h>
+# include <assert.h>
 #endif
 
 #include "sp_pattern_match.h"
 #include "sp_replace.h"
 #include "bounds.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 #include "debug.h"
 #include "mstring.h"
 #include "util.h" 
-#include "parser.h"  /* why does parser.h define Add functions.. */
+#include "parser.h"
 #include "plugin_enum.h"
 #include "checksum.h"
 #include "inline.h"
 #include "sfhashfcn.h"
 #include "spp_httpinspect.h"
-
 #include "snort.h"
 #include "profiler.h"
+#include "sfhashfcn.h"
+#include "detection_options.h"
+
+/********************************************************************
+ * Macros
+ ********************************************************************/
+#define MAX_PATTERN_SIZE 2048
+#define PM_FP_ONLY  "only"
+#define URIBUFS_SET(pmd, flags) (((pmd)->uri_buffer & (flags)) == (flags))
+
+/********************************************************************
+ * Global variables
+ ********************************************************************/
 #ifdef PERF_PROFILING
 PreprocStats contentPerfStats;
 PreprocStats uricontentPerfStats;
-extern PreprocStats ruleOTNEvalPerfStats;
 #endif
-
-#define MAX_PATTERN_SIZE 2048
-
-static void PayloadSearchInit(char *, OptTreeNode *, int);
-//static void PayloadSearchListInit(char *, OptTreeNode *, int);
-//static void ParseContentListFile(char *, OptTreeNode *, int);
-static void PayloadSearchUri(char *, OptTreeNode *, int);
-static void PayloadSearchHttpBody(char *, OptTreeNode *, int);
-static void PayloadSearchHttpUri(char *, OptTreeNode *, int);
-static void PayloadSearchHttpHeader(char *, OptTreeNode *, int);
-static void PayloadSearchHttpMethod(char *, OptTreeNode *, int);
-static void PayloadSearchHttpCookie(char *, OptTreeNode *, int);
-static void PayloadSearchFastPattern(char *data, OptTreeNode *otn, int protocol);
-//void ParsePattern(char *, OptTreeNode *, int);
-//int CheckANDPatternMatch(void *option_data, Packet *p);
-//int CheckORPatternMatch(void *option_data, Packet *p);
-//int CheckUriPatternMatch(void *option_data, Packet *p);
-static void PayloadSearchOffset(char *, OptTreeNode *, int);
-static void PayloadSearchDepth(char *, OptTreeNode *, int);
-static void PayloadSearchNocase(char *, OptTreeNode *, int);
-static void PayloadSearchDistance(char *, OptTreeNode *, int);
-static void PayloadSearchWithin(char *, OptTreeNode *, int);
-static void PayloadSearchRawbytes(char *, OptTreeNode *, int);
-static int uniSearchReal(const char *data, int dlen, PatternMatchData *pmd, int nocase);
-
-//PatternMatchData * NewNode(OptTreeNode *, int);
-void PayloadSearchCompile();
-
-int list_file_line;     /* current line being processed in the list file */
 int lastType = PLUGIN_PATTERN_MATCH;
 const uint8_t *doe_ptr;
+/* depth to the first char of the match - set in mstring.c */
+int detect_depth;
 
-int detect_depth;       /* depth to the first char of the match */
+#if 0
+/* For OR patterns - not currently used */
+int list_file_line;     /* current line being processed in the list file */
+#endif
 
-extern HttpUri UriBufs[URI_COUNT]; /* the set of buffers that we are using to match against
-                      set in decode.c */
+#ifdef DEBUG
+static char *uri_buffer_name[] =
+{
+    "http_uri",
+    "http_raw_uri",
+    "http_header",
+    "http_raw_header",
+    "http_client_body",
+    "http_method",
+    "http_cookie",
+    "http_raw_cookie",
+    "http_stat_code",
+    "http_stat_msg"
+};
+#endif
+
+/********************************************************************
+ * Extern variables
+ ********************************************************************/
+#ifdef PERF_PROFILING
+extern PreprocStats ruleOTNEvalPerfStats;
+#endif
+/* the set of buffers that we are using to match against set in decode.c */
+extern HttpUri UriBufs[URI_COUNT];
 extern uint8_t DecodeBuffer[DECODE_BLEN];
 
-extern char *file_name;
-extern int file_line;
+/********************************************************************
+ * Private function prototypes
+ ********************************************************************/
+static void PayloadSearchInit(char *, OptTreeNode *, int);
+static void PayloadSearchUri(char *, OptTreeNode *, int);
+static void PayloadSearchHttpMethod(char *, OptTreeNode *, int);
+static void PayloadSearchHttpUri(char *, OptTreeNode *, int);
+static void PayloadSearchHttpHeader(char *, OptTreeNode *, int);
+static void PayloadSearchHttpCookie(char *, OptTreeNode *, int);
+static void PayloadSearchHttpBody(char *, OptTreeNode *, int);
+static void PayloadSearchHttpRawUri(char *, OptTreeNode *, int);
+static void PayloadSearchHttpRawHeader(char *, OptTreeNode *, int);
+//static void PayloadSearchHttpRawBody(char *, OptTreeNode *, int);
+static void PayloadSearchHttpRawCookie(char *, OptTreeNode *, int);
+static void PayloadSearchHttpStatCode(char *, OptTreeNode *, int);
+static void PayloadSearchHttpStatMsg(char *, OptTreeNode *, int);
+static void PayloadSearchOffset(char *, OptTreeNode *, int);
+static void PayloadSearchDepth(char *, OptTreeNode *, int);
+static void PayloadSearchDistance(char *, OptTreeNode *, int);
+static void PayloadSearchWithin(char *, OptTreeNode *, int);
+static void PayloadSearchNocase(char *, OptTreeNode *, int);
+static void PayloadSearchRawbytes(char *, OptTreeNode *, int);
+static void PayloadSearchFastPattern(char *, OptTreeNode *, int);
+static INLINE int HasFastPattern(OptTreeNode *, int);
+static int32_t ParseInt(const char *, const char *);
+static INLINE PatternMatchData * GetLastPmdError(OptTreeNode *, int, const char *);
+static INLINE PatternMatchData * GetLastPmd(OptTreeNode *, int);
+static void ValidateHttpContentModifiers(PatternMatchData *);
+static void MovePmdToUriDsList(OptTreeNode *, PatternMatchData *);
+static char *PayloadExtractParameter(char *, int *);
+static INLINE void ValidateContent(PatternMatchData *, int);
+static unsigned int GetMaxJumpSize(char *, int);
+static INLINE int computeWithin(int, PatternMatchData *);
+static int uniSearch(const char *, int, PatternMatchData *);
+static int uniSearchReal(const char *data, int dlen, PatternMatchData *pmd, int nocase);
 
-#include "sfhashfcn.h"
-#include "detection_options.h"
+#if 0
+/* Not currently used - DO NOT REMOVE */
+static INLINE int computeDepth(int dlen, PatternMatchData * pmd);
+static int uniSearchREG(char * data, int dlen, PatternMatchData * pmd);
+#endif
+
+#if 0
+static const char *format_uri_buffer_str(int, int, char *);
+static void PayloadSearchListInit(char *, OptTreeNode *, int);
+static void ParseContentListFile(char *, OptTreeNode *, int);
+static void PrintDupDOTPmds(PatternMatchData *pmd,
+        PatternMatchData *pmd_dup, option_type_t type)
+#endif
+
+/********************************************************************
+ * Setup and parsing functions
+ ********************************************************************/
+void SetupPatternMatch(void)
+{
+    /* initial pmd setup options */
+    RegisterRuleOption("content", PayloadSearchInit, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("uricontent", PayloadSearchUri, NULL, OPT_TYPE_DETECTION, NULL);
+
+    /* http content modifiers */
+    RegisterRuleOption("http_method", PayloadSearchHttpMethod, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_uri", PayloadSearchHttpUri, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_header", PayloadSearchHttpHeader, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_cookie", PayloadSearchHttpCookie, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_client_body", PayloadSearchHttpBody, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_raw_uri", PayloadSearchHttpRawUri, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_raw_header", PayloadSearchHttpRawHeader, NULL, OPT_TYPE_DETECTION, NULL);
+    /*RegisterRuleOption("http_raw_client_body", PayloadSearchHttpRawBody, NULL, OPT_TYPE_DETECTION, NULL);*/
+    RegisterRuleOption("http_raw_cookie", PayloadSearchHttpRawCookie, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_stat_code", PayloadSearchHttpStatCode, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("http_stat_msg", PayloadSearchHttpStatMsg, NULL, OPT_TYPE_DETECTION, NULL);
+
+    /* pattern offsets and depths */
+    RegisterRuleOption("offset", PayloadSearchOffset, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("depth", PayloadSearchDepth, NULL, OPT_TYPE_DETECTION, NULL);
+
+    /* distance and within are offset and depth, but relative to last match */
+    RegisterRuleOption("distance", PayloadSearchDistance, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("within", PayloadSearchWithin, NULL, OPT_TYPE_DETECTION, NULL);
+
+    /* other modifiers */
+    RegisterRuleOption("nocase", PayloadSearchNocase, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("rawbytes", PayloadSearchRawbytes, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("fast_pattern", PayloadSearchFastPattern, NULL, OPT_TYPE_DETECTION, NULL);
+    RegisterRuleOption("replace", PayloadReplaceInit, NULL, OPT_TYPE_DETECTION, NULL);
+
+#if 0
+    /* Not implemented yet */
+    RegisterRuleOption("content-list", PayloadSearchListInit, NULL, OPT_TYPE_DETECTION, NULL);
+#endif
+
+#ifdef PERF_PROFILING
+    RegisterPreprocessorProfile("content", &contentPerfStats, 3, &ruleOTNEvalPerfStats);
+    RegisterPreprocessorProfile("uricontent", &uricontentPerfStats, 3, &ruleOTNEvalPerfStats);
+#endif
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                "Plugin: PatternMatch Initialized!\n"););
+}
+
+static void PayloadSearchInit(char *data, OptTreeNode * otn, int protocol)
+{
+    OptFpList *fpl;
+    PatternMatchData *pmd;
+    char *data_end;
+    char *data_dup;
+    char *opt_data;
+    int opt_len = 0;
+    char *next_opt;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchInit()\n"););
+
+    /* whack a new node onto the list */
+    pmd = NewNode(otn, PLUGIN_PATTERN_MATCH);
+    lastType = PLUGIN_PATTERN_MATCH;
+
+    if (!data)
+        ParseError("No Content Pattern specified!");
+
+    data_dup = SnortStrdup(data);
+    data_end = data_dup + strlen(data_dup);
+
+    opt_data = PayloadExtractParameter(data_dup, &opt_len);
+
+    /* set up the pattern buffer */
+    ParsePattern(opt_data, otn, PLUGIN_PATTERN_MATCH);
+    next_opt = opt_data + opt_len;
+
+    /* link the plugin function in to the current OTN */
+    fpl = AddOptFuncToList(CheckANDPatternMatch, otn);
+    fpl->type = RULE_OPTION_TYPE_CONTENT;
+    pmd->buffer_func = CHECK_AND_PATTERN_MATCH;
+
+    fpl->context = pmd;
+    pmd->fpl = fpl;
+
+    // if content is followed by any comma separated options,
+    // we have to parse them here.  content related options
+    // separated by semicolons go straight to the callbacks.
+    while (next_opt < data_end)
+    {
+        char **opts;        /* dbl ptr for mSplit call, holds rule tokens */
+        int num_opts;       /* holds number of tokens found by mSplit */
+        char* opt1;
+
+        next_opt++;
+        if (next_opt == data_end)
+            break;
+
+        opt_len = 0;
+        opt_data = PayloadExtractParameter(next_opt, &opt_len);
+        if (!opt_data)
+            break;
+
+        next_opt = opt_data + opt_len;
+
+        opts = mSplit(opt_data, " \t", 2, &num_opts, 0);
+
+        if (!opts)
+            continue;
+        opt1 = (num_opts == 2) ? opts[1] : NULL;
+
+        if (!strcasecmp(opts[0], "offset"))
+        {
+            PayloadSearchOffset(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "depth"))
+        {
+            PayloadSearchDepth(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "nocase"))
+        {
+            PayloadSearchNocase(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "rawbytes"))
+        {
+            PayloadSearchRawbytes(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_uri"))
+        {
+            PayloadSearchHttpUri(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_client_body"))
+        {
+            PayloadSearchHttpBody(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_header"))
+        {
+            PayloadSearchHttpHeader(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_method"))
+        {
+            PayloadSearchHttpMethod(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_cookie"))
+        {
+            PayloadSearchHttpCookie(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_raw_uri"))
+        {
+            PayloadSearchHttpRawUri(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_raw_header"))
+        {
+            PayloadSearchHttpRawHeader(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_raw_cookie"))
+        {
+            PayloadSearchHttpRawCookie(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_stat_code"))
+        {
+            PayloadSearchHttpStatCode(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "http_stat_msg"))
+        {
+            PayloadSearchHttpStatMsg(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "fast_pattern"))
+        {
+            PayloadSearchFastPattern(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "distance"))
+        {
+            PayloadSearchDistance(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "within"))
+        {
+            PayloadSearchWithin(opt1, otn, protocol);
+        }
+        else if (!strcasecmp(opts[0], "replace"))
+        {
+            PayloadReplaceInit(opt1, otn, protocol);
+        }
+        else
+        {
+            ParseError("Invalid Content parameter specified!");
+        }
+        mSplitFree(&opts, num_opts);
+    }
+
+    free(data_dup);
+
+    if(pmd->use_doe == 1)
+        fpl->isRelative = 1;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                "OTN function PatternMatch Added to rule!\n"););
+}
+
+static void PayloadSearchUri(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = NewNode(otn, PLUGIN_PATTERN_MATCH_URI);
+    OptFpList *fpl;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchUri()\n"););
+
+    lastType = PLUGIN_PATTERN_MATCH_URI;
+
+    /* set up the pattern buffer */
+    ParsePattern(data, otn, PLUGIN_PATTERN_MATCH_URI);
+
+    pmd->uri_buffer |= HTTP_SEARCH_URI;
+
+    /* link the plugin function in to the current OTN */
+    fpl = AddOptFuncToList(CheckUriPatternMatch, otn);
+
+    fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
+    pmd->buffer_func = CHECK_URI_PATTERN_MATCH;
+
+    fpl->context = pmd;
+    pmd->fpl = fpl;
+
+    if (pmd->use_doe == 1)
+        fpl->isRelative = 1;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                "OTN function PatternMatch Added to rule!\n"););
+}
+
+static void PayloadSearchHttpMethod(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_method");
+
+    if (data != NULL)
+        ParseError("'http_method' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_METHOD;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpUri(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_uri");
+
+    if (data != NULL)
+        ParseError("'http_uri' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_URI;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpHeader(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_header");
+
+    if (data != NULL)
+        ParseError("'http_header' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_HEADER;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpCookie(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_cookie");
+
+    if (data != NULL)
+        ParseError("'http_cookie' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_COOKIE;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpBody(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_client_body");
+
+    if (data != NULL)
+        ParseError("'http_client_body' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_CLIENT_BODY;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpRawUri(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_raw_uri");
+
+    if (data != NULL)
+        ParseError("'http_raw_uri' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_RAW_URI;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+static void PayloadSearchHttpRawHeader(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_raw_header");
+
+    if (data != NULL)
+        ParseError("'http_raw_header' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_RAW_HEADER;
+    MovePmdToUriDsList(otn, pmd);
+}
+static void PayloadSearchHttpRawCookie(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_raw_cookie");
+
+    if (data != NULL)
+        ParseError("'http_raw_cookie' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_RAW_COOKIE;
+    MovePmdToUriDsList(otn, pmd);
+}
+static void PayloadSearchHttpStatCode(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_stat_code");
+
+    if (data != NULL)
+        ParseError("'http_stat_code' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_STAT_CODE;
+    MovePmdToUriDsList(otn, pmd);
+}
+static void PayloadSearchHttpStatMsg(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "http_stat_msg");
+
+    if (data != NULL)
+        ParseError("'http_stat_msg' does not take an argument");
+
+    pmd->uri_buffer |= HTTP_SEARCH_STAT_MSG;
+    MovePmdToUriDsList(otn, pmd);
+}
+
+
+static void PayloadSearchOffset(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "offset");
+
+    if (data == NULL)
+        ParseError("Missing argument to 'offset' option");
+
+    pmd->offset = ParseInt(data, "offset");
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Pattern offset = %d\n", 
+                pmd->offset););
+}
+
+static void PayloadSearchDepth(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "depth");
+
+    if (data == NULL)
+        ParseError("Missing argument to 'depth' option");
+
+    pmd->depth = ParseInt(data, "depth");
+
+    /* check to make sure that this the depth allows this rule to fire */
+    if ((pmd->depth != 0) && (pmd->depth < (int)pmd->pattern_size))
+    {
+        ParseError("The depth (%d) is less than the size of the content(%u)!",
+                pmd->depth, pmd->pattern_size);
+    }
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern depth = %d\n", 
+                pmd->depth););
+}
+
+static void PayloadSearchDistance(char *data, OptTreeNode *otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "distance");
+
+    if (data == NULL)
+        ParseError("Missing argument to 'distance' option");
+
+    pmd->distance = ParseInt(data, "distance");
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern distance = %d\n", 
+                pmd->distance););
+
+    /* Only do a relative search if this is a normal content match. */
+    if (lastType == PLUGIN_PATTERN_MATCH)
+    {
+        pmd->use_doe = 1;
+        pmd->fpl->isRelative = 1;
+    }
+}
+
+static void PayloadSearchWithin(char *data, OptTreeNode *otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "within");
+
+    if (data == NULL)
+        ParseError("Missing argument to 'within' option");
+
+    pmd->within = ParseInt(data, "within");
+
+    if (pmd->within < pmd->pattern_size)
+        ParseError("within (%d) is smaller than size of pattern", pmd->within);
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern within = %d\n", 
+                pmd->within););
+
+    /* Only do a relative search if this is a normal content match. */
+    if (lastType == PLUGIN_PATTERN_MATCH)
+    {
+        pmd->use_doe = 1;
+        pmd->fpl->isRelative = 1;
+    }
+}
+
+static void PayloadSearchNocase(char *data, OptTreeNode * otn, int protocol)
+{
+    unsigned int i;
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "nocase");
+
+    if (data != NULL)
+        ParseError("'nocase' does not take an argument");
+
+    for (i = 0; i < pmd->pattern_size; i++)
+        pmd->pattern_buf[i] = toupper((int)pmd->pattern_buf[i]);
+
+    pmd->nocase = 1;
+
+    pmd->search = uniSearchCI;
+    make_precomp(pmd);
+}
+
+static void PayloadSearchRawbytes(char *data, OptTreeNode * otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "rawbytes");
+
+    if (data != NULL)
+        ParseError("'rawbytes' does not take an argument");
+
+    /* mark this as inspecting a raw pattern match rather than a
+     * decoded application buffer */
+    pmd->rawbytes = 1;    
+}
+
+static void PayloadSearchFastPattern(char *data, OptTreeNode *otn, int protocol)
+{
+    PatternMatchData *pmd = GetLastPmdError(otn, lastType, "fast_pattern");
+
+    /* There can only be one fast pattern content in the rule, whether
+     * normal, http or other */
+    if (pmd->fp)
+    {
+        ParseError("Cannot set fast_pattern modifier more than once "
+                "for the same \"content\".");
+    }
+
+    if (HasFastPattern(otn, PLUGIN_PATTERN_MATCH))
+        ParseError("Can only use the fast_pattern modifier once in a rule.");
+    if (HasFastPattern(otn, PLUGIN_PATTERN_MATCH_URI))
+        ParseError("Can only use the fast_pattern modifier once in a rule.");
+    //if (HasFastPattern(otn, PLUGIN_PATTERN_MATCH_OR))
+    //    ParseError("Can only use the fast_pattern modifier once in a rule.");
+
+    pmd->fp = 1;
+
+    if (data != NULL)
+    {
+        char *error_str = "Rule option \"fast_pattern\": Invalid parameter: "
+            "\"%s\".  Valid parameters are: \"only\" | <offset>,<length>.  "
+            "Offset and length must be integers less than 65536, offset cannot "
+            "be negative, length must be positive and (offset + length) must "
+            "evaluate to less than or equal to the actual pattern length.  "
+            "Pattern length: %u";
+
+        if (isdigit((int)*data))
+        {
+            /* Specifying offset and length of pattern to use for
+             * fast pattern matcher */
+
+            long int offset, length;
+            char *endptr;
+            char **toks;
+            int num_toks;
+
+            toks = mSplit(data, ",", 0, &num_toks, 0);
+            if (num_toks != 2)
+            {
+                mSplitFree(&toks, num_toks);
+                ParseError(error_str, data, pmd->pattern_size);
+            }
+
+            offset = SnortStrtol(toks[0], &endptr, 0);
+            if ((errno == ERANGE) || (*endptr != '\0')
+                    || (offset < 0) || (offset > UINT16_MAX))
+            {
+                mSplitFree(&toks, num_toks);
+                ParseError(error_str, data, pmd->pattern_size);
+            }
+
+            length = SnortStrtol(toks[1], &endptr, 0);
+            if ((errno == ERANGE) || (*endptr != '\0')
+                    || (length <= 0) || (length > UINT16_MAX))
+            {
+                mSplitFree(&toks, num_toks);
+                ParseError(error_str, data, pmd->pattern_size);
+            }
+
+            mSplitFree(&toks, num_toks);
+
+            if ((int)pmd->pattern_size < (offset + length))
+                ParseError(error_str, data, pmd->pattern_size);
+
+            pmd->fp_offset = (uint16_t)offset;
+            pmd->fp_length = (uint16_t)length;
+        }
+        else
+        {
+            /* Specifies that this content should only be used for
+             * fast pattern matching */
+
+            if (strcasecmp(data, PM_FP_ONLY) != 0)
+                ParseError(error_str, data, pmd->pattern_size);
+
+            pmd->fp_only = 1;
+        }
+    }
+}
+
+static INLINE int HasFastPattern(OptTreeNode *otn, int list_type)
+{
+    PatternMatchData *tmp;
+
+    if ((otn == NULL) || (otn->ds_list[list_type] == NULL))
+        return 0;
+
+    for (tmp = otn->ds_list[list_type]; tmp != NULL; tmp = tmp->next)
+    {
+        if (tmp->fp)
+            return 1;
+    }
+
+    return 0;
+}
+
+PatternMatchData * NewNode(OptTreeNode *otn, int type)
+{
+    PatternMatchData *pmd = NULL;
+
+    if (otn->ds_list[type] == NULL)
+    {
+        otn->ds_list[type] = (PatternMatchData *)SnortAlloc(sizeof(PatternMatchData));
+        pmd = otn->ds_list[type];
+    }
+    else
+    {
+        pmd = GetLastPmd(otn, type);
+        if (pmd != NULL)
+        {
+            pmd->next = (PatternMatchData *)SnortAlloc(sizeof(PatternMatchData));
+            pmd->next->prev = pmd;
+            pmd = pmd->next;
+        }
+    }
+
+    return pmd;
+}
 
 void PatternMatchFree(void *d)
 {
@@ -113,18 +729,203 @@ void PatternMatchFree(void *d)
     if (pmd == NULL)
         return;
 
+    (void)RemovePmdFromList(pmd);
+
     if (pmd->pattern_buf)
         free(pmd->pattern_buf);
     if (pmd->replace_buf)
         free(pmd->replace_buf);
     if(pmd->skip_stride)
-       free(pmd->skip_stride);
+        free(pmd->skip_stride);
     if(pmd->shift_stride)
-       free(pmd->shift_stride);
+        free(pmd->shift_stride);
 
     free(pmd);
 }
 
+static int32_t ParseInt(const char* data, const char* tag)
+{
+    int32_t value = 0;
+    char *endptr = NULL;
+    
+    value = SnortStrtol(data, &endptr, 10);
+
+    if (*endptr)
+        ParseError("Invalid '%s' format.", tag);
+
+    if (errno == ERANGE)
+        ParseError("Range problem on '%s' value.", tag);
+
+    if ((value > 65535) || (value < -65535))
+        ParseError("'%s' must in -65535:65535", tag);
+
+    return value;
+}
+
+/* Used for content modifiers that are used as rule options - need to get the
+ * last pmd which is the one they are modifying.  If there isn't a last pmd
+ * error that a content must be specified before the modifier */
+static INLINE PatternMatchData * GetLastPmdError(OptTreeNode *otn, int type, const char *option)
+{
+    PatternMatchData *pmd = GetLastPmd(otn, type);
+
+    if (pmd == NULL)
+    {
+        ParseError("Please place \"content\" rules before \"%s\" modifier",
+                option == NULL ? "unknown" : option);
+    }
+
+    return pmd;
+}
+
+/* Gets the last pmd in the ds_list specified */
+static INLINE PatternMatchData * GetLastPmd(OptTreeNode *otn, int type)
+{
+    PatternMatchData *pmd;
+
+    if ((otn == NULL) || (otn->ds_list[type] == NULL))
+        return NULL;
+
+    for (pmd = otn->ds_list[type]; pmd->next != NULL; pmd = pmd->next);
+    return pmd;
+}
+
+
+/* Options that can't be used with http content modifiers.  Additionally
+ * http_inspect preprocessor needs to be enabled */
+static void ValidateHttpContentModifiers(PatternMatchData *pmd)
+{
+    if (pmd == NULL)
+        ParseError("Please place \"content\" rules before http content modifiers");
+
+    if (!IsPreprocEnabled(PP_HTTPINSPECT))
+    {
+        ParseError("Please enable the HTTP Inspect preprocessor "
+                "before using the http content modifiers");
+    }
+
+    if (pmd->replace_buf != NULL)
+    {
+        ParseError("\"replace\" option is not supported in conjunction with "
+                "http content modifiers");
+    }
+
+    if (pmd->rawbytes == 1)
+    {
+        ParseError("Cannot use 'rawbytes' and http content as modifiers for "
+                "the same \"content\"");
+    }
+
+    if ( URIBUFS_SET(pmd , (HTTP_SEARCH_URI | HTTP_SEARCH_RAW_URI)) )
+    {
+        ParseError("Cannot use 'http_uri' and 'http_raw_uri' modifiers for "
+                "the same \"content\"");
+    }
+
+    if ( URIBUFS_SET(pmd , (HTTP_SEARCH_HEADER | HTTP_SEARCH_RAW_HEADER)) )
+    {
+        ParseError("Cannot use 'http_header' and 'http_raw_header' modifiers for "
+                "the same \"content\"");
+    }
+    if ( URIBUFS_SET(pmd , (HTTP_SEARCH_COOKIE | HTTP_SEARCH_RAW_COOKIE)) )
+    {
+        ParseError("Cannot use 'http_cookie' and 'http_raw_cookie' modifiers for "
+                "the same \"content\"");
+    }
+}
+
+/* This is used if we get an http content modifier, since specifying "content"
+ * defaults to the PLUGIN_PATTERN_MATCH list.  We need to move the pmd to the
+ * PLUGIN_PATTERN_MATCH_URI list */
+static void MovePmdToUriDsList(OptTreeNode *otn, PatternMatchData *pmd)
+{
+    int type = PLUGIN_PATTERN_MATCH_URI;
+
+    /* It's not currently in the correct list */
+    if (lastType != type)
+    {
+        /* Just in case it's moved from the middle of the list */
+        if (pmd->prev != NULL)
+            pmd->prev->next = pmd->next;
+        if (pmd->next != NULL)
+            pmd->next->prev = pmd->prev;
+
+        /* Reset pointers */
+        pmd->next = NULL;
+        pmd->prev = NULL;
+
+        if (otn->ds_list[type] == NULL)
+        {
+            otn->ds_list[type] = pmd;
+        }
+        else
+        {
+            /* Make it the last in the URI list */
+            PatternMatchData *tmp;
+            for (tmp = otn->ds_list[type]; tmp->next != NULL; tmp = tmp->next);
+            tmp->next = pmd;
+            pmd->prev = tmp;
+        }
+
+        /* Set the last type to the URI list */
+        lastType = type;
+
+        /* Reset these to URI type */
+        pmd->fpl->OptTestFunc = CheckUriPatternMatch;
+        pmd->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
+        pmd->buffer_func = CHECK_URI_PATTERN_MATCH;
+    }
+}
+
+#if 0
+/* Not currently used */
+static void PrintDupDOTPmds(PatternMatchData *pmd,
+        PatternMatchData *pmd_dup, option_type_t type)
+{
+    int i;
+
+    if ((pmd == NULL) || (pmd_dup == NULL))
+        return;
+
+    LogMessage("Duplicate %sContent:\n"
+            "%d %d %d %d %d %d %d %d %d %d\n"
+            "%d %d %d %d %d %d %d %d %d %d\n",
+            option_type == RULE_OPTION_TYPE_CONTENT ? "" : "Uri",
+            pmd->exception_flag,
+            pmd->offset,
+            pmd->depth,
+            pmd->distance,
+            pmd->within,
+            pmd->rawbytes,
+            pmd->nocase,
+            pmd->use_doe,
+            pmd->uri_buffer,
+            pmd->pattern_max_jump_size,
+            pmd_dup->exception_flag,
+            pmd_dup->offset,
+            pmd_dup->depth,
+            pmd_dup->distance,
+            pmd_dup->within,
+            pmd_dup->rawbytes,
+            pmd_dup->nocase,
+            pmd_dup->use_doe,
+            pmd_dup->uri_buffer,
+            pmd_dup->pattern_max_jump_size);
+
+    for (i = 0; i < pmd->pattern_size; i++)
+        LogMessage("0x%x 0x%x", pmd->pattern_buf[i], pmd_dup->pattern_buf[i]);
+    LogMessage("\n");
+    for (i = 0; i < pmd->replace_size; i++)
+        LogMessage("0x%x 0x%x", pmd->replace_buf[i], pmd_dup->replace_buf[i]);
+    LogMessage("\n");
+    LogMessage("\n");
+}
+#endif
+
+/********************************************************************
+ * Functions for detection option tree hashing and comparison
+ * and other detection option tree uses
+ ********************************************************************/
 uint32_t PatternMatchHash(void *d)
 {
     uint32_t a,b,c,tmp;
@@ -234,7 +1035,14 @@ uint32_t PatternMatchHash(void *d)
     {
         a += RULE_OPTION_TYPE_CONTENT;
     }
-    b+= pmd->flags;
+
+    b += pmd->fp;
+    c += pmd->fp_only;
+
+    mix(a,b,c);
+
+    a += pmd->fp_offset;
+    b += pmd->fp_length;
 
     final(a,b,c); 
 
@@ -303,7 +1111,10 @@ int PatternMatchCompare(void *l, void *r)
         (left->uri_buffer == right->uri_buffer) &&
         (left->search == right->search) &&
         (left->pattern_max_jump_size == right->pattern_max_jump_size) &&
-        (left->flags == right->flags))
+        (left->fp == right->fp) &&
+        (left->fp_only == right->fp_only) &&
+        (left->fp_offset == right->fp_offset) &&
+        (left->fp_length == right->fp_length))
     {
         return DETECTION_OPTION_EQUAL;
     }
@@ -311,244 +1122,502 @@ int PatternMatchCompare(void *l, void *r)
     return DETECTION_OPTION_NOT_EQUAL;
 }
 
+/* This function is called in parser.c after the rule has been
+ * completely parsed */
 void FinalizeContentUniqueness(OptTreeNode *otn)
 {
     OptFpList *opt_fp = otn->opt_func;
-    option_type_t option_type;
-    PatternMatchData *pmd;
-    void *pmd_dup;
 
     while (opt_fp)
     {
-        if ((opt_fp->OptTestFunc == CheckANDPatternMatch) ||
-            (opt_fp->OptTestFunc == CheckUriPatternMatch))
+        if ((opt_fp->type == RULE_OPTION_TYPE_CONTENT)
+                || (opt_fp->type == RULE_OPTION_TYPE_CONTENT_URI))
         {
-            pmd = (PatternMatchData *)opt_fp->context;
-            if (opt_fp->OptTestFunc == CheckANDPatternMatch)
-                option_type = RULE_OPTION_TYPE_CONTENT;
+            PatternMatchData *pmd = (PatternMatchData *)opt_fp->context;
+            option_type_t option_type = opt_fp->type;
+            void *pmd_dup;
+
+            /* Since each content modifier can be parsed as a rule option,
+             * do this check now that the entire rule has been parsed */
+            if (option_type == RULE_OPTION_TYPE_CONTENT_URI)
+                ValidateContent(pmd, PLUGIN_PATTERN_MATCH_URI);
             else
-                option_type = RULE_OPTION_TYPE_CONTENT_URI;
+                ValidateContent(pmd, PLUGIN_PATTERN_MATCH);
 
             if (add_detection_option(option_type, (void *)pmd, &pmd_dup) == DETECTION_OPTION_EQUAL)
             {
+                 /* Don't do anything if they are the same pointer.  This might happen when
+                  * converting an so rule to a text rule via ConvertDynamicRule() in sf_convert_dynamic.c
+                  * since we need to iterate through the RTN list in the OTN to verify that for http
+                  * contents, the http_inspect preprocessor is enabled in the policy that is using a
+                  * rule with http contents. */
+                if (pmd != pmd_dup)
+                {
 #if 0
-                PatternMatchData *pmd_dup_ptr = (PatternMatchData *)pmd_dup;
-                LogMessage("Duplicate %sContent:\n"
-                    "%d %d %d %d %d %d %d %d %d %d\n"
-                    "%d %d %d %d %d %d %d %d %d %d\n",
-                    (opt_fp->OptTestFunc == CheckANDPatternMatch) ? "" : "Uri",
-                    pmd->exception_flag,
-                    pmd->offset,
-                    pmd->depth,
-                    pmd->distance,
-                    pmd->within,
-                    pmd->rawbytes,
-                    pmd->nocase,
-                    pmd->use_doe,
-                    pmd->uri_buffer,
-                    pmd->pattern_max_jump_size,
-                    pmd_dup_ptr->exception_flag,
-                    pmd_dup_ptr->offset,
-                    pmd_dup_ptr->depth,
-                    pmd_dup_ptr->distance,
-                    pmd_dup_ptr->within,
-                    pmd_dup_ptr->rawbytes,
-                    pmd_dup_ptr->nocase,
-                    pmd_dup_ptr->use_doe,
-                    pmd_dup_ptr->uri_buffer,
-                    pmd_dup_ptr->pattern_max_jump_size);
+                 PrintDupDOTPmds(pmd, (PatternMatchData *)pmd_dup, option_type);
 #endif
-/*
-                for (i=0;i<pmd->pattern_size;i++)
-                {
-                    LogMessage("0x%x 0x%x", pmd->pattern_buf[i], pmd_dup_ptr->pattern_buf[i]);
-                }
-                LogMessage("\n");
-                for (i=0;i<pmd->replace_size;i++)
-                {
-                    LogMessage("0x%x 0x%x", pmd->replace_buf[i], pmd_dup_ptr->replace_buf[i]);
-                }
-                LogMessage("\n");
-                LogMessage("\n");
-*/
-                if (pmd->buffer_func == CHECK_AND_PATTERN_MATCH)
-                {
-                    if (pmd == otn->ds_list[PLUGIN_PATTERN_MATCH])
-                    {
-                        otn->ds_list[PLUGIN_PATTERN_MATCH] = pmd_dup;
-                    }
-                }
-                else if (pmd->buffer_func == CHECK_URI_PATTERN_MATCH)
-                {
-                    if (pmd == otn->ds_list[PLUGIN_PATTERN_MATCH_URI])
-                    {
-                        otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = pmd_dup;
-                    }
-                }
 
-                PatternMatchFree(pmd);
-
-                opt_fp->context = pmd_dup;
+                    /* Hack since some places check for non-nullness of ds_list.
+                    * Beware of iterating the pmd lists after this point since
+                    * they'll be messed up - only check for non-nullness */
+                    if (option_type == RULE_OPTION_TYPE_CONTENT)
+                    {
+                        if (pmd == otn->ds_list[PLUGIN_PATTERN_MATCH])
+                            otn->ds_list[PLUGIN_PATTERN_MATCH] = pmd_dup;
+                    }
+                    else
+                    {
+                        if (pmd == otn->ds_list[PLUGIN_PATTERN_MATCH_URI])
+                            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = pmd_dup;
+                    }
+    
+                    PatternMatchFree(pmd);
+                    opt_fp->context = pmd_dup;
+                }
             }
+#if 0
             else
             {
-#if 0
                 LogMessage("Unique %sContent\n",
                     (opt_fp->OptTestFunc == CheckANDPatternMatch) ? "" : "Uri");
-#endif
             }
+#endif
         }
 
         opt_fp = opt_fp->next;
     }
-
-    return;
 }
 
-void PatternMatchDuplicatePmd(void *src, PatternMatchData *pmd_dup)
+void make_precomp(PatternMatchData * idx)
 {
-    /* Oh, C++ where r u?  can't we have a friggin' copy constructor? */
-    PatternMatchData *pmd_src = (PatternMatchData *)src;
-    if (!pmd_src || !pmd_dup)
+    if(idx->skip_stride)
+       free(idx->skip_stride);
+    if(idx->shift_stride)
+       free(idx->shift_stride);
+
+    idx->skip_stride = make_skip(idx->pattern_buf, idx->pattern_size);
+
+    idx->shift_stride = make_shift(idx->pattern_buf, idx->pattern_size);
+}
+
+static char *PayloadExtractParameter(char *data, int *result_len)
+{
+    char *quote_one = NULL, *quote_two = NULL;
+    char *comma = NULL;
+
+    quote_one = index(data, '"');
+    if (quote_one)
+    {
+        quote_two = index(quote_one+1, '"');
+        while ( quote_two && quote_two[-1] == '\\' )
+            quote_two = index(quote_two+1, '"');
+    }
+
+    if (quote_one && quote_two)
+    {
+        comma = index(quote_two, ',');
+    }
+    else if (!quote_one)
+    {
+        comma = index(data, ',');
+    }
+
+    if (comma)
+    {
+        *result_len = comma - data;
+        *comma = '\0';
+    }
+    else
+    {
+        *result_len = strlen(data);
+    }
+
+    return data;
+}
+
+/* Since each content modifier can be parsed as a rule option, do this check
+ * after parsing the entire rule in FinalizeContentUniqueness() */
+static INLINE void ValidateContent(PatternMatchData *pmd, int type)
+{
+    if (pmd == NULL)
         return;
 
-    pmd_dup->exception_flag = pmd_src->exception_flag;
-    pmd_dup->offset = pmd_src->offset;
-    pmd_dup->depth = pmd_src->depth;
-    pmd_dup->distance = pmd_src->distance;
-    pmd_dup->within = pmd_src->within;
-    pmd_dup->rawbytes = pmd_src->rawbytes;
-    pmd_dup->nocase = pmd_src->nocase;
-    pmd_dup->use_doe = pmd_src->use_doe;
-    pmd_dup->uri_buffer = pmd_src->uri_buffer;
-    pmd_dup->buffer_func = pmd_src->buffer_func;
-    pmd_dup->pattern_size = pmd_src->pattern_size;
-    pmd_dup->replace_size = pmd_src->replace_size;
-    pmd_dup->replace_buf = pmd_src->replace_buf;
-    pmd_dup->pattern_buf = pmd_src->pattern_buf;
-    pmd_dup->search = pmd_src->search;
-    pmd_dup->skip_stride = pmd_src->skip_stride;
-    pmd_dup->shift_stride = pmd_src->shift_stride;
-    pmd_dup->pattern_max_jump_size = pmd_src->pattern_max_jump_size;
-    pmd_dup->flags = pmd_src->flags;
-
-    pmd_dup->last_check.ts.tv_sec = pmd_src->last_check.ts.tv_sec;
-    pmd_dup->last_check.ts.tv_usec = pmd_src->last_check.ts.tv_usec;
-    pmd_dup->last_check.packet_number = pmd_src->last_check.packet_number;
-    pmd_dup->last_check.rebuild_flag = pmd_src->last_check.rebuild_flag;
-
-    pmd_dup->next = NULL;
-    pmd_dup->fpl = NULL;
-
-    Replace_ResetOffset(pmd_dup);
-}
-
-int PatternMatchAdjustRelativeOffsets(PatternMatchData *pmd, const uint8_t *orig_doe_ptr, const uint8_t *start_doe_ptr, const uint8_t *dp)
-{
-    int retval = 1; /* return 1 if still valid */
-
-    if (orig_doe_ptr)
+    if (pmd->fp)
     {
-        if (((pmd->distance != 0) && ((int)(start_doe_ptr - orig_doe_ptr) > pmd->distance)) ||
-            ((pmd->offset != 0) && ((int)(start_doe_ptr - orig_doe_ptr) > pmd->offset)))
+        if ((type == PLUGIN_PATTERN_MATCH_URI) && !IsHttpBufFpEligible(pmd->uri_buffer))
+
         {
-            /* This was relative to a previously found pattern.
-             * No space left to search, we're done */
-            retval = 0;
+            ParseError("Cannot use the fast_pattern content modifier for a lone "
+                    "http cookie/http raw uri /http raw header /http raw cookie /status code / status msg buffer content.");
         }
 
-        if (((pmd->within != 0) && ((int)(start_doe_ptr - orig_doe_ptr + pmd->pattern_size) > pmd->within)) ||
-            ((pmd->depth != 0) && ((int)(start_doe_ptr - orig_doe_ptr + pmd->pattern_size) > pmd->depth)))
+        if (pmd->use_doe || (pmd->offset != 0) || (pmd->depth != 0))
         {
-            /* This was within to a previously found pattern.
-             * No space left to search, we're done */
-            retval = 0;
-        }
-    }
-    else
-    {
-        if (((pmd->distance != 0) && (start_doe_ptr - dp > pmd->distance)) ||
-            ((pmd->offset != 0) && (start_doe_ptr - dp > pmd->offset)))
-        {
-            /* This was relative to a beginning of packet.
-             * No space left to search, we're done */
-            retval = 0;
+            if (pmd->exception_flag)
+            {
+                ParseError("Cannot use the fast_pattern modifier for negated, "
+                        "relative or non-zero offset/depth content searches.");
+            }
+
+            if (pmd->fp_only)
+            {
+                ParseError("Fast pattern only contents cannot be relative or "
+                        "have non-zero offset/depth content modifiers.");
+            }
         }
 
-        if (((pmd->within != 0) && ((int)(start_doe_ptr - dp + pmd->pattern_size) > pmd->within)) ||
-            ((pmd->depth != 0) && ((int)(start_doe_ptr - dp + pmd->pattern_size) > pmd->depth)))
+        if (pmd->fp_only)
         {
-            /* This was within to a previously found pattern.
-             * No space left to search, we're done */
-            retval = 0;
+            if (pmd->replace_buf != NULL)
+            { 
+                ParseError("Fast pattern only contents cannot use "
+                        "replace modifier.");
+            }
+
+            if (pmd->exception_flag)
+                ParseError("Fast pattern only contents cannot be negated.");
         }
     }
-    return retval;
+
+    if (type == PLUGIN_PATTERN_MATCH_URI)
+        ValidateHttpContentModifiers(pmd);
 }
 
-
-void SetupPatternMatch(void)
+/****************************************************************************
+ *
+ * Function: GetMaxJumpSize(char *, int)
+ *
+ * Purpose: Find the maximum number of characters we can jump ahead
+ *          from the current offset when checking for this pattern again.
+ *
+ * Arguments: data => the pattern string
+ *            data_len => length of pattern string
+ *
+ * Returns: int => number of bytes before pattern repeats within itself
+ *
+ ***************************************************************************/
+static unsigned int GetMaxJumpSize(char *data, int data_len)
 {
-    RegisterRuleOption("content", PayloadSearchInit, NULL, OPT_TYPE_DETECTION);
-    //RegisterRuleOption("content-list", PayloadSearchListInit, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("offset", PayloadSearchOffset, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("depth", PayloadSearchDepth, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("nocase", PayloadSearchNocase, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("rawbytes", PayloadSearchRawbytes, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("uricontent", PayloadSearchUri, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("http_client_body", PayloadSearchHttpBody, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("http_uri", PayloadSearchHttpUri, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("http_header", PayloadSearchHttpHeader, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("http_method", PayloadSearchHttpMethod, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("http_cookie", PayloadSearchHttpCookie, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("fast_pattern", PayloadSearchFastPattern, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("distance", PayloadSearchDistance, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("within", PayloadSearchWithin, NULL, OPT_TYPE_DETECTION);
-    RegisterRuleOption("replace", PayloadReplaceInit, NULL, OPT_TYPE_DETECTION);
-
-#ifdef PERF_PROFILING
-    RegisterPreprocessorProfile("content", &contentPerfStats, 3, &ruleOTNEvalPerfStats);
-    RegisterPreprocessorProfile("uricontent", &uricontentPerfStats, 3, &ruleOTNEvalPerfStats);
-#endif
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                "Plugin: PatternMatch Initialized!\n"););
-}
-
-static INLINE int computeDepth(int dlen, PatternMatchData * pmd) 
-{
-    /* do some tests to make sure we stay in bounds */
-    if((pmd->depth + pmd->offset) > dlen)
+    int i, j;
+    
+    j = 0;
+    for ( i = 1; i < data_len; i++ )
     {
-        /* we want to check only depth bytes anyway */
-        int sub_depth = dlen - pmd->offset; 
-
-        if((sub_depth > 0) && (sub_depth >= (int)pmd->pattern_size))
+        if ( data[j] != data[i] )
         {
-            return  sub_depth;
+            j = 0;
+            continue;
         }
-        else
+        if ( i == (data_len - 1) )
         {
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                        "Pattern Match failed -- sub_depth: %d < "
-                        "(int)pmd->pattern_size: %d!\n",
-                        sub_depth, (int)pmd->pattern_size););
-
-            return -1;
+            return (data_len - j - 1);
         }
+        j++;
     }
-    else
-    {      
-        if(pmd->depth && (dlen - pmd->offset > pmd->depth))
-        {
-            return pmd->depth;
-        }
-        else
-        {
-            return dlen - pmd->offset;
-        }
-    }
+    return data_len;
 }
 
+/****************************************************************************
+ *
+ * Function: ParsePattern(char *)
+ *
+ * Purpose: Process the application layer patterns and attach them to the
+ *          appropriate rule.  My god this is ugly code.
+ *
+ * Arguments: rule => the pattern string
+ *
+ * Returns: void function
+ *
+ ***************************************************************************/
+void ParsePattern(char *rule, OptTreeNode * otn, int type)
+{
+    char tmp_buf[MAX_PATTERN_SIZE];
+
+    /* got enough ptrs for you? */
+    char *start_ptr;
+    char *end_ptr;
+    char *idx;
+    char *dummy_idx;
+    char *dummy_end;
+    char *tmp;
+    char hex_buf[3];
+    u_int dummy_size = 0;
+    int size;
+    int hexmode = 0;
+    int hexsize = 0;
+    int pending = 0;
+    int cnt = 0;
+    int literal = 0;
+    int exception_flag = 0;
+    PatternMatchData *ds_idx;
+
+    /* clear out the temp buffer */
+    bzero(tmp_buf, MAX_PATTERN_SIZE);
+
+    if (rule == NULL)
+        ParseError("ParsePattern Got Null enclosed in quotation marks (\")!");
+
+    while(isspace((int)*rule))
+        rule++;
+
+    if(*rule == '!')
+    {
+        exception_flag = 1;
+        while(isspace((int)*++rule));
+    }
+
+    /* find the start of the data */
+    start_ptr = index(rule, '"');
+
+    if (start_ptr != rule)
+        ParseError("Content data needs to be enclosed in quotation marks (\")!");
+
+    /* move the start up from the beggining quotes */
+    start_ptr++;
+
+    /* find the end of the data */
+    end_ptr = strrchr(start_ptr, '"');
+
+    if (end_ptr == NULL)
+        ParseError("Content data needs to be enclosed in quotation marks (\")!");
+
+    /* Move the null termination up a bit more */
+    *end_ptr = '\0';
+
+    /* Is there anything other than whitespace after the trailing
+     * double quote? */
+    tmp = end_ptr + 1;
+    while (*tmp != '\0' && isspace ((int)*tmp))
+        tmp++;
+
+    if (strlen (tmp) > 0)
+    {
+        ParseError("Bad data (possibly due to missing semicolon) after "
+                "trailing double quote.");
+    }
+
+    /* how big is it?? */
+    size = end_ptr - start_ptr;
+
+    /* uh, this shouldn't happen */
+    if (size <= 0)
+        ParseError("Bad pattern length!");
+
+    /* set all the pointers to the appropriate places... */
+    idx = start_ptr;
+
+    /* set the indexes into the temp buffer */
+    dummy_idx = tmp_buf;
+    dummy_end = (dummy_idx + size);
+
+    /* why is this buffer so small? */
+    bzero(hex_buf, 3);
+    memset(hex_buf, '0', 2);
+
+    /* BEGIN BAD JUJU..... */
+    while(idx < end_ptr)
+    {
+        if (dummy_size >= MAX_PATTERN_SIZE-1)
+        {
+            /* Have more data to parse and pattern is about to go beyond end of buffer */
+            ParseError("ParsePattern() dummy buffer overflow, make a smaller "
+                    "pattern please! (Max size = %d)", MAX_PATTERN_SIZE-1);
+        }
+
+        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "processing char: %c\n", *idx););
+        switch(*idx)
+        {
+            case '|':
+                DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Got bar... "););
+                if(!literal)
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "not in literal mode... "););
+                    if(!hexmode)
+                    {
+                        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Entering hexmode\n"););
+                        hexmode = 1;
+                    }
+                    else
+                    {
+                        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Exiting hexmode\n"););
+
+                        /*
+                        **  Hexmode is not even.
+                        */
+                        if(!hexsize || hexsize % 2)
+                        {
+                            ParseError("Content hexmode argument has invalid "
+                                    "number of hex digits.  The argument '%s' "
+                                    "must contain a full even byte string.", start_ptr);
+                        }
+
+                        hexmode = 0;
+                        pending = 0;
+                    }
+
+                    if(hexmode)
+                        hexsize = 0;
+                }
+                else
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "literal set, Clearing\n"););
+                    literal = 0;
+                    tmp_buf[dummy_size] = start_ptr[cnt];
+                    dummy_size++;
+                }
+
+                break;
+
+            case '\\':
+                DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Got literal char... "););
+
+                if(!literal)
+                {
+                    /* Make sure the next char makes this a valid
+                     * escape sequence.
+                     */
+                    if (idx [1] != '\0' && strchr ("\\\":;", idx [1]) == NULL)
+                    {
+                        ParseError("Bad escape sequence starting with \"%s\".", idx);
+                    }
+
+                    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Setting literal\n"););
+
+                    literal = 1;
+                }
+                else
+                {
+                    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Clearing literal\n"););
+                    tmp_buf[dummy_size] = start_ptr[cnt];
+                    literal = 0;
+                    dummy_size++;
+                }
+
+                break;
+            case '"':
+                if (!literal)
+                    ParseError("Non-escaped '\"' character!");
+                /* otherwise process the character as default */
+            default:
+                if(hexmode)
+                {
+                    if(isxdigit((int) *idx))
+                    {
+                        hexsize++;
+
+                        if(!pending)
+                        {
+                            hex_buf[0] = *idx;
+                            pending++;
+                        }
+                        else
+                        {
+                            hex_buf[1] = *idx;
+                            pending--;
+
+                            if(dummy_idx < dummy_end)
+                            {                            
+                                tmp_buf[dummy_size] = (u_char) 
+                                    strtol(hex_buf, (char **) NULL, 16)&0xFF;
+
+                                dummy_size++;
+                                bzero(hex_buf, 3);
+                                memset(hex_buf, '0', 2);
+                            }
+                            else
+                            {
+                                ParseError("ParsePattern() dummy buffer "
+                                        "overflow, make a smaller pattern "
+                                        "please! (Max size = %d)", MAX_PATTERN_SIZE-1);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if(*idx != ' ')
+                        {
+                            ParseError("What is this \"%c\"(0x%X) doing in "
+                                    "your binary buffer?  Valid hex values "
+                                    "only please! (0x0 - 0xF) Position: %d",
+                                    (char) *idx, (char) *idx, cnt);
+                        }
+                    }
+                }
+                else
+                {
+                    if(*idx >= 0x1F && *idx <= 0x7e)
+                    {
+                        if(dummy_idx < dummy_end)
+                        {
+                            tmp_buf[dummy_size] = start_ptr[cnt];
+                            dummy_size++;
+                        }
+                        else
+                        {
+                            ParseError("ParsePattern() dummy buffer "
+                                    "overflow, make a smaller pattern "
+                                    "please! (Max size = %d)", MAX_PATTERN_SIZE-1);
+                        }
+
+                        if(literal)
+                        {
+                            literal = 0;
+                        }
+                    }
+                    else
+                    {
+                        if(literal)
+                        {
+                            tmp_buf[dummy_size] = start_ptr[cnt];
+                            dummy_size++;
+                            DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Clearing literal\n"););
+                            literal = 0;
+                        }
+                        else
+                        {
+                            ParseError("Character value out of range, try a "
+                                    "binary buffer.");
+                        }
+                    }
+                }
+
+                break;
+        }
+
+        dummy_idx++;
+        idx++;
+        cnt++;
+    }
+    /* ...END BAD JUJU */
+
+    /* error prunning */
+
+    if (literal)
+        ParseError("Backslash escape is not completed.");
+
+    if (hexmode)
+        ParseError("Hexmode is not completed.");
+
+    ds_idx = (PatternMatchData *) otn->ds_list[type];
+
+    while(ds_idx->next != NULL)
+        ds_idx = ds_idx->next;
+
+    ds_idx->pattern_buf = (char *)SnortAlloc(dummy_size+1);
+    memcpy(ds_idx->pattern_buf, tmp_buf, dummy_size);
+
+    ds_idx->pattern_size = dummy_size;
+    ds_idx->search = uniSearch;
+    
+    make_precomp(ds_idx);
+    ds_idx->exception_flag = exception_flag;
+
+    ds_idx->pattern_max_jump_size = GetMaxJumpSize(ds_idx->pattern_buf, ds_idx->pattern_size);
+}
+
+/********************************************************************
+ * Runtime functions
+ ********************************************************************/
 /*
  * Figure out how deep the into the packet from the base_ptr we can go
  *
@@ -562,7 +1631,7 @@ static INLINE int computeDepth(int dlen, PatternMatchData * pmd)
 static INLINE int computeWithin(int dlen, PatternMatchData *pmd)
 {
     /* do we want to check more bytes than there are in the buffer? */
-    if(pmd->within > dlen)
+    if(pmd->within > (unsigned int)dlen)
     {
         /* should we just return -1 here since the data might actually be within 
          * the stream but not the current packet's payload?
@@ -585,29 +1654,6 @@ static INLINE int computeWithin(int dlen, PatternMatchData *pmd)
     return pmd->within;
 }
 
-#if 0
-/* not in use - delete? */
-static int uniSearchREG(char * data, int dlen, PatternMatchData * pmd)
-{
-    int depth = computeDepth(dlen, pmd);
-    /* int distance_adjustment = 0;
-     *  int depth_adjustment = 0;
-     */
-    int success = 0;
-
-    if (depth < 0)
-        return 0;
-
-    /* XXX DESTROY ME */
-    /*success =  mSearchREG(data + pmd->offset + distance_adjustment, 
-            depth_adjustment!=0?depth_adjustment:depth, 
-            pmd->pattern_buf, pmd->pattern_size, pmd->skip_stride, 
-            pmd->shift_stride);*/
-
-    return success;
-}
-#endif
-
 /* 
  * case sensitive search
  *
@@ -629,12 +1675,13 @@ static int uniSearch(const char *data, int dlen, PatternMatchData *pmd)
  * dlen = distance to the back of the buffer being tested, validated 
  *        against offset + depth before function entry (not distance/within)
  * pmd = pointer to pattern match data struct
+ *
+ * NOTE - this is used in sf_convert_dynamic.c so cannot be static
  */
 int uniSearchCI(const char *data, int dlen, PatternMatchData *pmd)
 {
     return uniSearchReal(data, dlen, pmd, 1);
 }
-
 
 /* 
  * single search function. 
@@ -803,1597 +1850,6 @@ static int uniSearchReal(const char *data, int dlen, PatternMatchData *pmd, int 
     return success;
 }
 
-
-void make_precomp(PatternMatchData * idx)
-{
-    if(idx->skip_stride)
-       free(idx->skip_stride);
-    if(idx->shift_stride)
-       free(idx->shift_stride);
-
-    idx->skip_stride = make_skip(idx->pattern_buf, idx->pattern_size);
-
-    idx->shift_stride = make_shift(idx->pattern_buf, idx->pattern_size);
-}
-
-#if 0
-void PayloadSearchListInit(char *data, OptTreeNode * otn, int protocol)
-{
-    char *sptr;
-    char *eptr;
-
-    lastType = PLUGIN_PATTERN_MATCH_OR;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchListInit()\n"););
-
-    /* get the path/file name from the data */
-    while(isspace((int) *data))
-        data++;
-
-    /* grab everything between the starting " and the end one */
-    sptr = index(data, '"');
-    eptr = strrchr(data, '"');
-
-    if(sptr != NULL && eptr != NULL)
-    {
-        /* increment past the first quote */
-        sptr++;
-
-        /* zero out the second one */
-        *eptr = 0;
-    }
-    else
-    {
-        sptr = data;
-    }
-
-    /* read the content keywords from the list file */
-    ParseContentListFile(sptr, otn, protocol);
-
-    /* link the plugin function in to the current OTN */
-    AddOptFuncToList(CheckORPatternMatch, otn);
-
-    return;
-}
-#endif
-
-static char *PayloadExtractParameter(char *data, int *result_len)
-{
-    char *quote_one = NULL, *quote_two = NULL;
-    char *comma = NULL;
-
-    quote_one = index(data, '"');
-    if (quote_one)
-    {
-        quote_two = index(quote_one+1, '"');
-        while ( quote_two && quote_two[-1] == '\\' )
-            quote_two = index(quote_two+1, '"');
-    }
-
-    if (quote_one && quote_two)
-    {
-        comma = index(quote_two, ',');
-    }
-    else if (!quote_one)
-    {
-        comma = index(data, ',');
-    }
-
-    if (comma)
-    {
-        *result_len = comma - data;
-        *comma = '\0';
-    }
-    else
-    {
-        *result_len = strlen(data);
-    }
-
-    return data;
-}
-
-void PayloadSearchInit(char *data, OptTreeNode * otn, int protocol)
-{
-    OptFpList *fpl;
-    PatternMatchData *pmd;
-    char *data_end;
-    char *data_dup;
-    char *opt_data;
-    int opt_len = 0;
-    char *next_opt;
-
-    lastType = PLUGIN_PATTERN_MATCH;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchInit()\n"););
-
-    /* whack a new node onto the list */
-    pmd = NewNode(otn, PLUGIN_PATTERN_MATCH);
-
-    if (!data)
-    {
-        FatalError("%s(%d) => No Content Pattern specified!\n",
-            file_name, file_line);
-    }
-
-    data_dup = SnortStrdup(data);
-    data_end = data_dup + strlen(data_dup);
-
-    opt_data = PayloadExtractParameter(data_dup, &opt_len);
-
-    /* set up the pattern buffer */
-    ParsePattern(opt_data, otn, PLUGIN_PATTERN_MATCH);
-    next_opt = opt_data + opt_len;
-
-    /* link the plugin function in to the current OTN */
-    fpl = AddOptFuncToList(CheckANDPatternMatch, otn);
-    fpl->type = RULE_OPTION_TYPE_CONTENT;
-    pmd->buffer_func = CHECK_AND_PATTERN_MATCH;
-
-    fpl->context = pmd;
-    pmd->fpl = fpl;
-
-    // if content is followed by any comma separated options,
-    // we have to parse them here.  content related options
-    // separated by semicolons go straight to the callbacks.
-    while (next_opt < data_end)
-    {
-        char **opts;        /* dbl ptr for mSplit call, holds rule tokens */
-        int num_opts;       /* holds number of tokens found by mSplit */
-        char* opt1;
-
-        next_opt++;
-        if (next_opt == data_end)
-            break;
-
-        opt_len = 0;
-        opt_data = PayloadExtractParameter(next_opt, &opt_len);
-        if (!opt_data)
-            break;
-
-        next_opt = opt_data + opt_len;
-
-        opts = mSplit(opt_data, " \t", 2, &num_opts, 0);
-
-        if (!opts)
-            continue;
-        opt1 = (num_opts == 2) ? opts[1] : NULL;
-
-        if (!strcasecmp(opts[0], "offset"))
-        {
-            PayloadSearchOffset(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "depth"))
-        {
-            PayloadSearchDepth(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "nocase"))
-        {
-            PayloadSearchNocase(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "rawbytes"))
-        {
-            PayloadSearchRawbytes(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "http_uri"))
-        {
-            PayloadSearchHttpUri(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "http_client_body"))
-        {
-            PayloadSearchHttpBody(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "http_header"))
-        {
-            PayloadSearchHttpHeader(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "http_method"))
-        {
-            PayloadSearchHttpMethod(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "http_cookie"))
-        {
-            PayloadSearchHttpCookie(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "fast_pattern"))
-        {
-            PayloadSearchFastPattern(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "distance"))
-        {
-            PayloadSearchDistance(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "within"))
-        {
-            PayloadSearchWithin(opt1, otn, protocol);
-        }
-        else if (!strcasecmp(opts[0], "replace"))
-        {
-            PayloadReplaceInit(opt1, otn, protocol);
-        }
-        else
-        {
-            FatalError("%s(%d) => Invalid Content parameter specified!\n",
-                file_name, file_line);
-        }
-        mSplitFree(&opts, num_opts);
-    }
-
-    free(data_dup);
-
-    if(pmd->use_doe == 1)
-        fpl->isRelative = 1;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                "OTN function PatternMatch Added to rule!\n"););
-}
-
-
-
-void PayloadSearchUri(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData * pmd;
-    OptFpList *fpl;
-
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'uricontent' modifier.\n", file_name, file_line);
-    }
-
-    lastType = PLUGIN_PATTERN_MATCH_URI;
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchUri()\n"););
-
-    /* whack a new node onto the list */
-    pmd = NewNode(otn, PLUGIN_PATTERN_MATCH_URI);
-
-    /* set up the pattern buffer */
-    ParsePattern(data, otn, PLUGIN_PATTERN_MATCH_URI);
-
-    pmd->uri_buffer |= HTTP_SEARCH_URI;
-
-#ifdef PATTERN_FAST
-    pmd->search = uniSearch;
-    make_precomp(pmd);
-#endif
-
-    /* link the plugin function in to the current OTN */
-    fpl = AddOptFuncToList(CheckUriPatternMatch, otn);
-
-    fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-    pmd->buffer_func = CHECK_URI_PATTERN_MATCH;
-
-    fpl->context = pmd;
-    pmd->fpl = fpl;
-
-    if(pmd->use_doe == 1)
-        fpl->isRelative = 1;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                "OTN function PatternMatch Added to rule!\n"););
-}
-
-
-void PayloadSearchHttpBody(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx = NULL;
-    PatternMatchData *uriidx = NULL, *previdx = NULL;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'http_client_body' does not take an argument\n",
-            file_name, file_line);
-    }
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'http_client_body' modifier.\n", file_name, file_line);
-    }
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " http_client_body modifier.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-    {
-        previdx = idx;
-        idx = idx->next;
-    }
-    if( idx->replace_buf != NULL )
-    {
-        FatalError("(%s)%d => \"replace\" option is not supported in"
-            " conjunction with 'http_client_body' modifier.\n", file_name, file_line);
-    }
-
-    if (lastType != PLUGIN_PATTERN_MATCH_URI)
-    {
-        /* Need to move this PatternMatchData structure to the
-         * PLUGIN_PATTERN_MATCH_URI */
-        
-        /* Remove it from the tail of the old list */
-        if (previdx)
-        {
-            previdx->next = idx->next;
-        }
-        else
-        {
-            otn->ds_list[lastType] = NULL;
-        }
-
-        if (idx)
-        {
-            idx->next = NULL;
-        }
-
-        uriidx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH_URI];
-
-        if (uriidx)
-        {
-            /* There are some uri/post patterns in this rule already */
-            while (uriidx->next != NULL)
-            {
-                uriidx = uriidx->next;
-            }
-            uriidx->next = idx;
-        }
-        else
-        {
-            /* This is the first uri/post patterns in this rule */
-            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = idx;
-        }
-        lastType = PLUGIN_PATTERN_MATCH_URI;
-        idx->fpl->OptTestFunc = CheckUriPatternMatch;
-        idx->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-        idx->buffer_func = CHECK_URI_PATTERN_MATCH;
-    }
-
-    idx->uri_buffer |= HTTP_SEARCH_CLIENT_BODY;
-
-    if (idx->rawbytes == 1)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and 'http_client_body'"
-            " as modifiers for the same \"content\".\n", file_name, file_line);
-    }
-
-    return;
-}
-
-
-void PayloadSearchHttpUri(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx = NULL;
-    PatternMatchData *uriidx = NULL, *previdx = NULL;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'http_uri' does not take an argument\n",
-            file_name, file_line);
-    }
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'http_uri' modifier.\n", file_name, file_line);
-    }
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " http_uri modifiers.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-    {
-        previdx = idx;
-        idx = idx->next;
-    }
-    if( idx->replace_buf != NULL )
-    {
-        FatalError("(%s)%d => \"replace\" option is not supported in"
-            " conjunction with 'http_uri' modifiers.\n", file_name, file_line);
-    }
- 
-    if (lastType != PLUGIN_PATTERN_MATCH_URI)
-    {
-        /* Need to move this PatternMatchData structure to the
-         * PLUGIN_PATTERN_MATCH_URI */
-        
-        /* Remove it from the tail of the old list */
-        if (previdx)
-        {
-            previdx->next = idx->next;
-        }
-        else
-        {
-            otn->ds_list[lastType] = NULL;
-        }
-
-        if (idx)
-        {
-            idx->next = NULL;
-        }
-
-        uriidx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH_URI];
-
-        if (uriidx)
-        {
-            /* There are some uri/post patterns in this rule already */
-            while (uriidx->next != NULL)
-            {
-                uriidx = uriidx->next;
-            }
-            uriidx->next = idx;
-        }
-        else
-        {
-            /* This is the first uri/post patterns in this rule */
-            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = idx;
-        }
-        lastType = PLUGIN_PATTERN_MATCH_URI;
-        idx->fpl->OptTestFunc = CheckUriPatternMatch;
-        idx->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-        idx->buffer_func = CHECK_URI_PATTERN_MATCH;
-    }
-
-    idx->uri_buffer |= HTTP_SEARCH_URI;
-
-    if (idx->rawbytes == 1)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and 'http_uri'"
-            " as modifiers for the same \"content\".\n", file_name, file_line);
-    }
-
-    return;
-}
-
-void PayloadSearchHttpHeader(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx = NULL;
-    PatternMatchData *uriidx = NULL, *previdx = NULL;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'http_header' does not take an argument\n",
-            file_name, file_line);
-    }
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'http_header' modifier.\n", file_name, file_line);
-    }
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " http_header modifiers.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-    {
-        previdx = idx;
-        idx = idx->next;
-    }
-    if( idx->replace_buf != NULL )
-    {
-        FatalError("(%s)%d => \"replace\" option is not supported in"
-            " conjunction with 'http_header' modifiers.\n", file_name, file_line);
-    }
-  
-    if (lastType != PLUGIN_PATTERN_MATCH_URI)
-    {
-        /* Need to move this PatternMatchData structure to the
-         * PLUGIN_PATTERN_MATCH_URI */
-        
-        /* Remove it from the tail of the old list */
-        if (previdx)
-        {
-            previdx->next = idx->next;
-        }
-        else
-        {
-            otn->ds_list[lastType] = NULL;
-        }
-
-        if (idx)
-        {
-            idx->next = NULL;
-        }
-
-        uriidx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH_URI];
-
-        if (uriidx)
-        {
-            /* There are some uri/post patterns in this rule already */
-            while (uriidx->next != NULL)
-            {
-                uriidx = uriidx->next;
-            }
-            uriidx->next = idx;
-        }
-        else
-        {
-            /* This is the first uri/post patterns in this rule */
-            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = idx;
-        }
-        lastType = PLUGIN_PATTERN_MATCH_URI;
-        idx->fpl->OptTestFunc = CheckUriPatternMatch;
-        idx->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-        idx->buffer_func = CHECK_URI_PATTERN_MATCH;
-    }
-
-    idx->uri_buffer |= HTTP_SEARCH_HEADER;
-
-    if (idx->rawbytes == 1)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and 'http_header'"
-            " as modifiers for the same \"content\".\n", file_name, file_line);
-    }
-
-    return;
-}
-
-void PayloadSearchHttpMethod(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx = NULL;
-    PatternMatchData *uriidx = NULL, *previdx = NULL;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'http_method' does not take an argument\n",
-            file_name, file_line);
-    }
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'http_method' modifier.\n", file_name, file_line);
-    }
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " http_method modifiers.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-    {
-        previdx = idx;
-        idx = idx->next;
-    }
-    if( idx->replace_buf != NULL )
-    {
-        FatalError("(%s)%d => \"replace\" option is not supported in"
-            " conjunction with 'http_method' modifiers.\n", file_name, file_line);
-    }
-  
-    if (lastType != PLUGIN_PATTERN_MATCH_URI)
-    {
-        /* Need to move this PatternMatchData structure to the
-         * PLUGIN_PATTERN_MATCH_URI */
-        
-        /* Remove it from the tail of the old list */
-        if (previdx)
-        {
-            previdx->next = idx->next;
-        }
-        else
-        {
-            otn->ds_list[lastType] = NULL;
-        }
-
-        if (idx)
-        {
-            idx->next = NULL;
-        }
-
-        uriidx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH_URI];
-
-        if (uriidx)
-        {
-            /* There are some uri/post patterns in this rule already */
-            while (uriidx->next != NULL)
-            {
-                uriidx = uriidx->next;
-            }
-            uriidx->next = idx;
-        }
-        else
-        {
-            /* This is the first uri/post patterns in this rule */
-            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = idx;
-        }
-        lastType = PLUGIN_PATTERN_MATCH_URI;
-        idx->fpl->OptTestFunc = CheckUriPatternMatch;
-        idx->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-        idx->buffer_func = CHECK_URI_PATTERN_MATCH;
-    }
-
-    idx->uri_buffer |= HTTP_SEARCH_METHOD;
-
-    if (idx->rawbytes == 1)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and 'http_method'"
-            " as modifiers for the same \"content\".\n", file_name, file_line);
-    }
-
-    return;
-}
-
-void PayloadSearchHttpCookie(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx = NULL;
-    PatternMatchData *uriidx = NULL, *previdx = NULL;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'http_cookie' does not take an argument\n",
-            file_name, file_line);
-    }
-    if (!IsPreprocEnabled(PP_HTTPINSPECT))
-    {
-        FatalError("(%s)%d => Please enable the HTTP Inspect preprocessor "
-            "before using the 'http_cookie' modifier.\n", file_name, file_line);
-    }
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " http_cookie modifiers.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-    {
-        previdx = idx;
-        idx = idx->next;
-    }
-    if( idx->replace_buf != NULL )
-    {
-        FatalError("(%s)%d => \"replace\" option is not supported in"
-            " conjunction with 'http_cookie' modifiers.\n", file_name, file_line);
-    }
- 
-    if (lastType != PLUGIN_PATTERN_MATCH_URI)
-    {
-        /* Need to move this PatternMatchData structure to the
-         * PLUGIN_PATTERN_MATCH_URI */
-        
-        /* Remove it from the tail of the old list */
-        if (previdx)
-        {
-            previdx->next = idx->next;
-        }
-        else
-        {
-            otn->ds_list[lastType] = NULL;
-        }
-
-        if (idx)
-        {
-            idx->next = NULL;
-        }
-
-        uriidx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH_URI];
-
-        if (uriidx)
-        {
-            /* There are some uri/post patterns in this rule already */
-            while (uriidx->next != NULL)
-            {
-                uriidx = uriidx->next;
-            }
-            uriidx->next = idx;
-        }
-        else
-        {
-            /* This is the first uri/post patterns in this rule */
-            otn->ds_list[PLUGIN_PATTERN_MATCH_URI] = idx;
-        }
-        lastType = PLUGIN_PATTERN_MATCH_URI;
-        idx->fpl->OptTestFunc = CheckUriPatternMatch;
-        idx->fpl->type = RULE_OPTION_TYPE_CONTENT_URI;
-        idx->buffer_func = CHECK_URI_PATTERN_MATCH;
-    }
-
-    idx->uri_buffer |= HTTP_SEARCH_COOKIE;
-
-    if (idx->rawbytes == 1)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and 'http_cookie'"
-            " as modifiers for the same \"content\".\n", file_name, file_line);
-    }
-
-    if (idx->flags & CONTENT_FAST_PATTERN)
-    {
-        FatalError("Error %s(%d) => FastPattern cannot be set for \"content\" with "
-            "http cookie buffer\n", file_name, file_line);
-    }
-
-    return;
-}
-
-static int32_t ParseInt (const char* data, const char* tag)
-{
-    int32_t value = 0;
-    char* endptr = NULL;
-    errno = 0;
-    
-    value = strtol(data, &endptr, 10);
-
-    if ( *endptr )
-    {
-        FatalError("%s(%d) => Invalid '%s' format.\n", 
-                file_name, file_line, tag);
-    }
-    if ( errno == ERANGE )
-    {
-        FatalError("%s(%d) => Range problem on '%s' value\n", 
-                file_name, file_line, tag);
-    }
-
-    if ( value > 65535 || value < -65535 )
-    {
-        FatalError("%s(%d) => '%s' must in -65535:65535\n",
-            tag, file_name, file_line);
-    }
-    return value;
-}
-
-void PayloadSearchOffset(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearch()\n"););
-
-    if ( !data )
-    {
-        FatalError("%s(%d) => Missing argument to 'offset' option\n",
-            file_name, file_line);
-    }
-    idx = otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("%s(%d) => Please place \"content\" rules before "
-                "depth, nocase or offset modifiers.\n", file_name, file_line);
-    }
-
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    idx->offset = ParseInt(data, "offset");
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Pattern offset = %d\n", 
-                idx->offset););
-}
-
-void PayloadSearchDepth(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx;
-
-    if ( !data )
-    {
-        FatalError("%s(%d) => Missing argument to 'depth' option\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("%s(%d) => Please place \"content\" rules "
-                "before depth, nocase or offset modifiers.\n", 
-                file_name, file_line);
-    }
-
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    idx->depth = ParseInt(data, "depth");
-
-    /* check to make sure that this the depth allows this rule to fire */
-    if(idx->depth != 0 && idx->depth < (int)idx->pattern_size)
-    {
-        FatalError("%s(%d) => The depth(%d) is less than the size of the content(%u)!\n",
-                   file_name, file_line, idx->depth, idx->pattern_size);
-    }
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern depth = %d\n", 
-                idx->depth););
-}
-
-void PayloadSearchNocase(char *data, OptTreeNode * otn, int protocol)
-{
-    PatternMatchData *idx;
-    int i;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'nocase' does not take an argument\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("(%s)%d => Please place \"content\" rules before"
-           " depth, nocase or offset modifiers.\n", file_name, file_line);
-    }
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    i = idx->pattern_size;
-
-    while(--i >= 0)
-        idx->pattern_buf[i] = toupper((unsigned char) idx->pattern_buf[i]);
-
-    idx->nocase = 1;
-
-#ifdef PATTERN_FAST
-    idx->search = setSearch;
-#else
-    idx->search = uniSearchCI;
-    make_precomp(idx);
-#endif
-
-
-    return;
-}
-
-const char *format_uri_buffer_str(int uri_buffer, int search_buf, char *first_buf)
-{
-    if (uri_buffer & search_buf)
-    {
-        if (*first_buf == 1)
-        {
-            switch (search_buf)
-            {
-                case HTTP_SEARCH_URI:
-                    return "http_uri";
-                    break;
-                case HTTP_SEARCH_CLIENT_BODY:
-                    return "http_client_body";
-                    break;
-                case HTTP_SEARCH_HEADER:
-                    return "http_header";
-                    break;
-                case HTTP_SEARCH_METHOD:
-                    return "http_method";
-                    break;
-                case HTTP_SEARCH_COOKIE:
-                    return "http_cookie";
-                    break;
-            }
-            *first_buf = 0;
-        }
-        else
-        {
-            switch (search_buf)
-            {
-                case HTTP_SEARCH_URI:
-                    return " | http_uri";
-                    break;
-                case HTTP_SEARCH_CLIENT_BODY:
-                    return " | http_client_body";
-                    break;
-                case HTTP_SEARCH_HEADER:
-                    return " | http_header";
-                    break;
-                case HTTP_SEARCH_METHOD:
-                    return " | http_method";
-                    break;
-                case HTTP_SEARCH_COOKIE:
-                    return " | http_cookie";
-                    break;
-            }
-        }
-    }
-    return "";
-}
-
-void PayloadSearchRawbytes(char *data, OptTreeNode * otn, int protocol)
-{
-    char first_buf = 1;
-    PatternMatchData *idx;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'rawbytes' does not take an argument\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("Line %d => Please place \"content\" rules before"
-                " rawbytes, depth, nocase or offset modifiers.\n", file_line);
-    }
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    /* mark this as inspecting a raw pattern match rather than a
-       decoded application buffer */
-    idx->rawbytes = 1;    
-
-    if (lastType == PLUGIN_PATTERN_MATCH_URI)
-    {
-        FatalError("(%s)%d => Cannot use 'rawbytes' and '%s%s%s%s%s' as modifiers for "
-            "the same \"content\" nor use 'rawbytes' with \"uricontent\".\n",
-            file_name, file_line,
-            format_uri_buffer_str(idx->uri_buffer, HTTP_SEARCH_URI, &first_buf),
-            format_uri_buffer_str(idx->uri_buffer, HTTP_SEARCH_CLIENT_BODY, &first_buf),
-            format_uri_buffer_str(idx->uri_buffer, HTTP_SEARCH_HEADER, &first_buf),
-            format_uri_buffer_str(idx->uri_buffer, HTTP_SEARCH_METHOD, &first_buf),
-            format_uri_buffer_str(idx->uri_buffer, HTTP_SEARCH_COOKIE, &first_buf) );
-    }
-
-    return;
-}
-
-void PayloadSearchFastPattern(char *data, OptTreeNode *otn, int protocol)
-{
-    PatternMatchData *idx;
-    PatternMatchData *last;
-    int uri_buffers = 0;
-
-    if ( data )
-    {
-        FatalError("%s(%d) => 'fast_pattern' does not take an argument\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("Error %s(%d) => FastPattern without context, please place "
-                "\"content\" keywords before fast_pattern modifiers\n", file_name,
-                file_line);
-    }
-
-    while(idx->next != NULL)
-        idx = idx->next;
-    
-    last = idx;
-
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-    while(idx->next != NULL)
-    {
-        if (idx->flags & CONTENT_FAST_PATTERN)
-        {
-            if ((lastType == PLUGIN_PATTERN_MATCH) ||   /* regular content */
-                ((idx->uri_buffer & ~HTTP_SEARCH_COOKIE) & uri_buffers)) /* or uri buffer is same */
-            {
-                FatalError("Error %s(%d) => FastPattern set for another \"content\" "
-                    "within this rule\n", file_name, file_line);
-            }
-            uri_buffers |= idx->uri_buffer;
-        }
-
-        idx = idx->next;
-    }
-
-    if ((idx->uri_buffer & ~HTTP_SEARCH_COOKIE) & uri_buffers) /* uri buffer is same as earlier fast pattern */
-    {
-        FatalError("Error %s(%d) => FastPattern set for another \"content\" "
-            "within this rule\n", file_name, file_line);
-    }
-
-    if ((lastType == PLUGIN_PATTERN_MATCH_URI) && (last->uri_buffer == HTTP_SEARCH_COOKIE))
-    {
-        FatalError("Error %s(%d) => FastPattern cannot be set for \"content\" with "
-            "http cookie buffer\n", file_name, file_line);
-    }
-
-    if (idx->exception_flag)
-    {
-        FatalError("Error %s(%d) => FastPattern cannot be set for negated "
-            "\"content\" searches\n", file_name, file_line);
-    }
-
-    idx->flags |= CONTENT_FAST_PATTERN;
-
-    return;
-}
-
-void PayloadSearchDistance(char *data, OptTreeNode *otn, int protocol)
-{
-    PatternMatchData *idx;
-
-    if ( !data )
-    {
-        FatalError("%s(%d) => Missing argument to 'distance' option\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("Error %s(%d) => Distance without context, please place "
-                "\"content\" keywords before distance modifiers\n", file_name,
-                file_line);
-    }
-
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    idx->distance = ParseInt(data, "distance");
-
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern distance = %d\n", 
-                idx->distance););
-
-
-    /* Only do a relative search if this is a normal content match. */
-    if((lastType == PLUGIN_PATTERN_MATCH) &&
-       !SetUseDoePtr(otn))
-    {
-        FatalError("%s(%d) => Unable to initialize doe_ptr\n",
-                   file_name, file_line);
-    }
-
-    if (idx->use_doe)
-    {
-        idx->fpl->isRelative = 1;
-    }
-}
-
-
-void PayloadSearchWithin(char *data, OptTreeNode *otn, int protocol)
-{
-    PatternMatchData *idx;
-
-    if ( !data )
-    {
-        FatalError("%s(%d) => Missing argument to 'within' option\n",
-            file_name, file_line);
-    }
-    idx = (PatternMatchData *) otn->ds_list[lastType];
-
-    if(idx == NULL)
-    {
-        FatalError("Error %s(%d) => Distance without context, please place "
-                "\"content\" keywords before distance modifiers\n", file_name,
-                file_line);
-    }
-
-    while(idx->next != NULL)
-        idx = idx->next;
-
-    idx->within = ParseInt(data, "within");
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern within = %d\n", 
-                idx->within););
-
-    /* Only do a relative search if this is a normal content match. */
-    if((lastType == PLUGIN_PATTERN_MATCH) &&
-       !SetUseDoePtr(otn))
-    {
-        FatalError("%s(%d) => Unable to initialize doe_ptr\n",
-                   file_name, file_line);
-    }
-
-    if (idx->use_doe)
-    {
-        idx->fpl->isRelative = 1;
-    }
-}
-
-
-PatternMatchData * NewNode(OptTreeNode * otn, int type)
-{
-    PatternMatchData *idx;
-
-    idx = (PatternMatchData *) otn->ds_list[type];
-
-    if(idx == NULL)
-    {
-        if((otn->ds_list[type] = 
-                    (PatternMatchData *) calloc(sizeof(PatternMatchData), 
-                                                sizeof(char))) == NULL)
-        {
-            FatalError("sp_pattern_match NewNode() calloc failed!\n");
-        }
-        
-        return otn->ds_list[type];
-    }
-    else
-    {
-        idx = otn->ds_list[type];
-
-        while(idx->next != NULL)
-            idx = idx->next;
-
-        if((idx->next = (PatternMatchData *) 
-                    calloc(sizeof(PatternMatchData), sizeof(char))) == NULL)
-        {
-            FatalError("sp_pattern_match NewNode() calloc failed!\n");
-        }
-
-        return idx->next;
-    }
-}
-
-/* This is an exported function that sets
- * PatternMatchData->use_doe so that when 
- *
- * distance, within, byte_jump, byte_test are used, they can make the
- * pattern matching functions "keep state" WRT the current packet.
- */
-int SetUseDoePtr(OptTreeNode * otn)
-{
-    PatternMatchData *idx;
-
-    idx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH];
-
-    if(idx == NULL)
-    {
-        LogMessage("SetUseDoePtr: No pattern match data found\n");
-        return 0;
-    }
-    else
-    {
-        /* Walk the linked list of content checks */
-        while(idx->next != NULL)
-        {
-            idx = idx->next;
-        }
-
-        idx->use_doe = 1;
-        return 1;
-    }
-}
-
-
-/****************************************************************************
- *
- * Function: GetMaxJumpSize(char *, int)
- *
- * Purpose: Find the maximum number of characters we can jump ahead
- *          from the current offset when checking for this pattern again.
- *
- * Arguments: data => the pattern string
- *            data_len => length of pattern string
- *
- * Returns: int => number of bytes before pattern repeats within itself
- *
- ***************************************************************************/
-static unsigned int GetMaxJumpSize(char *data, int data_len)
-{
-    int i, j;
-    
-    j = 0;
-    for ( i = 1; i < data_len; i++ )
-    {
-        if ( data[j] != data[i] )
-        {
-            j = 0;
-            continue;
-        }
-        if ( i == (data_len - 1) )
-        {
-            return (data_len - j - 1);
-        }
-        j++;
-    }
-    return data_len;
-}
-
-
-/****************************************************************************
- *
- * Function: ParsePattern(char *)
- *
- * Purpose: Process the application layer patterns and attach them to the
- *          appropriate rule.  My god this is ugly code.
- *
- * Arguments: rule => the pattern string
- *
- * Returns: void function
- *
- ***************************************************************************/
-void ParsePattern(char *rule, OptTreeNode * otn, int type)
-{
-    char tmp_buf[MAX_PATTERN_SIZE];
-
-    /* got enough ptrs for you? */
-    char *start_ptr;
-    char *end_ptr;
-    char *idx;
-    char *dummy_idx;
-    char *dummy_end;
-    char *tmp;
-    char hex_buf[3];
-    u_int dummy_size = 0;
-    int size;
-    int hexmode = 0;
-    int hexsize = 0;
-    int pending = 0;
-    int cnt = 0;
-    int literal = 0;
-    int exception_flag = 0;
-    PatternMatchData *ds_idx;
-
-    /* clear out the temp buffer */
-    bzero(tmp_buf, MAX_PATTERN_SIZE);
-
-    if(rule == NULL)
-    {
-        FatalError("%s(%d) => ParsePattern Got Null "
-           "enclosed in quotation marks (\")!\n", 
-           file_name, file_line);
-    }
-
-    while(isspace((int)*rule))
-        rule++;
-
-    if(*rule == '!')
-    {
-        exception_flag = 1;
-        while(isspace((int)*++rule));
-    }
-
-    /* find the start of the data */
-    start_ptr = index(rule, '"');
-
-    if(start_ptr != rule)
-    {
-        FatalError("%s(%d) => Content data needs to be "
-           "enclosed in quotation marks (\")!\n", 
-           file_name, file_line);
-    }
-
-    /* move the start up from the beggining quotes */
-    start_ptr++;
-
-    /* find the end of the data */
-    end_ptr = strrchr(start_ptr, '"');
-
-    if(end_ptr == NULL)
-    {
-        FatalError("%s(%d) => Content data needs to be enclosed "
-                   "in quotation marks (\")!\n", file_name, file_line);
-    }
-
-    /* Move the null termination up a bit more */
-    *end_ptr = '\0';
-
-    /* Is there anything other than whitespace after the trailing
-     * double quote? */
-    tmp = end_ptr + 1;
-    while (*tmp != '\0' && isspace ((int)*tmp))
-        tmp++;
-
-    if (strlen (tmp) > 0)
-    {
-        FatalError("%s(%d) => Bad data (possibly due to missing semicolon) "
-                   "after trailing double quote.",
-                   file_name, file_line, end_ptr + 1);
-    }
-
-    /* how big is it?? */
-    size = end_ptr - start_ptr;
-
-    /* uh, this shouldn't happen */
-    if(size <= 0)
-    {
-        FatalError("%s(%d) => Bad pattern length!\n", 
-                   file_name, file_line);
-    }
-    /* set all the pointers to the appropriate places... */
-    idx = start_ptr;
-
-    /* set the indexes into the temp buffer */
-    dummy_idx = tmp_buf;
-    dummy_end = (dummy_idx + size);
-
-    /* why is this buffer so small? */
-    bzero(hex_buf, 3);
-    memset(hex_buf, '0', 2);
-
-    /* BEGIN BAD JUJU..... */
-    while(idx < end_ptr)
-    {
-        if (dummy_size >= MAX_PATTERN_SIZE-1)
-        {
-            /* Have more data to parse and pattern is about to go beyond end of buffer */
-            FatalError("ParsePattern() dummy "
-                    "buffer overflow, make a smaller "
-                    "pattern please! (Max size = %d)\n", MAX_PATTERN_SIZE-1);
-        }
-
-        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "processing char: %c\n", *idx););
-        switch(*idx)
-        {
-            case '|':
-                DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Got bar... "););
-                if(!literal)
-                {
-                    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "not in literal mode... "););
-                    if(!hexmode)
-                    {
-                        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Entering hexmode\n"););
-                        hexmode = 1;
-                    }
-                    else
-                    {
-                        DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Exiting hexmode\n"););
-
-                        /*
-                        **  Hexmode is not even.
-                        */
-                        if(!hexsize || hexsize % 2)
-                        {
-                            FatalError("%s(%d) => Content hexmode argument has invalid "
-                                       "number of hex digits.  The argument '%s' must "
-                                       "contain a full even byte string.\n",
-                                       file_name, file_line, start_ptr);
-                        }
-
-                        hexmode = 0;
-                        pending = 0;
-                    }
-
-                    if(hexmode)
-                        hexsize = 0;
-                }
-                else
-                {
-                    DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "literal set, Clearing\n"););
-                    literal = 0;
-                    tmp_buf[dummy_size] = start_ptr[cnt];
-                    dummy_size++;
-                }
-
-                break;
-
-            case '\\':
-                DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Got literal char... "););
-
-                if(!literal)
-                {
-                    /* Make sure the next char makes this a valid
-                     * escape sequence.
-                     */
-                    if (idx [1] != '\0' && strchr ("\\\":;", idx [1]) == NULL)
-                    {
-                        FatalError("%s(%d) => bad escape sequence starting "
-                                   "with \"%s\". ", file_name, file_line, idx);
-                    }
-
-                    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Setting literal\n"););
-
-                    literal = 1;
-                }
-                else
-                {
-                    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Clearing literal\n"););
-                    tmp_buf[dummy_size] = start_ptr[cnt];
-                    literal = 0;
-                    dummy_size++;
-                }
-
-                break;
-            case '"':
-                if (!literal) {
-                    FatalError("%s(%d) => Non-escaped "
-                            " '\"' character!\n", file_name, file_line);
-                }
-                /* otherwise process the character as default */
-            default:
-                if(hexmode)
-                {
-                    if(isxdigit((int) *idx))
-                    {
-                        hexsize++;
-
-                        if(!pending)
-                        {
-                            hex_buf[0] = *idx;
-                            pending++;
-                        }
-                        else
-                        {
-                            hex_buf[1] = *idx;
-                            pending--;
-
-                            if(dummy_idx < dummy_end)
-                            {                            
-                                tmp_buf[dummy_size] = (u_char) 
-                                    strtol(hex_buf, (char **) NULL, 16)&0xFF;
-
-                                dummy_size++;
-                                bzero(hex_buf, 3);
-                                memset(hex_buf, '0', 2);
-                            }
-                            else
-                            {
-                                FatalError("ParsePattern() dummy "
-                                        "buffer overflow, make a smaller "
-                                        "pattern please! (Max size = %d)\n", MAX_PATTERN_SIZE-1);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if(*idx != ' ')
-                        {
-                            FatalError("%s(%d) => What is this "
-                                    "\"%c\"(0x%X) doing in your binary "
-                                    "buffer?  Valid hex values only please! "
-                                    "(0x0 - 0xF) Position: %d\n",
-                                    file_name, 
-                                    file_line, (char) *idx, (char) *idx, cnt);
-                        }
-                    }
-                }
-                else
-                {
-                    if(*idx >= 0x1F && *idx <= 0x7e)
-                    {
-                        if(dummy_idx < dummy_end)
-                        {
-                            tmp_buf[dummy_size] = start_ptr[cnt];
-                            dummy_size++;
-                        }
-                        else
-                        {
-                            FatalError("%s(%d)=> ParsePattern() "
-                                    "dummy buffer overflow!\n", file_name, file_line);
-                        }
-
-                        if(literal)
-                        {
-                            literal = 0;
-                        }
-                    }
-                    else
-                    {
-                        if(literal)
-                        {
-                            tmp_buf[dummy_size] = start_ptr[cnt];
-                            dummy_size++;
-                            DEBUG_WRAP(DebugMessage(DEBUG_PARSER, "Clearing literal\n"););
-                            literal = 0;
-                        }
-                        else
-                        {
-                            FatalError("%s(%d)=> character value out "
-                                    "of range, try a binary buffer\n", 
-                                    file_name, file_line);
-                        }
-                    }
-                }
-
-                break;
-        }
-
-        dummy_idx++;
-        idx++;
-        cnt++;
-    }
-    /* ...END BAD JUJU */
-
-    /* error prunning */
-
-    if (literal) {
-        FatalError("%s(%d)=> backslash escape is not "
-           "completed\n", file_name, file_line);
-    }
-    if (hexmode) {
-        FatalError("%s(%d)=> hexmode is not "
-           "completed\n", file_name, file_line);
-    }
-
-    ds_idx = (PatternMatchData *) otn->ds_list[type];
-
-    while(ds_idx->next != NULL)
-        ds_idx = ds_idx->next;
-
-    if((ds_idx->pattern_buf = (char *) calloc(dummy_size+1, sizeof(char))) 
-       == NULL)
-    {
-        FatalError("ParsePattern() pattern_buf malloc failed!\n");
-    }
-
-    memcpy(ds_idx->pattern_buf, tmp_buf, dummy_size);
-
-    ds_idx->pattern_size = dummy_size;
-    ds_idx->search = uniSearch;
-    
-    make_precomp(ds_idx);
-    ds_idx->exception_flag = exception_flag;
-
-    ds_idx->pattern_max_jump_size = GetMaxJumpSize(ds_idx->pattern_buf, ds_idx->pattern_size);
-
-    return;
-}
-
-#if 0
-static int CheckORPatternMatch(Packet * p, struct _OptTreeNode * otn_idx, 
-                   OptFpList * fp_list)
-{
-    int found = 0;
-    int dsize;
-    char *dp;
-    
-
-    PatternMatchData *idx;
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "CheckPatternORMatch: "););
-    
-    idx = otn_idx->ds_list[PLUGIN_PATTERN_MATCH_OR];
-
-    while(idx != NULL)
-    {
-
-        if((p->packet_flags & PKT_ALT_DECODE) && (idx->rawbytes == 0))
-        {
-            dsize = p->alt_dsize;
-            dp = (char *) DecodeBuffer; /* decode.c */
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                                    "Using Alternative Decode buffer!\n"););
-        }
-        else
-        {
-            dsize = p->dsize;
-            dp = (char *) p->data;
-        }
-        
-
-        if(idx->offset > dsize)
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                        "Initial offset larger than payload!\n"););
-
-            goto sizetoosmall;
-        }
-        else
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                        "testing pattern: %s\n", idx->pattern_buf););
-            found = idx->search(dp, dsize, idx);
-
-            if(!found)
-            {
-                DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                            "Pattern Match failed!\n"););
-            }
-        }
-
-        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                    "Checking the results\n"););
-
-        if(found)
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern Match "
-                    "successful: %s!\n", idx->pattern_buf););
-
-            return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
-
-        }
-        else
-        {
-            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                        "Pattern match failed\n"););
-        }
-
-        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                    "Stepping to next content keyword\n"););
-
-    sizetoosmall:
-
-        idx = idx->next;
-    }
-
-    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
-                "No more keywords, exiting... \n"););
-
-    return 0;
-}
-#endif
-
 int CheckANDPatternMatch(void *option_data, Packet *p)
 {
     int rval = DETECTION_OPTION_NO_MATCH;
@@ -2418,6 +1874,28 @@ int CheckANDPatternMatch(void *option_data, Packet *p)
         dp = (char *) DecodeBuffer; /* decode.c */
         DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
                     "Using Alternative Decode buffer!\n"););
+    } /*Check if the packet is a HTTP Response and is not compressed*/
+    else if(p->packet_flags & PKT_HTTP_RESP_BODY)
+    {
+        u_char *end_of_packet = (u_char *) (p->data + p->dsize);
+        /* check if the file_data_ptr is within the server_flow_depth of HttpInspect */
+        if(file_data_ptr <= end_of_packet)
+        {
+            if((end_of_packet - file_data_ptr) < p->alt_dsize )
+            {
+                dsize = end_of_packet - file_data_ptr;
+            }
+            else
+            {
+                dsize = p->alt_dsize;
+            }
+            dp = (char *)file_data_ptr;
+        }
+        else
+        {
+            PREPROC_PROFILE_END(contentPerfStats);
+            return rval;
+        }
     }
     else
     {
@@ -2620,31 +2098,6 @@ int CheckANDPatternMatch(void *option_data, Packet *p)
     return rval;
 }
 
-/************************************************************************/
-/************************************************************************/
-/************************************************************************/
-
-char *uri_buffer_name[] =
-{
-    "http_uri",
-    "http_header",
-    "http_client_body",
-    "http_method",
-    "http_cookie"
-};
-
-int PatternMatchUriBuffer(void *p)
-{
-    PatternMatchData *pmd = (PatternMatchData *)p;
-
-    if (pmd->uri_buffer != 0)
-    {
-        /* return 1 if not just cookie */
-        return pmd->uri_buffer != HTTP_SEARCH_COOKIE;
-    }
-    return 0; /* not set */
-}
-
 int CheckUriPatternMatch(void *option_data, Packet *p)
 {
     int rval = DETECTION_OPTION_NO_MATCH;
@@ -2711,6 +2164,28 @@ int CheckUriPatternMatch(void *option_data, Packet *p)
         if(found)
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern Match successful!\n"););
+            /*if found print the normalized and unnormalized buffer */
+#ifdef DEBUG
+            if ( idx->uri_buffer & (HTTP_SEARCH_URI | HTTP_SEARCH_COOKIE | HTTP_SEARCH_HEADER ))
+            {
+                DEBUG_WRAP(
+                    if(UriBufs[i].uri)
+                        DebugMessage(DEBUG_HTTP_DECODE, "Normalized contents of the matched Http buffer is: %s\n",
+                                    UriBufs[i].uri);
+                    if(UriBufs[i+1].uri)
+                        DebugMessage(DEBUG_HTTP_DECODE, "Unnormalized/Raw contents of the matched Http buffer is: %s\n",
+                                    UriBufs[i+1].uri);
+                        );
+            }
+            else
+            {
+                DEBUG_WRAP(
+                        if(UriBufs[i].uri)
+                            DebugMessage(DEBUG_HTTP_DECODE, "Unnormalized/Raw contents of the matched Http buffer is: %s\n",
+                                UriBufs[i].uri);
+                        );
+            }
+#endif
             /* call the next function in the OTN */
             PREPROC_PROFILE_END(uricontentPerfStats);
             return DETECTION_OPTION_MATCH;
@@ -2723,8 +2198,191 @@ int CheckUriPatternMatch(void *option_data, Packet *p)
     return rval;
 }
 
+void PatternMatchDuplicatePmd(void *src, PatternMatchData *pmd_dup)
+{
+    /* Oh, C++ where r u?  can't we have a friggin' copy constructor? */
+    PatternMatchData *pmd_src = (PatternMatchData *)src;
+    if (!pmd_src || !pmd_dup)
+        return;
+
+    pmd_dup->exception_flag = pmd_src->exception_flag;
+    pmd_dup->offset = pmd_src->offset;
+    pmd_dup->depth = pmd_src->depth;
+    pmd_dup->distance = pmd_src->distance;
+    pmd_dup->within = pmd_src->within;
+    pmd_dup->rawbytes = pmd_src->rawbytes;
+    pmd_dup->nocase = pmd_src->nocase;
+    pmd_dup->use_doe = pmd_src->use_doe;
+    pmd_dup->uri_buffer = pmd_src->uri_buffer;
+    pmd_dup->buffer_func = pmd_src->buffer_func;
+    pmd_dup->pattern_size = pmd_src->pattern_size;
+    pmd_dup->replace_size = pmd_src->replace_size;
+    pmd_dup->replace_buf = pmd_src->replace_buf;
+    pmd_dup->pattern_buf = pmd_src->pattern_buf;
+    pmd_dup->search = pmd_src->search;
+    pmd_dup->skip_stride = pmd_src->skip_stride;
+    pmd_dup->shift_stride = pmd_src->shift_stride;
+    pmd_dup->pattern_max_jump_size = pmd_src->pattern_max_jump_size;
+    pmd_dup->fp = pmd_src->fp;
+    pmd_dup->fp_only = pmd_src->fp_only;
+    pmd_dup->fp_offset = pmd_src->fp_offset;
+    pmd_dup->fp_length = pmd_src->fp_length;
+
+    pmd_dup->last_check.ts.tv_sec = pmd_src->last_check.ts.tv_sec;
+    pmd_dup->last_check.ts.tv_usec = pmd_src->last_check.ts.tv_usec;
+    pmd_dup->last_check.packet_number = pmd_src->last_check.packet_number;
+    pmd_dup->last_check.rebuild_flag = pmd_src->last_check.rebuild_flag;
+
+    pmd_dup->prev = NULL;
+    pmd_dup->next = NULL;
+    pmd_dup->fpl = NULL;
+
+    Replace_ResetOffset(pmd_dup);
+}
+
+int PatternMatchAdjustRelativeOffsets(PatternMatchData *pmd,
+        const uint8_t *orig_doe_ptr, const uint8_t *start_doe_ptr, const uint8_t *dp)
+{
+    int retval = 1; /* return 1 if still valid */
+
+    if (orig_doe_ptr)
+    {
+        if (((pmd->distance != 0) && ((int)(start_doe_ptr - orig_doe_ptr) > pmd->distance)) ||
+            ((pmd->offset != 0) && ((int)(start_doe_ptr - orig_doe_ptr) > pmd->offset)))
+        {
+            /* This was relative to a previously found pattern.
+             * No space left to search, we're done */
+            retval = 0;
+        }
+
+        if (((pmd->within != 0) && ((unsigned int)(start_doe_ptr - orig_doe_ptr + pmd->pattern_size) > pmd->within)) ||
+            ((pmd->depth != 0) && ((int)(start_doe_ptr - orig_doe_ptr + pmd->pattern_size) > pmd->depth)))
+        {
+            /* This was within to a previously found pattern.
+             * No space left to search, we're done */
+            retval = 0;
+        }
+    }
+    else
+    {
+        if (((pmd->distance != 0) && (start_doe_ptr - dp > pmd->distance)) ||
+            ((pmd->offset != 0) && (start_doe_ptr - dp > pmd->offset)))
+        {
+            /* This was relative to a beginning of packet.
+             * No space left to search, we're done */
+            retval = 0;
+        }
+
+        if (((pmd->within != 0) && ((unsigned int)(start_doe_ptr - dp + pmd->pattern_size) > pmd->within)) ||
+            ((pmd->depth != 0) && ((int)(start_doe_ptr - dp + pmd->pattern_size) > pmd->depth)))
+        {
+            /* This was within to a previously found pattern.
+             * No space left to search, we're done */
+            retval = 0;
+        }
+    }
+    return retval;
+}
 
 #if 0
+/* Not currently in use - DO NOT REMOVE */
+static INLINE int computeDepth(int dlen, PatternMatchData * pmd) 
+{
+    /* do some tests to make sure we stay in bounds */
+    if((pmd->depth + pmd->offset) > dlen)
+    {
+        /* we want to check only depth bytes anyway */
+        int sub_depth = dlen - pmd->offset; 
+
+        if((sub_depth > 0) && (sub_depth >= (int)pmd->pattern_size))
+        {
+            return  sub_depth;
+        }
+        else
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                        "Pattern Match failed -- sub_depth: %d < "
+                        "(int)pmd->pattern_size: %d!\n",
+                        sub_depth, (int)pmd->pattern_size););
+
+            return -1;
+        }
+    }
+    else
+    {      
+        if(pmd->depth && (dlen - pmd->offset > pmd->depth))
+        {
+            return pmd->depth;
+        }
+        else
+        {
+            return dlen - pmd->offset;
+        }
+    }
+}
+
+static int uniSearchREG(char * data, int dlen, PatternMatchData * pmd)
+{
+    int depth = computeDepth(dlen, pmd);
+    /* int distance_adjustment = 0;
+     *  int depth_adjustment = 0;
+     */
+    int success = 0;
+
+    if (depth < 0)
+        return 0;
+
+    /* XXX DESTROY ME */
+    /*success =  mSearchREG(data + pmd->offset + distance_adjustment, 
+            depth_adjustment!=0?depth_adjustment:depth, 
+            pmd->pattern_buf, pmd->pattern_size, pmd->skip_stride, 
+            pmd->shift_stride);*/
+
+    return success;
+}
+#endif
+
+#if 0
+/* XXX Not completetly implemented */
+static void PayloadSearchListInit(char *data, OptTreeNode * otn, int protocol)
+{
+    char *sptr;
+    char *eptr;
+
+    lastType = PLUGIN_PATTERN_MATCH_OR;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "In PayloadSearchListInit()\n"););
+
+    /* get the path/file name from the data */
+    while(isspace((int) *data))
+        data++;
+
+    /* grab everything between the starting " and the end one */
+    sptr = index(data, '"');
+    eptr = strrchr(data, '"');
+
+    if(sptr != NULL && eptr != NULL)
+    {
+        /* increment past the first quote */
+        sptr++;
+
+        /* zero out the second one */
+        *eptr = 0;
+    }
+    else
+    {
+        sptr = data;
+    }
+
+    /* read the content keywords from the list file */
+    ParseContentListFile(sptr, otn, protocol);
+
+    /* link the plugin function in to the current OTN */
+    AddOptFuncToList(CheckORPatternMatch, otn);
+
+    return;
+}
+
 /****************************************************************************
  *
  * Function: ParseContentListFile(char *, OptTreeNode *, int protocol)
@@ -2755,7 +2413,7 @@ static void ParseContentListFile(char *file, OptTreeNode * otn, int protocol)
     thefp = fopen(file, "r");
     if (thefp == NULL)
     {
-        FatalError("Unable to open list file: %s\n", file);
+        ParseError("Unable to open list file: %s", file);
     }
 
     /* clear the line and rule buffers */
@@ -2812,6 +2470,141 @@ static void ParseContentListFile(char *file, OptTreeNode * otn, int protocol)
     fclose(thefp);
 
     return;
+}
+
+int CheckORPatternMatch(Packet * p, OptTreeNode * otn_idx, OptFpList * fp_list)
+{
+    int found = 0;
+    int dsize;
+    char *dp;
+    
+
+    PatternMatchData *idx;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "CheckPatternORMatch: "););
+    
+    idx = otn_idx->ds_list[PLUGIN_PATTERN_MATCH_OR];
+
+    while(idx != NULL)
+    {
+
+        if((p->packet_flags & PKT_ALT_DECODE) && (idx->rawbytes == 0))
+        {
+            dsize = p->alt_dsize;
+            dp = (char *) DecodeBuffer; /* decode.c */
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                                    "Using Alternative Decode buffer!\n"););
+        }
+        else
+        {
+            dsize = p->dsize;
+            dp = (char *) p->data;
+        }
+        
+
+        if(idx->offset > dsize)
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                        "Initial offset larger than payload!\n"););
+
+            goto sizetoosmall;
+        }
+        else
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                        "testing pattern: %s\n", idx->pattern_buf););
+            found = idx->search(dp, dsize, idx);
+
+            if(!found)
+            {
+                DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                            "Pattern Match failed!\n"););
+            }
+        }
+
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                    "Checking the results\n"););
+
+        if(found)
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, "Pattern Match "
+                    "successful: %s!\n", idx->pattern_buf););
+
+            return fp_list->next->OptTestFunc(p, otn_idx, fp_list->next);
+
+        }
+        else
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                        "Pattern match failed\n"););
+        }
+
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                    "Stepping to next content keyword\n"););
+
+    sizetoosmall:
+
+        idx = idx->next;
+    }
+
+    DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH, 
+                "No more keywords, exiting... \n"););
+
+    return 0;
+}
+#endif
+
+#if 0
+/* Not currently used */
+static const char *format_uri_buffer_str(int uri_buffer, int search_buf, char *first_buf)
+{
+    if (uri_buffer & search_buf)
+    {
+        if (*first_buf == 1)
+        {
+            switch (search_buf)
+            {
+                case HTTP_SEARCH_URI:
+                    return "http_uri";
+                    break;
+                case HTTP_SEARCH_CLIENT_BODY:
+                    return "http_client_body";
+                    break;
+                case HTTP_SEARCH_HEADER:
+                    return "http_header";
+                    break;
+                case HTTP_SEARCH_METHOD:
+                    return "http_method";
+                    break;
+                case HTTP_SEARCH_COOKIE:
+                    return "http_cookie";
+                    break;
+            }
+            *first_buf = 0;
+        }
+        else
+        {
+            switch (search_buf)
+            {
+                case HTTP_SEARCH_URI:
+                    return " | http_uri";
+                    break;
+                case HTTP_SEARCH_CLIENT_BODY:
+                    return " | http_client_body";
+                    break;
+                case HTTP_SEARCH_HEADER:
+                    return " | http_header";
+                    break;
+                case HTTP_SEARCH_METHOD:
+                    return " | http_method";
+                    break;
+                case HTTP_SEARCH_COOKIE:
+                    return " | http_cookie";
+                    break;
+            }
+        }
+    }
+    return "";
 }
 #endif
 

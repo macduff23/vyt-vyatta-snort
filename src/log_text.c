@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -41,19 +41,24 @@
 
 #include "log.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "util.h"
 #include "debug.h"
 #include "signature.h"
+#include "util_net.h"
 
 #include "snort.h"
 #include "log_text.h"
 #include "sfutil/sf_textlog.h"
+#include "bounds.h"
+#include "obfuscation.h"
 
 #ifdef SUP_IP6
 #include "sfutil/sf_ip.h"
 #endif
 
 extern OptTreeNode *otn_tmp;    /* global ptr to current rule data */
+extern uint8_t DecodeBuffer[DECODE_BLEN];
 
 /*--------------------------------------------------------------------
  * utility functions
@@ -83,21 +88,19 @@ void LogTimeStamp(TextLog* log, Packet* p)
  */ 
 void LogPriorityData(TextLog* log, bool doNewLine)
 {
-    if ( !otn_tmp )
+    if (otn_tmp == NULL)
         return;
 
-    if ( otn_tmp->sigInfo.classType )
+    if ((otn_tmp->sigInfo.classType != NULL)
+            && (otn_tmp->sigInfo.classType->name != NULL))
     {
-        TextLog_Print(
-            log, "[Classification: %s] [Priority: %d] ", 
-            otn_tmp->sigInfo.classType->name, otn_tmp->sigInfo.priority
-        );
+        TextLog_Print(log, "[Classification: %s] ",
+                otn_tmp->sigInfo.classType->name);
     }
-    else
-    {
-        TextLog_Print(log, "[Priority: %d] ", otn_tmp->sigInfo.priority);
-    }
-    if ( doNewLine )
+
+    TextLog_Print(log, "[Priority: %d] ", otn_tmp->sigInfo.priority);
+
+    if (doNewLine)
         TextLog_NewLine(log);
 }
 
@@ -497,6 +500,61 @@ static void LogIpOptions(TextLog*  log, Packet * p)
 }
 
 /*--------------------------------------------------------------------
+ * Function: LogIPAddrs(TextLog* )
+ *
+ * Purpose: Dump the IP addresses to the given TextLog
+ *          Handles obfuscation
+ *
+ * Arguments: log => TextLog to print to
+ *            p => packet structure
+ *
+ * Returns: void function
+ *--------------------------------------------------------------------
+ */
+void LogIpAddrs(TextLog *log, Packet *p)
+{
+    if (!IPH_IS_VALID(p))
+        return;
+
+    if (p->frag_flag
+            || ((GET_IPH_PROTO(p) != IPPROTO_TCP)
+                && (GET_IPH_PROTO(p) != IPPROTO_UDP)))
+    {
+        char *ip_fmt = "%s -> %s";
+
+        if (ScObfuscate())
+        {
+            TextLog_Print(log, ip_fmt,
+                    ObfuscateIpToText(GET_SRC_ADDR(p)),
+                    ObfuscateIpToText(GET_DST_ADDR(p)));
+        }
+        else
+        {
+            TextLog_Print(log, ip_fmt,
+                    inet_ntoax(GET_SRC_ADDR(p)),
+                    inet_ntoax(GET_DST_ADDR(p)));
+        }
+    }
+    else
+    {
+        char *ip_fmt = "%s:%d -> %s:%d";
+
+        if (ScObfuscate())
+        {
+            TextLog_Print(log, ip_fmt,
+                    ObfuscateIpToText(GET_SRC_ADDR(p)), p->sp,
+                    ObfuscateIpToText(GET_DST_ADDR(p)), p->dp);
+        }
+        else
+        {
+            TextLog_Print(log, ip_fmt,
+                    inet_ntoax(GET_SRC_ADDR(p)), p->sp,
+                    inet_ntoax(GET_DST_ADDR(p)), p->dp);
+        }
+    }
+}
+
+/*--------------------------------------------------------------------
  * Function: LogIPHeader(TextLog* )
  *
  * Purpose: Dump the IP header info to the given TextLog
@@ -514,42 +572,7 @@ void LogIPHeader(TextLog*  log, Packet * p)
         return;
     }
 
-    if(p->frag_flag)
-    {
-        /* just print the straight IP header */
-        TextLog_Puts(log, inet_ntoa(GET_SRC_ADDR(p)));
-        TextLog_Puts(log, " -> ");
-        TextLog_Puts(log, inet_ntoa(GET_DST_ADDR(p)));
-    }
-    else
-    {
-        if(GET_IPH_PROTO(p) != IPPROTO_TCP && GET_IPH_PROTO(p) != IPPROTO_UDP)
-        {
-            /* just print the straight IP header */
-            TextLog_Puts(log, inet_ntoa(GET_SRC_ADDR(p)));
-            TextLog_Puts(log, " -> ");
-            TextLog_Puts(log, inet_ntoa(GET_DST_ADDR(p)));
-        }
-        else
-        {
-            if (!ScObfuscate())
-            {
-                /* print the header complete with port information */
-                TextLog_Puts(log, inet_ntoa(GET_SRC_ADDR(p)));
-                TextLog_Print(log, ":%d -> ", p->sp);
-                TextLog_Puts(log, inet_ntoa(GET_DST_ADDR(p)));
-                TextLog_Print(log, ":%d", p->dp);
-            }
-            else
-            {
-                /* print the header complete with port information */
-                if(IS_IP4(p))
-                    TextLog_Print(log, "xxx.xxx.xxx.xxx:%d -> xxx.xxx.xxx.xxx:%d", p->sp, p->dp);
-                else if(IS_IP6(p))
-                    TextLog_Print(log, "x:x:x:x:x:x:x:x:%d -> x:x:x:x:x:x:x:x:%d", p->sp, p->dp);
-            }
-        }
-    }
+    LogIpAddrs(log, p);
 
     if(!ScOutputDataLink())
     {
@@ -1423,6 +1446,47 @@ static void LogNetData (TextLog* log, const u_char* data, const int len)
     TextLog_NewLine(log);
 }
 
+#define SEPARATOR \
+    "=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+"
+
+static int LogObfuscatedData(TextLog* log, Packet *p)
+{
+    uint8_t *payload = NULL;
+    uint16_t payload_len = 0;
+
+    if (obApi->getObfuscatedPayload(p, &payload,
+                (uint16_t *)&payload_len) != OB_RET_SUCCESS)
+    {
+        return -1;
+    }
+
+    /* dump the application layer data */
+    if (ScOutputAppData() && !ScVerboseByteDump())
+    {
+        if (ScOutputCharData())
+            LogCharData(log, (char *)payload, payload_len);
+        else
+            LogNetData(log, payload, payload_len);
+    }
+    else if (ScVerboseByteDump())
+    {
+        uint8_t buf[UINT16_MAX];
+        uint16_t dlen = p->data - p->pkt;
+
+        SafeMemcpy(buf, p->pkt, dlen, buf, buf + sizeof(buf));
+        SafeMemcpy(buf + dlen, payload, payload_len,
+                buf, buf + sizeof(buf));
+
+        LogNetData(log, buf, dlen + payload_len);
+    }
+
+    TextLog_Print(log, "%s\n\n", SEPARATOR);
+
+    free(payload);
+
+    return 0;
+}
+
 /*--------------------------------------------------------------------
  * Function: LogIPPkt(TextLog*, int, Packet *)
  *
@@ -1447,9 +1511,6 @@ static void LogNetData (TextLog* log, const u_char* data, const int len)
 #define DATA_LEN(p) \
     (p->actual_ip_len - (IP_HLEN(p->iph) << 2))
 #endif
-
-#define SEPARATOR \
-    "=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+"
 
 void LogIPPkt(TextLog* log, int type, Packet * p)
 {
@@ -1518,13 +1579,33 @@ void LogIPPkt(TextLog* log, int type, Packet * p)
         }
     }
 
+    if ((p->dsize > 0) && obApi->payloadObfuscationRequired(p)
+            && (LogObfuscatedData(log, p) == 0))
+    {
+        return;
+    }
+
     /* dump the application layer data */
     if (ScOutputAppData() && !ScVerboseByteDump())
     {
         if (ScOutputCharData())
-            LogCharData(log, (char*) p->data, p->dsize);
+        {
+            LogCharData(log, (char *)p->data, p->dsize);
+            if(p->data_flags & DATA_FLAGS_GZIP)
+            {
+                TextLog_Print(log, "%s\n", "Decompressed Data for this packet");
+                LogCharData(log, (char *)DecodeBuffer, p->alt_dsize);
+            }
+        }
         else
+        {
             LogNetData(log, p->data, p->dsize);
+            if(p->data_flags & DATA_FLAGS_GZIP)
+            {
+                TextLog_Print(log, "%s\n", "Decompressed Data for this packet");
+                LogNetData(log, DecodeBuffer, p->alt_dsize);
+            }
+        }
     }
     else if (ScVerboseByteDump())
     {
@@ -1676,4 +1757,5 @@ void LogArpHeader(TextLog* log, Packet * p)
 #endif
 }
 #endif  // NO_NON_ETHER_DECODER
+
 

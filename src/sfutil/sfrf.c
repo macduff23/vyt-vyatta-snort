@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2009 Sourcefire, Inc.
+ * Copyright (C) 2009-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -41,6 +41,7 @@
 #include "parser/IpAddrSet.h"
 #include "generators.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "sfrf.h"
 #include "util.h"
 #include "sfPolicyUserData.h"
@@ -232,7 +233,7 @@ int SFRF_ConfigAdd(RateFilterConfig *rf_config, tSFRFConfigNode *cfgNode)
     int hstatus;
     tSFRFSidNode* pSidNode;
     tSFRFConfigNode* pNewConfigNode;
-    tSFRFGenHashKey key = {0};
+    tSFRFGenHashKey key = {0,0};
     tSfPolicyId policy_id = getParserPolicy();
 
     // Auto init - memcap must be set 1st, which is not really a problem

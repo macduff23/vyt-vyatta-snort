@@ -2,7 +2,7 @@
 /*
 ** Copyright (C) 2003 Brian Caswell <bmc@snort.org>
 ** Copyright (C) 2003 Michael J. Pomraning <mjp@securepipe.com>
-** Copyright (C) 2003-2009 Sourcefire, Inc.
+** Copyright (C) 2003-2010 Sourcefire, Inc.
 ** 
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -26,6 +26,7 @@
 
 #include "bounds.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "debug.h"
 #include "decode.h"
 #include "plugbase.h"
@@ -170,7 +171,7 @@ int PcreAdjustRelativeOffsets(PcreData *pcre, uint32_t search_offset)
         return 0; /* Don't search again */
     }
 
-    if (pcre->options & (SNORT_PCRE_HTTP_URI | SNORT_PCRE_HTTP_BODY | SNORT_PCRE_HTTP_HEADER | SNORT_PCRE_HTTP_METHOD | SNORT_PCRE_HTTP_COOKIE))
+    if (pcre->options & ( SNORT_PCRE_URI_BUFS ))
     {
         return 0;
     }
@@ -182,7 +183,7 @@ int PcreAdjustRelativeOffsets(PcreData *pcre, uint32_t search_offset)
 
 void SetupPcre(void)
 {
-    RegisterRuleOption("pcre", SnortPcreInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("pcre", SnortPcreInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("pcre", &pcrePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -338,6 +339,12 @@ void SnortPcreParse(char *data, PcreData *pcre_data, OptTreeNode *otn)
         case 'H':  pcre_data->options |= SNORT_PCRE_HTTP_HEADER;  break;
         case 'M':  pcre_data->options |= SNORT_PCRE_HTTP_METHOD;  break;
         case 'C':  pcre_data->options |= SNORT_PCRE_HTTP_COOKIE;  break;
+        case 'I':  pcre_data->options |= SNORT_PCRE_HTTP_RAW_URI; break;
+        case 'D':  pcre_data->options |= SNORT_PCRE_HTTP_RAW_HEADER; break;
+        case 'K':  pcre_data->options |= SNORT_PCRE_HTTP_RAW_COOKIE; break;
+        case 'S':  pcre_data->options |= SNORT_PCRE_HTTP_STAT_CODE; break;
+        case 'Y':  pcre_data->options |= SNORT_PCRE_HTTP_STAT_MSG; break;
+
 
         default:
             FatalError("%s (%d): unknown/extra pcre option encountered\n", file_name, file_line);
@@ -346,7 +353,7 @@ void SnortPcreParse(char *data, PcreData *pcre_data, OptTreeNode *otn)
     }
 
     if(pcre_data->options & SNORT_PCRE_RELATIVE && 
-       pcre_data->options & (SNORT_PCRE_HTTP_URI | SNORT_PCRE_HTTP_BODY | SNORT_PCRE_HTTP_HEADER | SNORT_PCRE_HTTP_METHOD | SNORT_PCRE_HTTP_COOKIE))
+       pcre_data->options & (SNORT_PCRE_URI_BUFS))
         FatalError("%s(%d): PCRE unsupported configuration : both relative & uri options specified\n", file_name, file_line);
 
     /* now compile the re */
@@ -580,7 +587,7 @@ int SnortPcre(void *option_data, Packet *p)
     }
     
     /* This is the HTTP case */
-    if(pcre_data->options & (SNORT_PCRE_HTTP_URI | SNORT_PCRE_HTTP_HEADER | SNORT_PCRE_HTTP_METHOD | SNORT_PCRE_HTTP_BODY | SNORT_PCRE_HTTP_COOKIE))
+    if(pcre_data->options & SNORT_PCRE_URI_BUFS)
     {
         int i;
         for (i=0; i<p->uri_count; i++)
@@ -605,6 +612,26 @@ int SnortPcre(void *option_data, Packet *p)
                     break;
                 case HTTP_BUFFER_COOKIE:
                     if (!(pcre_data->options & SNORT_PCRE_HTTP_COOKIE))
+                        continue;
+                    break;
+                case HTTP_BUFFER_RAW_URI:
+                    if (!(pcre_data->options & SNORT_PCRE_HTTP_RAW_URI))
+                        continue;
+                    break;
+                case HTTP_BUFFER_RAW_HEADER:
+                    if(!(pcre_data->options & SNORT_PCRE_HTTP_RAW_HEADER))
+                        continue;
+                    break;
+                case HTTP_BUFFER_RAW_COOKIE:
+                    if (!(pcre_data->options & SNORT_PCRE_HTTP_RAW_COOKIE))
+                        continue;
+                    break;
+                case HTTP_BUFFER_STAT_CODE:
+                    if (!(pcre_data->options & SNORT_PCRE_HTTP_STAT_CODE))
+                        continue;
+                    break;
+                case HTTP_BUFFER_STAT_MSG:
+                    if (!(pcre_data->options & SNORT_PCRE_HTTP_STAT_MSG))
                         continue;
                     break;
                 default:

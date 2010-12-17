@@ -1,3 +1,665 @@
+2010-06-25 Steven Sturges <ssturges@sourcefire.com>
+	* etc/reference.config:
+	* etc/snort.conf:
+	  Updates for 2.8.6.1
+	* doc/README.http_inspect:
+	  Update for configuration options.
+	* rpm/snort.spec:
+	* src/win32/WIN32-Prj/snort_installer.nsi:
+	  Install correct sensitive data preprocessor DLL on Windows platforms
+	  and in rpms on linux.
+	* src/detection-plugins/sp_byte_jump.c:
+	  Updates to multiplier parameter handling.
+	* src/dynamic-preprocessors/ftptelnet/pp_ftp.c:
+	  Update to handling string format detection.
+	  Fix issue with parsing FTP data transfer response codes with missing
+	  messages.  Thanks to David Patterson for noting the problem.
+	* src/fpcreate.c:
+	* src/fpdetect.c:
+	* src/parser.c:
+	* src/dynamic-plugins/sf_dynamic_engine.h:
+	* src/dynamic-plugins/sf_engine/sf_snort_detection_engine.c:
+	* src/pcrm.h:
+	  Fix issues with using fast_pattern:only and having only one http content
+	  in the pattern matcher.
+	* src/log.c:
+	* src/log_text.c:
+      Log gzip decompressed data with console/cmg output.
+	* src/parser.c:
+	  Error if attribute table is specified in IP or vlan specific
+	  configuration but not in base configuration.
+	* src/decode.h:
+	* src/dynamic-plugins/sf_engine/sf_snort_packet.h:
+	* src/preprocessors/HttpInspect/client/hi_client.c:
+	* src/preprocessors/HttpInspect/server/hi_server.c:
+	* src/preprocessors/snort_httpinspect.c:
+	* src/preprocessors/snort_httpinspect.h:
+	  Update HTTP for better handling of chunk encodings of gzip'd data.
+	* src/preprocessors/Stream5/snort_stream5_tcp.c:
+	* src/snort.h:
+      Updates for building with libprelude.
+
+2010-04-22 Ryan Jordan <ryan.jordan@sourcefire.com>
+    * doc/README.dcerpc:
+    * doc/README.dcerpc2:
+    * doc/README.flowbits:
+    * doc/README.frag3:
+    * doc/README.http_inspect:
+    * doc/README.PerfProfiling:
+    * doc/README.sensitive_data:
+    * doc/README.sfportscan:
+    * doc/README.stream5:
+    * doc/snort_manual.tex:
+       Updated Snort documentation
+
+    * etc/classification.config:
+    * etc/gen-msg.map:
+    * etc/snort.conf:
+       Replaced snort.conf with the version we ship in the rules tarball.
+       Fixed a duplicate entry in gen-msg.map.
+
+    * src/decode.c:
+    * src/decode.h:
+      Added alert for IPv6/UDP packets with zero checksum.
+
+    * src/detection-plugins/detection_options.c:
+    * src/detection-plugins/sp_byte_check.c:
+    * src/detection-plugins/sp_byte_jump.c:
+    * src/detection-plugins/sp_isdataat.c:
+       For byte_test, byte_jump, and isdataat, only do an in bounds check of
+       the doe_ptr if the rule option is relative and will be using the doe_ptr.
+    * src/detection-plugins/sp_pattern_match.c:
+       Fixed a valgrind error.
+    * src/detection-plugins/sp_react.c:
+       Removed instances of the word "porn" from Snort.
+
+    * src/dynamic-plugins/sf_convert_dynamic.c:
+    * src/dynamic-plugins/sf_engine/sf_snort_packet.h:
+    * src/dynamic-plugins/sp_dynamic.c:
+       Changed the parsing of dynamic detection plugins to register dynamic
+       rules per policy.
+
+    * src/dynamic-preprocessors/ftptelnet/pp_ftp.c:
+    * src/dynamic-preprocessors/ftptelnet/spp_ftptelnet.c:
+    * src/preprocessors/spp_stream5.c:
+    * src/preprocessors/stream_api.h:
+    * src/preprocessors/stream_ignore.h:
+    * src/target-based/sftarget_protocol_reference.c:
+       The FTP preprocessor now marks data channels with the "ftp-data"
+       service identifier. Adaptive profiling must be turned on for this.
+
+    * src/dynamic-preprocessors/sdf/sdf_credit_card.c:
+    * src/dynamic-preprocessors/sdf/sdf_detection_option.c:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.c:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.h:
+    * src/dynamic-preprocessors/sdf/sdf_us_ssn.c:
+    * src/dynamic-preprocessors/sdf/spp_sdf.c:
+    * src/dynamic-preprocessors/sdf/spp_sdf.h:
+    * src/generators.h:
+       Moved the sensitive data preprocessor's preproc rule to GID 139.
+       Fixed the ability to reload Snort with sensitive_data turned on.
+       Fixed bugs in the parsing of "sd_pattern" rules that overlapped.
+       U.S. Social Security numbers are now required to have non-digits on
+         either side in order to cause a match.
+
+    * src/mempool.c:
+    * src/preprocessors/HttpInspect/client/hi_client.c:
+    * src/preprocessors/HttpInspect/include/hi_include.h:
+    * src/preprocessors/HttpInspect/include/hi_mi.h:
+    * src/preprocessors/HttpInspect/include/hi_server.h:
+    * src/preprocessors/HttpInspect/include/hi_ui_config.h:
+    * src/preprocessors/HttpInspect/include/hi_util.h:
+    * src/preprocessors/HttpInspect/mode_inspection/hi_mi.c:
+    * src/preprocessors/HttpInspect/normalization/hi_norm.c:
+    * src/preprocessors/HttpInspect/server/hi_server.c:
+    * src/preprocessors/HttpInspect/user_interface/hi_ui_config.c:
+    * src/preprocessors/snort_httpinspect.c:
+    * src/preprocessors/snort_httpinspect.h:
+       Added a "max_gzip_mem" option to http_inspect. Use this to set
+         the maximum amount of memory used for gzip decompression.
+       The "+" sign is now normalized to a space.
+       Added a "disable" option to http_inspect so that a memcap can
+         be set without enabling http_inspect across all VLANs.
+
+    * src/preprocessors/sfprocpidstats.c:
+    * src/preprocessors/sfprocpidstats.h:
+    * src/preprocessors/spp_perfmonitor.c:
+       Fixed a memory leak.
+
+    * src/preprocessors/Stream5/snort_stream5_session.c:
+    * src/preprocessors/Stream5/snort_stream5_tcp.c:
+    * src/preprocessors/Stream5/snort_stream5_udp.c:
+       Fixed an issue that could cause Snort to take minutes to reload.
+
+    * src/snort.c:
+       Unblocked signals that Snort does not handle itself.
+
+    * src/win32/Makefile.am:
+    * src/win32/WIN32-Includes/config.h:
+    * src/win32/WIN32-Includes/mysql/config-netware.h:
+    * src/win32/WIN32-Includes/mysql/config-os2.h:
+    * src/win32/WIN32-Includes/mysql/config-win.h:
+    * src/win32/WIN32-Includes/mysql/errmsg.h:
+    * src/win32/WIN32-Includes/mysql/libmysqld.def:
+    * src/win32/WIN32-Includes/mysql/libmysql.def:
+    * src/win32/WIN32-Includes/mysql/m_ctype.h:
+    * src/win32/WIN32-Includes/mysql/m_string.h:
+    * src/win32/WIN32-Includes/mysql/my_alloc.h:
+    * src/win32/WIN32-Includes/mysql/my_dbug.h:
+    * src/win32/WIN32-Includes/mysql/my_getopt.h:
+    * src/win32/WIN32-Includes/mysql/my_global.h:
+    * src/win32/WIN32-Includes/mysql/my_list.h:
+    * src/win32/WIN32-Includes/mysql/my_pthread.h:
+    * src/win32/WIN32-Includes/mysql/mysql_com.h:
+    * src/win32/WIN32-Includes/mysql/mysqld_error.h:
+    * src/win32/WIN32-Includes/mysql/mysql_embed.h:
+    * src/win32/WIN32-Includes/mysql/mysql.h:
+    * src/win32/WIN32-Includes/mysql/mysql_time.h:
+    * src/win32/WIN32-Includes/mysql/mysql_version.h:
+    * src/win32/WIN32-Includes/mysql/my_sys.h:
+    * src/win32/WIN32-Includes/mysql/raid.h:
+    * src/win32/WIN32-Includes/mysql/typelib.h:
+    * src/win32/WIN32-Prj/snort.dsw:
+    * src/win32/WIN32-Prj/snort_installer.nsi:
+       Updated the MySQL client library in the Windows build.
+       Fixed a conflict between MSSQL headers and the newer Windows Platform SDK.
+
+
+2010-01-27 Ryan Jordan <ryan.jordan@sourcefire.com>
+    * doc/Makefile.am:
+       Added README.sensitive_data
+    * doc/README.dcerpc2:
+       Removed "events" from default configuration.
+    * doc/README.http_inspect:
+       Added support for extended ascii codes in HTTP request URI using a new configurable option "extended_ascii_uri"
+       Changed the pattern match to search only the HTTP response body when extended response inspection is enabled. Also copy only the decompressed data into the decode buffer.
+    * doc/README.INLINE:
+       Content replacement now allows replacement strings of varying sizes.
+    * doc/README.multipleconfigs:
+       Limit number of individual networks per line to 512.
+    * doc/README.stream5:
+       Removed "min_ttl" option, added the latest stream alerts.
+    * doc/snort_manual.tex:
+       Fixed typos, updated the Snort manual to match the README updates.
+       Eliminated the kick-ass and the lotion.
+       Updated with new PCRE options.
+    * etc/classification.config:
+       Cleaned up classification.config. Thanks to Guise McAllaster for reporting this issue.
+    * etc/gen-msg.map:
+       Added sig ID for http_inspect's chunk size mismatch.
+    * etc/snort.conf:
+       Fixed typos. Default "dynamicengine" entry is now specified by directory.
+    * src/build.h:
+       Updated build number.
+    * src/checksum.h:
+      checksum calculation for icmpv6 added . also fixed a warning in hi_client.c
+    * src/configure.in:
+      Updated makefile/configure script to optionally build dynamic examples.
+      Thanks to Markus Lude for raising the issue.
+
+      Fixed linker option on Solaris 10 to use nanosleep.
+      Thanks to Randal T. Rioux for reporting this issue.
+    * src/decode.c:
+      checksum calculation for icmpv6 added . also fixed a warning in hi_client.c
+    * src/decode.h:
+      Change the pattern match to search only the HTTP response body when extended response inspection is enabled. Also copy only the decompressed data into the decode buffer.
+    * src/detect.c:
+       Formatting changes.
+    * src/detection-plugins/sp_asn1.c:
+    * src/detection-plugins/sp_byte_check.c:
+    * src/detection-plugins/sp_ip_proto.c:
+       Replaced strol and strtoul with inline functions that reset errno first.
+    * src/detection-plugins/sp_pattern_match.c:
+       Check if file_data is within the packet boundaries and set the search depth accordingly.
+    * src/detection-plugins/sp_pcre.c:
+       Pcre new options fix. Raw options and status options werent matching as expected.
+    * src/detection-plugins/sp_replace.c:
+       checksum calculation for icmpv6 added . also fixed a warning in hi_client.c
+    * src/dynamic-examples/Makefile.am:
+    * src/Makefile.am:
+       Update makefile/configure script to optionally build dynamic examples.
+    * src/dynamic-plugins/sf_dynamic_plugins.c:
+       Replaced strol and strtoul with inline functions that reset errno first.
+    * src/dynamic-plugins/sf_dynamic_preprocessor.h:
+    * src/event_queue.c:
+    * src/event_queue.h:
+    * src/preprocessors/spp_frag3.c:
+    * src/dynamic-preprocessors/dcerpc2/snort_dce2.c:
+    * src/sfutil/sfeventq.h:
+    * src/snort.c:
+    * src/snort.h:
+       Fixed a bug where Snort would log a packet other than the one triggering the alert.
+    * src/dynamic-preprocessors/dcerpc2/dce2_debug.c:
+    * src/dynamic-preprocessors/dcerpc2/dce2_roptions.c:
+    * src/dynamic-preprocessors/ftptelnet/snort_ftptelnet.c:
+    * src/dynamic-preprocessors/libs/sfparser.c:
+    * src/output-plugins/spo_unified2.c:
+    * src/parser.c:
+    * src/preprocessors/spp_perfmonitor.c:
+    * src/preprocessors/Stream5/snort_stream5_tcp.c:
+       Replaced strol and strtoul with inline functions that reset errno first.
+    * src/dynamic-preprocessors/dcerpc2/sf_preproc_info.h:
+    * src/dynamic-preprocessors/dns/sf_preproc_info.h:
+    * src/dynamic-preprocessors/ftptelnet/sf_preproc_info.h:
+    * src/dynamic-preprocessors/smtp/sf_preproc_info.h:
+    * src/dynamic-preprocessors/ssh/sf_preproc_info.h:
+    * src/dynamic-preprocessors/ssl/sf_preproc_info.h:
+       Updated build version number.
+    * src/dynamic-preprocessors/sdf/.cvsignore:
+       Added .cvsignore file
+    * src/dynamic-preprocessors/sdf/sdf_credit_card.c:
+    * src/dynamic-preprocessors/sdf/sdf_credit_card.h:
+       Added license text.
+       Added check for the Issuer Number in credit card numbers.
+    * src/dynamic-preprocessors/sdf/sdf_detection_option.c:
+    * src/dynamic-preprocessors/sdf/sdf_detection_option.h:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.c:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.h:
+       Added license text.
+       Fixed error when using the same sensitive data rule in multiple policies.
+       Sensitive data rules must use the preprocessor's generator ID.
+    * src/dynamic-preprocessors/sdf/sdf_us_ssn.c:
+    * src/dynamic-preprocessors/sdf/sdf_us_ssn.h:
+       Added license text.
+    * src/dynamic-preprocessors/sdf/spp_sdf.c:
+    * src/dynamic-preprocessors/sdf/spp_sdf.h:
+       Fixed double-free when the preprocessor was enabled in multiple policies.
+       Added the ability to search HTTP Uri buffers for sensitive data.
+       Fixed the pcap header for pseudo-packets generated by the preprocessor.
+    * src/fpcreate.c:
+       OpenBSD update
+    * src/generators.h:
+       Added alert for HTTP chunk size mismatch.
+    * src/obfuscation.c:
+       Made a debug message optionally compilable.
+    * src/output-plugins/spo_log_tcpdump.c:
+       Fix use of -L option to work correctly.
+       Thanks to Allan Adkins for reporting this issue.
+    * src/preprocessors/HttpInspect/client/hi_client.c:
+    * src/preprocessors/HttpInspect/event_output/hi_eo_log.c:
+    * src/preprocessors/HttpInspect/include/hi_eo_events.h:
+    * src/preprocessors/HttpInspect/include/hi_ui_config.h:
+    * src/preprocessors/HttpInspect/include/hi_include.h:
+    * src/preprocessors/HttpInspect/include/hi_util.h:
+    * src/preprocessors/HttpInspect/server/hi_server.c:
+      Added http response stats.
+      Added support for extended ascii codes in HTTP request URI
+        using a new configurable option "extended_ascii_uri"
+      Added an alert for incorrect chunk size fields.
+    * src/preprocessors/perf.c:
+       Fixed null deref when "rotate stats" signal was caught w/out perfmon enabled.
+    * src/preprocessors/snort_httpinspect.c:
+       Fixed a case where the HTTP Inspect preprocessor would disable the Sensitive Data preprocessor.
+    * src/preprocessors/spp_httpinspect.c:
+       Decompressed bytes read will now be based on the total out of zstream.
+    * src/target-based/sftarget_reader.c:
+       attribute table printing - converting to host order before printing the ip address
+    * src/util.c:
+    * src/util.h:
+      adding zlib version information for snort -V
+    * src/win32/Makefile.am:
+       Add zlib 1.2.3 to Win32 build.
+    * src/win32/WIN32-Includes/config.h:
+    * src/win32/WIN32-Includes/zlib/zconf.h:
+    * src/win32/WIN32-Includes/zlib/zlib.h:
+    * src/win32/WIN32-Prj/snort.dsp:
+       Add zlib 1.2.3 to Win32 build.
+    * src/win32/WIN32-Prj/snort_installer.nsi:
+       Added Sensitive Data preproc to Windows installer script.
+
+2009-12-21 Ryan Jordan <ryan.jordan@sourcefire.com>
+    * doc/README.dcerpc:
+      Added deprecation notice.
+    * doc/README.dcerpc2:
+      Added note about fast pattern contents.
+    * doc/README.filters:
+      Slight change to indicate that filters were introduced in 2.8.5,
+      which is no longer the current version.
+    * doc/README.flowbits:
+      Added documentation for flowbit groups.
+    * doc/README.http_inspect:
+      Added documentation for new HTTP rule options.
+    * doc/snort_manual.tex:
+      Updated for HTTP rule options and other cleanup.
+    * doc/TODO:
+      Removed obfuscation code from the TODO.
+    * etc/gen-msg.map:
+      Added new Stream5 alert for the "TCP 4-way handshake"
+    * etc/snort.conf:
+      Fixed typos. Added examples for Unified2 output and Sensitive Data
+      preprocessor config.
+    * rpm/snort.spec:
+      Updated version number.
+    * src/bounds.h:
+      Formatting change. Added "SafeMemCheck" function. Modified "SafeMemcpy"
+      and "SafeMemset" to use it.
+    * src/build.h:
+      Updated build number.
+    * src/debug.c:
+      Moved definition for snort_conf.
+    * src/decode.h:
+      Made changes for HTTP response gzip support.
+    * src/detect.c:
+      Updated to use new Obfuscation API.
+    * src/sfutil/mpse.c:
+    * src/sfutil/mpse.h:
+    * src/fpcreate.c:
+    * src/fpcreate.h:
+    * src/sfutil/acsmx2.c:
+    * src/sfutil/acsmx2.h:
+      Added support for ac "split" pattern matcher to use less memory with
+      improved performance over ac-bnfa.  Thanks to Charlie Lasswell for
+      the ideas!
+    * src/detect.h:
+    * src/event_wrapper.c:
+    * src/event_wrapper.h:
+    * src/inline.c:
+    * src/profiler.c:
+    * src/rate_filter.h:
+    * src/rules.h:
+    * src/tag.c:
+    * src/tag.h:
+    * src/treenodes.h:
+      OTNs and RTNs were moved to their own header file.
+    * src/detection-plugins/detection_options.c:
+    * src/detection-plugins/Makefile.am:
+    * src/detection-plugins/sp_file_data.c:
+    * src/detection-plugins/sp_file_data.h:
+      New detection option "file_data" was added.
+    * src/detection-plugins/detection_options.h:
+    * src/rule_option_types.h:
+      Moved option_type_t to its own header file.
+    * src/detection-plugins/sp_flowbits.c:
+    * src/detection-plugins/sp_flowbits.h:
+      allowing flowbits group name only with set and toggle operations
+      check if the content rules have http modifiers.
+    * src/detection-plugins/sp_replace.c:
+      need to check from the relative depth for bounds
+      adjust the bounds while replacing to prevent buffer overflow.
+      allow replace with different size strings. enhancement to replace.
+    * src/detection-plugins/sp_isdataat.c:
+      negated isdataat support.
+    * src/detection-plugins/sp_pattern_match.c:
+    * src/detection-plugins/sp_pattern_match.h:
+      Update pattern match parsing to error on invalid rules.
+    * src/detection-plugins/sp_asn1.c:
+    * src/detection-plugins/sp_byte_check.c:
+    * src/detection-plugins/sp_byte_jump.c:
+    * src/detection-plugins/sp_clientserver.c:
+    * src/detection-plugins/sp_cvs.c:
+    * src/detection-plugins/sp_dsize_check.c:
+    * src/detection-plugins/sp_ftpbounce.c:
+    * src/detection-plugins/sp_icmp_code_check.c:
+    * src/detection-plugins/sp_icmp_id_check.c:
+    * src/detection-plugins/sp_icmp_seq_check.c:
+    * src/detection-plugins/sp_icmp_type_check.c:
+    * src/detection-plugins/sp_ip_fragbits.c:
+    * src/detection-plugins/sp_ip_id_check.c:
+    * src/detection-plugins/sp_ipoption_check.c:
+    * src/detection-plugins/sp_ip_proto.c:
+    * src/detection-plugins/sp_ip_proto.h:
+    * src/detection-plugins/sp_ip_same_check.c:
+    * src/detection-plugins/sp_ip_tos_check.c:
+    * src/detection-plugins/sp_pcre.c:
+    * src/detection-plugins/sp_pcre.h:
+    * src/detection-plugins/sp_react.c:
+    * src/detection-plugins/sp_respond2.c:
+    * src/detection-plugins/sp_respond.c:
+    * src/detection-plugins/sp_rpc_check.c:
+    * src/detection-plugins/sp_session.c:
+    * src/detection-plugins/sp_tcp_ack_check.c:
+    * src/detection-plugins/sp_tcp_flag_check.c:
+    * src/detection-plugins/sp_tcp_seq_check.c:
+    * src/detection-plugins/sp_tcp_win_check.c:
+    * src/detection-plugins/sp_ttl_check.c:
+    * src/detection-plugins/sp_urilen_check.c:
+    * src/dynamic-preprocessors/ftptelnet/spp_ftptelnet.c:
+    * src/dynamic-preprocessors/ssl/spp_ssl.c:
+      Updated calls to RegisterRuleOption() to match new definiton.
+    * src/dynamic-plugins/sf_convert_dynamic.c:
+      Updated conversion of Content and PCRE rule options to match HTTP changes.
+    * src/dynamic-plugins/sf_dynamic_common.h:
+      Updated HTTP flags.
+    * src/dynamic-plugins/sf_dynamic_engine.h:
+    * src/dynamic-plugins/sp_preprocopt.c:
+    * src/dynamic-plugins/sp_preprocopt.h:
+      Added definition of OTN Handler.  A detection option or preprocessor can
+      register one of these to get the OTN of any rule using its rule option.
+    * src/dynamic-plugins/sf_dynamic_plugins.c:
+    * src/dynamic-plugins/sf_dynamic_preprocessor.h:
+    * src/dynamic-plugins/sf_preproc_example/sf_dynamic_preproc_lib.c:
+      Added several items to DynamicPreprocessorData, to allow dynamic
+      preprocessors to call more Snort functions.
+    * src/dynamic-plugins/sf_engine/sf_snort_detection_engine.c:
+    * src/dynamic-plugins/sf_engine/sf_snort_plugin_api.c:
+    * src/dynamic-plugins/sf_engine/sf_snort_plugin_api.h:
+    * src/dynamic-plugins/sf_engine/sf_snort_plugin_content.c:
+    * src/dynamic-plugins/sf_engine/sf_snort_plugin_pcre.c:
+    * src/dynamic-plugins/sp_dynamic.c:
+    * src/dynamic-plugins/sp_dynamic.h:
+      Check for HTTP modifiers to Content and PCRE options in shared object
+      rules.
+    * src/dynamic-plugins/sf_engine/sf_snort_packet.h:
+      Added missing Packet member to SFSnortPacket.
+    * src/dynamic-preprocessors/dcerpc/dcerpc.c:
+    * src/dynamic-preprocessors/dcerpc/dcerpc.h:
+      Moved DCERPC_FragType definition.
+    * src/dynamic-preprocessors/dcerpc/dcerpc_config.c:
+    * src/dynamic-preprocessors/dcerpc/snort_dcerpc.h:
+    * src/dynamic-preprocessors/dcerpc/spp_dcerpc.c:
+    * src/dynamic-preprocessors/dcerpc2/dce2_co.c:
+    * src/dynamic-preprocessors/dcerpc2/dce2_config.c:
+    * src/dynamic-preprocessors/dcerpc2/snort_dce2.c:
+    * src/preprocessors/portscan.h:
+    * src/preprocessors/spp_frag3.c:
+    * src/preprocessors/spp_sfportscan.c:
+      Added "disabled" option to frag3_global, stream5_global, portscan,
+      dcerpc, and dcerpc2 preprocessor configurations so that memcaps can be
+      specified in the default configuration w/o enabling that preprocessor.
+      This allows specification of the preprocessors only in the desired
+      configuration.
+    * src/dynamic-preprocessors/dcerpc/Makefile.am:
+    * src/dynamic-preprocessors/dcerpc2/Makefile.am:
+    * src/dynamic-preprocessors/dns/Makefile.am:
+    * src/dynamic-preprocessors/dns/sf_dns.dsp:
+    * src/dynamic-preprocessors/ftptelnet/Makefile.am:
+    * src/dynamic-preprocessors/ftptelnet/sf_ftptelnet.dsp:
+    * src/dynamic-preprocessors/smtp/Makefile.am:
+    * src/dynamic-preprocessors/ssh/Makefile.am:
+    * src/dynamic-preprocessors/ssl/Makefile.am:
+    * src/dynamic-preprocessors/smtp/sf_smtp.dsp:
+    * src/dynamic-preprocessors/ssh/sf_ssh.dsp:
+    * src/dynamic-preprocessors/ssl/sf_ssl.dsp:
+      Fix make dist to include all required files.
+    * src/dynamic-preprocessors/dcerpc2/dce2_event.c:
+    * src/dynamic-preprocessors/dcerpc2/dce2_list.h:
+    * src/dynamic-preprocessors/dcerpc2/dce2_utils.c:
+    * src/dynamic-preprocessors/dcerpc2/dce2_utils.h:
+    * src/dynamic-preprocessors/dcerpc2/includes/dcerpc.h:
+      Changed use of some integers to enumerated types.
+    * src/dynamic-preprocessors/dcerpc2/dce2_roptions.c:
+      Added dce_iface options to the fast pattern matcher.
+    * src/dynamic-preprocessors/dcerpc2/snort_dce2.h:
+    * src/dynamic-preprocessors/dcerpc2/dce2_config.h:
+    * src/dynamic-preprocessors/smtp/snort_smtp.c:
+      Added sensitive data to the list of preprocs that get re-enabled after
+      disabling detection.
+    * src/dynamic-preprocessors/dcerpc2/spp_dce2.c:
+      Removed config file/line from error message since not set at this point.
+      Also removed redundant "dcerpc2 configuration" text.
+    * src/dynamic-preprocessors/Makefile.am:
+    * src/dynamic-preprocessors/treenodes.sed:
+      Included more header files for use in dynamic preprocessors.
+    * src/dynamic-preprocessors/sdf/Makefile.am:
+    * src/dynamic-preprocessors/sdf/sdf_credit_card.c:
+    * src/dynamic-preprocessors/sdf/sdf_credit_card.h:
+    * src/dynamic-preprocessors/sdf/sdf_detection_option.c:
+    * src/dynamic-preprocessors/sdf/sdf_detection_option.h:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.c:
+    * src/dynamic-preprocessors/sdf/sdf_pattern_match.h:
+    * src/dynamic-preprocessors/sdf/sdf_us_ssn.c:
+    * src/dynamic-preprocessors/sdf/sdf_us_ssn.h:
+    * src/dynamic-preprocessors/sdf/sf_preproc_info.h:
+    * src/dynamic-preprocessors/sdf/sf_sdf.dsp:
+    * src/dynamic-preprocessors/sdf/spp_sdf.c:
+    * src/dynamic-preprocessors/sdf/spp_sdf.h:
+    * src/dynamic-preprocessors/sf_dynamic_initialize/sf_dynamic_initialize.dsp:
+    * src/preprocids.h:
+    * doc/README.sensitive_data:
+    * doc/snort_manual.tex:
+      Added Sensitive Data preprocessor. It performs detection of Personally
+      Identifiable Information, such as credit card numbers and U.S. Social
+      Security numbers.
+    * src/dynamic-preprocessors/ssh/spp_ssh.c:
+      Formatting change.
+    * src/fpcreate.c:
+    * src/fpcreate.h:
+    * src/fpdetect.c:
+      Content rules with the new HTTP modifiers can use the fast pattern
+      matcher.
+    * src/generators.h:
+      Added SIDs for new preprocessor alerts.
+    * src/Makefile.am:
+      Added new files to Makefile.
+    * src/obfuscation.c:
+    * src/obfuscation.h:
+    * src/util.c:
+    * src/util.h:
+      Fixed output obfuscation, and added an Obfuscation API for use in
+      preprocessors & output plugins.
+    * src/log.c:
+    * src/log.h:
+    * src/log_text.c:
+    * src/log_text.h:
+    * src/output-plugins/spo_alert_fast.c:
+    * src/output-plugins/spo_alert_full.c:
+    * src/output-plugins/spo_alert_prelude.c:
+    * src/output-plugins/spo_alert_sf_socket.c:
+    * src/output-plugins/spo_alert_syslog.c:
+    * src/output-plugins/spo_alert_test.c:
+    * src/output-plugins/spo_alert_unixsock.c:
+    * src/output-plugins/spo_csv.c:
+    * src/output-plugins/spo_database.c:
+    * src/output-plugins/spo_log_ascii.c:
+    * src/output-plugins/spo_log_null.c:
+    * src/output-plugins/spo_log_tcpdump.c:
+    * src/output-plugins/spo_unified2.c:
+    * src/output-plugins/spo_unified.c:
+      Modified several output plugins to print obfuscated data using the new
+      Obfuscation API.
+    * src/parser.c:
+    * src/parser.h:
+      Added support for OTN handlers.  Added support for using new http
+      content options with the fast pattern matcher.
+    * src/pcrm.c:
+    * src/pcrm.h:
+      Formatting changes.
+    * src/plugbase.c:
+    * src/plugbase.h:
+      Added OTN handler argument to the RegisterRuleOption() function.
+      Initialized the "file_data" rule option.
+    * src/ppm.c:
+    * src/ppm.h:
+      Remove non-portlists code.
+    * src/preprocessors/HttpInspect/client/hi_client.c:
+    * src/preprocessors/HttpInspect/client/hi_client_norm.c:
+    * src/preprocessors/HttpInspect/include/hi_client.h:
+    * src/preprocessors/HttpInspect/include/hi_eo_events.h:
+    * src/preprocessors/HttpInspect/include/hi_mi.h:
+    * src/preprocessors/HttpInspect/include/hi_norm.h:
+    * src/preprocessors/HttpInspect/include/hi_server.h:
+    * src/preprocessors/HttpInspect/include/hi_server_norm.h:
+    * src/preprocessors/HttpInspect/include/hi_ui_config.h:
+    * src/preprocessors/HttpInspect/include/hi_util.h:
+    * src/preprocessors/HttpInspect/include/Makefile.am:
+    * src/preprocessors/HttpInspect/Makefile.am:
+    * src/preprocessors/HttpInspect/mode_inspection/hi_mi.c:
+    * src/preprocessors/HttpInspect/normalization/hi_norm.c:
+    * src/preprocessors/HttpInspect/server/hi_server.c:
+    * src/preprocessors/HttpInspect/server/hi_server_norm.c:
+    * src/preprocessors/HttpInspect/server/Makefile.am:
+    * src/preprocessors/HttpInspect/session_inspection/hi_si.c:
+    * src/preprocessors/HttpInspect/user_interface/hi_ui_config.c:
+    * src/preprocessors/snort_httpinspect.c:
+    * src/preprocessors/snort_httpinspect.h:
+    * src/preprocessors/spp_httpinspect.c:
+      New feature for HTTP Inspect to split requests into 5 components - 
+      Method, URI, Header (non-cookie), Cookies, Body.
+      Added HTTP server specific configurations to normalize HTTP header
+      and/or cookie buffers.  Provided content and PCRE modifiers to allow
+      searches within one or more of those individual buffers.  Added content
+      modifier to allow rule writer to specify content to be used for fast
+      pattern matcher.  Updated dynamic rule API to allow searches within
+      the new buffers.
+    * src/preprocessors/perf.c:
+    * src/preprocessors/spp_perfmonitor.c:
+    * src/preprocessors/perf-flow.c:
+    * src/preprocessors/perf-flow.h:
+    * src/preprocessors/perf.h:
+    * src/preprocessors/Stream5/snort_stream5_udp.c:
+      Add Flow-IP stats to the Performance Monitor preprocessor.
+      Write out a commented line to the now file the first time perfmon
+      Reduce performance overhead when FlowIP stats aren't enabled.
+    * src/preprocessors/sfprocpidstats.c:
+      Changed GetCpuName() to catch errno when sscanf() sets it.
+    * src/preprocessors/spp_rpc_decode.c:
+      Fixed warnings when compiled in Win32.
+    * src/preprocessors/spp_stream5.c:
+    * src/preprocessors/Stream5/snort_stream5_session.h:
+    * src/preprocessors/Stream5/snort_stream5_tcp.c:
+    * src/preprocessors/Stream5/snort_stream5_tcp.h:
+    * src/preprocessors/Stream5/stream5_common.c:
+    * src/preprocessors/Stream5/stream5_common.h:
+    * src/preprocessors/stream_api.h:
+      Added detection of "4-way TCP Handshake" when require_3whs is enabled.
+      Added "disabled" option so that memcaps can be configured in the default
+      policy w/out enabling the preprocessor.  Added support for output
+      obfuscation.
+    * src/prototypes.h:
+    * src/sys_include.h:
+      Removed more obsolete/unused files.
+    * src/sfthreshold.c:
+    * src/sfutil/acsmx2.c:
+    * src/sfutil/acsmx2.h:
+    * src/sfutil/bnfa_search.c:
+    * src/sfutil/ipobj.c:
+    * src/sfutil/ipobj.h:
+    * src/sfutil/Makefile.am:
+    * src/sfutil/mpse.c:
+    * src/sfutil/mpse.h:
+    * src/sfutil/sf_ip.c:
+    * src/sfutil/sf_ip.h:
+    * src/sfutil/sf_iph.c:
+    * src/sfutil/sf_ipvar.c:
+    * src/sfutil/sfksearch.c:
+    * src/sfutil/sfPolicyUserData.c:
+    * src/sfutil/sfPolicyUserData.h:
+    * src/sfutil/sfportobject.c:
+    * src/sfutil/sfxhash.c:
+    * src/sfutil/sfrf.c:
+    * src/sfutil/sfrt_trie.h:
+    * src/sfutil/sf_vartable.c:
+      Cleaned up warnings, especially when compiled with ICC.
+    * src/sfutil/util_net.c:
+    * src/sfutil/util_net.h:
+      Fix ip obfuscation to not modify packet data and only obfuscate for
+      text outputs.
+    * src/signature.c:
+    * src/signature.h:
+    * src/snort.c:
+    * src/snort.h:
+      Remove non-portlists code.
+    * src/target-based/sf_attribute_table_parser.l:
+    * src/target-based/sftarget_reader.c:
+      Use bison built in YYACCEPT and YYABORT so stack is cleaned up and freed.
+    * src/win32/WIN32-Code/syslog.c:
+    * src/win32/WIN32-Code/win32_service.c:
+    * src/win32/WIN32-Includes/config.h:
+    * src/win32/WIN32-Prj/snort.dsp:
+    * src/win32/WIN32-Prj/snort.dsw:
+    * src/win32/WIN32-Prj/snort_installer.nsi:
+      Win32 project files updated to reflect Makefile changes.
+
 2009-12-15 Ryan Jordan <ryan.jordan@sourcefire.com>
     * doc/snort_manual.tex:
       Clarified the documentation for output plugins alert_fast, alert_full,

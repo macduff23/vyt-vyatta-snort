@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -64,6 +64,8 @@
 #include "sf_dynamic_engine.h"
 #include "stream_api.h"
 #include "str_search.h"
+#include "obfuscation.h"
+#include "sfportobject.h"
 
 #define MINIMUM_DYNAMIC_PREPROC_ID 10000
 typedef void (*PreprocessorInitFunc)(char *);
@@ -73,6 +75,8 @@ typedef void (*AddPreprocRestart)(void (*func) (int, void *), void *arg, u_int16
 typedef void (*AddPreprocConfCheck)(void (*func) (void));
 typedef int (*AlertQueueAdd)(unsigned int, unsigned int, unsigned int,
                              unsigned int, unsigned int, char *, void *);
+typedef uint32_t (*GenSnortEvent)(Packet *p, uint32_t gid, uint32_t sid, uint32_t rev,
+                                  uint32_t classification, uint32_t priority, char *msg);
 #ifdef SNORT_RELOAD
 typedef void (*PreprocessorReloadFunc)(char *);
 typedef int (*PreprocessorReloadVerifyFunc)(void);
@@ -120,15 +124,25 @@ typedef void (*IP6BuildFunc)(void *, const void *, int);
 #define SET_CALLBACK_ICMP_ORIG 1
 typedef void (*IP6SetCallbacksFunc)(void *, int, char);
 #endif
-typedef void (*AddKeywordOverrideFunc)(char *, char *, PreprocOptionInit, PreprocOptionEval, PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
+typedef void (*AddKeywordOverrideFunc)(char *, char *, PreprocOptionInit,
+        PreprocOptionEval, PreprocOptionCleanup, PreprocOptionHash,
+        PreprocOptionKeyCompare, PreprocOptionOtnHandler,
+        PreprocOptionFastPatternFunc);
 
 typedef int (*IsPreprocEnabledFunc)(u_int32_t);
 
+typedef char * (*PortArrayFunc)(char *, PortObject *, int *);
+
 typedef int (*AlertQueueLog)(void *);
-typedef void (*AlertQueueReset)(void);
+typedef void (*AlertQueueControl)(void);  // reset, push, and pop
 typedef tSfPolicyId (*GetPolicyFunc)(void);
 typedef void (*SetPolicyFunc)(tSfPolicyId);
 typedef int (*GetInlineMode)(void);
+typedef void (*SetFileDataPtrFunc)(const u_char *);
+typedef long (*DynamicStrtol)(const char *, char **, int);
+typedef unsigned long(*DynamicStrtoul)(const char *, char **, int);
+
+typedef int (*EvalRTNFunc)(void *rtn, void *p, int check_ports);
 
 /* Info Data passed to dynamic preprocessor plugin must include:
  * version
@@ -142,6 +156,8 @@ typedef int (*GetInlineMode)(void);
 typedef struct _DynamicPreprocessorData
 {
     int version;
+    int size;
+
     u_int8_t *altBuffer;
     unsigned int altBufferLen;
     UriInfo *uriBuffers[MAX_URIINFOS];
@@ -161,6 +177,7 @@ typedef struct _DynamicPreprocessorData
     void *totalPerfStats;
 
     AlertQueueAdd alertAdd;
+    GenSnortEvent genSnortEvent;
     ThresholdCheckFunc thresholdCheck;
 
     GetInlineMode inlineMode;
@@ -206,7 +223,9 @@ typedef struct _DynamicPreprocessorData
 #endif
 
     AlertQueueLog logAlerts;
-    AlertQueueReset resetAlerts;
+    AlertQueueControl resetAlerts;
+    AlertQueueControl pushAlerts;
+    AlertQueueControl popAlerts;
 
 #ifdef TARGET_BASED
     FindProtocolReferenceFunc findProtocolReference;
@@ -221,11 +240,18 @@ typedef struct _DynamicPreprocessorData
     AddPreprocReloadVerifyFunc addPreprocReloadVerify;
 #endif
 
+    PortArrayFunc portObjectCharPortArray;
+
     GetPolicyFunc getRuntimePolicy;
     GetPolicyFunc getParserPolicy;
     GetPolicyFunc getDefaultPolicy;
     SetPolicyFunc setParserPolicy;
-    int size;
+    SetFileDataPtrFunc setFileDataPtr;
+    DynamicStrtol SnortStrtol;
+    DynamicStrtoul SnortStrtoul;
+    EvalRTNFunc fpEvalRTN;
+
+    ObfuscationApi *obApi;
 
 } DynamicPreprocessorData;
 

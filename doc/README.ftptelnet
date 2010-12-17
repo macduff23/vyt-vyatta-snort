@@ -100,7 +100,7 @@ relating to bsd-based implementations of telnet.
 In order to support certain options, Telnet supports subnegotiation. Per the 
 Telnet RFC, subnegotiation begins with SB (subnegotiation begin) and must
 end with an SE (subnegotiation end). However, certain implementations of
-Telnet servers will ignore the SB without a cooresponding SE. This is
+Telnet servers will ignore the SB without a corresponding SE. This is
 anomalous behavior which could be an evasion case. Being that FTP uses the
 Telnet protocol on the control connection, it is also susceptible to this
 behavior. The detect_anomalies option enables alerting on Telnet SB without

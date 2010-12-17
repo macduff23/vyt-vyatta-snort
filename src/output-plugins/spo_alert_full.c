@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -39,6 +39,7 @@
 #include "config.h"
 #endif
 
+#include "spo_alert_full.h"
 #include "event.h"
 #include "decode.h"
 #include "plugbase.h"
@@ -60,7 +61,6 @@
 #include <stdlib.h>
 
 extern char *pcap_interface;
-extern SnortConfig *snort_conf_for_parsing;
 
 typedef struct _SpoAlertFullData
 {
@@ -180,7 +180,7 @@ static void AlertFull(Packet *p, char *msg, void *arg, Event *event)
             Log2ndHeader(data->log, p);
         }
 
-      LogIPHeader(data->log, p);
+        LogIPHeader(data->log, p);
 
         /* if this isn't a fragment, print the other header info */
         if(!p->frag_flag)
@@ -255,7 +255,6 @@ static SpoAlertFullData *ParseAlertFullArgs(char *args)
             case 0:
                 if ( !strcasecmp(tok, "stdout") )
                     filename = SnortStrdup(tok);
-
                 else
                     filename = ProcessFileOption(snort_conf_for_parsing, tok);
                 break;
@@ -293,8 +292,14 @@ static SpoAlertFullData *ParseAlertFullArgs(char *args)
         DEBUG_INIT, "alert_full: '%s' %ld\n",
         filename ? filename : "alert", limit
     ););
+
+    if ((filename == NULL) && (snort_conf->alert_file != NULL))
+        filename = SnortStrdup(snort_conf->alert_file);
+
     data->log = TextLog_Init(filename, LOG_BUFFER, limit);
-    if ( filename ) free(filename);
+
+    if (filename != NULL)
+        free(filename);
 
     return data;
 }

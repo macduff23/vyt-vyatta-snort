@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -122,7 +122,15 @@ typedef struct s_HTTPINSPECT_CONF
 
     char uri_only;
     char no_alerts;
+    char enable_cookie;
+    char inspect_response;
 
+#ifdef ZLIB
+    char extract_gzip;
+#endif
+   
+   /* Support Extended ascii codes in the URI */ 
+    char extended_ascii_uri;
     /*
     **  pipeline requests
     */
@@ -204,6 +212,9 @@ typedef struct s_HTTPINSPECT_CONF
 */
 typedef struct s_HTTPINSPECT_GLOBAL_CONF
 {
+#ifdef ZLIB
+    int              disabled;
+#endif
     int              max_pipeline_requests;
     int              inspection_type;
     int              anomalous_servers;
@@ -223,6 +234,12 @@ typedef struct s_HTTPINSPECT_GLOBAL_CONF
     int hex_lookup[256];
     int valid_lookup[256];
 
+#ifdef ZLIB
+    int max_gzip_sessions;
+    int max_gzip_mem;
+    int compr_depth;
+    int decompr_depth;
+#endif
 
 }  HTTPINSPECT_GLOBAL_CONF;    
 

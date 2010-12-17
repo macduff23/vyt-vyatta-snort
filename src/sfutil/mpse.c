@@ -6,7 +6,7 @@
 *   An abstracted interface to the Multi-Pattern Matching routines,
 *   thats why we're passing 'void *' objects around.
 *
-*   Copyright (C) 2002-2009 Sourcefire, Inc.
+*   Copyright (C) 2002-2010 Sourcefire, Inc.
 *   Marc A Norton <mnorton@sourcefire.com>
 *
 *   Updates:
@@ -75,7 +75,7 @@ void * mpseNew( int method, int use_global_counter_flag,
     p->verbose = 0;
     p->obj = NULL;
     p->bcnt = 0;
-    p->inc_global_counter = use_global_counter_flag;
+    p->inc_global_counter = (char)use_global_counter_flag;
 
     switch( method )
     {
@@ -151,6 +151,11 @@ void   mpseSetOpt( void * pvoid, int flag )
         case MPSE_AC_BNFA:
             if (p->obj)
                 bnfaSetOpt((bnfa_struct_t*)p->obj,flag);
+            break;
+        case MPSE_ACF:
+        case MPSE_ACF_Q:
+            if (p->obj)
+                acsmCompressStates((ACSM_STRUCT2*)p->obj, flag);
             break;
         default:
             break;
@@ -327,23 +332,41 @@ int mpsePrintInfo( void *pvoid )
  return 0;
 }
 
-int mpsePrintSummary(void )
+int mpsePrintSummary(int method)
 {
-   acsmPrintSummaryInfo();
-   acsmPrintSummaryInfo2();
-   bnfaPrintSummary();
-  
-   if( KTrieMemUsed() )
-   {
-     double x;
-     x = (double) KTrieMemUsed();
-     LogMessage("[ LowMem Search-Method Memory Used : %g %s ]\n",
-     (x > 1.e+6) ?  x/1.e+6 : x/1.e+3,
-     (x > 1.e+6) ? "MBytes" : "KBytes" );
-     
-   }
+    switch (method)
+    {
+        case MPSE_AC_BNFA:
+        case MPSE_AC_BNFA_Q:
+            bnfaPrintSummary();
+            break;
+        case MPSE_AC:
+            acsmPrintSummaryInfo();
+            break;
+        case MPSE_ACF:
+        case MPSE_ACF_Q:
+        case MPSE_ACS:
+        case MPSE_ACB:
+        case MPSE_ACSB:
+            acsmPrintSummaryInfo2();
+            break;
+        case MPSE_LOWMEM:
+        case MPSE_LOWMEM_Q:
+            if( KTrieMemUsed() )
+            {
+                double x;
+                x = (double) KTrieMemUsed();
+                LogMessage("[ LowMem Search-Method Memory Used : %g %s ]\n",
+                        (x > 1.e+6) ?  x/1.e+6 : x/1.e+3,
+                        (x > 1.e+6) ? "MBytes" : "KBytes" );
 
-   return 0;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return 0;
 }
 
 void mpseInitSummary(void)
@@ -410,26 +433,25 @@ int mpseGetPatternCount(void *pvoid)
 {
     MPSE * p = (MPSE*)pvoid;
 
+    if (p == NULL)
+        return 0;
+
     switch( p->method )
     {
         case MPSE_AC_BNFA:
         case MPSE_AC_BNFA_Q:
             return bnfaPatternCount((bnfa_struct_t *)p->obj);
-            break;
         case MPSE_AC:
             return acsmPatternCount((ACSM_STRUCT*)p->obj);
-            break;
         case MPSE_ACF:
         case MPSE_ACF_Q:
         case MPSE_ACS:
         case MPSE_ACB:
         case MPSE_ACSB:
             return acsmPatternCount2((ACSM_STRUCT2*)p->obj);
-            break;
         case MPSE_LOWMEM:
         case MPSE_LOWMEM_Q:
             return KTriePatternCount((KTRIE_STRUCT*)p->obj);
-            break;
     }
     return 0;
 }

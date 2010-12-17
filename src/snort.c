@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -92,6 +92,7 @@
 #include "decode.h"
 #include "snort.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 #include "debug.h"
 #include "util.h"
@@ -256,8 +257,12 @@ static void PcapIgnorePacket(char *, struct pcap_pkthdr *, const u_char *);
 
 static int exit_signal = 0;
 static int usr_signal = 0;
+static int rotate_stats_signal = 0;
 #ifdef TIMESTATS
 static int alrm_signal = 0;
+#endif
+#ifdef TARGET_BASED
+static int no_attr_table_signal = 0;
 #endif
 
 #ifndef SNORT_RELOAD
@@ -295,6 +300,10 @@ static pid_t snort_reload_thread_pid;
 #endif
 
 const struct timespec thread_sleep = { 0, 100 };
+
+#ifdef HAVE_PCAP_LEX_DESTROY
+extern void pcap_lex_destroy(void);
+#endif
 
 PreprocConfigFuncNode *preproc_config_funcs = NULL;
 OutputConfigFuncNode *output_config_funcs = NULL;
@@ -341,17 +350,17 @@ static char **snort_argv = NULL;
 #ifndef WIN32
 # ifdef GIDS
 #  ifndef IPFW
-static char *valid_options = "?a:A:bB:c:CdDefF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
+static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
 #  else
-static char *valid_options = "?a:A:bB:c:CdDefF:g:G:h:Hi:IJ:k:K:l:L:m:Mn:NoOpP:qr:R:sS:t:Tu:UvVw:XxyzZ:";
+static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:IJ:k:K:l:L:m:Mn:NoOpP:qr:R:sS:t:Tu:UvVw:XxyzZ:";
 #  endif /* IPFW */
 # else
 #  ifdef MIMICK_IPV6
 /* Unix does not support an argument to -s <wink marty!> OR -E, -W */
-static char *valid_options = "?a:A:bB:c:CdDefF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:6";
+static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:6";
 #  else
 /* Unix does not support an argument to -s <wink marty!> OR -E, -W */
-static char *valid_options = "?a:A:bB:c:CdDefF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
+static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
 #  endif
 # endif /* GIDS */
 #else
@@ -382,7 +391,6 @@ static struct option long_options[] =
    {"alert-before-pass", LONGOPT_ARG_NONE, NULL, ALERT_BEFORE_PASS},
    {"treat-drop-as-alert", LONGOPT_ARG_NONE, NULL, TREAT_DROP_AS_ALERT},
    {"process-all-events", LONGOPT_ARG_NONE, NULL, PROCESS_ALL_EVENTS},
-   {"restart", LONGOPT_ARG_NONE, NULL, ARG_RESTART},
    {"pid-path", LONGOPT_ARG_REQUIRED, NULL, PID_PATH},
    {"create-pidfile", LONGOPT_ARG_NONE, NULL, CREATE_PID_FILE},
    {"nolock-pidfile", LONGOPT_ARG_NONE, NULL, NOLOCK_PID_FILE},
@@ -453,8 +461,6 @@ extern int optopt;
 extern SFBASE sfBase;
 extern ListHead *head_tmp;
 
-extern SnortConfig *snort_conf_for_parsing;
-
 
 /* Private function prototypes ************************************************/
 static void InitNetmasks(void);
@@ -515,9 +521,14 @@ static int conv_ip4_to_ip6(const struct pcap_pkthdr *phdr,const  u_char *pkt,
 #endif
 
 /* Signal handler declarations ************************************************/
-static void SigExitHandler(int);
 static void SigUsrHandler(int);
+static void SigExitHandler(int);
 static void SigHupHandler(int);
+static void SigRotateStatsHandler(int);
+
+#ifdef TARGET_BASED
+static void SigNoAttributeTableHandler(int);
+#endif
 
 #ifdef TIMESTATS
 static void SigAlrmHandler(int);
@@ -528,9 +539,9 @@ static SnortConfig * ReloadConfig(void);
 static void * ReloadConfigThread(void *);
 static int VerifyReload(SnortConfig *);
 static int VerifyOutputs(SnortConfig *, SnortConfig *);
-#ifdef DYNAMIC_PLUGIN
+# ifdef DYNAMIC_PLUGIN
 static int VerifyLibInfos(DynamicLibInfo *, DynamicLibInfo *);
-#endif  /* DYNAMIC_PLUGIN */
+# endif  /* DYNAMIC_PLUGIN */
 #endif  /* SNORT_RELOAD */
 
 
@@ -543,6 +554,7 @@ static INLINE void CheckForReload(void)
     if (snort_reload)
     {
         snort_reload = 0;
+
         /* There was an error reloading.  A non-reloadable configuration
          * option changed */
         if (snort_conf_new == NULL)
@@ -553,6 +565,7 @@ static INLINE void CheckForReload(void)
             Restart();
 #endif
         }
+
         snort_conf_old = snort_conf;
         snort_conf = snort_conf_new;
         snort_conf_new = NULL;
@@ -562,7 +575,6 @@ static INLINE void CheckForReload(void)
          * state data pointing to the previous configuration.  A race
          * condition is created if these are free'd in the reload thread
          * where a double free could occur. */
-
         FreeSwappedPreprocConfigurations();
         snort_swapped = 1;
     }
@@ -1835,11 +1847,10 @@ static void ParseCmdLineDynamicLibInfo(SnortConfig *sc, int type, char *path)
 static void ParseCmdLine(int argc, char **argv)
 {
     int ch;
-    int i;
     int option_index = -1;
     PcapReadObject *pro = NULL;
     char *pcap_filter = NULL;
-    char *endptr;   /* for strtol calls */
+    char *endptr;   /* for SnortStrtol calls */
     SnortConfig *sc;
     int output_logging = 0;
     int output_alerting = 0;
@@ -1863,46 +1874,52 @@ static void ParseCmdLine(int argc, char **argv)
     snort_conf = snort_cmd_line_conf;     /* Set the global for log messages */
     sc = snort_cmd_line_conf;
 
+    optind = 1;
+
     /* Look for a -D and/or -M switch so we can start logging to syslog
      * with "snort" tag right away */
-    for (i = 0; i < argc; i++)
+    while ((ch = getopt_long(argc, argv, valid_options, long_options, &option_index)) != -1)
     {
-        if (strcmp("-M", argv[i]) == 0)
+        switch (ch)
         {
-            if (syslog_configured)
-                continue;
+            case 'M':
+                if (syslog_configured)
+                    break;
 
-            /* If daemon or logging to syslog use "snort" as identifier and
-             * start logging there now */
-            openlog("snort", LOG_PID | LOG_CONS, LOG_DAEMON); 
+                /* If daemon or logging to syslog use "snort" as identifier and
+                 * start logging there now */
+                openlog("snort", LOG_PID | LOG_CONS, LOG_DAEMON); 
 
-            sc->logging_flags |= LOGGING_FLAG__SYSLOG;
-            syslog_configured = 1;
-        }
+                sc->logging_flags |= LOGGING_FLAG__SYSLOG;
+                syslog_configured = 1;
+                break;
+
 #ifndef WIN32
-        else if ((strcmp("-D", argv[i]) == 0) ||
-                 (strcmp("--restart", argv[i]) == 0))
-        {
-            if (daemon_configured)
-                continue;
-
-            /* If daemon or logging to syslog use "snort" as identifier and
-             * start logging there now */
-            openlog("snort", LOG_PID | LOG_CONS, LOG_DAEMON); 
-
-            if (strcmp("--restart", argv[i]) == 0)
+            case 'E':
                 sc->run_flags |= RUN_FLAG__DAEMON_RESTART;
+                /* Fall through */
+            case 'D':
+                if (daemon_configured)
+                    break;
 
-            ConfigDaemon(sc, optarg);
-            daemon_configured = 1;
-        }
+                /* If daemon or logging to syslog use "snort" as identifier and
+                 * start logging there now */
+                openlog("snort", LOG_PID | LOG_CONS, LOG_DAEMON); 
+
+                ConfigDaemon(sc, optarg);
+                daemon_configured = 1;
+                break;
 #endif
-        else if (strcmp("-q", argv[i]) == 0)
-        {
-            /* Turn on quiet mode if configured so any log messages that may
-             * be printed while parsing the command line before the quiet option
-             * is read won't be printed */
-            ConfigQuiet(sc, NULL);
+
+            case 'q':
+                /* Turn on quiet mode if configured so any log messages that may
+                 * be printed while parsing the command line before the quiet option
+                 * is read won't be printed */
+                ConfigQuiet(sc, NULL);
+                break;
+
+            default:
+                break;
         }
     }
 
@@ -1913,6 +1930,7 @@ static void ParseCmdLine(int argc, char **argv)
     **  Instead, we check optopt and it will tell us.
     */
     optopt = 0;
+    optind = 1;
 
     /* loop through each command line var and process it */
     while ((ch = getopt_long(argc, argv, valid_options, long_options, &option_index)) != -1)
@@ -1977,7 +1995,7 @@ static void ParseCmdLine(int argc, char **argv)
                 {
                     char* endPtr;
 
-                    sc->exit_check = strtoul(optarg, &endPtr, 0);
+                    sc->exit_check = SnortStrtoul(optarg, &endPtr, 0);
                     if ((errno == ERANGE) || (*endPtr != '\0'))
                         FatalError("--exit-check value must be non-negative integer\n");
 
@@ -2085,11 +2103,13 @@ static void ParseCmdLine(int argc, char **argv)
                 ConfigDumpPayload(sc, NULL);
                 break;
 
-            case ARG_RESTART:  /* Restarting from daemon mode */
+#ifndef WIN32
+            case 'E':  /* Restarting from daemon mode */
             case 'D':  /* daemon mode */
                 /* These are parsed at the beginning so as to start logging
                  * to syslog right away */
                 break;
+#endif
 
             case 'e':  /* show second level header info */
                 ConfigDecodeDataLink(sc, NULL);
@@ -2114,7 +2134,7 @@ static void ParseCmdLine(int argc, char **argv)
                 break;
 
             case 'G':  /* snort loG identifier */
-                sc->event_log_id = strtoul(optarg, &endptr, 0);
+                sc->event_log_id = SnortStrtoul(optarg, &endptr, 0);
                 if ((errno == ERANGE) || (*endptr != '\0') ||
                     (sc->event_log_id > UINT16_MAX))
                 {
@@ -2152,7 +2172,7 @@ static void ParseCmdLine(int argc, char **argv)
                 sc->run_flags |= RUN_FLAG__INLINE;
                 sc->run_flags |= RUN_FLAG__NO_PROMISCUOUS;
 
-                sc->divert_port = strtoul(optarg, &endptr, 0);
+                sc->divert_port = SnortStrtoul(optarg, &endptr, 0);
                 if ((errno == ERANGE) || (*endptr != '\0'))
                     FatalError("Divert port out of range: %s.\n", optarg);
 
@@ -2443,7 +2463,7 @@ static void ParseCmdLine(int argc, char **argv)
 
             case PCAP_LOOP:
                 {
-                    long int loop_count = strtol(optarg, &endptr, 0);
+                    long int loop_count = SnortStrtol(optarg, &endptr, 0);
 
                     if ((errno == ERANGE) || (*endptr != '\0') ||
                         (loop_count < 0) || (loop_count > 2147483647))
@@ -3379,6 +3399,9 @@ static void SetBpfFilter(char *bpf_filter)
 
     /* we can do this here now instead of later before every pcap_close() */
     pcap_freecode(&bpf_prog);
+#ifdef HAVE_PCAP_LEX_DESTROY
+    pcap_lex_destroy();
+#endif
 }
 
 
@@ -3460,8 +3483,14 @@ static void SigUsrHandler(int signal)
 {
     if (usr_signal != 0)
         return;
-
     usr_signal = signal;
+}
+
+static void SigRotateStatsHandler(int signal)
+{
+    if (rotate_stats_signal != 0)
+        return;
+    rotate_stats_signal = signal;
 }
 
 static void SigHupHandler(int signal)
@@ -3469,9 +3498,18 @@ static void SigHupHandler(int signal)
 #if defined(SNORT_RELOAD) && !defined(WIN32)
     hup_signal++;
 #else
-    hup_signal = 1;
+    hup_signal = signal;
 #endif
 }
+
+#ifdef TARGET_BASED
+static void SigNoAttributeTableHandler(int signal)
+{
+    if (no_attr_table_signal != 0)
+        return;
+    no_attr_table_signal = signal;
+}
+#endif
 
 /****************************************************************************
  *
@@ -3730,6 +3768,7 @@ static void SnortCleanup(int exit_val)
         int ret;
 
         ret = unlink(snort_conf->pid_filename);
+
         if (ret != 0)
         {
             ErrorMessage("Could not remove pid file %s: %s\n",
@@ -3751,6 +3790,19 @@ static void SnortCleanup(int exit_val)
         SnortConfFree(snort_conf);
         snort_conf = NULL;
     }
+
+#ifdef SNORT_RELOAD
+    if (snort_conf_new != NULL)
+    {
+        /* If main thread is exiting, it won't swap in the new configuration,
+         * so free it here, really just to quiet valgrind.  Note this needs to
+         * be done here since some preprocessors, will potentially need access
+         * to the data here since stream5 flushes out its cache and potentially
+         * sends reassembled packets back through Preprocess */
+        SnortConfFree(snort_conf_new);
+        snort_conf_new = NULL;
+    }
+#endif
 
     detection_filter_cleanup();
     sfthreshold_free();
@@ -3866,14 +3918,14 @@ void Restart(void)
     {
         LogMessage("Reload via Signal HUP does not work if you aren't root "
                    "or are chroot'ed.\n");
-#if defined(SNORT_RELOAD) && !defined(WIN32)
+# ifdef SNORT_RELOAD
         /* We are restarting because of a configuration verification problem */
         CleanExit(1);
-#else
+# else
         return;
-#endif
+# endif
     }
-#endif
+#endif  /* WIN32 */
 
     LogMessage("\n");
     LogMessage("***** Restarting Snort *****\n");
@@ -3882,20 +3934,44 @@ void Restart(void)
 
     if (daemon_mode)
     {
-        int i;
+        int ch;
+        int option_index = -1;
 
-        for (i = 0; i < snort_argc; i++)
+        optind = 1;
+
+        while ((ch = getopt_long(snort_argc, snort_argv, valid_options, long_options, &option_index)) != -1)
         {
-            if (!strcmp(snort_argv[i], "--restart"))
+            switch (ch)
             {
-                break;
-            }
-            else if (!strncmp(snort_argv[i], "-D", 2))
-            {
-                /* Replace -D with --restart */
-                /* a probable memory leak - but we're exec()ing anyway */
-                snort_argv[i] = SnortStrdup("--restart");
-                break;
+                case 'D':
+                    {
+                        int i = optind-1, j;
+                        int index = strlen(snort_argv[i]) - 1;
+
+                        /* 'D' isn't the last option in the opt string so
+                         * optind hasn't moved past this option string yet */
+                        if ((snort_argv[i][0] != '-')
+                                || ((index > 0) && (snort_argv[i][1] == '-'))
+                                || (snort_argv[i][index] != 'D'))
+                        {
+                            i++;
+                        }
+
+                        /* Replace -D with -E to indicate we've already daemonized */
+                        for (j = 0; j < (int)strlen(snort_argv[i]); j++)
+                        {
+                            if (snort_argv[i][j] == 'D')
+                            {
+                                snort_argv[i][j] = 'E';
+                                break;
+                            }
+                        }
+                    }
+
+                    break;
+
+                default:
+                    break;
             }
         }
     }
@@ -4003,7 +4079,6 @@ static void InitPcap(int test_flag)
     }
 }
 
-//PORTLISTS
 void print_packet_count(void)
 {
     LogMessage("[" STDu64 "]", pc.total_from_pcap);
@@ -4049,40 +4124,57 @@ int SignalCheck(void)
 
     exit_signal = 0;
 
-    switch (usr_signal)
+    if (usr_signal == SIGUSR1)
     {
-        case SIGUSR1:
-            ErrorMessage("*** Caught Usr-Signal\n");
-            DropStats(0);
-            break;
-
-        case SIGNAL_SNORT_ROTATE_STATS:
-            ErrorMessage("*** Caught Usr-Signal: 'Rotate Stats'\n");
-            SetRotatePerfFileFlag();
-            break;
+        ErrorMessage("*** Caught Usr-Signal\n");
+        DropStats(0);
     }
 
     usr_signal = 0;
 
 #ifdef TIMESTATS
-    switch (alrm_signal)
+    if (alrm_signal == SIGALRM)
     {
-        case SIGALRM:
-            ErrorMessage("*** Caught Alrm-Signal\n");
-            DropStatsPerTimeInterval();
-            break;
+        ErrorMessage("*** Caught Alrm-Signal\n");
+        DropStatsPerTimeInterval();
     }
 
     alrm_signal = 0;
 #endif
 
+    if (rotate_stats_signal == SIGNAL_SNORT_ROTATE_STATS)
+    {
+        ErrorMessage("*** Caught Signal: 'Rotate Perfmonitor Stats'\n");
+
+        /* Make sure the preprocessor is enabled - it can only be enabled
+         * in default policy */
+        if (!ScIsPreprocEnabled(PP_PERFMONITOR, 0))
+        {
+            ErrorMessage("!!! Cannot rotate stats - Perfmonitor is not configured !!!\n");
+        }
+        else
+        {
+            SetRotatePerfFileFlag();
+        }
+    }
+
+    rotate_stats_signal = 0;
+
+#ifdef TARGET_BASED
+    if (no_attr_table_signal == SIGNAL_SNORT_READ_ATTR_TBL)
+        ErrorMessage("!!! Cannot reload attribute table - Attribute table is not configured !!!\n");
+    no_attr_table_signal = 0;
+#endif
+
 #ifndef SNORT_RELOAD
-    if (hup_signal)
+    if (hup_signal == SIGHUP)
     {
         ErrorMessage("*** Caught Hup-Signal\n");
         hup_signal = 0;
         return 1;
     }
+
+    hup_signal = 0;
 #endif
 
     return 0;
@@ -4223,11 +4315,7 @@ void SnortConfFree(SnortConfig *sc)
     SoRuleOtnLookupFree(sc->so_rule_otn_map);
     OtnLookupFree(sc->otn_map);
     VarTablesFree(sc);
-
-#ifdef PORTLISTS
     PortTablesFree(sc->port_tables);
-#endif
-
     FastPatternConfigFree(sc->fast_pattern_config);
     EventQueueConfigFree(sc->event_queue_config);
     SnortEventqFree(sc->event_queue);
@@ -4946,7 +5034,7 @@ static void SnortInit(int argc, char **argv)
 #endif
 
         /* Handles Fatal Errors itself. */
-        snort_conf->event_queue = SnortEventqNew(snort_conf->event_queue_config);
+        SnortEventqNew(snort_conf->event_queue_config, snort_conf->event_queue);
     }
     else if (ScPacketLogMode() || ScPacketDumpMode())
     {
@@ -5200,9 +5288,6 @@ static void SnortPostInit(void)
 #ifdef PPM_MGR
     PPM_PRINT_CFG(&snort_conf->ppm_cfg);
 #endif
-#ifndef PORTLISTS
-    mpsePrintSummary();
-#endif
 
     LogMessage("\n");
     LogMessage("        --== Initialization Complete ==--\n");
@@ -5300,7 +5385,14 @@ static void InitSignals(void)
     signal(SIGINT, SigExitHandler);
     signal(SIGQUIT, SigExitHandler);
     signal(SIGUSR1, SigUsrHandler);
-    signal(SIGNAL_SNORT_ROTATE_STATS, SigUsrHandler);
+    signal(SIGHUP, SigHupHandler);
+    signal(SIGNAL_SNORT_ROTATE_STATS, SigRotateStatsHandler);
+
+#ifdef TARGET_BASED
+    /* Used to print warning if attribute table is not configured
+     * When it is, it will set new signal handler */
+    signal(SIGNAL_SNORT_READ_ATTR_TBL, SigNoAttributeTableHandler);
+#endif
 
 #ifdef TIMESTATS
     /* Establish a handler for SIGALRM signals and set an alarm to go off
@@ -5308,8 +5400,6 @@ static void InitSignals(void)
      * an interval which the alarm will tell us to do. */
     signal(SIGALRM, SigAlrmHandler);
 #endif
-
-    signal(SIGHUP, SigHupHandler);
 
     errno = 0;
 }
@@ -5442,6 +5532,7 @@ static void * ReloadConfigThread(void *data)
     {
         if (hup_signal != reload_hups)
         {
+            int reload_failed = 0;
             reload_hups++;
 
             LogMessage("\n");
@@ -5449,6 +5540,8 @@ static void * ReloadConfigThread(void *data)
             LogMessage("\n");
 
             snort_conf_new = ReloadConfig();
+            if (snort_conf_new == NULL)
+                reload_failed = 1;
             snort_reload = 1;
 
             while (!snort_swapped && !snort_exiting)
@@ -5459,15 +5552,8 @@ static void * ReloadConfigThread(void *data)
             SnortConfFree(snort_conf_old);
             snort_conf_old = NULL;
 
-            if (snort_exiting)
+            if (snort_exiting && !reload_failed)
             {
-                /* If main thread is exiting, it won't swap in the new
-                 * configuration, so free it here, really just to quiet
-                 * valgrind.  Note the main thread will wait until this
-                 * thread has exited */
-                SnortConfFree(snort_conf_new);
-                snort_conf_new = NULL;
-
                 /* This will load the new preprocessor configurations and
                  * free the old ones, so any preprocessor cleanup that
                  * requires a configuration will be using the new one
@@ -5480,9 +5566,12 @@ static void * ReloadConfigThread(void *data)
                 break;
             }
 
-            LogMessage("\n");
-            LogMessage("        --== Reload Complete ==--\n");
-            LogMessage("\n");
+            if (!reload_failed)
+            {
+                LogMessage("\n");
+                LogMessage("        --== Reload Complete ==--\n");
+                LogMessage("\n");
+            }
         }
 
         sleep(1);
@@ -5523,9 +5612,9 @@ static SnortConfig * ReloadConfig(void)
     }
 
     if (sc->output_flags & OUTPUT_FLAG__USE_UTC)
-        snort_conf->thiszone = 0;
+        sc->thiszone = 0;
     else
-        snort_conf->thiszone = gmt2local(0);
+        sc->thiszone = gmt2local(0);
 
     /* Preprocessors will have a reload callback */
     ConfigurePreprocessors(sc, 1);
@@ -5538,7 +5627,7 @@ static SnortConfig * ReloadConfig(void)
 #endif
 
     /* Handles Fatal Errors itself. */
-    sc->event_queue = SnortEventqNew(sc->event_queue_config);
+    SnortEventqNew(sc->event_queue_config, sc->event_queue);
 
     detection_filter_print_config(sc->detection_filter_config);
     RateFilter_PrintConfig(sc->rate_filter_config);
@@ -5634,10 +5723,6 @@ static SnortConfig * ReloadConfig(void)
 
 #ifdef PPM_MGR
     PPM_PRINT_CFG(&sc->ppm_cfg);
-#endif
-
-#ifndef PORTLISTS
-    mpsePrintSummary();
 #endif
 
     return sc;

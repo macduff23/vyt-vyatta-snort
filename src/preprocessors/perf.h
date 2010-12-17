@@ -3,7 +3,7 @@
 **
 ** perf.h
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -59,6 +59,7 @@
 #define SFPERF_PKTCNT       0x0040
 #define SFPERF_SUMMARY      0x0080
 #define SFPERF_FILECLOSE    0x0100
+#define SFPERF_FLOWIP       0x0200
 
 #include "perf-base.h"
 #include "perf-flow.h"
@@ -85,7 +86,9 @@ typedef struct _SFPERF
     int base_reset;
     int flow_max_port_to_track;
     uint32_t max_file_size;
-
+    char *flowip_file;
+    FILE *flowip_fh;
+    uint32_t flowip_memcap;
 } SFPERF;
 
 
@@ -96,6 +99,8 @@ int sfSetPerformanceSampleTime(SFPERF *, int);
 int sfSetPerformanceAccounting(SFPERF *, int);
 int sfSetPerformanceStatistics(SFPERF *, int);
 int sfSetPerformanceStatisticsEx(SFPERF *, int, void *);
+int sfOpenFlowIPStatsFile(SFPERF *sfPerf);
+void sfCloseFlowIPStatsFile(SFPERF *sfPerf);
 int sfSetMaxFileSize(SFPERF *sfPerf, uint32_t iSize);
 int sfRotatePerformanceStatisticsFile(void);
 int sfPerformanceStats(SFPERF *, Packet *, int);

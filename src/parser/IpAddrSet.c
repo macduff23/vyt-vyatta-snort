@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2002-2009 Sourcefire, Inc.
+ * Copyright (C) 2002-2010 Sourcefire, Inc.
  * 
  * Author(s):  Andrew R. Baker <andrewb@snort.org>
  *             Martin Roesch   <roesch@sourcefire.com>
@@ -173,6 +173,7 @@ IpAddrSet *IpAddrSetCopy(IpAddrSet *ipAddrSet)
         iplist = iplist->next;
     }
 
+    prev = current = NULL;
     while(neglist)
     {
         current = (IpAddrNode *)malloc(sizeof(IpAddrNode));
@@ -196,6 +197,8 @@ IpAddrSet *IpAddrSetCopy(IpAddrSet *ipAddrSet)
 
         neglist = neglist->next;
     }
+
+    newIpAddrSet->id = ipAddrSet->id;
 
     return newIpAddrSet;
 

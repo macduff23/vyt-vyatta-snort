@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -295,6 +295,9 @@ MemBucket *mempool_alloc(MemPool *mempool)
 
 void mempool_free(MemPool *mempool, MemBucket *obj)
 {       
+    if ((mempool == NULL) || (obj == NULL))
+        return;
+
     if(sf_sdlist_remove(&mempool->used_list, obj->key))
     {
         printf("failure on remove from used_list");

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **           (C) 2002 Sourcefire, Inc.
 **
@@ -59,6 +59,7 @@
 #include <arpa/inet.h>
 #endif /* ! WIN32 */
 
+#include "spo_log_ascii.h"
 #include "plugbase.h"
 #include "spo_plugbase.h"
 #include "parser.h"
@@ -74,11 +75,11 @@
 extern OptTreeNode *otn_tmp;
 
 /* internal functions */
-void LogAsciiInit(char *args);
-void LogAscii(Packet *p, char *msg, void *arg, Event *event);
-void LogAsciiCleanExit(int signal, void *arg);
-void LogAsciiRestart(int signal, void *arg);
-char *IcmpFileName(Packet * p);
+static void LogAsciiInit(char *args);
+static void LogAscii(Packet *p, char *msg, void *arg, Event *event);
+static void LogAsciiCleanExit(int signal, void *arg);
+static void LogAsciiRestart(int signal, void *arg);
+static char *IcmpFileName(Packet * p);
 static FILE *OpenLogFile(int mode, Packet * p);
 
 
@@ -97,7 +98,7 @@ void LogAsciiSetup(void)
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogAscii is setup\n"););
 }
 
-void LogAsciiInit(char *args)
+static void LogAsciiInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: Ascii logging initialized\n"););
 
@@ -107,7 +108,7 @@ void LogAsciiInit(char *args)
     AddFuncToRestartList(LogAsciiRestart, NULL);
 }
 
-void LogAscii(Packet *p, char *msg, void *arg, Event *event)
+static void LogAscii(Packet *p, char *msg, void *arg, Event *event)
 {
     FILE *log_ptr = NULL;
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "LogPkt started\n"););
@@ -156,12 +157,12 @@ void LogAscii(Packet *p, char *msg, void *arg, Event *event)
 }
 
 
-void LogAsciiCleanExit(int signal, void *arg)
+static void LogAsciiCleanExit(int signal, void *arg)
 {
     return;
 }
 
-void LogAsciiRestart(int signal, void *arg)
+static void LogAsciiRestart(int signal, void *arg)
 {
     return;
 }
@@ -180,7 +181,7 @@ static char *logfile[] =
  *
  * Returns: FILE pointer on success, else NULL
  */
-FILE *OpenLogFile(int mode, Packet * p)
+static FILE *OpenLogFile(int mode, Packet * p)
 {
     char log_path[STD_BUF]; /* path to log file */
     char log_file[STD_BUF]; /* name of log file */
@@ -344,7 +345,7 @@ FILE *OpenLogFile(int mode, Packet * p)
         }
         else
         {
-            if(GET_IPH_PROTO(p) == IPPROTO_ICMP)
+            if (GET_IPH_PROTO(p) == IPPROTO_ICMP)
             {
                 SnortSnprintf(log_file, STD_BUF, "%s/%s_%s%s", log_path, "ICMP",
                               IcmpFileName(p), suffix);
@@ -384,7 +385,7 @@ FILE *OpenLogFile(int mode, Packet * p)
  * Returns: the name of the file to set
  *
  ***************************************************************************/
-char *IcmpFileName(Packet * p)
+static char *IcmpFileName(Packet * p)
 {
     if(p->icmph == NULL)
     {

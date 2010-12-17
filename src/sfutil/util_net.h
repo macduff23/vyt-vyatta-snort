@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -33,8 +33,14 @@
 #define _UTIL_NET_H
 
 #include "sf_types.h"
+#include "ipv6_port.h"
 
-char *inet_ntoax(uint32_t ip);
+#ifndef SUP_IP6
+char *inet_ntoax(const struct in_addr);
+#else
+char *inet_ntoax(sfip_t *);
+#endif
+
 char * mktcpflag_str(int flags);
 
 #endif /* _UTIL_NET_H */

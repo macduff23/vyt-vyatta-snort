@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -148,6 +148,8 @@ static INLINE DCE2_Buffer * DCE2_CoGetFragBuf(DCE2_SsnData *, DCE2_CoFragTracker
 static INLINE int DCE2_CoIsSegBuf(DCE2_SsnData *, DCE2_CoTracker *, const uint8_t *);
 static void DCE2_CoEarlyReassemble(DCE2_SsnData *, DCE2_CoTracker *);
 static DCE2_Ret DCE2_CoSegEarlyRequest(DCE2_CoTracker *, const uint8_t *, uint32_t);
+static int DCE2_CoGetAuthLen(DCE2_SsnData *, const DceRpcCoHdr *,
+        const uint8_t *, uint16_t);
 
 /********************************************************************
  * Function: DCE2_CoInitRdata()
@@ -481,7 +483,9 @@ static DCE2_Ret DCE2_CoHdrChecks(DCE2_SsnData *sd, DCE2_CoTracker *cot, const Dc
 
     if (frag_len < sizeof(DceRpcCoHdr))
     {
-        if (!DCE2_SsnAutodetected(sd))
+        /* Assume we autodetected incorrectly or that DCE/RPC is not running
+         * over the SMB named pipe */
+        if (!DCE2_SsnAutodetected(sd) && (sd->trans != DCE2_TRANS_TYPE__SMB))
         {
             if (is_seg_buf)
                 DCE2_CoSegAlert(sd, cot, DCE2_EVENT__CO_FLEN_LT_HDR);
@@ -494,7 +498,7 @@ static DCE2_Ret DCE2_CoHdrChecks(DCE2_SsnData *sd, DCE2_CoTracker *cot, const Dc
 
     if (DceRpcCoVersMaj(co_hdr) != DCERPC_PROTO_MAJOR_VERS__5)
     {
-        if (!DCE2_SsnAutodetected(sd))
+        if (!DCE2_SsnAutodetected(sd) && (sd->trans != DCE2_TRANS_TYPE__SMB))
         {
             if (is_seg_buf)
                 DCE2_CoSegAlert(sd, cot, DCE2_EVENT__CO_BAD_MAJ_VERSION);
@@ -507,7 +511,7 @@ static DCE2_Ret DCE2_CoHdrChecks(DCE2_SsnData *sd, DCE2_CoTracker *cot, const Dc
 
     if (DceRpcCoVersMin(co_hdr) != DCERPC_PROTO_MINOR_VERS__0)
     {
-        if (!DCE2_SsnAutodetected(sd))
+        if (!DCE2_SsnAutodetected(sd) && (sd->trans != DCE2_TRANS_TYPE__SMB))
         {
             if (is_seg_buf)
                 DCE2_CoSegAlert(sd, cot, DCE2_EVENT__CO_BAD_MIN_VERSION);
@@ -520,7 +524,7 @@ static DCE2_Ret DCE2_CoHdrChecks(DCE2_SsnData *sd, DCE2_CoTracker *cot, const Dc
 
     if (pdu_type >= DCERPC_PDU_TYPE__MAX)
     {
-        if (!DCE2_SsnAutodetected(sd))
+        if (!DCE2_SsnAutodetected(sd) && (sd->trans != DCE2_TRANS_TYPE__SMB))
         {
             if (is_seg_buf)
                 DCE2_CoSegAlert(sd, cot, DCE2_EVENT__CO_BAD_PDU_TYPE);
@@ -1360,13 +1364,16 @@ static void DCE2_CoRequest(DCE2_SsnData *sd, DCE2_CoTracker *cot,
 
     if (DceRpcCoFirstFrag(co_hdr) && DceRpcCoLastFrag(co_hdr))
     {
+        int auth_len = DCE2_CoGetAuthLen(sd, co_hdr, frag_ptr, frag_len);
         DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CO, "First and last fragment.\n"));
+        if (auth_len == -1)
+            return;
         DCE2_CoSetRopts(sd, cot, co_hdr);
     }
     else
     {
         DCE2_CoFragTracker *ft = &cot->frag_tracker;
-        uint16_t auth_len = DceRpcCoAuthLen(co_hdr);
+        int auth_len = DCE2_CoGetAuthLen(sd, co_hdr, frag_ptr, frag_len);
 
         dce2_stats.co_req_fragments++;
 
@@ -1375,6 +1382,9 @@ static void DCE2_CoRequest(DCE2_SsnData *sd, DCE2_CoTracker *cot,
             else if (DceRpcCoLastFrag(co_hdr)) DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CO, "Last fragment.\n"));
             else DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__CO, "Middle fragment.\n"));
             DCE2_PrintPktData(frag_ptr, frag_len););
+
+        if (auth_len == -1)
+            return;
 
         if (DCE2_BufferIsEmpty(ft->cli_frag_buf))
         {
@@ -1470,38 +1480,15 @@ static void DCE2_CoRequest(DCE2_SsnData *sd, DCE2_CoTracker *cot,
                 break;
         }
 
-        /* Don't want to include authentication data in fragment */
-        if (auth_len != 0)
-        {
-            DceRpcCoAuthVerifier *auth_hdr;
-
-            auth_len += sizeof(DceRpcCoAuthVerifier);
-
-            /* This means the auth len was bogus */
-            if (auth_len > frag_len)
-            {
-                DCE2_Alert(sd, DCE2_EVENT__CO_FLEN_LT_SIZE, dce2_pdu_types[DceRpcCoPduType(co_hdr)],
-                           frag_len, auth_len);
-                return;
-            }
-
-            auth_hdr = (DceRpcCoAuthVerifier *)(frag_ptr + (frag_len - auth_len));
-            auth_len += DceRpcCoAuthPad(auth_hdr);
-
-            /* This means the auth pad len was bogus */
-            if (auth_len > frag_len)
-            {
-                DCE2_Alert(sd, DCE2_EVENT__CO_FLEN_LT_SIZE, dce2_pdu_types[DceRpcCoPduType(co_hdr)],
-                           frag_len, auth_len);
-                return;
-            }
-        }
-
         DCE2_CoSetRopts(sd, cot, co_hdr);
 
         /* If we're configured to do defragmentation */
         if (DCE2_GcDceDefrag())
-            DCE2_CoHandleFrag(sd, cot, co_hdr, frag_ptr, (uint16_t)(frag_len - auth_len));
+        {
+            /* Don't want to include authentication data in fragment */
+            DCE2_CoHandleFrag(sd, cot, co_hdr, frag_ptr,
+                    (uint16_t)(frag_len - (uint16_t)auth_len));
+        }
     }
 }
 
@@ -3115,3 +3102,41 @@ static INLINE DCE2_Buffer * DCE2_CoGetFragBuf(DCE2_SsnData *sd, DCE2_CoFragTrack
     return ft->cli_frag_buf;
 }
 
+static int DCE2_CoGetAuthLen(DCE2_SsnData *sd, const DceRpcCoHdr *co_hdr,
+        const uint8_t *frag_ptr, uint16_t frag_len)
+{
+    DceRpcCoAuthVerifier *auth_hdr;
+    uint16_t auth_len = DceRpcCoAuthLen(co_hdr);
+
+    if (auth_len == 0)
+        return 0;
+
+    auth_len += sizeof(DceRpcCoAuthVerifier);
+
+    /* This means the auth len was bogus */
+    if (auth_len > frag_len)
+    {
+        DCE2_Alert(sd, DCE2_EVENT__CO_FLEN_LT_SIZE, dce2_pdu_types[DceRpcCoPduType(co_hdr)],
+                frag_len, auth_len);
+        return -1;
+    }
+
+    auth_hdr = (DceRpcCoAuthVerifier *)(frag_ptr + (frag_len - auth_len));
+    if (DceRpcCoAuthLevel(auth_hdr) == DCERPC_CO_AUTH_LEVEL__PKT_PRIVACY)
+    {
+        /* Data is encrypted - don't inspect */
+        return -1;
+    }
+
+    auth_len += DceRpcCoAuthPad(auth_hdr);
+
+    /* This means the auth pad len was bogus */
+    if (auth_len > frag_len)
+    {
+        DCE2_Alert(sd, DCE2_EVENT__CO_FLEN_LT_SIZE, dce2_pdu_types[DceRpcCoPduType(co_hdr)],
+                frag_len, auth_len);
+        return -1;
+    }
+
+    return (int)auth_len;
+}

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -302,7 +302,7 @@ void DCE2_EventsInit(void)
     snprintf(gname, sizeof(gname) - 1, "(%s) ", DCE2_GNAME);
     gname[sizeof(gname) - 1] = '\0';
 
-    for (event = 0; event < DCE2_EVENT__MAX; event++)
+    for (event = DCE2_EVENT__NO_EVENT; event < DCE2_EVENT__MAX; event++)
     {
         int size = strlen(gname) + strlen(events[event].format) + 1;
 

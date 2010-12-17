@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -43,6 +43,6 @@
 int hi_norm_init(HTTPINSPECT_GLOBAL_CONF *GlobalConf);
 int hi_normalization(HI_SESSION *Session, int iInspectMode);
 int hi_norm_uri(HI_SESSION *Session, u_char *uribuf,int *uribuf_size,
-                const u_char *uri, int uri_size);
+                const u_char *uri, int uri_size, uint16_t *encodeType);
 
 #endif
