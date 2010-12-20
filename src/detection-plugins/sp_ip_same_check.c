@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2001 Phil Wood <cpw@lanl.gov>
 **
@@ -30,6 +30,7 @@
 #include <ctype.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -92,7 +93,7 @@ int IpSameCheckCompare(void *l, void *r)
 void SetupIpSameCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("sameip", IpSameCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("sameip", IpSameCheckInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("sameip", &ipSamePerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

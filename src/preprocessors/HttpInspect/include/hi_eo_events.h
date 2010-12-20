@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -50,7 +50,8 @@ typedef enum _HI_EVENTS
     HI_EO_CLIENT_LONG_HDR       ,
     HI_EO_CLIENT_MAX_HEADERS    ,
     HI_EO_CLIENT_MULTIPLE_CONTLEN,
-    HI_EO_CLIENT_EVENT_NUM
+    HI_EO_CLIENT_CHUNK_SIZE_MISMATCH,
+    HI_EO_CLIENT_EVENT_NUM      
 } HI_EVENTS;
 
 /*
@@ -94,10 +95,12 @@ typedef enum _HI_EVENTS
     "(http_inspect) WEBROOT DIRECTORY TRAVERSAL"
 #define HI_EO_CLIENT_LONG_HDR_STR                       \
     "(http_inspect) LONG HEADER"
-#define HI_EO_CLIENT_MAX_HEADERS_STR                       \
+#define HI_EO_CLIENT_MAX_HEADERS_STR                    \
     "(http_inspect) MAX HEADER FIELDS"
 #define HI_EO_CLIENT_MULTIPLE_CONTLEN_STR               \
     "(http_inspect) MULTIPLE CONTENT LENGTH"
+#define HI_EO_CLIENT_CHUNK_SIZE_MISMATCH_STR            \
+    "(http_inspect) CHUNK SIZE MISMATCH DETECTED"
 
 /*
 **  Anomalous Server Events

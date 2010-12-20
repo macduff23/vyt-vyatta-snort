@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -40,7 +40,6 @@
 #include "parser.h" 
 
 extern SFBASE sfBase;
-extern SnortConfig *snort_conf_for_parsing;
 
 static void printIgnoredRules(
         IgnoredRuleList *pIgnoredRuleList,
@@ -207,13 +206,9 @@ void setPortFilterList(
         tSfPolicyId policyId
         )
 {
-#ifdef PORTLISTS
     char *port_array = NULL;
     int num_ports = 0;
     int i;
-#else
-    int16_t sport, dport;
-#endif
     RuleTreeNode *rtn;
     OptTreeNode *otn;
     int inspectSrc, inspectDst;
@@ -261,7 +256,6 @@ void setPortFilterList(
         { 
             //do operation
             inspectSrc = inspectDst = 0;
-#ifdef PORTLISTS
             if (PortObjectHasAny(rtn->src_portobject))
             {
                 inspectSrc = -1;
@@ -330,70 +324,6 @@ void setPortFilterList(
                             &pIgnoredRuleList, ignoreAnyAnyRules);
                 }
             }
-#else
-            sport = (int16_t)((rtn->hsp == rtn->lsp) ? rtn->hsp : -1);
-
-            if (rtn->flags & ANY_SRC_PORT)
-            {
-                sport = -1;
-            }
-
-            if (sport > 0 &&  rtn->not_sp_flag > 0 )
-            {
-                sport = -1;
-            }
-
-            /* Set the source port to inspect */
-            if (sport != -1)
-            {
-                portList[sport] |= PORT_MONITOR_INSPECT;
-            }
-
-            dport = (int16_t)((rtn->hdp == rtn->ldp) ? rtn->hdp : -1);
-
-            if (rtn->flags & ANY_DST_PORT)
-            {
-                dport = -1;
-            }
-
-            if (dport > 0 && rtn->not_dp_flag > 0 )
-            {
-                dport = -1;
-            }
-
-            /* Set the dest port to inspect */
-            if (dport != -1)
-            {
-                inspectDst = 1;
-                portList[dport] |= PORT_MONITOR_INSPECT;
-            }
-
-            if (inspectSrc || inspectDst)
-            {
-                /* port specific rule */
-                    /* Look for an OTN with flow or flowbits keyword */
-                    if (flowBitIsSet)
-                    {
-                        if (inspectSrc)
-                        {
-                            portList[sport] |= PORT_MONITOR_SESSION;
-                        }
-                        if (inspectDst)
-                        {
-                            portList[dport] |= PORT_MONITOR_SESSION;
-                        }
-                    }
-            }
-            else
-            {
-                /* any -> any rule */
-                if (any_any_flow == 0)
-                {
-                    any_any_flow = Stream5AnyAnyFlow(portList, otn, rtn, any_any_flow,
-                            &pIgnoredRuleList, ignoreAnyAnyRules);
-                }
-            }
-#endif /* PORTLISTS */
         }
     }
 

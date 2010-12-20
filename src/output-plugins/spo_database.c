@@ -55,9 +55,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "spo_database.h"
 #include "event.h"
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 #include "spo_plugbase.h"
 #include "parser.h"
@@ -289,30 +291,29 @@ static const char* FATAL_NO_SUPPORT_2 =
 
 /******** Prototypes  **************************************************/
 
-void          DatabaseInit(char *);
-DatabaseData *InitDatabaseData(char *args);
-void          DatabaseInitFinalize(int unused, void *arg);
-void          ParseDatabaseArgs(DatabaseData *data);
-void          Database(Packet *, char *, void *, Event *);
-char *        snort_escape_string(char *, DatabaseData *);
-void          SpoDatabaseCleanExitFunction(int, void *);
-void          SpoDatabaseRestartFunction(int, void *);
-void          InitDatabase();
-int           UpdateLastCid(DatabaseData *, int, int);
-int           GetLastCid(DatabaseData *, int);
-int           CheckDBVersion(DatabaseData *);
-void          BeginTransaction(DatabaseData * data);
-void          CommitTransaction(DatabaseData * data);
-void          RollbackTransaction(DatabaseData * data);
-int           Insert(char *, DatabaseData *);
-int           Select(char *, DatabaseData *);
-void          Connect(DatabaseData *);
-void          DatabasePrintUsage();
-void          FreeSharedDataList();
+static void          DatabaseInit(char *);
+static DatabaseData *InitDatabaseData(char *args);
+static void          DatabaseInitFinalize(int unused, void *arg);
+static void          ParseDatabaseArgs(DatabaseData *data);
+static void          Database(Packet *, char *, void *, Event *);
+static char *        snort_escape_string(char *, DatabaseData *);
+static void          SpoDatabaseCleanExitFunction(int, void *);
+static void          SpoDatabaseRestartFunction(int, void *);
+//static void          InitDatabase(void);
+static int           UpdateLastCid(DatabaseData *, int, int);
+static int           GetLastCid(DatabaseData *, int);
+static int           CheckDBVersion(DatabaseData *);
+static void          BeginTransaction(DatabaseData * data);
+static void          CommitTransaction(DatabaseData * data);
+static void          RollbackTransaction(DatabaseData * data);
+static int           Insert(char *, DatabaseData *);
+static int           Select(char *, DatabaseData *);
+static void          Connect(DatabaseData *);
+static void          DatabasePrintUsage(void);
+static void          FreeSharedDataList(void);
 
 /******** Global Variables  ********************************************/
 
-extern SnortConfig *snort_conf;
 extern char *pcap_interface;
 extern OptTreeNode *otn_tmp;  /* rule node */
 extern ListHead *head_tmp;
@@ -381,7 +382,7 @@ void DatabaseSetup(void)
  * Returns: void function
  *
  ******************************************************************************/
-void DatabaseInit(char *args)
+static void DatabaseInit(char *args)
 {
     DatabaseData *data = NULL;
 
@@ -409,7 +410,7 @@ void DatabaseInit(char *args)
     ++instances;
 }
 
-void DatabaseInitFinalize(int unused, void *arg)
+static void DatabaseInitFinalize(int unused, void *arg)
 {
     DatabaseData *data = (DatabaseData *)arg;
     char * select_sensor_id = NULL;
@@ -817,7 +818,7 @@ void DatabaseInitFinalize(int unused, void *arg)
  * Returns: Pointer to database structure
  *
  ******************************************************************************/
-DatabaseData *InitDatabaseData(char *args)
+static DatabaseData *InitDatabaseData(char *args)
 {
     DatabaseData *data;
 
@@ -848,7 +849,7 @@ DatabaseData *InitDatabaseData(char *args)
  *
  ******************************************************************************/
 //DatabaseData *ParseDatabaseArgs(char *args)
-void ParseDatabaseArgs(DatabaseData *data)
+static void ParseDatabaseArgs(DatabaseData *data)
 {
     char *dbarg;
     char *a1;
@@ -1037,7 +1038,7 @@ void ParseDatabaseArgs(DatabaseData *data)
     }
 }
 
-void FreeQueryNode(SQLQuery * node)
+static void FreeQueryNode(SQLQuery * node)
 {
     if(node)
     {
@@ -1049,7 +1050,7 @@ void FreeQueryNode(SQLQuery * node)
     }
 }
 
-SQLQuery * NewQueryNode(SQLQuery * parent, int query_size)
+static SQLQuery * NewQueryNode(SQLQuery * parent, int query_size)
 {
     SQLQuery * rval;
 
@@ -1090,7 +1091,7 @@ SQLQuery * NewQueryNode(SQLQuery * parent, int query_size)
  * Returns: void function
  *
  ******************************************************************************/
-void Database(Packet *p, char *msg, void *arg, Event *event)
+static void Database(Packet *p, char *msg, void *arg, Event *event)
 {
     DatabaseData *data = (DatabaseData *)arg;
     SQLQuery *query = NULL,
@@ -2136,7 +2137,7 @@ bad_query:
    were small modifications made to the mysql_real_escape_string() 
    function. */
 
-char * snort_escape_string(char * from, DatabaseData * data)
+static char * snort_escape_string(char * from, DatabaseData * data)
 {
     char * to;
     char * to_start;
@@ -2289,7 +2290,7 @@ char * snort_escape_string(char * from, DatabaseData * data)
  * Returns: status of the update
  *
  ******************************************************************************/
-int UpdateLastCid(DatabaseData *data, int sid, int cid)
+static int UpdateLastCid(DatabaseData *data, int sid, int cid)
 {
     char *insert0;
     int ret;
@@ -2323,7 +2324,7 @@ int UpdateLastCid(DatabaseData *data, int sid, int cid)
  * Returns: last cid for a given sensor ID (sid)
  *
  ******************************************************************************/
-int GetLastCid(DatabaseData *data, int sid)
+static int GetLastCid(DatabaseData *data, int sid)
 {
     char *select0;
     int tmp_cid, ret;
@@ -2356,7 +2357,7 @@ int GetLastCid(DatabaseData *data, int sid)
  * Returns: version number of the schema
  *
  ******************************************************************************/
-int CheckDBVersion(DatabaseData * data)
+static int CheckDBVersion(DatabaseData * data)
 {
    char *select0;
    int schema_version;
@@ -2424,7 +2425,7 @@ int CheckDBVersion(DatabaseData * data)
  * Purpose: Database independent SQL to start a transaction
  * 
  ******************************************************************************/
-void BeginTransaction(DatabaseData * data)
+static void BeginTransaction(DatabaseData * data)
 {
 #ifdef ENABLE_ODBC
     if ( data->shared->dbtype_id == DB_ODBC )
@@ -2458,7 +2459,7 @@ void BeginTransaction(DatabaseData * data)
  * Purpose: Database independent SQL to commit a transaction
  * 
  ******************************************************************************/
-void CommitTransaction(DatabaseData * data)
+static void CommitTransaction(DatabaseData * data)
 {
 #ifdef ENABLE_ODBC
     if ( data->shared->dbtype_id == DB_ODBC )
@@ -2513,7 +2514,7 @@ void CommitTransaction(DatabaseData * data)
  * Purpose: Database independent SQL to rollback a transaction
  * 
  ******************************************************************************/
-void RollbackTransaction(DatabaseData * data)
+static void RollbackTransaction(DatabaseData * data)
 {
 #ifdef ENABLE_ODBC
     if ( data->shared->dbtype_id == DB_ODBC )
@@ -2572,7 +2573,7 @@ void RollbackTransaction(DatabaseData * data)
  * Returns: 1 if successful, 0 if fail
  *
  ******************************************************************************/
-int Insert(char * query, DatabaseData * data)
+static int Insert(char * query, DatabaseData * data)
 {
     int result = 0;
 
@@ -2768,7 +2769,7 @@ int Insert(char * query, DatabaseData * data)
  * Returns: result of query if successful, 0 if fail
  *
  ******************************************************************************/
-int Select(char * query, DatabaseData * data)
+static int Select(char * query, DatabaseData * data)
 {
     int result = 0;
 
@@ -2973,7 +2974,7 @@ int Select(char * query, DatabaseData * data)
  *          connection
  *
  ******************************************************************************/
-void Connect(DatabaseData * data)
+static void Connect(DatabaseData * data)
 {
 #ifdef ENABLE_POSTGRESQL
     if( data->shared->dbtype_id == DB_POSTGRESQL )
@@ -3217,7 +3218,7 @@ void Connect(DatabaseData * data)
  * Purpose: Database independent function to close a connection
  *
  ******************************************************************************/
-void Disconnect(DatabaseData * data)
+static void Disconnect(DatabaseData * data)
 {
     LogMessage("database: Closing connection to database \"%s\"\n", 
                data->shared->dbname);
@@ -3289,7 +3290,7 @@ void Disconnect(DatabaseData * data)
     }
 }
 
-void DatabasePrintUsage(void)
+static void DatabasePrintUsage(void)
 {
     puts("\nUSAGE: database plugin\n");
 
@@ -3337,7 +3338,7 @@ void DatabasePrintUsage(void)
     puts(" output database: log, mysql, dbname=snort user=snortusr host=localhost\n");
 }
 
-void SpoDatabaseCleanExitFunction(int signal, void *arg)
+static void SpoDatabaseCleanExitFunction(int signal, void *arg)
 {
     DatabaseData *data = (DatabaseData *)arg;
 
@@ -3358,7 +3359,7 @@ void SpoDatabaseCleanExitFunction(int signal, void *arg)
     }
 }
 
-void SpoDatabaseRestartFunction(int signal, void *arg)
+static void SpoDatabaseRestartFunction(int signal, void *arg)
 {
     DatabaseData *data = (DatabaseData *)arg;
 
@@ -3379,7 +3380,7 @@ void SpoDatabaseRestartFunction(int signal, void *arg)
     }
 }
 
-void FreeSharedDataList(void)
+static void FreeSharedDataList(void)
 {
    SharedDatabaseDataNode *current;
 

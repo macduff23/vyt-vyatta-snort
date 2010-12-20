@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -33,6 +33,7 @@
 #include <ctype.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -108,7 +109,7 @@ int TcpWinCheckCompare(void *l, void *r)
 void SetupTcpWinCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("window", TcpWinCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("window", TcpWinCheckInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("window", &tcpWinPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

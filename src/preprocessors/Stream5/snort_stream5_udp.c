@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -35,6 +35,7 @@
 
 #include "plugin_enum.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "snort.h"
 #include "inline.h"
 
@@ -60,6 +61,8 @@ PreprocStats s5UdpPerfStats;
 #define udp_responder_port lwSsn->server_port
 
 extern SFBASE sfBase;
+extern SFFLOW sfFlow;
+extern SFPERF *perfmon_config;
 extern Stream5UdpConfig *s5_udp_eval_config;
 extern tSfPolicyUserContextId s5_config;
 
@@ -394,6 +397,9 @@ static int NewUdpSession(Packet *p,
     s5stats.udp_sessions_created++;
 
     AddUDPSession(&sfBase);
+    if (perfmon_config && (perfmon_config->perf_flags & SFPERF_FLOWIP))
+        UpdateFlowIPState(&sfFlow, IP_ARG(lwssn->client_ip), IP_ARG(lwssn->server_ip), SFS_STATE_UDP_CREATED); 
+
     return 0;
 }
 
@@ -526,6 +532,7 @@ static int ProcessUdp(Stream5LWSession *lwssn, Packet *p,
 {
     char ignore = 0;
     UdpSession *udpssn = NULL;
+    int16_t protoId = 0;
     DEBUG_WRAP(
             char *t = NULL;
             char *l = NULL;
@@ -604,7 +611,7 @@ static int ProcessUdp(Stream5LWSession *lwssn, Packet *p,
     }
 
     /* Check if the session is to be ignored */
-    ignore = CheckIgnoreChannel(p);
+    ignore = CheckIgnoreChannel(p, &protoId);
     if (ignore)
     {
         /* Set the directions to ignore... */
@@ -615,6 +622,13 @@ static int ProcessUdp(Stream5LWSession *lwssn, Packet *p,
                     p->packet_flags & PKT_FROM_CLIENT? "sender" : "responder"););
         Stream5DisableInspection(lwssn, p);
         return ACTION_NOTHING;
+    }
+    else if (protoId != 0)
+    {
+#ifdef TARGET_BASED
+        if (IsAdaptiveConfigured(getRuntimePolicy(), 0))
+            lwssn->application_protocol = protoId;
+#endif
     }
 
     /* if both seen, mark established */

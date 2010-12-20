@@ -1,7 +1,7 @@
 /*
  * dcerpc.c
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -40,15 +40,6 @@
 #include "dcerpc.h"
 
 #define SEG_BUF_SIZE  100000
-
-typedef enum _DCERPC_FragType
-{
-    DCERPC_FRAG_TYPE__FULL,
-    DCERPC_FRAG_TYPE__FRAG,
-    DCERPC_FRAG_TYPE__LAST,
-    DCERPC_FRAG_TYPE__ERROR
-
-} DCERPC_FragType;
 
 extern DCERPC         *_dcerpc;
 extern SFSnortPacket  *_dcerpc_pkt;
@@ -233,7 +224,7 @@ int ProcessDCERPCMessage(const uint8_t *smb_hdr, uint16_t smb_hdr_len, const uin
  */
 
 
-int DCERPC_Fragmentation(const uint8_t *data, uint16_t data_size, uint16_t frag_length)
+DCERPC_FragType DCERPC_Fragmentation(const uint8_t *data, uint16_t data_size, uint16_t frag_length)
 {
     DCERPC_HDR     *dcerpc_hdr;
     DCERPC_Buffer *buf = &_dcerpc->dce_frag_buf;

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -58,6 +58,7 @@
 #include <unistd.h>
 #include <time.h>
 
+#include "spo_log_tcpdump.h"
 #include "decode.h"
 #include "event.h"
 #include "mstring.h"
@@ -109,12 +110,13 @@ static void SpoLogTcpdumpCleanExitFunc(int, void *);
 static void SpoLogTcpdumpRestartFunc(int, void *);
 static void LogTcpdumpSingle(Packet *, char *, void *, Event *);
 static void LogTcpdumpStream(Packet *, char *, void *, Event *);
+//static void DirectLogTcpdump(struct pcap_pkthdr *, uint8_t *);
 
 /* external globals from rules.c */
 extern pcap_t *pcap_handle;
 
 /* If you need to instantiate the plugin's data structure, do it here */
-LogTcpdumpData *log_tcpdump_ptr;
+static LogTcpdumpData *log_tcpdump_ptr;
 
 /*
  * Function: SetupLogTcpdump()
@@ -236,6 +238,11 @@ static LogTcpdumpData *ParseTcpdumpArgs(char *args)
     }
     mSplitFree(&toks, num_toks);
     if ( !data->filename ) data->filename = SnortStrdup(DEFAULT_FILE);
+    if (ScPcapLogFile() != NULL)
+    {
+        free(data->filename);
+        data->filename = SnortStrdup(ScPcapLogFile());
+    }
 
     DEBUG_WRAP(DebugMessage(
         DEBUG_INIT, "log_tcpdump: '%s' %ld\n", data->filename, data->limit
@@ -488,6 +495,8 @@ void LogTcpdumpReset(void)
     TcpdumpRollLogFile(log_tcpdump_ptr);
 }
 
+#if 0
+/* Not currently used */
 void DirectLogTcpdump(struct pcap_pkthdr *ph, uint8_t *pkt)
 {
     size_t dumpSize = SizeOf(ph);
@@ -500,4 +509,5 @@ void DirectLogTcpdump(struct pcap_pkthdr *ph, uint8_t *pkt)
 
     log_tcpdump_ptr->size += dumpSize;
 }
+#endif
 

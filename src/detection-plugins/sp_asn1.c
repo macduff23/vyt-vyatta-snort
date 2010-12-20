@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2009 Sourcefire, Inc.
+ ** Copyright (C) 2002-2010 Sourcefire, Inc.
  ** Author: Daniel Roelker
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -62,6 +62,7 @@
 
 #include "bounds.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -201,7 +202,7 @@ static void Asn1RuleParse(char *data, OptTreeNode *otn, ASN1_CTXT *asn1)
                            "plugin\n", LENGTH_OPT, file_name, file_line);
             }
 
-            max_length = strtol(pcTok, &pcEnd, 10);
+            max_length = SnortStrtol(pcTok, &pcEnd, 10);
 
             if((*pcEnd) || (max_length < 0) || (errno == ERANGE))
             {
@@ -322,7 +323,7 @@ static void Asn1Init(char *data, OptTreeNode *otn, int protocol)
 void SetupAsn1(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("asn1", Asn1Init, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("asn1", Asn1Init, NULL, OPT_TYPE_DETECTION, NULL);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("asn1", &asn1PerfStats, 3, &ruleOTNEvalPerfStats);

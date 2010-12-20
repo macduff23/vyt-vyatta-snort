@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -64,7 +64,7 @@ tSfPolicyUserContextId dce2_swap_config = NULL;
 static const uint16_t DCE2_PORTS_SMB__DEFAULT[] = {139, 445};
 static const uint16_t DCE2_PORTS_TCP__DEFAULT[] = {135};
 static const uint16_t DCE2_PORTS_UDP__DEFAULT[] = {135};
-static const uint16_t DCE2_PORTS_HTTP_PROXY__DEFAULT[] = {80};
+//static const uint16_t DCE2_PORTS_HTTP_PROXY__DEFAULT[] = {80};
 static const uint16_t DCE2_PORTS_HTTP_SERVER__DEFAULT[] = {593};
 
 static char dce2_config_error[1024];
@@ -81,6 +81,7 @@ extern DynamicPreprocessorData _dpd;
 #define DCE2_GOPT__DISABLE_DEFRAG  "disable_defrag"
 #define DCE2_GOPT__MAX_FRAG_LEN    "max_frag_len"
 #define DCE2_GOPT__REASSEMBLE_THRESHOLD  "reassemble_threshold"
+#define DCE2_GOPT__DISABLED        "disabled"
 
 #define DCE2_GOPT__EVENTS         "events"
 #define DCE2_GARG__EVENTS_NONE    "none"
@@ -148,7 +149,8 @@ typedef enum _DCE2_GcOptFlag
     DCE2_GC_OPT_FLAG__DISABLE_DEFRAG = 0x0004,
     DCE2_GC_OPT_FLAG__MAX_FRAG_LEN = 0x0008,
     DCE2_GC_OPT_FLAG__EVENTS = 0x0010,
-    DCE2_GC_OPT_FLAG__REASSEMBLE_THRESHOLD = 0x0020
+    DCE2_GC_OPT_FLAG__REASSEMBLE_THRESHOLD = 0x0020,
+    DCE2_GC_OPT_FLAG__DISABLED = 0x0040
 
 } DCE2_GcOptFlag;
 
@@ -401,6 +403,10 @@ static DCE2_Ret DCE2_GcParseConfig(DCE2_GlobalConfig *gc, char *args)
                                 return DCE2_RET__ERROR;
                             break;
 
+                        case DCE2_GC_OPT_FLAG__DISABLED:
+                            gc->disabled = 1;
+                            break;
+
                         default:
                             return DCE2_RET__ERROR;
                     }
@@ -494,6 +500,11 @@ static INLINE DCE2_GcOptFlag DCE2_GcParseOption(char *opt_start, char *opt_end, 
              strncasecmp(DCE2_GOPT__REASSEMBLE_THRESHOLD, opt_start, opt_len) == 0)
     {
         opt_flag = DCE2_GC_OPT_FLAG__REASSEMBLE_THRESHOLD;
+    }
+    else if (opt_len == strlen(DCE2_GOPT__DISABLED) &&
+             strncasecmp(DCE2_GOPT__DISABLED, opt_start, opt_len) == 0)
+    {
+        opt_flag = DCE2_GC_OPT_FLAG__DISABLED;
     }
     else
     {
@@ -801,7 +812,7 @@ static DCE2_Ret DCE2_GcParseEvents(DCE2_GlobalConfig *gc, char **ptr, char *end)
  ********************************************************************/
 static INLINE DCE2_EventFlag DCE2_GcParseEvent(char *start, char *end, int *emask)
 {
-    int eflag = DCE2_EVENT_FLAG__NULL;
+    DCE2_EventFlag eflag = DCE2_EVENT_FLAG__NULL;
     size_t event_len = end - start;
 
     if (event_len == strlen(DCE2_GARG__EVENTS_NONE) &&
@@ -841,7 +852,7 @@ static INLINE DCE2_EventFlag DCE2_GcParseEvent(char *start, char *end, int *emas
         return DCE2_EVENT_FLAG__NULL;
     }
 
-    if (DCE2_CheckAndSetMask(eflag, emask) != DCE2_RET__SUCCESS)
+    if (DCE2_CheckAndSetMask((int)eflag, emask) != DCE2_RET__SUCCESS)
     {
         DCE2_GcError("Event type \"%.*s\" cannot be specified more than once",
                      event_len, start);
@@ -2115,7 +2126,6 @@ static DCE2_Ret DCE2_ScParseSmbShares(DCE2_ServerConfig *sc, char **ptr, char *e
 {
     DCE2_WordListState state = DCE2_WORD_LIST_STATE__START;
     char *share_start = *ptr;
-    char last_char = 0;
     int one_share = 0;
     int quote = 0;
 
@@ -2329,7 +2339,6 @@ static DCE2_Ret DCE2_ScParseSmbShares(DCE2_ServerConfig *sc, char **ptr, char *e
                 return DCE2_RET__ERROR;
         }
 
-        last_char = c;
         (*ptr)++;
     }
 
@@ -2773,7 +2782,7 @@ static void DCE2_ScPrintConfig(const DCE2_ServerConfig *sc, DCE2_Queue *net_queu
             snprintf(tmp_net, sizeof(tmp_net), "%s/%u ", ip_addr, prefix);
             tmp_net[sizeof(tmp_net) - 1] = '\0';
 
-            if (strlen(nets) + strlen(tmp_net) >= sizeof(nets))
+            if ((strlen(nets) + strlen(tmp_net)) >= sizeof(nets))
             {
                 _dpd.logMsg("%s\n", nets);
                 snprintf(nets, sizeof(nets), "         %s", tmp_net);
@@ -2876,7 +2885,7 @@ static void DCE2_ScPrintConfig(const DCE2_ServerConfig *sc, DCE2_Queue *net_queu
             snprintf(tmp_share, tmp_share_len, "%s ", share->ascii_str);
             tmp_share[tmp_share_len - 1] = '\0';
 
-            if (strlen(share_str) + strlen(tmp_share) >= sizeof(share_str))
+            if ((strlen(share_str) + strlen(tmp_share)) >= sizeof(share_str))
             {
                 _dpd.logMsg("%s\n", share_str);
                 snprintf(share_str, sizeof(share_str), "                        %s", tmp_share);
@@ -3005,7 +3014,7 @@ static void DCE2_ScPrintPorts(const DCE2_ServerConfig *sc, int autodetect)
                         tmp_port[sizeof(tmp_port) - 1] = '\0';
                     }
 
-                    if (strlen(ports) + strlen(tmp_port) >= sizeof(ports))
+                    if ((strlen(ports) + strlen(tmp_port)) >= sizeof(ports))
                     {
                         _dpd.logMsg("%s\n", ports);
                         snprintf(ports, sizeof(ports), "           %s", tmp_port);

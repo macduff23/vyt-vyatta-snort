@@ -4,6 +4,13 @@ TODO things for Snort in Debian
 
 - Offer the user an option to automatically create the database since
   the schemas (at /usr/share/doc/snort*) stuff is not available on installation.
+
+  This confuses users since they are asked for some information (network
+  interface, IP address) but not the information related to database
+  configuration.
+
+  Use dbconfig-common for this. 
+
   Review what other packages (gnudip? horde? imp? sitebar? openwebmail?)
   have done and consider the use of the generic user for database
   administration.  Note that database permissions for the 'snort' 
@@ -12,9 +19,6 @@ TODO things for Snort in Debian
   http://lists.debian.org/debian-devel/2004/10/msg00340.html
   and
   http://lists.debian.org/debian-devel/2004/10/msg00962.html
-
-  I probably need to take a look at how wwwconfig-common or use the
-  new dbconfig-common information does it...
 
 - Include Rpm improvements to the init.d file suchas :
 

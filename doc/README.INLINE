@@ -77,9 +77,12 @@ alert udp any any <> any 53 (msg: "udp replace"; \
     content: "yahoo"; replace: "xxxxx";)
 
 these rules will comb tcp port 80 traffic looking for GET, and udp port 53 
-traffic looking for yahoo.  Once they are found, they are replaced with BET 
-and xxxxx, respectively.  The only catch is that the replace must be the same 
-length as the content.
+traffic looking for yahoo. Once they are found, they are replaced with BET 
+and xxxxx, respectively. The replace pattern  and content can be of different 
+lengths. When the replace pattern is longer than the content, the replace
+pattern gets truncated and when the replace pattern is shorter than the content,
+first few bytes of the content (equivalent to the length of the replace pattern) 
+are replaced.
 
 RULE APPLICATION ORDER:
 

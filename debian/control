@@ -12,7 +12,7 @@ Build-Depends: libnet0-dev,
  iptables-dev [!kfreebsd-i386 !kfreebsd-amd64 !hurd-i386], 
  libgnutls-dev
 Build-Depends-Indep: texlive, texlive-latex-base, gs-common
-Standards-Version:  3.8.0
+Standards-Version:  3.8.3
 Homepage: http://www.snort.org/
 
 Package: vyatta-snort
@@ -24,7 +24,8 @@ Depends: vyatta-snort-common-libraries (>=${binary:Version}),
  syslogd | system-log-daemon, 
  ${shlibs:Depends}, 
  vyatta-snort-common (>= ${source:Version}), 
- logrotate
+ logrotate,
+ ${misc:Depends}
 Conflicts: snort-mysql, snort-pgsql
 Replaces: snort-common (<< 2.0.2-3), snort
 Recommends: iproute
@@ -71,7 +72,8 @@ Architecture: all
 Depends: debconf (>= 0.2.80) | debconf-2.0, 
  adduser (>= 3.11), 
  syslogd | system-log-daemon, 
- ${shlibs:Depends}
+ ${shlibs:Depends},
+ ${misc:Depends}
 Replaces: snort-rules-default
 Suggests: vyatta-snort
 Homepage: http://www.snort.org/rules/
@@ -84,7 +86,7 @@ Description: flexible Network Intrusion Detection System ruleset
 Package: vyatta-snort-common-libraries
 Architecture: any
 Depends: ${shlibs:Depends}
-Suggests: vyatta-snort
+Suggests: vyatta-snort, ${misc:Depends}
 Conflicts: snort-common (<< 2.7.0-6)
 Replaces: snort-common-libraries
 Description: flexible Network Intrusion Detection System ruleset

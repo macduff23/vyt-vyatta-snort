@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -58,6 +58,7 @@
 #include <errno.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "bitop_funcs.h"
 #include "plugbase.h"
@@ -83,7 +84,6 @@ extern PreprocStats ruleOTNEvalPerfStats;
 #endif
 
 extern const unsigned int giFlowbitSize;
-extern SnortConfig *snort_conf_for_parsing;
 extern SFGHASH *flowbits_hash;
 extern SF_QUEUE *flowbits_bit_queue;
 extern u_int32_t flowbits_count;
@@ -120,10 +120,10 @@ u_int32_t DynamicRuleHash(void *d)
         b += (ptr << 32) & 0XFFFFFFFF;
         c += (ptr & 0xFFFFFFFF);
 
-        ptr = (u_int64_t)dynData->fastPatternContents;
+        ptr = (u_int64_t)dynData->getDynamicContents;
         a += (ptr << 32) & 0XFFFFFFFF;
         b += (ptr & 0xFFFFFFFF);
-        c += dynData->fpContentFlags;
+        c += dynData->contentFlags;
 
         mix (a,b,c);
     
@@ -136,8 +136,8 @@ u_int32_t DynamicRuleHash(void *d)
         c = (u_int32_t)dynData->hasOptionFunction;
         mix(a,b,c);
 
-        a += (u_int32_t)dynData->fastPatternContents;
-        b += dynData->fpContentFlags;
+        a += (u_int32_t)dynData->getDynamicContents;
+        b += dynData->contentFlags;
         c += RULE_OPTION_TYPE_DYNAMIC;
     }
 #endif
@@ -158,8 +158,8 @@ int DynamicRuleCompare(void *l, void *r)
     if ((left->contextData == right->contextData) &&
         (left->checkFunction == right->checkFunction) &&
         (left->hasOptionFunction == right->hasOptionFunction) &&
-        (left->fastPatternContents == right->fastPatternContents) &&
-        (left->fpContentFlags == right->fpContentFlags))
+        (left->getDynamicContents == right->getDynamicContents) &&
+        (left->contentFlags == right->contentFlags))
     {
         return DETECTION_OPTION_EQUAL;
     }
@@ -181,7 +181,7 @@ int DynamicRuleCompare(void *l, void *r)
 void SetupDynamic(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("dynamic", DynamicInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("dynamic", DynamicInit, NULL, OPT_TYPE_DETECTION, NULL);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("dynamic_rule", &dynamicRuleEvalPerfStats, 3, &ruleOTNEvalPerfStats);
@@ -300,9 +300,8 @@ void DynamicRuleListFree(DynamicRuleNode *head)
  *            info => context specific data
  *            chkFunc => Function to call to check if the rule matches
  *            has*Funcs => Functions used to categorize this rule
- *            fpContentFlags => Flags indicating which Fast Pattern Contents
- *                              are available
- *            fpFunc => Function to call to get list of fast pattern contents
+ *            contentFlags => Flags indicating which contents are available
+ *            contentsFunc => Function to call to get list of rule contents
  *
  * Returns: 0 on success
  *
@@ -313,15 +312,15 @@ int RegisterDynamicRule(
     void *info,
     OTNCheckFunction chkFunc,
     OTNHasFunction hasFunc,
-    int fpContentFlags,
-    GetFPContentFunction fpFunc,
-    RuleFreeFunc freeFunc
+    int contentFlags,
+    GetDynamicContentsFunction contentsFunc,
+    RuleFreeFunc freeFunc,
+    GetDynamicPreprocOptFpContentsFunc preprocFpFunc
     )
 {
     DynamicData *dynData;
     struct _OptTreeNode *otn = NULL;
     OptFpList *idx;     /* index pointer */
-    OptFpList *prev = NULL;
     OptFpList *fpl;
     char done_once = 0;
     void *option_dup;
@@ -355,9 +354,10 @@ int RegisterDynamicRule(
         node->rule = (Rule *)info;
         node->chkFunc = chkFunc;
         node->hasFunc = hasFunc;
-        node->fpContentFlags = fpContentFlags;
-        node->fpFunc = fpFunc;
+        node->contentFlags = contentFlags;
+        node->contentsFunc = contentsFunc;
         node->freeFunc = freeFunc;
+        node->preprocFpContentsFunc = preprocFpFunc;
     }
 
     /* Get OTN/RTN from SID */
@@ -391,27 +391,25 @@ int RegisterDynamicRule(
 
     /* allocate the data structure and attach it to the
      * rule's data struct list */
-    dynData = (DynamicData *) SnortAlloc(sizeof(DynamicData));
-
-    if(dynData == NULL)
-    {
-        FatalError("DynamicPlugin: Unable to allocate Dynamic data node for rule [%u:%u]\n",
-                    gid, sid);
-    }
-
+    dynData = (DynamicData *)SnortAlloc(sizeof(DynamicData));
     dynData->contextData = info;
     dynData->checkFunction = chkFunc;
     dynData->hasOptionFunction = hasFunc;
-    dynData->fastPatternContents = fpFunc;
-    dynData->fpContentFlags = fpContentFlags;
+    dynData->getDynamicContents = contentsFunc;
+    dynData->contentFlags = contentFlags;
+    dynData->getPreprocFpContents = preprocFpFunc;
 
     while (otn)
     {
+        OptFpList *prev = NULL;
+
         otn->ds_list[PLUGIN_DYNAMIC] = (void *)dynData;
 
         /* And add this function into the tail of the list */
         fpl = AddOptFuncToList(DynamicCheck, otn);
         fpl->context = dynData;
+        fpl->type = RULE_OPTION_TYPE_DYNAMIC;
+
         if (done_once == 0)
         {
             if (add_detection_option(RULE_OPTION_TYPE_DYNAMIC,
@@ -420,7 +418,7 @@ int RegisterDynamicRule(
                 free(dynData);
                 fpl->context = dynData = option_dup;
             }
-            fpl->type = RULE_OPTION_TYPE_DYNAMIC;
+
             done_once = 1;
         }
 
@@ -489,15 +487,6 @@ int ReloadDynamicRules(SnortConfig *sc)
 
                     break;
 
-                case OPTION_TYPE_PREPROCESSOR:
-                    {
-                        PreprocessorOption *preprocOpt = option->option_u.preprocOpt;
-                        if (DynamicPreprocRuleOptInit(preprocOpt) == -1)
-                            continue;
-                    }
-
-                    break;
-
                 default:
                     break;
             }
@@ -505,7 +494,8 @@ int ReloadDynamicRules(SnortConfig *sc)
 
         RegisterDynamicRule(node->rule->info.sigID, node->rule->info.genID,
                             (void *)node->rule, node->chkFunc, node->hasFunc,
-                            node->fpContentFlags, node->fpFunc, node->freeFunc);
+                            node->contentFlags, node->contentsFunc,
+                            node->freeFunc, node->preprocFpContentsFunc);
     }
 
     snort_conf_for_parsing = NULL;
@@ -518,6 +508,7 @@ int DynamicPreprocRuleOptInit(void *opt)
 {
     PreprocessorOption *preprocOpt = (PreprocessorOption *)opt;
     PreprocOptionInit optionInit;
+    PreprocOptionOtnHandler otnHandler;
     char *option_name = NULL;
     char *option_params = NULL;
     char *tmp;
@@ -531,7 +522,9 @@ int DynamicPreprocRuleOptInit(void *opt)
 
     result = GetPreprocessorRuleOptionFuncs((char *)preprocOpt->optionName,
                                      &preprocOpt->optionInit,
-                                     &preprocOpt->optionEval);
+                                     &preprocOpt->optionEval,
+                                     &otnHandler,
+                                     &preprocOpt->optionFpFunc);
     if (!result)
         return -1;
 

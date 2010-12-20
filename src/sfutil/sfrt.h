@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -202,7 +202,9 @@ GENERIC sfrt_lookup(void *adr, table_t* table);
 GENERIC sfrt_search(void *adr, unsigned char len, table_t *table);
 typedef void (*sfrt_iterator_callback)(void *);
 typedef void (*sfrt_iterator_callback2)(void *, void *);
+typedef int  (*sfrt_iterator_callback3)(void *);
 void    sfrt_iterate(table_t* table, sfrt_iterator_callback userfunc);
+int     sfrt_iterate2(table_t* table, sfrt_iterator_callback3 userfunc);
 void    sfrt_cleanup(table_t* table, sfrt_iterator_callback userfunc);
 void    sfrt_cleanup2(table_t*, sfrt_iterator_callback2, void *);
 int     sfrt_insert(void *adr, unsigned char len, GENERIC ptr, 

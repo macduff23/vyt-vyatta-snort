@@ -72,7 +72,8 @@ while (<>) {
 	$line=<>;
       }
       if ( $line =~ m/^\[Priority\:\s(\d+)\]/ox) {
-          $alert->{PRIORITY} = $1;
+        $alert->{PRIORITY} = $1;
+	$line=<>;
       }
       if ( $line =~ m/^(\d+)\/(\d+)(?:\/\d+)?\-(\d+)\:(\d+)\:(\d+)\.(\d+)\s
 	   ([\d\.]+)[\:]*([\d]*)\s[\-\>]+\s([\d\.]+)[\:]*([\d]*)/ox) {

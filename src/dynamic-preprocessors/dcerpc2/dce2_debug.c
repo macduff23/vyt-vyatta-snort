@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -31,6 +31,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
+extern DynamicPreprocessorData _dpd;
+
 /********************************************************************
  * Function: DCE2_GetDebugLevel()
  *
@@ -60,7 +62,7 @@ static uint32_t DCE2_GetDebugLevel(void)
     {
         char *endptr;
 
-        debug_level = strtoul(value, &endptr, 0);
+        debug_level = _dpd.SnortStrtoul(value, &endptr, 0);
         if ((errno == ERANGE) || (*endptr != '\0'))
         {
             DCE2_Log(DCE2_LOG_TYPE__WARN,

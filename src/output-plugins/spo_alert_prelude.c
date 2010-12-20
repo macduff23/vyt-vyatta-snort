@@ -50,7 +50,7 @@
 #define ANALYZER_CLASS "NIDS"
 #define ANALYZER_MODEL "Snort"
 #define ANALYZER_MANUFACTURER "http://www.snort.org"
-#define ANALYZER_SID_URL "http://www.snort.org/pub-bin/sigs.cgi?sid="
+#define ANALYZER_SID_URL "http://www.snort.org/search/sid/"
 
 #define SNORT_MAX_OWNED_SID 1000000
 #define DEFAULT_ANALYZER_NAME "snort"
@@ -537,7 +537,7 @@ static int add_snort_reference(idmef_classification_t *class, int gen_id, int si
         if ( gen_id == 0 )
                 ret = prelude_string_sprintf(str, ANALYZER_SID_URL "%u", sig_id);
         else
-                ret = prelude_string_sprintf(str, ANALYZER_SID_URL "%u:%u", gen_id, sig_id);
+                ret = prelude_string_sprintf(str, ANALYZER_SID_URL "%u-%u", gen_id, sig_id);
          
         return ret;
 }

@@ -6,10 +6,9 @@ bin_PROGRAMS = snort
 snort_SOURCES = cdefs.h \
 event.h \
 generators.h \
-prototypes.h \
 plugin_enum.h \
 rules.h \
-sys_include.h \
+treenodes.h \
 checksum.h \
 debug.c debug.h \
 decode.c decode.h \
@@ -51,7 +50,9 @@ cpuclock.h \
 sf_types.h \
 log_text.c log_text.h \
 detection_filter.c detection_filter.h \
-rate_filter.c rate_filter.h
+rate_filter.c rate_filter.h \
+obfuscation.c obfuscation.h \
+rule_option_types.h
 
 snort_LDADD = output-plugins/libspo.a \
 detection-plugins/libspd.a            \
@@ -63,7 +64,9 @@ preprocessors/HttpInspect/libhttp_inspect.a \
 preprocessors/Stream5/libstream5.a \
 sfutil/libsfutil.a
 
+if BUILD_DYNAMIC_EXAMPLES
 EXAMPLES_DIR = dynamic-examples
+endif
 
 SUBDIRS = sfutil win32 output-plugins detection-plugins dynamic-plugins preprocessors parser dynamic-preprocessors target-based $(EXAMPLES_DIR)
 

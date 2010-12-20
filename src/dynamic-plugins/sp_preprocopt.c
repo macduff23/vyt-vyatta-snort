@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -57,6 +57,7 @@
 
 #include "plugbase.h"
 #include "rules.h"
+#include "treenodes.h"
 
 #include "debug.h"
 #include "util.h"
@@ -69,23 +70,13 @@
 #include "snort.h"
 #include "profiler.h"
 #include "util.h"
+#include "parser.h"
 
 #ifdef PERF_PROFILING
 PreprocStats preprocRuleOptionPerfStats;
 #endif
 
 extern const u_int8_t *doe_ptr;
-extern SnortConfig *snort_conf_for_parsing;
-
-typedef struct _PreprocessorOptionInfo
-{
-    PreprocOptionInit optionInit;
-    PreprocOptionEval optionEval;
-    PreprocOptionCleanup optionCleanup;
-    void             *data;
-    PreprocOptionHash optionHash;
-    PreprocOptionKeyCompare optionKeyCompare;
-} PreprocessorOptionInfo;
 
 SFGHASH * PreprocessorRuleOptionsNew(void)
 {
@@ -113,13 +104,16 @@ void PreprocessorRuleOptionsFree(SFGHASH *preproc_rule_options)
     sfghash_delete(preproc_rule_options);
 }
 
-int RegisterPreprocessorRuleOption(char *optionName,
-                                   PreprocOptionInit initFunc,
-                                   PreprocOptionEval evalFunc,
-                                   PreprocOptionCleanup cleanupFunc,
-                                   PreprocOptionHash hashFunc,
-                                   PreprocOptionKeyCompare keyCompareFunc
-                                  )
+int RegisterPreprocessorRuleOption(
+        char *optionName,
+        PreprocOptionInit initFunc,
+        PreprocOptionEval evalFunc,
+        PreprocOptionCleanup cleanupFunc,
+        PreprocOptionHash hashFunc,
+        PreprocOptionKeyCompare keyCompareFunc,
+        PreprocOptionOtnHandler otnHandler,
+        PreprocOptionFastPatternFunc fpFunc
+        )
 {
     int ret;
     PreprocessorOptionInfo *optionInfo;
@@ -153,6 +147,8 @@ int RegisterPreprocessorRuleOption(char *optionName,
     optionInfo->optionCleanup = cleanupFunc;
     optionInfo->optionHash = hashFunc;
     optionInfo->optionKeyCompare = keyCompareFunc;
+    optionInfo->optionFpFunc = fpFunc;
+    optionInfo->otnHandler = otnHandler;
 
     ret = sfghash_add(p->preproc_rule_options, optionName, optionInfo);
     if (ret != SFGHASH_OK)
@@ -164,7 +160,12 @@ int RegisterPreprocessorRuleOption(char *optionName,
 }
 
 int GetPreprocessorRuleOptionFuncs(
-    char *optionName, PreprocOptionInit* initFunc, PreprocOptionEval* evalFunc)
+    char *optionName,
+    PreprocOptionInit* initFunc,
+    PreprocOptionEval* evalFunc,
+    PreprocOptionOtnHandler* otnHandler,
+    PreprocOptionFastPatternFunc* fpFunc
+    )
 {
     PreprocessorOptionInfo *optionInfo;
     SnortConfig *sc = snort_conf_for_parsing;
@@ -193,6 +194,8 @@ int GetPreprocessorRuleOptionFuncs(
 
     *initFunc = (PreprocOptionInit)optionInfo->optionInit;
     *evalFunc = (PreprocOptionEval)optionInfo->optionEval;
+    *fpFunc = (PreprocOptionFastPatternFunc)optionInfo->optionFpFunc;
+    *otnHandler = (PreprocOptionOtnHandler)optionInfo->otnHandler;
 
     return 1;
 }
@@ -303,6 +306,19 @@ int PreprocessorOptionFunc(void *option_data, Packet *p)
     return DETECTION_OPTION_NO_MATCH;
 }
 
+int GetPreprocFastPatterns(void *data, int proto, int direction, FPContentInfo **fp_contents)
+{
+    PreprocessorOptionInfo *info = (PreprocessorOptionInfo *)data;
+
+    if ((data == NULL) || (fp_contents == NULL))
+        return -1;
+
+    if (info->optionFpFunc != NULL)
+        return info->optionFpFunc(info->data, proto, direction, fp_contents);
+
+    return -1;
+}
+
 int AddPreprocessorRuleOption(char *optionName, OptTreeNode *otn, void *data, PreprocOptionEval evalFunc)
 {
     OptFpList *fpl;
@@ -385,13 +401,17 @@ void PreprocessorRuleOptionOverrideFunc(char *keyword, char *option, char *args,
     free(keyword_plus_option);
 }
 
-void RegisterPreprocessorRuleOptionOverride(char *keyword, char *option,
-                                            PreprocOptionInit initFunc,
-                                            PreprocOptionEval evalFunc,
-                                            PreprocOptionCleanup cleanupFunc,
-                                            PreprocOptionHash hashFunc,
-                                            PreprocOptionKeyCompare keyCompareFunc
-                                           )
+void RegisterPreprocessorRuleOptionOverride(
+        char *keyword,
+        char *option,
+        PreprocOptionInit initFunc,
+        PreprocOptionEval evalFunc,
+        PreprocOptionCleanup cleanupFunc,
+        PreprocOptionHash hashFunc,
+        PreprocOptionKeyCompare keyCompareFunc,
+        PreprocOptionOtnHandler otnHandler,
+        PreprocOptionFastPatternFunc fpFunc
+        )
 {
     int ret;
     char *keyword_plus_option;
@@ -401,7 +421,7 @@ void RegisterPreprocessorRuleOptionOverride(char *keyword, char *option,
     SnortSnprintf(keyword_plus_option, name_len, "%s %s", keyword, option);
 
     ret = RegisterPreprocessorRuleOption(keyword_plus_option, initFunc, evalFunc,
-                                         cleanupFunc, hashFunc, keyCompareFunc);
+            cleanupFunc, hashFunc, keyCompareFunc, otnHandler, fpFunc);
 
     /* Hash table allocs and manages keys internally */
     free(keyword_plus_option);

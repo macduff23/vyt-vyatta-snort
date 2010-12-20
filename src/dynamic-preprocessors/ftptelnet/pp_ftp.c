@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2004-2009 Sourcefire, Inc.
+ ** Copyright (C) 2004-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -74,6 +74,10 @@
 #ifdef SUP_IP6
 #include "ipv6_port.h"
 #endif
+
+#ifdef TARGET_BASED
+extern int16_t ftp_data_app_id;
+#endif
 /*
  * Used to keep track of pipelined commands and the last one
  * that resulted in a 
@@ -103,7 +107,7 @@ static int ftp_cmd_pipe_index = 0;
  * Returns: int => return code indicating error or success
  *
  */
-int getIP(const int type, const char **ip_start, const char *last_char, char term_char,
+int getIP(const int type, const char **ip_start, const char *last_char, char *term_char,
           snort_ip *ipRet, uint16_t *portRet)
 {
     uint32_t ip=0;
@@ -183,7 +187,7 @@ int getIP(const int type, const char **ip_start, const char *last_char, char ter
  * Returns: int => return code indicating error or success
  */
 static int getIP959(
-    const char **ip_start, const char *last_char, char term_char,
+    const char **ip_start, const char *last_char, char *term_char,
     snort_ip *ipRet, uint16_t *portRet
 )
 {
@@ -204,7 +208,7 @@ static int getIP959(
             this_param++;
         } while ((this_param < last_char) &&
                  (*this_param != ',') &&
-                 (*this_param != term_char));
+                 (strchr(term_char, *this_param) == NULL));
         if (value > 0xFF)
         {
             return FTPP_INVALID_ARG;
@@ -218,10 +222,10 @@ static int getIP959(
             port = (port << 8) + value;
         }
 
-        if (*this_param != term_char)
+        if (strchr(term_char, *this_param) == NULL)
             this_param++;
         octet++;
-    } while ((this_param < last_char) && (*this_param != term_char) );
+    } while ((this_param < last_char) && (strchr(term_char, *this_param) == NULL));
 
     if (octet != 6)
     {
@@ -259,7 +263,7 @@ static int getIP959(
  *    228 <human readable text> (af,hal,h1,h2,h3,h4...,pal,p1,p2...)
  */
 static int getIP1639 (
-    const char **ip_start, const char *last_char, char term_char,
+    const char **ip_start, const char *last_char, char *term_char,
     snort_ip* ipRet, uint16_t *portRet
 )
 {
@@ -377,7 +381,7 @@ void CopyField (
 }
 
 static int getIP2428 (
-    const char **ip_start, const char *last_char, char term_char,
+    const char **ip_start, const char *last_char, char *term_char,
     snort_ip* ipRet, uint16_t *portRet, FTP_PARAM_TYPE ftyp
 )
 {
@@ -459,7 +463,7 @@ static int getIP2428 (
 
 static int getFTPip(
     FTP_PARAM_TYPE ftyp, const char **ip_start, const char *last_char,
-    char term_char, snort_ip *ipRet, uint16_t *portRet
+    char *term_char, snort_ip *ipRet, uint16_t *portRet
 ) 
 {
     if ( ftyp == e_host_port )
@@ -692,7 +696,7 @@ static int validate_param(SFSnortPacket *p,
                 this_param++;
             }
             while ((this_param < end) &&
-                   (*this_param != ' '));
+                   (*this_param != '\n'));
 
             if (numPercents >= MAX_PERCENT_SIGNS)
             {
@@ -801,7 +805,7 @@ static int validate_param(SFSnortPacket *p,
             uint16_t port=0;
 
             int ret = getFTPip(
-                ThisFmt->type, &this_param, end, ' ', &ipAddr, &port
+                ThisFmt->type, &this_param, end, " \n", &ipAddr, &port
             );
             switch (ret)
             {
@@ -937,6 +941,9 @@ static int check_ftp_param_validity(SFSnortPacket *p,
     if (!params_begin && !ThisFmt->next_param_fmt && ThisFmt->optional_fmt)
         return FTPP_SUCCESS;  /* no param is allowed in this case */
 
+    if (!params_begin && (ThisFmt->next_param_fmt && ThisFmt->next_param_fmt->type == e_strformat))
+        return FTPP_SUCCESS;  /* string format check of non existent param */
+
     if (!params_begin)
         return FTPP_INVALID_ARG;
 
@@ -1008,7 +1015,11 @@ static int check_ftp_param_validity(SFSnortPacket *p,
             }
         }
     }
-
+    else if ((iRet != FTPP_SUCCESS) && (!ThisFmt->next_param_fmt) &&
+        this_param)
+    {
+        iRet = FTPP_SUCCESS;
+    }
     if (iRet == FTPP_SUCCESS)
     {
         ThisFmt->next_param = this_param;
@@ -1113,7 +1124,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
     int iRet = FTPP_SUCCESS;
     FTPTELNET_GLOBAL_CONF *global_conf = (FTPTELNET_GLOBAL_CONF *)sfPolicyUserDataGet(Session->global_conf, Session->policy_id);
 
-    if (Session->server_conf->data_chan)
+    //if (Session->server_conf->data_chan)
     {
         if (rsp_code == 226)
         {
@@ -1143,10 +1154,13 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
                      * a pair of ()s.  Find the left (, and use same
                      * means to find IP/Port as is done for the PORT
                      * command. */
-                    while ((*ip_begin != '(') &&
-                           (ip_begin < req->param_end))
+                    if (req->param_size != 0)
                     {
-                        ip_begin++;
+                        while ((ip_begin < req->param_end) &&
+                               (*ip_begin != '('))
+                        {
+                            ip_begin++;
+                        }
                     }
 
                     if (ip_begin < req->param_end)
@@ -1163,7 +1177,7 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
 
                         ip_begin++;
                         iRet = getFTPip(
-                            ftyp, &ip_begin, req->param_end, ')', &ipAddr, &port
+                            ftyp, &ip_begin, req->param_end, ")", &ipAddr, &port
                         );
                         if (iRet == FTPP_SUCCESS)
                         {
@@ -1263,6 +1277,16 @@ static int do_stateful_checks(FTP_SESSION *Session, SFSnortPacket *p,
                                 GET_IPH_PROTO(p), SSN_DIR_BOTH,
                                 0 /* Not permanent */ );
                     }
+#ifdef TARGET_BASED
+                    else
+                    {
+                        /* Call into Streams to mark data channel as ftp-data */
+                        _dpd.streamAPI->set_application_protocol_id_expected(IP_ARG(Session->clientIP),
+                                Session->clientPort, IP_ARG(Session->serverIP),
+                                Session->serverPort,
+                                GET_IPH_PROTO(p), ftp_data_app_id);
+                    }
+#endif
                 }
                 /* Clear the session info for next transfer -->
                  * reset host/port */

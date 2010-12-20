@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -41,15 +41,24 @@ typedef struct _hi_stats {
     uint64_t post;             /* Number of POST methods encountered */
     uint64_t get;              /* Number of GETs */
     uint64_t post_params;      /* Number of successfully extract post parameters */
-    uint64_t headers;          /* Number of successfully extracted headers */
+    uint64_t req_headers;      /* Number of successfully extracted request headers */
+    uint64_t resp_headers;     /* Number of successfully extracted response headers */
 #ifdef DEBUG
-    uint64_t header_len;
+    uint64_t req_header_len;
+    uint64_t resp_header_len;
 #endif
-    uint64_t cookies;          /* Number of successfully extracted cookies */
+    uint64_t req_cookies;          /* Number of successfully extracted request cookies */
+    uint64_t resp_cookies;         /* Number of successfully extracted response cookies */
 #ifdef DEBUG
-    uint64_t cookie_len;
+    uint64_t req_cookie_len;
+    uint64_t resp_cookie_len;
 #endif
     uint64_t total;
+#ifdef ZLIB
+    uint64_t gzip_pkts;
+    uint64_t compr_bytes_read;
+    uint64_t decompr_bytes_read;
+#endif 
 } HIStats;
 
 extern HIStats hi_stats;
@@ -61,6 +70,6 @@ extern HIStats hi_stats;
 #else
 #define INLINE inline
 #endif
-
 #endif /* endif for INLINE */
+
 #endif

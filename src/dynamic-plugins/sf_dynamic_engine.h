@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -61,22 +61,40 @@ typedef int (*OTNHasFunction)(void* pRule, DynamicOptionType, int flowFlag);
  * Fast Pattern Content information. */
 typedef struct _FPContentInfo
 {
-    int length;
     char *content;
+    int length;
+    int offset;
+    int depth;
     char noCaseFlag;
+    char exception_flag;
+    char is_relative;
+    char fp;
+    char fp_only;
+    u_int16_t fp_offset;
+    u_int16_t fp_length;
+    struct _FPContentInfo *next;
+
 } FPContentInfo;
+
 /* Parameters are rule info pointer, int to indicate URI or NORM,
  * and list pointer */
-#define FASTPATTERN_NORMAL 0x01
-#define FASTPATTERN_URI    0x02
-typedef int (*GetFPContentFunction)(void *, int, FPContentInfo**, int);
+#define CONTENT_NORMAL            0x01
+#define CONTENT_HTTP_URI          0x02
+#define CONTENT_HTTP_HEADER       0x04
+#define CONTENT_HTTP_CLIENT_BODY  0x08
+#define CONTENT_HTTP_METHOD       0x10
+#define CONTENT_HTTP (CONTENT_HTTP_URI|CONTENT_HTTP_HEADER|\
+        CONTENT_HTTP_CLIENT_BODY|CONTENT_HTTP_METHOD)
+typedef int (*GetDynamicContentsFunction)(void *, int, FPContentInfo **);
+typedef int (*GetDynamicPreprocOptFpContentsFunc)(void *, FPContentInfo **);
 typedef void (*RuleFreeFunc)(void *);
 
 /* ruleInfo is passed to OTNCheckFunction when the fast pattern matches. */
 typedef int (*RegisterRule)(
     u_int32_t, u_int32_t, void *,
     OTNCheckFunction, OTNHasFunction,
-    int, GetFPContentFunction, RuleFreeFunc
+    int, GetDynamicContentsFunction, RuleFreeFunc,
+    GetDynamicPreprocOptFpContentsFunc
 );
 typedef u_int32_t (*RegisterBit)(char *, int);
 typedef int (*CheckFlowbit)(void *, int, u_int32_t);
@@ -88,9 +106,16 @@ typedef void (*PreprocOptionCleanup)(void *dataPtr);
 #define PREPROC_OPT_NOT_EQUAL   1
 typedef u_int32_t (*PreprocOptionHash)(void *);
 typedef int (*PreprocOptionKeyCompare)(void *, void *);
+/* Function prototype for rule options that want to add patterns to the
+ * fast pattern matcher */
+typedef int (*PreprocOptionFastPatternFunc)
+    (void *rule_opt_data, int protocol, int direction, FPContentInfo **info);
+typedef int (*PreprocOptionOtnHandler)(void *);
+
 typedef int (*RegisterPreprocRuleOpt)(
     char *, PreprocOptionInit, PreprocOptionEval,
-    PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare);
+    PreprocOptionCleanup, PreprocOptionHash, PreprocOptionKeyCompare,
+    PreprocOptionOtnHandler, PreprocOptionFastPatternFunc);
 typedef int (*PreprocRuleOptInit)(void *);
 
 typedef void (*SetRuleData)(void *, void *);
@@ -164,5 +189,18 @@ int ValidateDynamicEngines(void);
  * fatalMsg did not return - use instead of fatalMsg
  */
 NORETURN void DynamicEngineFatalMessage(const char *format, ...);
+
+typedef struct _PreprocessorOptionInfo
+{
+    PreprocOptionInit optionInit;
+    PreprocOptionEval optionEval;
+    PreprocOptionCleanup optionCleanup;
+    void             *data;
+    PreprocOptionHash optionHash;
+    PreprocOptionKeyCompare optionKeyCompare;
+    PreprocOptionOtnHandler otnHandler;
+    PreprocOptionFastPatternFunc optionFpFunc;
+
+} PreprocessorOptionInfo;
 
 #endif /* _SF_DYNAMIC_ENGINE_H_ */

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -114,6 +114,7 @@ static INLINE void DCE2_DisableDetect(SFSnortPacket *p)
     _dpd.disableAllDetect(p);
     _dpd.setPreprocBit(p, PP_SFPORTSCAN);
     _dpd.setPreprocBit(p, PP_PERFMONITOR);
+    _dpd.setPreprocBit(p, PP_SDF);
 }
 
 #endif  /* _SNORT_DCE2_H_ */

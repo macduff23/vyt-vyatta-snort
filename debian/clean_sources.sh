@@ -9,6 +9,6 @@ make distclean
 (cd src &&  test -e Makefile && make distclean)
 
 # Remove the flag that indicated that the sources were configured
--rm -f configure-stamp
+rm -f configure-stamp
 
 exit 0

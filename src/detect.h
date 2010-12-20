@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -30,13 +30,12 @@
 #include "debug.h"
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "parser.h"
 #include "plugbase.h"
 #include "log.h"
 #include "event.h"
-#ifdef PORTLISTS
 #include "sfutil/sfportobject.h"
-#endif
 
 /*  P R O T O T Y P E S  ******************************************************/
 extern int do_detect;
@@ -63,18 +62,10 @@ int EvalHeader(RuleTreeNode *, Packet *, int);
 int EvalOpts(OptTreeNode *, Packet *);
 void TriggerResponses(Packet *, OptTreeNode *);
 
-#ifdef PORTLISTS
 #ifdef SUP_IP6
 int CheckAddrPort(sfip_var_t *, PortObject* , Packet *, uint32_t, int);
 #else
 int CheckAddrPort(IpAddrSet *, PortObject* , Packet *, uint32_t, int);
-#endif
-#else
-#ifdef SUP_IP6
-int CheckAddrPort(sfip_var_t *, uint16_t, uint16_t, Packet *, uint32_t, int);
-#else
-int CheckAddrPort(IpAddrSet *, uint16_t, uint16_t, Packet *, uint32_t, int);
-#endif
 #endif
 
 /* detection modules */
@@ -95,8 +86,6 @@ void CallLogPlugins(Packet *, char *, void *, Event *);
 void CallAlertPlugins(Packet *, char *, void *, Event *);
 void CallLogFuncs(Packet *, char *, ListHead *, Event *);
 void CallAlertFuncs(Packet *, char *, ListHead *, Event *);
-
-void ObfuscatePacket(Packet *p);
 
 static INLINE void DisableDetect(Packet *p)
 {

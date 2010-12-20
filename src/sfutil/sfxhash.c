@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -128,7 +128,7 @@ void   sfxhash_free( SFXHASH * t, void * p )
     s_free( t, p );
 }
 
-int sfxhash_nearest_powerof2(int nrows) 
+static int sfxhash_nearest_powerof2(int nrows) 
 {
     unsigned i;
 

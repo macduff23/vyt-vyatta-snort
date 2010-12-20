@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2007-2009 Sourcefire, Inc.
+ * Copyright (C) 2007-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -85,7 +85,7 @@ SFP_ret_t SFP_ports(ports_tbl_t port_tbl, char *str, SFP_errstr_t errstr) {
             end_brace_found = 1;
             continue;
         }
-
+        errno = 0;
         port = strtol(tok, &port_end, 10);
 
         if((port_end == tok) ||

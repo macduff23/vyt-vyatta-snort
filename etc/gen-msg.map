@@ -152,6 +152,7 @@
 116 || 403 || snort_decoder: Bad Traffic SYN to multicast address
 116 || 404 || snort_decoder: WARNING: IPV4 packet with zero TTL
 116 || 405 || snort_decoder: WARNING: IPV4 packet with bad frag bits (Both MF and DF set)
+116 || 406 || snort_decoder: Invalid IPv6 UDP packet, checksum zero
 117 || 1 || spp_portscan2: Portscan detected!
 118 || 1 || spp_conversation: Bad IP protocol!
 119 || 1 || http_inspect: ASCII ENCODING
@@ -173,7 +174,9 @@
 119 || 17 || http_inspect: UNAUTHORIZED PROXY USE DETECTED
 119 || 18 || http_inspect: WEBROOT DIRECTORY TRAVERSAL
 119 || 19 || http_inspect: LONG HEADER
+119 || 20 || http_inspect: MAX HEADERS
 119 || 21 || http_inspect: MULTIPLE CONTENT LENGTH HEADER FIELDS
+119 || 22 || http_inspect: CHUNK SIZE MISMATCH DETECTED
 120 || 1 || http_inspect: ANOMALOUS HTTP SERVER ON UNDEFINED HTTP PORT
 121 || 1 || flow-portscan: Fixed Scale Scanner Limit Exceeded
 121 || 2 || flow-portscan: Sliding Scale Scanner Limit Exceeded
@@ -258,6 +261,8 @@
 129 || 10 || stream5: TCP Server possibly hijacked, different Ethernet Address
 129 || 11 || stream5: TCP Data with no TCP Flags set 
 129 || 12 || stream5: TCP Small Segment Threshold Exceeded
+129 || 13 || stream5: TCP 4-way handshake detected
+129 || 14 || stream5: TCP Timestamp is missing
 130 || 1 || dcerpc: Maximum memory usage reached
 131 || 1 || dns: Obsolete DNS RData Type
 131 || 2 || dns: Experimental DNS RData Type
@@ -310,3 +315,4 @@
 135 || 1 || internal: syn received
 135 || 2 || internal: session established
 135 || 3 || internal: session cleared
+139 || 1 || sensitive_data: sensitive data global threshold exceeded

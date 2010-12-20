@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,7 @@
 
 #include <sys/types.h>
 
+#include "spo_log_null.h"
 #include "decode.h"
 #include "event.h"
 #include "plugbase.h"
@@ -51,47 +52,45 @@
 #include "snort.h"
 
 /* list of function prototypes for this output plugin */
-void LogNullInit(char *);
-void LogNull(Packet *, char *, void *, Event *);
-void LogNullCleanExitFunc(int, void *);
-void LogNullRestartFunc(int, void *);
+static void LogNullInit(char *);
+static void LogNull(Packet *, char *, void *, Event *);
+static void LogNullCleanExitFunc(int, void *);
+static void LogNullRestartFunc(int, void *);
 
 void LogNullSetup(void)
 {
     /* link the preprocessor keyword to the init function in 
        the preproc list */
     RegisterOutputPlugin("log_null", OUTPUT_TYPE_FLAG__LOG, LogNullInit);
-    RegisterOutputPlugin("alert_null", OUTPUT_TYPE_FLAG__ALERT, LogNullInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output plugin: LogNull is setup...\n"););
 }
 
 
-void LogNullInit(char *args)
+static void LogNullInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output: LogNull Initialized\n"););
 
     /* Set the preprocessor function into the function list */
     AddFuncToOutputList(LogNull, OUTPUT_TYPE__LOG, NULL);
-    AddFuncToOutputList(LogNull, OUTPUT_TYPE__ALERT, NULL);
     AddFuncToCleanExitList(LogNullCleanExitFunc, NULL);
     AddFuncToRestartList(LogNullRestartFunc, NULL);
 }
 
 
 
-void LogNull(Packet *p, char *msg, void *arg, Event *event)
+static void LogNull(Packet *p, char *msg, void *arg, Event *event)
 {
     return;
 }
 
 
-void LogNullCleanExitFunc(int signal, void *arg)
+static void LogNullCleanExitFunc(int signal, void *arg)
 {
     return;
 }
 
-void LogNullRestartFunc(int signal, void *arg)
+static void LogNullRestartFunc(int signal, void *arg)
 {
     return;
 }

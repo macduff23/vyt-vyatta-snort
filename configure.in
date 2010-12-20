@@ -5,7 +5,7 @@ AC_PREREQ(2.50)
 AM_CONFIG_HEADER(config.h)
 # When changing the snort version, please also update the VERSION
 # definition in "src/win32/WIN32-Includes/config.h"
-AM_INIT_AUTOMAKE(snort,2.8.5.2)
+AM_INIT_AUTOMAKE(snort,2.8.6.1)
 
 NO_OPTIMIZE="no"
 ADD_WERROR="no"
@@ -63,6 +63,7 @@ case "$host" in
   *-solaris*)
     AC_DEFINE([SOLARIS],[1],[Define if Solaris])
     CPPFLAGS="${CPPFLAGS} -DBSD_COMP -D_REENTRANT"
+    rt_nanosleep="yes"
     ;;
   *-sunos*)
     AC_DEFINE([SUNOS],[1],[Define if SunOS])
@@ -138,6 +139,10 @@ dnl checking headers
 AC_CHECK_HEADERS([strings.h string.h stdlib.h unistd.h sys/sockio.h paths.h inttypes.h wchar.h math.h])
 AC_CHECK_LIB([m],[floor])
 AC_CHECK_LIB([m],[ceil])
+
+if test "x$rt_nanosleep" = "xyes"; then
+AC_CHECK_LIB([rt],[nanosleep])
+fi
 
 dnl make sure we've got all our libraries
 if test -z "$no_libnsl"; then
@@ -227,6 +232,8 @@ AC_CHECK_SIZEOF([unsigned long long int])
 # Check for int types
 AC_CHECK_TYPES([u_int8_t,u_int16_t,u_int32_t,u_int64_t,uint8_t,uint16_t,uint32_t,uint64_t])
 AC_CHECK_TYPES([int8_t,int16_t,int32_t,int64_t])
+
+AC_CHECK_TYPES([boolean])
 
 # In case INADDR_NONE is not defined (like on Solaris)
 have_inaddr_none="no"
@@ -407,6 +414,22 @@ else
     AC_DEFINE([LIBPCAP_ACCUMULATES],[1],[For libpcap versions that accumulate stats])
 fi
 
+AC_MSG_CHECKING([for pcap_lex_destroy])
+AC_RUN_IFELSE(
+[AC_LANG_PROGRAM(
+[[
+#include <pcap.h>
+]],
+[[
+   pcap_lex_destroy();
+]])],
+[have_pcap_lex_destroy="yes"],
+[have_pcap_lex_destroy="no"])
+AC_MSG_RESULT($have_pcap_lex_destroy)
+if test "x$have_pcap_lex_destroy" = "xyes"; then
+    AC_DEFINE([HAVE_PCAP_LEX_DESTROY],[1],[Can cleanup lex buffer stack created by pcap bpf filter])
+fi
+
 AC_DEFUN([FAIL_MESSAGE],[
    echo
    echo
@@ -574,6 +597,26 @@ if test "x$enable_dynamicplugin" = "xyes"; then
     fi
 fi
 
+AC_ARG_ENABLE(build-dynamic-examples,
+[  --enable-build-dynamic-examples   Enable building of example dynamically loaded preprocessor and rule (off by default)],
+       build_dynamic_examples="$enableval", build_dynamic_examples="no")
+AM_CONDITIONAL(BUILD_DYNAMIC_EXAMPLES, test "x$build_dynamic_examples" = "xyes")
+if test "x$build_dynamic_examples" = "xyes"; then
+    if test "x$enable_dynamicplugin" = "xno"; then
+       echo "   ERROR!  attempting to build dynamic examples without"
+       echo "   enabling dynamic plugins."
+       echo
+       exit 1
+    fi
+fi
+
+AC_ARG_ENABLE(dlclose,
+[  --enable-dlclose         Only use if you are developing dynamic preprocessors or shared object rules.  Disable (--disable-dlclose) for testing valgrind leaks in dynamic libraries so a usable backtrace is reported.  Enabled by default.],
+       enable_dlclose="$enableval", enable_dlclose="yes")
+if test "x$enable_dlclose" = "xno"; then
+    AC_DEFINE([DISABLE_DLCLOSE_FOR_VALGRIND_TESTING],[1],[Don't close opened shared objects for valgrind leak testing of dynamic libraries])
+fi
+
 AC_ARG_ENABLE(ipv6,
 [  --enable-ipv6            Enable IPv6 support],
        enable_ipv6="$enableval", enable_ipv6="no")
@@ -581,6 +624,32 @@ if test "x$enable_ipv6" = "xyes"; then
     CPPFLAGS="$CPPFLAGS -DSUP_IP6"
 fi
 AM_CONDITIONAL(HAVE_SUP_IP6, test "x$enable_ipv6" = "xyes")
+
+AC_ARG_ENABLE(zlib,
+[  --enable-zlib            Enable Http Response Decompression],
+       enable_zlib="$enableval", enable_zlib="no")
+AM_CONDITIONAL(HAVE_ZLIB, test "x$enable_zlib" = "xyes")
+if test "x$enable_zlib" = "xyes"; then
+    Z_LIB=""
+    AC_CHECK_HEADERS(zlib.h,, Z_LIB="no")
+    if test "x$ZLIB" = "xno"; then
+        echo
+        echo "   ERROR!  zlib header not found, go get it from"
+        echo "   http://www.zlib.net"
+        exit
+    fi
+
+    Z_LIB=""
+    AC_CHECK_LIB(z, inflate,, Z_LIB="no")
+    if test "x$ZLIB" = "xno"; then
+        echo
+        echo "   ERROR!  zlib library not found, go get it from"
+        echo "   http://www.zlib.net"
+        exit
+    fi
+    CPPFLAGS="$CPPFLAGS -DZLIB"
+    LIBS="$LIBS -lz"
+fi
 
 AC_ARG_ENABLE(gre,
 [  --enable-gre             Enable GRE and IP in IP encapsulation support],
@@ -713,7 +782,7 @@ if test "$enable_inline" != "no"; then
         done
 
         if test "$LIBNET_INC_DIR" != ""; then
-            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.0.2a >/dev/null"; then
+            if eval "grep LIBNET_VERSION $LIBNET_INC_DIR/libnet.h | grep -v 1.0 >/dev/null"; then
                 FAIL_MESSAGE("libnet 1.0.x (libnet.h)", $LIBNET_INC_DIR)
             fi
             CFLAGS="${CFLAGS} `libnet-config --defines` `libnet-config --cflags`"
@@ -1456,6 +1525,47 @@ if test "x$linux" = "xyes"; then
     fi
 fi
 
+if test "$LEX" != "none"; then
+    AC_MSG_CHECKING(for yylex_destroy support)
+
+    version=`$LEX --version | awk '{print $3}'`
+    if test -z $version; then
+        version=`$LEX --version | awk '{print $2}'`
+    fi
+
+    have_yylex_destroy="no"
+    if test $version; then
+        major=`echo $version | awk -F. '{ print $1 }'`
+        minor=`echo $version | awk -F. '{ print $2 }'`
+        subminor=`echo $version | awk -F. '{ print $3 }'`
+
+        if test $major -a $minor -a $subminor; then
+            if test $major -gt 2; then
+                have_yylex_destroy="yes"
+            else
+                if test $major -eq 2; then
+                    if test $minor -gt 5; then
+                        have_yylex_destroy="yes"
+                    else
+                        if test $minor -eq 5; then
+                            if test $subminor -ge 9; then
+                                have_yylex_destroy="yes"
+                            fi
+                        fi
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    if test "x$have_yylex_destroy" = "xyes"; then
+        AC_MSG_RESULT(yes)
+        AC_DEFINE([HAVE_YYLEX_DESTROY],[1],[Define whether yylex_destroy is supported in flex version])
+    else
+        AC_MSG_RESULT(no)
+    fi
+fi
+
 # Set to no optimization regardless of what user or autostuff set
 if test "x$NO_OPTIMIZE" = "xyes"; then
     CFLAGS=`echo $CFLAGS | sed -e "s/-O./-O0/"`
@@ -1502,6 +1612,7 @@ src/dynamic-preprocessors/smtp/Makefile   \
 src/dynamic-preprocessors/ssh/Makefile   \
 src/dynamic-preprocessors/dcerpc/Makefile   \
 src/dynamic-preprocessors/dcerpc2/Makefile   \
+src/dynamic-preprocessors/sdf/Makefile   \
 src/dynamic-preprocessors/dns/Makefile   \
 src/dynamic-preprocessors/ssl/Makefile   \
 src/output-plugins/Makefile    \

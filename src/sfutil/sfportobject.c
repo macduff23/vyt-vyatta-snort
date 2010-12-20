@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -241,7 +241,7 @@ plx_t * plx_new( void * pv_array[], int n )
     return p;
 }
 
-void plx_free(void * p )
+static void plx_free(void * p )
 {
     plx_t * plx=(plx_t*)p;
     
@@ -378,7 +378,7 @@ PortObject * PortObjectNew(void)
 #else
 #define SWAP_BYTES(a) (a)
 #endif
-unsigned po_rule_hash_func(SFHASHFCN *p, unsigned char *k, int n)
+static unsigned po_rule_hash_func(SFHASHFCN *p, unsigned char *k, int n)
 {
     unsigned char *key;
     int ikey = *(int*)k;

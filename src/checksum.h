@@ -3,7 +3,7 @@
 ** Copyright (C) 2000,2001 Christopher Cramer <cec@ee.duke.edu>
 ** Snort is Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -505,13 +505,30 @@ static INLINE unsigned short in_chksum_icmp( unsigned short * w, int blen )
 /*
 *  checksum icmp6
 */
-static INLINE unsigned short in_chksum_icmp6( unsigned short * w, int blen )
+static INLINE unsigned short in_chksum_icmp6( unsigned short *h, unsigned short *w, int blen )
 {
-// XXX ICMP6 CHECKSUM NOT YET IMPLEMENTED
-  return 0;
-#if 0
   unsigned  short answer=0;
   unsigned int cksum = 0;
+
+  /* PseudoHeader must have 36 bytes */
+  cksum  = h[0];
+  cksum += h[1];
+  cksum += h[2];
+  cksum += h[3];
+  cksum += h[4];
+  cksum += h[5];
+  cksum += h[6];
+  cksum += h[7];
+  cksum += h[8];
+  cksum += h[9];
+  cksum += h[10];
+  cksum += h[11];
+  cksum += h[12];
+  cksum += h[13];
+  cksum += h[14];
+  cksum += h[15];
+  cksum += h[16];
+  cksum += h[17];
 
   while(blen >=32) 
   {
@@ -562,7 +579,6 @@ static INLINE unsigned short in_chksum_icmp6( unsigned short * w, int blen )
 
 
   return (unsigned short)(~cksum);
-#endif
 }
 
 

@@ -22,6 +22,7 @@ event_output/hi_eo_log.o \
 client/hi_client.o \
 client/hi_client_norm.o  \
 server/hi_server.o \
+server/hi_server_norm.o \
 normalization/hi_norm.o 
 
 INCLUDES = @INCLUDES@

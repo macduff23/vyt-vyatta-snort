@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,10 @@
 #include <strings.h>
 #endif
 
+#ifdef ZLIB
+#include <zlib.h>
+#endif
+
 #include "snort.h"
 #include "mstring.h"
 #include "debug.h"
@@ -66,6 +70,7 @@
 #include "plugbase.h"
 #include "sf_types.h"
 #include "sflsq.h"
+#include "ipv6_port.h"
 
 #include "pcre.h"
 
@@ -92,7 +97,6 @@
 extern Stream5Stats s5stats;
 extern int datalink;
 extern pcap_t *pcap_handle;
-extern SnortConfig *snort_conf;
 extern PreprocStatsFuncNode *preproc_stats_funcs;
 
 static PcapPktStats pkt_stats;
@@ -160,6 +164,9 @@ int DisplayBanner(void)
 {
     const char * info;
     const char * pcre_ver;
+#ifdef ZLIB
+    const char * zlib_ver;
+#endif
 
     info = getenv("HOSTTYPE");
     if( !info )
@@ -168,6 +175,9 @@ int DisplayBanner(void)
     }
 
     pcre_ver = pcre_version();
+#ifdef ZLIB
+    zlib_ver = zlib_version;
+#endif
 
     LogMessage("\n");
     LogMessage("   ,,_     -*> Snort! <*-\n");
@@ -191,8 +201,11 @@ int DisplayBanner(void)
 #endif
                info);
     LogMessage("   ''''    By Martin Roesch & The Snort Team: http://www.snort.org/snort/snort-team\n");
-    LogMessage("           Copyright (C) 1998-2009 Sourcefire, Inc., et al.\n");
+    LogMessage("           Copyright (C) 1998-2010 Sourcefire, Inc., et al.\n");
     LogMessage("           Using PCRE version: %s\n", pcre_ver);
+#ifdef ZLIB
+    LogMessage("           Using ZLIB version: %s\n", zlib_ver);
+#endif
     LogMessage("\n");
 
     return 0;
@@ -444,7 +457,7 @@ void ErrorMessage(const char *format,...)
 /*
  * Function: LogMessage(const char *, ...)
  *
- * Purpose: Print a message to stdout or with logfacility.
+ * Purpose: Print a message to stderr or with logfacility.
  *
  * Arguments: format => the formatted error string to print out
  *            ... => format commands/fillers
@@ -477,7 +490,6 @@ void LogMessage(const char *format,...)
 
     va_end(ap);
 }
-
 
 /*
  * Function: CreateApplicationEventLogEntry(const char *)
@@ -1112,7 +1124,7 @@ void DropStatsPerTimeInterval(void)
             LogMessage("\n");
         }
 
-        mpse_print_qinfo();
+        //mpse_print_qinfo();
 
     }  /* end if pcap_stats(ps, &ps) */
 
@@ -1496,7 +1508,7 @@ void DropStats(int exiting)
     }
 #endif  /* TARGET_BASED */
 
-    mpse_print_qinfo();
+    //mpse_print_qinfo();
 
 #ifndef NO_NON_ETHER_DECODER
 #ifdef DLT_IEEE802_11
@@ -2604,7 +2616,7 @@ char *GetIP(char * iface)
  * Returns: A static char * representing the hostname. 
  *
  ***************************************************************************/
-char *GetHostname()
+char *GetHostname(void)
 {
 #ifdef WIN32
     DWORD bufflen = 256;
@@ -2671,7 +2683,7 @@ char *GetTimestamp(register const struct timeval *tvp, int tz)
  * Returns: int representing the offset from GMT
  *
  ***************************************************************************/
-int GetLocalTimezone()
+int GetLocalTimezone(void)
 {
     time_t      ut;
     struct tm * ltm;
@@ -2702,7 +2714,7 @@ int GetLocalTimezone()
  * Returns: char * -- You must free this char * when you are done with it.
  *
  ***************************************************************************/
-char *GetCurrentTimestamp()
+char *GetCurrentTimestamp(void)
 {
     struct tm *lt;
     struct timezone tz;
@@ -2992,14 +3004,13 @@ long int xatol(const char *s , const char *etext)
     if (strlen(s) == 0)
         FatalError("%s: String is empty\n", etext);
 
-    errno = 0;
 
     /*
      *  strtoul - errors on win32 : ERANGE (VS 6.0)
      *            errors on linux : ERANGE, EINVAL
      *               (for EINVAL, unsupported base which won't happen here)
      */ 
-    val = strtol(s, &endptr, 0);
+    val = SnortStrtol(s, &endptr, 0);
 
     if ((errno == ERANGE) || (*endptr != '\0'))
         FatalError("%s: Invalid integer input: %s\n", etext, s);
@@ -3035,13 +3046,12 @@ unsigned long int xatou(const char *s , const char *etext)
                    "input: %s\n", etext, s);
     }
 
-    errno = 0;
 
     /*
      *  strtoul - errors on win32 : ERANGE (VS 6.0)
      *            errors on linux : ERANGE, EINVAL
      */ 
-    val = strtoul(s, &endptr, 0);
+    val = SnortStrtoul(s, &endptr, 0);
 
     if ((errno == ERANGE) || (*endptr != '\0'))
         FatalError("%s: Invalid integer input: %s\n", etext, s);
@@ -3055,5 +3065,163 @@ unsigned long int xatoup(const char *s , const char *etext)
     if ( !val ) 
         FatalError("%s: must be > 0\n", etext);
     return val;
+}
+
+#ifndef SUP_IP6
+char * ObfuscateIpToText(const struct in_addr ip_addr)
+#else
+char * ObfuscateIpToText(sfip_t *ip)
+#endif
+{
+    static char ip_buf1[INET6_ADDRSTRLEN];
+    static char ip_buf2[INET6_ADDRSTRLEN];
+    static int buf_num = 0;
+    int buf_size = INET6_ADDRSTRLEN;
+    char *ip_buf;
+#ifndef SUP_IP6
+    uint32_t ip = ip_addr.s_addr;
+#endif
+
+    if (buf_num)
+        ip_buf = ip_buf2;
+    else
+        ip_buf = ip_buf1;
+
+    buf_num ^= 1;
+    ip_buf[0] = 0;
+
+#ifndef SUP_IP6
+    if (ip == 0)
+        return ip_buf;
+
+    if (snort_conf->obfuscation_net == 0)
+    {
+        /* Fully obfuscate - just use 'x' */
+        SnortSnprintf(ip_buf, buf_size, "xxx.xxx.xxx.xxx");
+    }
+    else
+    {
+        if (snort_conf->homenet != 0)
+        {
+            if ((ip & snort_conf->netmask) == snort_conf->homenet)
+                ip = snort_conf->obfuscation_net | (ip & snort_conf->obfuscation_mask);
+        }
+        else
+        {
+            ip = snort_conf->obfuscation_net | (ip & snort_conf->obfuscation_mask);
+        }
+
+        SnortSnprintf(ip_buf, buf_size, "%s", inet_ntoa(*((struct in_addr *)&ip)));
+    }
+
+#else
+    if (ip == NULL)
+        return ip_buf;
+
+    if (!IS_SET(snort_conf->obfuscation_net))
+    {
+        if (IS_IP6(ip))
+            SnortSnprintf(ip_buf, buf_size, "x:x:x:x::x:x:x:x");
+        else
+            SnortSnprintf(ip_buf, buf_size, "xxx.xxx.xxx.xxx");
+    }
+    else
+    {
+        sfip_t tmp;
+        char *tmp_buf;
+
+        IP_COPY_VALUE(tmp, ip);
+
+        if (IS_SET(snort_conf->homenet))
+        {
+            if (sfip_contains(&snort_conf->homenet, &tmp) == SFIP_CONTAINS)
+                sfip_obfuscate(&snort_conf->obfuscation_net, &tmp);
+        }
+        else
+        {
+            sfip_obfuscate(&snort_conf->obfuscation_net, &tmp);
+        }
+
+        tmp_buf = sfip_to_str(&tmp);
+        SnortSnprintf(ip_buf, buf_size, "%s", tmp_buf);
+    }
+#endif
+
+    return ip_buf;
+}
+
+void PrintPacketData(const uint8_t *data, const uint32_t len)
+{
+    uint32_t i, j;
+    uint32_t total_len = 0;
+    uint8_t hex_buf[16];
+    uint8_t char_buf[16];
+    char *length_chars = "       0  1  2  3  4  5  6  7   8  9 10 11 12 13 14 15\n"
+                         "------------------------------------------------------\n";
+
+    LogMessage("%s", length_chars);
+
+    for (i = 0; i <= len; i++)
+    {
+        if ((i%16 == 0) && (i != 0))
+        {
+            LogMessage("%04x  ", total_len);
+            total_len += 16;
+
+            for (j = 0; j < 16; j++)
+            {
+                LogMessage("%02x ", hex_buf[j]);
+                if (j == 7)
+                    LogMessage(" ");
+            }
+
+            LogMessage(" ");
+
+            for (j = 0; j < 16; j++)
+            {
+                LogMessage("%c", char_buf[j]);
+                if (j == 7)
+                    LogMessage(" ");
+            }
+
+            LogMessage("\n");
+        }
+
+        if (i == len)
+            break;
+
+        hex_buf[i%16] = data[i];
+
+        if (isprint((int)data[i]))
+            char_buf[i%16] = data[i];
+        else
+            char_buf[i%16] = '.';
+    }
+
+    if ((i-total_len) > 0)
+    {
+        LogMessage("%04x  ", total_len);
+
+        for (j = 0; j < i-total_len; j++)
+        {
+            LogMessage("%02x ", hex_buf[j]);
+            if (j == 7)
+                LogMessage(" ");
+        }
+
+        if (j < 8)
+            LogMessage(" ");
+        LogMessage("%*s", (16-j)*3, "");
+        LogMessage(" ");
+
+        for (j = 0; j < i-total_len; j++)
+        {
+            LogMessage("%c", char_buf[j]);
+            if (j == 7)
+                LogMessage(" ");
+        }
+    }
+
+    LogMessage("\n");
 }
 

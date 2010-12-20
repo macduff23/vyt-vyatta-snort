@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -41,6 +41,7 @@
 #include <sys/types.h>
 
 #include "hi_client_norm.h"
+#include "hi_server_norm.h"
 #include "hi_eo.h"
 #include "hi_eo_events.h"
 #include "hi_eo_log.h"
@@ -83,7 +84,7 @@ typedef struct s_URI_NORM_STATE
 }  URI_NORM_STATE;
 
 typedef int (*DECODE_FUNC)(HI_SESSION *, const u_char *,
-                          const u_char *, const u_char **, URI_NORM_STATE *);
+                          const u_char *, const u_char **, URI_NORM_STATE *, uint16_t *);
 
 int hex_lookup[256] = {0};
 int valid_lookup[256] = {0};
@@ -120,7 +121,7 @@ int valid_lookup[256] = {0};
 **  @retval <= 0xff          an ASCII char         
 */
 static int GetPtr(HI_SESSION *Session, const u_char *start,
-                   const u_char *end, const u_char **ptr, URI_NORM_STATE *norm_state)
+                  const u_char *end, const u_char **ptr, URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
 
@@ -130,8 +131,11 @@ static int GetPtr(HI_SESSION *Session, const u_char *start,
         return END_OF_BUFFER;
 
     if(ServerConf->double_decoding.on && **ptr == '%')
+    {
+        *encodeType |= HTTP_ENCODE_TYPE__DOUBLE_ENCODE ;
         return DOUBLE_ENCODING;
-
+    }
+    
     return (int)**ptr;
 }
 
@@ -171,7 +175,7 @@ static int GetPtr(HI_SESSION *Session, const u_char *start,
 */
 static int UDecode(HI_SESSION *Session, const u_char *start,
                    const u_char *end, const u_char **ptr, DECODE_FUNC get_byte,
-                   URI_NORM_STATE *norm_state)
+                   URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iByte;
@@ -179,17 +183,18 @@ static int UDecode(HI_SESSION *Session, const u_char *start,
     int iCtr;
 
     iNorm = 0;
-
+    *encodeType |= HTTP_ENCODE_TYPE__UENCODE;
     hi_stats.unicode++;
 
     for(iCtr = 0; iCtr < 4; iCtr++)
     {
-        iByte = get_byte(Session, start, end, ptr, norm_state);
+        iByte = get_byte(Session, start, end, ptr, norm_state, encodeType);
         if(iByte & GET_ERR)
             return iByte;
 
         if(valid_lookup[(u_char)iByte] < 0)
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             return NON_ASCII_CHAR;
         }
@@ -213,6 +218,7 @@ static int UDecode(HI_SESSION *Session, const u_char *start,
 
             if(iNorm == HI_UI_NON_ASCII_CODEPOINT)
             {   
+                *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
                 hi_stats.non_ascii++;
                 iNorm = NON_ASCII_CHAR;
             }
@@ -223,9 +229,11 @@ static int UDecode(HI_SESSION *Session, const u_char *start,
                 hi_eo_client_event_log(Session, HI_EO_CLIENT_IIS_UNICODE,
                                        NULL, NULL);
             }
+            *encodeType |= HTTP_ENCODE_TYPE__IIS_UNICODE;
         }
         else
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             return NON_ASCII_CHAR;
         }
@@ -279,7 +287,7 @@ static int UDecode(HI_SESSION *Session, const u_char *start,
 **  @see GetPtr()
 */
 static int PercentDecode(HI_SESSION *Session, const u_char *start, 
-                         const u_char *end, const u_char **ptr, URI_NORM_STATE *norm_state)
+                         const u_char *end, const u_char **ptr, URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int    iByte;
@@ -288,7 +296,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
 
     orig_ptr = *ptr;
 
-    iByte = GetPtr(Session, start, end, ptr, norm_state);
+    iByte = GetPtr(Session, start, end, ptr, norm_state, encodeType);
     if(iByte & GET_ERR)
     {
         if(iByte == END_OF_BUFFER)
@@ -318,7 +326,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
         */
         if(ServerConf->u_encoding.on && (toupper(iByte) == 'U'))
         {
-            iNorm = UDecode(Session, start, end, ptr, GetPtr, norm_state);
+            iNorm = UDecode(Session, start, end, ptr, GetPtr, norm_state, encodeType);
 
             /*
             **  We have to handle the double meaning of END_OF_BUFFER
@@ -337,6 +345,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
 
                 if(iNorm == DOUBLE_ENCODING)
                 {
+                    *encodeType |= HTTP_ENCODE_TYPE__DOUBLE_ENCODE;
                     *ptr = orig_ptr;
                     return (int)**ptr;
                 }
@@ -347,6 +356,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
         else if(!ServerConf->base36.on ||
                 valid_lookup[(u_char)iByte] != BASE36_VAL)
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             return NON_ASCII_CHAR;
         }
@@ -355,6 +365,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
         **  The logic above dictates that if we get to this point, we
         **  have a valid base36 encoding, so let's log the event.
         */
+        *encodeType |= HTTP_ENCODE_TYPE__BASE36;
         hi_stats.base36++;
         if(hi_eo_generate_event(Session, ServerConf->base36.alert) &&
            !norm_state->param)
@@ -364,7 +375,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
     }
 
     iNorm = (hex_lookup[(u_char)iByte]<<4);
-    iByte = GetPtr(Session, start, end, ptr, norm_state);
+    iByte = GetPtr(Session, start, end, ptr, norm_state, encodeType);
     if(iByte & GET_ERR)
     {
         if(iByte == END_OF_BUFFER)
@@ -381,6 +392,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
     {
         if(!ServerConf->base36.on || valid_lookup[(u_char)iByte] != BASE36_VAL)
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             return NON_ASCII_CHAR;
         }
@@ -389,6 +401,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
         **  Once again, we know we have a valid base36 encoding, let's alert
         **  if possible.
         */
+        *encodeType |= HTTP_ENCODE_TYPE__BASE36;
         hi_stats.base36++;
         if(hi_eo_generate_event(Session, ServerConf->base36.alert) &&
            !norm_state->param)
@@ -438,7 +451,7 @@ static int PercentDecode(HI_SESSION *Session, const u_char *start,
 */
 static int GetChar(HI_SESSION *Session, const u_char *start,
                    const u_char *end, const u_char **ptr, int *bare_byte,
-                   URI_NORM_STATE *norm_state)
+                   URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iNorm;
@@ -453,7 +466,7 @@ static int GetChar(HI_SESSION *Session, const u_char *start,
         /*
         **  We go into percent encoding.
         */
-        iNorm = PercentDecode(Session, start, end, ptr, norm_state);
+        iNorm = PercentDecode(Session, start, end, ptr, norm_state, encodeType);
 
         /*
         **  If during the course of PercentDecode() we run into the end
@@ -469,6 +482,7 @@ static int GetChar(HI_SESSION *Session, const u_char *start,
     {
         if(ServerConf->bare_byte.on && (u_char)iNorm > 0x7f)
         {
+            *encodeType |= HTTP_ENCODE_TYPE__BARE_BYTE;
             if(hi_eo_generate_event(Session, ServerConf->bare_byte.alert) &&
                !norm_state->param)
             {
@@ -528,7 +542,7 @@ static int GetChar(HI_SESSION *Session, const u_char *start,
 */
 static int UTF8Decode(HI_SESSION *Session, const u_char *start,
                       const u_char *end, const u_char **ptr, int iFirst,
-                      URI_NORM_STATE *norm_state)
+                      URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iBareByte;
@@ -553,6 +567,7 @@ static int UTF8Decode(HI_SESSION *Session, const u_char *start,
     }
     else
     {
+        *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
         hi_stats.non_ascii++;
         /*
         **  This means that we have an invalid first sequence byte for
@@ -569,7 +584,7 @@ static int UTF8Decode(HI_SESSION *Session, const u_char *start,
     */
     for(iCtr = 0; iCtr < iNumBytes; iCtr++)
     {
-        iByte = GetChar(Session, start, end, ptr, &iBareByte, norm_state);
+        iByte = GetChar(Session, start, end, ptr, &iBareByte, norm_state, encodeType);
         if(iByte == END_OF_BUFFER || iByte == NON_ASCII_CHAR || iBareByte)
             return NON_ASCII_CHAR;
 
@@ -580,6 +595,7 @@ static int UTF8Decode(HI_SESSION *Session, const u_char *start,
         }
         else
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             /*
             **  This means that we don't have a valid unicode sequence, so
@@ -610,16 +626,20 @@ static int UTF8Decode(HI_SESSION *Session, const u_char *start,
                 hi_eo_client_event_log(Session, HI_EO_CLIENT_IIS_UNICODE,
                                        NULL, NULL);
             }
+            *encodeType |= HTTP_ENCODE_TYPE__IIS_UNICODE;
 
             hi_stats.unicode++;
             return iNorm;
         }
         else
         {
+            *encodeType |= HTTP_ENCODE_TYPE__NONASCII;
             hi_stats.non_ascii++;
             iNorm = NON_ASCII_CHAR;
         }
     }
+
+    *encodeType |= HTTP_ENCODE_TYPE__UTF8_UNICODE;
 
     if(hi_eo_generate_event(Session, ServerConf->utf_8.alert) &&
        !norm_state->param)
@@ -653,14 +673,14 @@ static int UTF8Decode(HI_SESSION *Session, const u_char *start,
 */
 static int UnicodeDecode(HI_SESSION *Session, const u_char *start, 
                          const u_char *end, const u_char **ptr, int iFirst,
-                         URI_NORM_STATE *norm_state)
+                         URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iNorm = iFirst;
 
     if(ServerConf->iis_unicode.on || ServerConf->utf_8.on)
     {
-        iNorm = UTF8Decode(Session, start, end, ptr, iFirst, norm_state);
+        iNorm = UTF8Decode(Session, start, end, ptr, iFirst, norm_state, encodeType);
     }
 
     return iNorm;
@@ -689,12 +709,12 @@ static int UnicodeDecode(HI_SESSION *Session, const u_char *start,
 **  @retval iChar         this is the character that was decoded.
 */
 static int GetByte(HI_SESSION *Session, const u_char *start, const u_char *end,
-                   const u_char **ptr, URI_NORM_STATE *norm_state)
+                   const u_char **ptr, URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     int iChar;
     int iBareByte;
 
-    iChar = GetChar(Session, start, end, ptr, &iBareByte, norm_state);
+    iChar = GetChar(Session, start, end, ptr, &iBareByte, norm_state, encodeType);
     if(iChar == END_OF_BUFFER)
         return END_OF_BUFFER;
 
@@ -706,7 +726,7 @@ static int GetByte(HI_SESSION *Session, const u_char *start, const u_char *end,
     */
     if((iChar & 0x80) && !iBareByte)
     {
-        iChar = UnicodeDecode(Session, start, end, ptr, iChar, norm_state);
+        iChar = UnicodeDecode(Session, start, end, ptr, iChar, norm_state, encodeType);
     }
 
     return iChar;
@@ -744,7 +764,7 @@ static int GetByte(HI_SESSION *Session, const u_char *start, const u_char *end,
 */
 static int DoubleDecode(HI_SESSION *Session, const u_char *start,
                         const u_char *end, const u_char **ptr,
-                        URI_NORM_STATE *norm_state)
+                        URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iByte;
@@ -752,6 +772,7 @@ static int DoubleDecode(HI_SESSION *Session, const u_char *start,
     const u_char *orig_ptr;
 
     orig_ptr = *ptr;
+    *encodeType |= HTTP_ENCODE_TYPE__DOUBLE_ENCODE;
 
     /*
     **  We now know that we have seen a previous % and that we need to
@@ -768,7 +789,7 @@ static int DoubleDecode(HI_SESSION *Session, const u_char *start,
     **  So now we just get the remaining bytes and do the processing
     **  ourselves in this routine.
     */
-    iByte = GetByte(Session, start, end, ptr, norm_state);
+    iByte = GetByte(Session, start, end, ptr, norm_state, encodeType);
     if(iByte == END_OF_BUFFER)
         return NON_ASCII_CHAR;
 
@@ -776,7 +797,7 @@ static int DoubleDecode(HI_SESSION *Session, const u_char *start,
     {
         if(ServerConf->u_encoding.on && (toupper(iByte) == 'U'))
         {
-            iNorm = UDecode(Session, start, end, ptr, GetByte, norm_state);
+            iNorm = UDecode(Session, start, end, ptr, GetByte, norm_state, encodeType);
             
             if(iNorm == END_OF_BUFFER)
             {
@@ -797,7 +818,7 @@ static int DoubleDecode(HI_SESSION *Session, const u_char *start,
 
     iNorm = (hex_lookup[(u_char)iByte]<<4);
 
-    iByte = GetByte(Session, start, end, ptr, norm_state);
+    iByte = GetByte(Session, start, end, ptr, norm_state, encodeType);
     if(iByte == END_OF_BUFFER)
         return NON_ASCII_CHAR;
 
@@ -852,18 +873,18 @@ static int DoubleDecode(HI_SESSION *Session, const u_char *start,
 */
 static int GetDecodedByte(HI_SESSION *Session, const u_char *start,
                           const u_char *end, const u_char **ptr, 
-                          URI_NORM_STATE *norm_state)
+                          URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iChar;
 
-    iChar = GetByte(Session,start,end,ptr, norm_state);
+    iChar = GetByte(Session,start,end,ptr, norm_state,encodeType);
     if(iChar == END_OF_BUFFER)
         return END_OF_BUFFER;
 
     if(ServerConf->double_decoding.on && (u_char)iChar == '%')
     {
-        iChar = DoubleDecode(Session,start,end,ptr, norm_state);
+        iChar = DoubleDecode(Session,start,end,ptr,norm_state,encodeType);
     }
 
     /*
@@ -879,6 +900,11 @@ static int GetDecodedByte(HI_SESSION *Session, const u_char *start,
         }
 
         iChar = 0x2f;
+    }
+
+    if( (u_char)iChar == '+')
+    {
+        iChar = 0x20;
     }
 
     return iChar;
@@ -1034,15 +1060,16 @@ static int DirSet(URI_NORM_STATE *norm_state, u_char **ub_ptr)
 **  @see GetDecodedByte()
 */
 static int DirNorm(HI_SESSION *Session, const u_char *start, const u_char *end,
-                   const u_char **ptr, URI_NORM_STATE *norm_state)
+                   const u_char **ptr, URI_NORM_STATE *norm_state, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iChar;
     int iDir;
     const u_char *orig_ptr;
     const u_char *dir_ptr;
+    // save the directory path here to check for unicode attack
 
-    while((iChar = GetDecodedByte(Session, start, end, ptr, norm_state)) !=
+    while((iChar = GetDecodedByte(Session, start, end, ptr, norm_state, encodeType)) !=
           END_OF_BUFFER)
     {
         orig_ptr = *ptr;
@@ -1080,7 +1107,7 @@ static int DirNorm(HI_SESSION *Session, const u_char *start, const u_char *end,
             else if(ServerConf->directory.on && (u_char)iChar == '.' &&
                     !norm_state->param)
             {
-                iDir = GetDecodedByte(Session,start,end,ptr,norm_state);
+                iDir = GetDecodedByte(Session,start,end,ptr,norm_state,encodeType);
                 if(iDir != END_OF_BUFFER)
                 {
                     if((u_char)iDir == '.')
@@ -1093,7 +1120,7 @@ static int DirNorm(HI_SESSION *Session, const u_char *start, const u_char *end,
                         */
                         dir_ptr = *ptr;
 
-                        iDir = GetDecodedByte(Session,start,end,ptr,norm_state);
+                        iDir = GetDecodedByte(Session,start,end,ptr,norm_state,encodeType);
                         if(iDir != END_OF_BUFFER)
                         {
                             if((u_char)iDir == '/')
@@ -1245,7 +1272,7 @@ static INLINE int InspectUriChar(HI_SESSION *Session, int iChar,
                                  URI_NORM_STATE *norm_state,
                                  const u_char *start, const u_char *end, const u_char **ptr,
                                  u_char *ub_start, u_char *ub_end,
-                                 u_char **ub_ptr)
+                                 u_char **ub_ptr, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
     int iDir;
@@ -1306,7 +1333,7 @@ static INLINE int InspectUriChar(HI_SESSION *Session, int iChar,
         */
         CheckLongDir(Session, norm_state, *ub_ptr);
 
-        iDir = DirNorm(Session, start, end, ptr, norm_state);
+        iDir = DirNorm(Session, start, end, ptr, norm_state, encodeType);
 
         if(iDir == DIR_TRAV)
         {
@@ -1416,7 +1443,7 @@ static INLINE int InspectUriChar(HI_SESSION *Session, int iChar,
 **  @retval HI_SUCCESS      Normalizing the URI was successful
 */
 int hi_norm_uri(HI_SESSION *Session, u_char *uribuf, int *uribuf_size,
-                const u_char *uri, int uri_size)
+                const u_char *uri, int uri_size, uint16_t *encodeType)
 {
     HTTPINSPECT_CONF *ServerConf;
     int iChar;
@@ -1451,7 +1478,7 @@ int hi_norm_uri(HI_SESSION *Session, u_char *uribuf, int *uribuf_size,
     while(hi_util_in_bounds(ub_start, ub_end, ub_ptr))
     {
 
-        iChar = GetDecodedByte(Session, start, end, &ptr, &norm_state);
+        iChar = GetDecodedByte(Session, start, end, &ptr, &norm_state, encodeType);
         if(iChar == END_OF_BUFFER)
             break;
 
@@ -1470,7 +1497,7 @@ int hi_norm_uri(HI_SESSION *Session, u_char *uribuf, int *uribuf_size,
         }
 
         iRet = InspectUriChar(Session, iChar, &norm_state, start, end, &ptr,
-                              ub_start, ub_end, &ub_ptr);
+                              ub_start, ub_end, &ub_ptr, encodeType);
         if (iRet)
         {
             if(iRet == END_OF_BUFFER)
@@ -1617,6 +1644,14 @@ int hi_normalization(HI_SESSION *Session, int iInspectMode)
         iRet = hi_client_norm((void *)Session);
         if (iRet)
         {
+            return iRet;
+        }
+    }
+    else if(iInspectMode == HI_SI_SERVER_MODE)
+    {
+        iRet = hi_server_norm((void *)Session);
+        if (iRet)
+        {   
             return iRet;
         }
     }

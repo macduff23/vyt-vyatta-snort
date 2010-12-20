@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2009 Sourcefire, Inc.
+** Copyright (C) 1998-2010 Sourcefire, Inc.
 ** Adam Keeton
 ** Kevin Liu <kliu@sourcefire.com>
 * 
@@ -204,7 +204,7 @@ int sfip_is_loopback(sfip_t *ip);
 int sfip_ismapped(sfip_t *ip);
 
 /* Support function for sfip_compare */
-static INLINE int _ip4_cmp(u_int32_t ip1, u_int32_t ip2) {
+static INLINE SFIP_RET _ip4_cmp(u_int32_t ip1, u_int32_t ip2) {
     u_int32_t hip1 = htonl(ip1);
     u_int32_t hip2 = htonl(ip2);
     if(hip1 < hip2) return SFIP_LESSER;
@@ -213,7 +213,7 @@ static INLINE int _ip4_cmp(u_int32_t ip1, u_int32_t ip2) {
 }
 
 /* Support function for sfip_compare */
-static INLINE int _ip6_cmp(sfip_t *ip1, sfip_t *ip2) {
+static INLINE SFIP_RET _ip6_cmp(sfip_t *ip1, sfip_t *ip2) {
     SFIP_RET ret;
     u_int32_t *p1, *p2; 
 

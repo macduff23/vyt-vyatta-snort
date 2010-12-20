@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -50,7 +50,7 @@ tSfPolicyId parserPolicyId = 0;
  *
  * @returns tSfPolicyUserContextId 
 */
-tSfPolicyUserContextId sfPolicyConfigCreate()
+tSfPolicyUserContextId sfPolicyConfigCreate(void)
 {
     tSfPolicyUserContext *pTmp = NULL;
 

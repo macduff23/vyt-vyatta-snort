@@ -1,7 +1,7 @@
 /*
  * dcerpc_config.c
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -74,6 +74,7 @@
 #define OPT_MEMCAP              "memcap"
 #define OPT_ALERT_MEMCAP        "alert_memcap"
 #define OPT_REASSEMBLE_INCREMENT  "reassemble_increment"
+#define OPT_DISABLED            "disabled"
 
 #define PORT_STR_LEN	        512
 
@@ -410,6 +411,10 @@ int DCERPCProcessConf(DceRpcConfig *config, char *pcToken, char *ErrorString, in
         else if ( !strcasecmp(pcToken, OPT_ALERT_MEMCAP) )
         {
             config->alert_memcap = 1;
+        }
+        else if ( !strcasecmp(pcToken, OPT_DISABLED) )
+        {
+            config->disabled = 1;
         }
         /*
          * Invalid configuration keyword

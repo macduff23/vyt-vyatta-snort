@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2009 Sourcefire, Inc.
+** Copyright (C) 1998-2010 Sourcefire, Inc.
 ** Adam Keeton
 ** Kevin Liu <kliu@sourcefire.com>
 ** 
@@ -112,7 +112,7 @@ static INLINE int sfip_cidr_mask(sfip_t *ip, int val) {
 
 /* Allocate IP address from a character array describing the IP */
 sfip_t *sfip_alloc(const char *ip, SFIP_RET *status) {
-    int tmp;
+    SFIP_RET tmp;
     sfip_t *ret;
    
     if(!ip) {

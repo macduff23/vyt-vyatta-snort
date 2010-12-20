@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 1998-2009 Sourcefire, Inc.
+ ** Copyright (C) 1998-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -49,6 +49,7 @@
 
 #include "bounds.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -126,7 +127,7 @@ int IsDataAtCompare(void *l, void *r)
 void SetupIsDataAt(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("isdataat", IsDataAtInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("isdataat", IsDataAtInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("isdataat", &isDataAtPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -211,17 +212,24 @@ void IsDataAtParse(char *data, IsDataAtData *idx, OptTreeNode *otn)
     int i;
     char *cptr;
     char *endp;
+    char *offset;
 
     toks = mSplit(data, ",", 3, &num_toks, 0);
 
     if(num_toks > 3) 
         FatalError("%s (%d): Bad arguments to IsDataAt: %s\n", file_name,
                 file_line, data);
-
+    offset = toks[0]; 
+    if(*offset == '!')
+    {
+        idx->flags |= ISDATAAT_NOT_FLAG;
+        offset++;
+        while(isspace((int)*offset)) {offset++;}
+    }
     /* set how many bytes to process from the packet */
-    idx->offset = strtol(toks[0], &endp, 10);
+    idx->offset = strtol(offset, &endp, 10);
 
-    if(toks[0] == endp)
+    if(offset == endp)
     {
         FatalError("%s(%d): Unable to parse as byte value %s\n",
                    file_name, file_line, toks[0]);
@@ -316,8 +324,11 @@ int IsDataAt(void *option_data, Packet *p)
     base_ptr = start_ptr;
     end_ptr = start_ptr + dsize;
     
-    if(doe_ptr)
+    if((isdata->flags & ISDATAAT_RELATIVE_FLAG) && doe_ptr)
     {
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
+                                "Checking relative offset!\n"););
+
         if(!inBounds(start_ptr, end_ptr, doe_ptr))
         {
             DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
@@ -325,12 +336,7 @@ int IsDataAt(void *option_data, Packet *p)
             PREPROC_PROFILE_END(isDataAtPerfStats);
             return rval;
         }
-    }
 
-    if((isdata->flags & ISDATAAT_RELATIVE_FLAG) && doe_ptr)
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                                "Checking relative offset!\n"););
         base_ptr = doe_ptr + isdata->offset;
     }
     else

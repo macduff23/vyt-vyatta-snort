@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2007-2009 Sourcefire, Inc.
+** Copyright (C) 2007-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -87,8 +87,6 @@
 
 #include <sys/types.h>
 
-extern SnortConfig *snort_conf_for_parsing;
-
 #define TEST_FLAG_FILE     0x01
 #define TEST_FLAG_STDOUT   0x02
 #define TEST_FLAG_MSG      0x04
@@ -171,50 +169,33 @@ void AlertTest(Packet *p, char *msg, void *arg, Event *event)
 
     fprintf(data->file, "" STDu64 "\t", pc.total_from_pcap);
 
-    if(event != NULL)
+    if (event != NULL)
     {
         fprintf(data->file, "%lu\t%lu\t%lu\t",
                 (unsigned long) event->sig_generator,
                 (unsigned long) event->sig_id,
                 (unsigned long) event->sig_rev);
     }
-    
+
     if (data->flags & TEST_FLAG_MSG)
     {
-        if(msg != NULL)
-        {
+        if (msg != NULL)
             fprintf(data->file, "%s\t", msg); 
-        }
     }
 
     if (data->flags & TEST_FLAG_SESSION)
-    {
-        if (IPH_IS_VALID(p))
-        {
-            fprintf(data->file, "%s:%d",
-                    inet_ntoa(GET_SRC_ADDR(p)), p->sp);
-            fprintf(data->file, "-%s:%d\t",
-                    inet_ntoa(GET_DST_ADDR(p)), p->dp);
-        }
-    }
+        PrintIpAddrs(data->file, p);
 
     if (data->flags & TEST_FLAG_REBUILT)
     {
         if (p->packet_flags & PKT_REBUILT_FRAG)
-        {
             fprintf(data->file, "F:" STDu64 "\t", pc.rebuilt_frags);
-        }
         else if (p->packet_flags & PKT_REBUILT_STREAM)
-        {
             fprintf(data->file, "S:" STDu64 "\t", pc.rebuilt_tcp);
-        }
     }
 
     fprintf(data->file, "\n");
-
     fflush(data->file);
-
-    return;
 }
 
 /*
@@ -233,14 +214,13 @@ void AlertTest(Packet *p, char *msg, void *arg, Event *event)
 SpoAlertTestData * ParseAlertTestArgs(char *args)
 {
     char **toks;
-    char *option;
     int num_toks;
     SpoAlertTestData *data;
     int i;
 
     data = (SpoAlertTestData *)SnortAlloc(sizeof(SpoAlertTestData));
 
-    if(args == NULL)
+    if (args == NULL)
     {
         data->file = OpenAlertFile(NULL);
         data->flags |= TEST_FLAG_FILE;
@@ -249,86 +229,65 @@ SpoAlertTestData * ParseAlertTestArgs(char *args)
 
     DEBUG_WRAP(DebugMessage(DEBUG_LOG, "ParseAlertTestArgs: %s\n", args););
 
-    toks = mSplit(args, ",", 5, &num_toks, 0);
+    toks = mSplit(args, ",", 0, &num_toks, 0);
 
     for (i = 0; i < num_toks; i++)
     {
-        option = toks[i];
+        char *option;
+        char **atoks;
+        int num_atoks;
 
-        while (isspace((int)*option))
-            option++;
+        atoks = mSplit(toks[i], " ", 0, &num_atoks, 0);
+        option = atoks[0];
 
-        if(strncasecmp("stdout", option, strlen("stdout")) == 0)
+        if (!strcasecmp("stdout", option))
         {
             if (data->flags & TEST_FLAG_FILE)
-            {
-                FatalError("alert_test: cannot specify both stdout and file\n");
-            }
+                ParseError("alert_test: cannot specify both stdout and file\n");
 
             data->file = stdout;
             data->flags |= TEST_FLAG_STDOUT;
         }
-        else if (strncasecmp("session", option, strlen("session")) == 0)
+        else if (!strcasecmp("session", option))
         {
             data->flags |= TEST_FLAG_SESSION;
         }
-        else if (strncasecmp("rebuilt", option, strlen("rebuilt")) == 0)
+        else if (!strcasecmp("rebuilt", option))
         {
             data->flags |= TEST_FLAG_REBUILT;
         }
-        else if (strncasecmp("msg", option, strlen("msg")) == 0)
+        else if (!strcasecmp("msg", option))
         {
             data->flags |= TEST_FLAG_MSG;
         }
-        else if (strncasecmp("file", option, strlen("file")) == 0)
+        else if (!strcasecmp("file", option))
         {
-            char *filename;
-
             if (data->flags & TEST_FLAG_STDOUT)
-            {
-                FatalError("alert_test: cannot specify both stdout and file\n");
-            }
-                
-            filename = strstr(option, " ");
+                ParseError("alert_test: cannot specify both stdout and file\n");
 
-            if (filename == NULL)
+            data->flags |= TEST_FLAG_FILE;
+
+            if (num_atoks == 1)
             {
                 data->file = OpenAlertFile(NULL);
-                data->flags |= TEST_FLAG_FILE;
+            }
+            else if (num_atoks == 2)
+            {
+                char *outfile = ProcessFileOption(snort_conf_for_parsing, atoks[1]);
+                data->file = OpenAlertFile(outfile);
+                free(outfile);
             }
             else
             {
-                while (isspace((int)*filename))
-                    filename++;
-
-                if (*filename == '\0')
-                {
-                    data->file = OpenAlertFile(NULL);
-                    data->flags |= TEST_FLAG_FILE;
-                }
-                else
-                {
-                    char *filename_end;
-                    char *outfile;
-
-                    filename_end = filename + strlen(filename) - 1;
-                    while (isspace((int)*filename_end))
-                        filename_end--;
-
-                    filename_end++;
-                    filename_end = '\0';
-
-                    outfile = ProcessFileOption(snort_conf_for_parsing, filename);
-                    data->file = OpenAlertFile(outfile);
-                    data->flags |= TEST_FLAG_FILE;
-                    free(outfile);
-                }
+                ParseError("Invalid \"file\" argument to alert_test: %s", option);
             }
         }
         else
         {
-            FatalError("Unrecognized alert_test option: %s\n", option);
+            ParseError("Unrecognized alert_test option: %s\n", option);
         }
+
+        mSplitFree(&atoks, num_atoks);
     }
 
     /* free toks */

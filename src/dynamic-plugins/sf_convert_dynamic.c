@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -25,6 +25,7 @@
 #include "sf_engine/sf_snort_plugin_api.h"
 #include "detection_options.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 
 #include "sf_convert_dynamic.h"
@@ -44,8 +45,6 @@ extern void ParsePattern(char *, OptTreeNode *, int);
 extern void *pcreCompile(const char *pattern, int options, const char **errptr,
     int *erroffset, const unsigned char *tableptr);
 extern void *pcreStudy(const void *code, int options, const char **errptr);
-extern void make_precomp(PatternMatchData * idx);
-extern int uniSearchCI(const char *data, int dlen, PatternMatchData *pmd);
 
 extern int SnortPcre(void *option_data, Packet *p);
 extern int FlowBitsCheck(void *option_data, Packet *p);
@@ -93,6 +92,8 @@ static int (* OptionConverterArray[OPTION_TYPE_MAX])
 int ConvertDynamicRule(Rule *rule, OptTreeNode *otn)
 {
     unsigned int i;
+    tSfPolicyId policyId = 0;
+    RuleTreeNode *rtn = NULL;
 
     if (CheckConvertability(rule, otn) < 0)
     {
@@ -111,7 +112,23 @@ int ConvertDynamicRule(Rule *rule, OptTreeNode *otn)
             return -1;
     }
 
-    FinalizeContentUniqueness(otn);
+    if(otn->proto_nodes)
+    {
+
+         for (policyId = 0; 
+                 policyId < otn->proto_node_num;policyId++)
+         {
+             rtn = otn->proto_nodes[policyId];
+             if (!rtn)
+             {
+                 continue;
+             }
+
+             setParserPolicy(policyId);
+
+            FinalizeContentUniqueness(otn);
+         }
+    }
     otn->sigInfo.shared = 0;
 
     return 1;
@@ -177,9 +194,7 @@ static int ConvertContentOption(Rule *rule, int index, OptTreeNode *otn)
     }
 
     /* Allocate a new node, based on the type of content option. */
-    if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_HEADER |
-                          CONTENT_BUF_POST | CONTENT_BUF_METHOD |
-                          CONTENT_BUF_COOKIE) )
+    if ( content->flags & URI_CONTENT_BUFS )
     {
         pmd = NewNode(otn, PLUGIN_PATTERN_MATCH_URI);
         ParsePattern(pattern, otn, PLUGIN_PATTERN_MATCH_URI);
@@ -207,6 +222,16 @@ static int ConvertContentOption(Rule *rule, int index, OptTreeNode *otn)
         pmd->uri_buffer |= HTTP_SEARCH_METHOD;
     if (content->flags & CONTENT_BUF_COOKIE)
         pmd->uri_buffer |= HTTP_SEARCH_COOKIE;
+    if (content->flags & CONTENT_BUF_RAW_URI)
+        pmd->uri_buffer |= HTTP_SEARCH_RAW_URI;
+    if (content->flags & CONTENT_BUF_RAW_HEADER)
+        pmd->uri_buffer |= HTTP_SEARCH_RAW_HEADER;
+    if (content->flags & CONTENT_BUF_RAW_COOKIE)
+        pmd->uri_buffer |= HTTP_SEARCH_RAW_COOKIE;
+    if (content->flags & CONTENT_BUF_STAT_CODE)
+        pmd->uri_buffer |= HTTP_SEARCH_STAT_CODE;
+    if (content->flags & CONTENT_BUF_STAT_MSG)
+        pmd->uri_buffer |= HTTP_SEARCH_STAT_MSG;
 
 
     if (content->flags & CONTENT_BUF_RAW)
@@ -239,7 +264,20 @@ static int ConvertContentOption(Rule *rule, int index, OptTreeNode *otn)
     }
 
     if (content->flags & CONTENT_FAST_PATTERN)
-        pmd->flags |= CONTENT_FAST_PATTERN;
+        pmd->fp = 1;
+
+    /* Fast pattern only and specifying an offset and length are
+     * technically mutually exclusive - see
+     * detection-plugins/sp_pattern_match.c */
+    if (content->flags & CONTENT_FAST_PATTERN_ONLY)
+    {
+        pmd->fp_only = 1;
+    }
+    else
+    {
+        pmd->fp_offset = content->fp_offset;
+        pmd->fp_length = content->fp_length;
+    }
 
     if (content->flags & NOT_FLAG)
         pmd->exception_flag = 1;
@@ -321,6 +359,30 @@ static int ConvertPcreOption(Rule *rule, int index, OptTreeNode *otn)
 
     if (pcre_info->flags & CONTENT_BUF_COOKIE)
         pcre_data->options |= SNORT_PCRE_HTTP_COOKIE;
+
+    if (pcre_info->flags & CONTENT_BUF_RAW_URI)
+        pcre_data->options |= SNORT_PCRE_HTTP_RAW_URI;
+
+    if (pcre_info->flags & CONTENT_BUF_STAT_CODE)
+        pcre_data->options |= SNORT_PCRE_HTTP_STAT_CODE;
+
+    if (pcre_info->flags & CONTENT_BUF_STAT_MSG)
+        pcre_data->options |= SNORT_PCRE_HTTP_STAT_MSG;
+
+    if (pcre_info->flags & CONTENT_BUF_RAW_URI)
+        pcre_data->options |= SNORT_PCRE_HTTP_RAW_URI;
+
+    if (pcre_info->flags & CONTENT_BUF_RAW_HEADER)
+        pcre_data->options |= SNORT_PCRE_HTTP_RAW_HEADER;
+
+    if (pcre_info->flags & CONTENT_BUF_RAW_COOKIE)
+        pcre_data->options |= SNORT_PCRE_HTTP_RAW_COOKIE;
+
+    if (pcre_info->flags & CONTENT_BUF_STAT_CODE)
+        pcre_data->options |= SNORT_PCRE_HTTP_STAT_CODE;
+
+    if (pcre_info->flags & CONTENT_BUF_STAT_MSG)
+        pcre_data->options |= SNORT_PCRE_HTTP_STAT_MSG;
 
     PcreCheckAnchored(pcre_data);
 
