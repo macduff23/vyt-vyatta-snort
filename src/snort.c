@@ -796,14 +796,7 @@ static void InitPidChrootAndPrivs(void)
 # ifdef GIDS
         if (ScAdapterInlineMode())
         {
-            if (pcap_interface != NULL)
-            {
-                CreatePidFile(pcap_interface);
-            }
-            else
-            {
-                CreatePidFile("inline");
-            }
+            CreatePidFile("inline");
         }
         else
         {
