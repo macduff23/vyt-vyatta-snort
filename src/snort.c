@@ -1045,13 +1045,6 @@ void PcapProcessPacket(char *user, struct pcap_pkthdr * pkthdr, const u_char * p
     BsdPseudoPacket = NULL;
 #endif
     
-    if (InlineMode())
-    {
-        /* in inline mode, create this file to signal the completion of
-         * initialization. */
-        CreatePidFile("inline_init");
-    }
-
     ProcessPacket(user, pkthdr, pkt, NULL);
     
     /* Collect some "on the wire" stats about packet size, etc */
@@ -5293,6 +5286,13 @@ static void SnortPostInit(void)
 #ifdef PPM_MGR
     PPM_PRINT_CFG(&snort_conf->ppm_cfg);
 #endif
+
+    if (ScAdapterInlineMode())
+    {
+       /* in inline mode, create this file to signal the completion of
+        * initialization. */
+       CreatePidFile("inline_init");
+    }
 
     LogMessage("\n");
     LogMessage("        --== Initialization Complete ==--\n");
