@@ -1044,6 +1044,13 @@ void PcapProcessPacket(char *user, struct pcap_pkthdr * pkthdr, const u_char * p
 #ifndef SUP_IP6
     BsdPseudoPacket = NULL;
 #endif
+    
+    if (InlineMode())
+    {
+        /* in inline mode, create this file to signal the completion of
+         * initialization. */
+        CreatePidFile("inline_init");
+    }
 
     ProcessPacket(user, pkthdr, pkt, NULL);
     
