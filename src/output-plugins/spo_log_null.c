@@ -62,6 +62,7 @@ void LogNullSetup(void)
     /* link the preprocessor keyword to the init function in 
        the preproc list */
     RegisterOutputPlugin("log_null", OUTPUT_TYPE_FLAG__LOG, LogNullInit);
+    RegisterOutputPlugin("alert_null", OUTPUT_TYPE_FLAG__ALERT, LogNullInit);
 
     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output plugin: LogNull is setup...\n"););
 }
@@ -73,6 +74,7 @@ static void LogNullInit(char *args)
 
     /* Set the preprocessor function into the function list */
     AddFuncToOutputList(LogNull, OUTPUT_TYPE__LOG, NULL);
+    AddFuncToOutputList(LogNull, OUTPUT_TYPE__ALERT, NULL);
     AddFuncToCleanExitList(LogNullCleanExitFunc, NULL);
     AddFuncToRestartList(LogNullRestartFunc, NULL);
 }
