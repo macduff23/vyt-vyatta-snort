@@ -3345,6 +3345,11 @@ static void OpenPcap(void)
 
     /* get data link type */
     datalink = pcap_datalink(pcap_handle);
+#ifdef GIDS
+    if (ScAdapterInlineMode())
+       datalink = DLT_RAW;
+#endif
+
 
     if (datalink < 0)
     {
