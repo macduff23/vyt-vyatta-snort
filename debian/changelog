@@ -1,3 +1,9 @@
+vyatta-snort (2.8.6.1-vyatta-1+larkspur1) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Mon, 20 Dec 2010 18:25:28 -0800
+
 vyatta-snort (2.8.5.2-vyatta-10+larkspur2) unstable; urgency=low
 
   * Merge upstream 2.8.6.1
