@@ -30,8 +30,8 @@
 #
 
 
-alert tcp $HOME_NET 902 -> $EXTERNAL_NET any (msg:"OTHER-IDS ISS RealSecure 6 event collector connection attempt"; flow:from_server,established; content:"6ISS ECNRA Built-In Provider, Strong Encryption"; depth:70; offset:30; nocase; classtype:successful-recon-limited; sid:1760; rev:3;)
-alert tcp $HOME_NET 2998 -> $EXTERNAL_NET any (msg:"OTHER-IDS ISS RealSecure 6 daemon connection attempt"; flow:from_server,established; content:"6ISS ECNRA Built-In Provider, Strong Encryption"; depth:70; offset:30; nocase; classtype:successful-recon-limited; sid:1761; rev:3;)
+p2action tcp $HOME_NET 902 -> $EXTERNAL_NET any (msg:"OTHER-IDS ISS RealSecure 6 event collector connection attempt"; flow:from_server,established; content:"6ISS ECNRA Built-In Provider, Strong Encryption"; depth:70; offset:30; nocase; classtype:successful-recon-limited; sid:1760; rev:3;)
+p2action tcp $HOME_NET 2998 -> $EXTERNAL_NET any (msg:"OTHER-IDS ISS RealSecure 6 daemon connection attempt"; flow:from_server,established; content:"6ISS ECNRA Built-In Provider, Strong Encryption"; depth:70; offset:30; nocase; classtype:successful-recon-limited; sid:1761; rev:3;)
 
 # To limit false positives, limit to the default port of 975
-alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"OTHER-IDS SecureNetPro traffic"; flow:established; content:"|00|g|00 01 00 03|"; depth:6; classtype:bad-unknown; sid:1629; rev:6;)
+p2action tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"OTHER-IDS SecureNetPro traffic"; flow:established; content:"|00|g|00 01 00 03|"; depth:6; classtype:bad-unknown; sid:1629; rev:6;)
