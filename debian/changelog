@@ -1,3 +1,23 @@
+vyatta-snort (2.8.5.2-vyatta-10+larkspur2) unstable; urgency=low
+
+  * Merge upstream 2.8.6.1
+  * Go back to vyatta's debian/rules
+  * enable-zlib
+  * process rules into the vyatta format
+  * process preproc_rules into vyatta format
+  * apply vyatta patch1
+  * apply vyatta patch2
+  * apply vyatta patch3
+  * ZRevert "apply vyatta patch3"
+  * apply vyatta patch3
+  * apply vyatta patch4
+  * apply vyatta patch5
+  * apply vyatta patch6
+  * apply vyatta patch7
+  * add debian/vyatta-patches directory
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Mon, 20 Dec 2010 18:18:08 -0800
+
 vyatta-snort (2.8.5.2-vyatta-10+larkspur1) unstable; urgency=low
 
   * UNRELEASED
