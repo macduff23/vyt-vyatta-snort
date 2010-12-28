@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-17+mendocino1) unstable; urgency=low
+
+  * new branch
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Tue, 28 Dec 2010 20:40:18 +0000
+
 vyatta-snort (2.8.5.2-vyatta-17) unstable; urgency=low
 
   * Remove #include of rules since the rules no longer exist.
