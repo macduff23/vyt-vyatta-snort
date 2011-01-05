@@ -350,7 +350,7 @@ static char **snort_argv = NULL;
 #ifndef WIN32
 # ifdef GIDS
 #  ifndef IPFW
-static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
+static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQ:r:R:sS:t:Tu:UvVw:XxyzZ:";
 #  else
 static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:IJ:k:K:l:L:m:Mn:NoOpP:qr:R:sS:t:Tu:UvVw:XxyzZ:";
 #  endif /* IPFW */
@@ -1652,7 +1652,7 @@ static int ShowUsage(char *program_name)
                                     SNAPLEN);
     FPUTS_BOTH ("        -q         Quiet. Don't show banner and status report\n");
 #if !defined(IPFW) && !defined(WIN32)
-    FPUTS_BOTH ("        -Q         Enable inline mode operation.\n");
+    FPUTS_BOTH ("        -Q         Enable NFQUEUE inline mode operation.\n");
 #endif
     FPUTS_BOTH ("        -r <tf>    Read and process tcpdump file <tf>\n");
     FPUTS_BOTH ("        -R <id>    Include 'id' in snort_intf<id>.pid file name\n");
@@ -2263,7 +2263,10 @@ static void ParseCmdLine(int argc, char **argv)
 
 #if !defined(IPFW) && !defined(WIN32)
             case 'Q':
-                LogMessage("Enabling inline operation\n");
+                LogMessage("Reading from iptables\n");
+                nfqueue_num = 0; 
+                nfqueue_num = atoi(optarg) % 65536;
+                LogMessage("Enabling NFQUEUE queue number %u\n", nfqueue_num);
                 sc->run_flags |= RUN_FLAG__INLINE;
                 break;
 #endif
@@ -3718,9 +3721,12 @@ static void SnortCleanup(int exit_val)
 #if defined(GIDS) && !defined(IPFW)
     if (ScAdapterInlineMode())
     {
-        if (ipqh)
+        if (nfq_q_h)
         {
-            ipq_destroy_handle(ipqh);
+            nfq_destroy_queue(nfq_q_h);
+        }
+        if (nfq_h) {
+           nfq_close(nfq_h);
         }
     }
 #endif /* defined(GIDS) && !defined(IPFW) (may need cleanup code here) */
@@ -5335,7 +5341,7 @@ static void SnortProcess(void)
     if (ScAdapterInlineMode())
     {
 #ifndef IPFW
-        IpqLoop();
+        nfqLoop();
 #else
         IpfwLoop();
 #endif
