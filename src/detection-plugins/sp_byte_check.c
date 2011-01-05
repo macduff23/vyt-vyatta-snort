@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2009 Sourcefire, Inc.
+ ** Copyright (C) 2002-2010 Sourcefire, Inc.
  ** Author: Martin Roesch
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -103,6 +103,7 @@
 #include "bounds.h"
 #include "byte_extract.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -244,7 +245,7 @@ static void ByteTestOverrideFuncsFree(void)
 void SetupByteTest(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("byte_test", ByteTestInit, ByteTestOverride, OPT_TYPE_DETECTION);
+    RegisterRuleOption("byte_test", ByteTestInit, ByteTestOverride, OPT_TYPE_DETECTION, NULL);
     AddFuncToCleanExitList(ByteTestOverrideCleanup, NULL);
     AddFuncToRuleOptParseCleanupList(ByteTestOverrideFuncsFree);
 
@@ -429,10 +430,9 @@ static ByteTestOverrideData * ByteTestParse(char *data, ByteTestData *idx, OptTr
         }
     }
 
-    errno = 0;
 
     /* set the value to test against */
-    idx->cmp_value = strtoul(toks[2], &endp, 0);
+    idx->cmp_value = SnortStrtoul(toks[2], &endp, 0);
 
     if(toks[2] == endp)
     {
@@ -584,8 +584,12 @@ int ByteTest(void *option_data, Packet *p)
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                 "[*] byte test firing...\npayload starts at %p\n", start_ptr););
 
-    if(doe_ptr)
+
+    if(btd->relative_flag && doe_ptr)
     {
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
+                                "Checking relative offset!\n"););
+
         /* @todo: possibly degrade to use the other buffer, seems non-intuitive*/        
         if(!inBounds((const uint8_t *)start_ptr, (const uint8_t *)end_ptr, doe_ptr))
         {
@@ -594,12 +598,7 @@ int ByteTest(void *option_data, Packet *p)
             PREPROC_PROFILE_END(byteTestPerfStats);
             return rval;
         }
-    }
 
-    if(btd->relative_flag && doe_ptr)
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                                "Checking relative offset!\n"););
         base_ptr = (const char *)doe_ptr + btd->offset;
     }
     else

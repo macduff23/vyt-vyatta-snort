@@ -3,7 +3,7 @@
 ** 
 **  profiler.c
 **
-**  Copyright (C) 2005-2009 Sourcefire, Inc.
+**  Copyright (C) 2005-2010 Sourcefire, Inc.
 **  Steven Sturges <ssturges@sourcefire.com>
 **
 **  This program is free software; you can redistribute it and/or modify
@@ -30,10 +30,14 @@
 
 #include "snort.h"
 #include "rules.h"
+#include "treenodes.h"
+#include "treenodes.h"
 #include "parser.h"
 #include "plugin_enum.h"
 #include "util.h"
 #include "rules.h"
+#include "treenodes.h"
+#include "treenodes.h"
 #include "profiler.h"
 #include "sf_types.h"
 #include "sf_textlog.h"
@@ -77,7 +81,6 @@ int max_layers = 0;
 
 /* Externs ********************************************************************/
 extern PreprocStats mpsePerfStats, rulePerfStats, ncrulePerfStats;
-extern SnortConfig *snort_conf;
 
 
 void getTicksPerMicrosec(void)

@@ -1,7 +1,7 @@
 
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -43,6 +43,7 @@ void LogIPPkt(TextLog*, int type, Packet*);
 void LogTimeStamp(TextLog*, Packet*);
 void LogTrHeader(TextLog*, Packet*);
 void Log2ndHeader(TextLog*, Packet*);
+void LogIpAddrs(TextLog*, Packet*);
 void LogIPHeader(TextLog*, Packet*);
 void LogTCPHeader(TextLog*, Packet*);
 void LogUDPHeader(TextLog*, Packet*);

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2007-2009 Sourcefire, Inc.
+** Copyright (C) 2007-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -859,8 +859,10 @@ static void SSLPP_init(char *args)
 	SSLPP_config(pPolicyConfig, args);
     SSLPP_print_config(pPolicyConfig);
 
-    _dpd.preprocOptRegister("ssl_state", SSLPP_state_init, SSLPP_rule_eval, NULL, NULL, NULL);
-    _dpd.preprocOptRegister("ssl_version", SSLPP_ver_init, SSLPP_rule_eval, NULL, NULL, NULL);
+    _dpd.preprocOptRegister("ssl_state", SSLPP_state_init, SSLPP_rule_eval,
+            NULL, NULL, NULL, NULL, NULL);
+    _dpd.preprocOptRegister("ssl_version", SSLPP_ver_init, SSLPP_rule_eval,
+            NULL, NULL, NULL, NULL, NULL);
 
 	_dpd.addPreproc( SSLPP_process, PRIORITY_TUNNEL, PP_SSL, PROTO_BIT__TCP );
 
@@ -1187,8 +1189,10 @@ static void SSLReload(char *args)
 	SSLPP_config(pPolicyConfig, args);
     SSLPP_print_config(pPolicyConfig);
 
-    _dpd.preprocOptRegister("ssl_state", SSLPP_state_init, SSLPP_rule_eval, NULL, NULL, NULL);
-    _dpd.preprocOptRegister("ssl_version", SSLPP_ver_init, SSLPP_rule_eval, NULL, NULL, NULL);
+    _dpd.preprocOptRegister("ssl_state", SSLPP_state_init, SSLPP_rule_eval,
+            NULL, NULL, NULL, NULL, NULL);
+    _dpd.preprocOptRegister("ssl_version", SSLPP_ver_init, SSLPP_rule_eval,
+            NULL, NULL, NULL, NULL, NULL);
 
 	_dpd.addPreproc(SSLPP_process, PRIORITY_TUNNEL, PP_SSL, PROTO_BIT__TCP);
     _dpd.addPreprocReloadVerify(SSLReloadVerify);

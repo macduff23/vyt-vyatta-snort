@@ -37,7 +37,13 @@ BUILT_SOURCES = \
 	include/sfrt_trie.h \
 	include/sfPolicyUserData.c \
 	include/sfPolicyUserData.h \
-	include/sfPolicy.h
+	include/sfPolicy.h \
+	include/treenodes.h \
+	include/signature.h \
+	include/plugin_enum.h \
+	include/obfuscation.h \
+	include/rule_option_types.h \
+	include/event.h
 
 sed_ipv6_headers = \
 	sed -e "s/->iph->ip_src/->ip4_header->source/" \
@@ -74,6 +80,8 @@ massage_ipv6_headers = \
 sed_headers = \
 	sed -e "s/Packet /SFSnortPacket /" \
 	    -e "s/decode\.h/sf_snort_packet.h/" \
+		-e "/sfportobject\.h/d" \
+		-e "s/PortObject \*/void */g" \
 	    $$dst_header.new > $$dst_header
 
 massage_headers = \
@@ -138,7 +146,26 @@ copy_headers = \
 		echo "Updating " $$dst_header; \
 		cp $$src_header $$dst_header; \
 	fi
-    
+
+sed_treenode_header = \
+	sed -f $(srcdir)/treenodes.sed $$dst_header.new > $$dst_header
+
+copy_treenode_header = \
+	mkdir -p include; \
+	mkdir -p build; \
+	if test -f $$dst_header; then \
+		x=`diff $$src_header $$dst_header.new.new >> /dev/null`; \
+		if test "$$x" != "0"; then \
+			echo "Updating " $$dst_header; \
+			cp $$src_header $$dst_header.new; \
+			$(sed_treenode_header); \
+		fi \
+	else \
+		echo "Updating " $$dst_header; \
+		cp $$src_header $$dst_header.new; \
+		$(sed_treenode_header); \
+	fi
+
 # From main src tree
 include/debug.h: $(srcdir)/../debug.h 
 	@src_header=$?; dst_header=$@; $(copy_debug_header)
@@ -164,6 +191,15 @@ include/ipv6_port.h: $(srcdir)/../ipv6_port.h
 include/sf_types.h: $(srcdir)/../sf_types.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
+include/obfuscation.h: $(srcdir)/../obfuscation.h
+	@src_header=$?; dst_header=$@; $(massage_headers)
+
+include/rule_option_types.h: $(srcdir)/../rule_option_types.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
+include/event.h: $(srcdir)/../event.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
 # From dynamic-plugins
 include/sf_dynamic_common.h: $(srcdir)/../dynamic-plugins/sf_dynamic_common.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
@@ -178,7 +214,7 @@ include/sf_dynamic_meta.h: $(srcdir)/../dynamic-plugins/sf_dynamic_meta.h
 	@src_header=$?; dst_header=$@; $(copy_headers)
 
 include/sf_dynamic_preprocessor.h: $(srcdir)/../dynamic-plugins/sf_dynamic_preprocessor.h
-	@src_header=$?; dst_header=$@; $(copy_headers)
+	@src_header=$?; dst_header=$@; $(massage_headers)
 
 # From dynamic-plugins/sf_preproc_example
 include/sf_dynamic_preproc_lib.c: $(srcdir)/../dynamic-plugins/sf_preproc_example/sf_dynamic_preproc_lib.c
@@ -232,7 +268,7 @@ include/sfPolicyUserData.h: $(srcdir)/../sfutil/sfPolicyUserData.h
 	
 include/sfPolicy.h: $(srcdir)/../sfutil/sfPolicy.h
 	@src_header=$?; dst_header=$@; $(copy_headers); $(replace_policy_globals)
-	
+
 # From dynamic-plugins/sf_engine/examples
 include/sfsnort_dynamic_detection_lib.c: $(srcdir)/../dynamic-plugins/sf_engine/examples/sfsnort_dynamic_detection_lib.c
 	@src_header=$?; dst_header=$@; $(copy_headers)
@@ -254,10 +290,19 @@ include/stream_api.h: $(srcdir)/../preprocessors/stream_api.h
 include/str_search.h: $(srcdir)/../preprocessors/str_search.h
 	@src_header=$?; dst_header=$@; $(massage_headers)
 
+include/treenodes.h: $(srcdir)/../treenodes.h
+	@src_header=$?; dst_header=$@; $(copy_treenode_header)
+
+include/signature.h: $(srcdir)/../signature.h
+	@src_header=$?; dst_header=$@; $(copy_treenode_header)
+
+include/plugin_enum.h: $(srcdir)/../plugin_enum.h
+	@src_header=$?; dst_header=$@; $(copy_headers)
+
 INCLUDES = @INCLUDES@ 
 
 if HAVE_DYNAMIC_PLUGINS
-SUBDIRS = libs ftptelnet smtp ssh dcerpc dns ssl dcerpc2
+SUBDIRS = libs ftptelnet smtp ssh dcerpc dns ssl dcerpc2 sdf
 endif
 
 clean-local:
@@ -265,7 +310,8 @@ clean-local:
 
 EXTRA_DIST = \
 dynamic_preprocessors.dsp \
-sf_dynamic_initialize/sf_dynamic_initialize.dsp
+sf_dynamic_initialize/sf_dynamic_initialize.dsp \
+treenodes.sed
 
 if HAVE_DYNAMIC_PLUGINS
 srcinstdir = $(exec_prefix)/src/snort_dynamicsrc
@@ -294,7 +340,13 @@ include/sfhashfcn.h \
 include/bitop.h \
 include/preprocids.h \
 include/sfPolicyUserData.h \
-include/sfPolicyUserData.c 
+include/treenodes.h \
+include/signature.h \
+include/plugin_enum.h \
+include/sfPolicyUserData.c \
+include/obfuscation.h \
+include/rule_option_types.h \
+include/event.h
 
 install-data-local:
 	@for f in $(exported_files); do \

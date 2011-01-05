@@ -54,6 +54,9 @@
 /* Define to 1 if you have the <wchar.h> header file. */
 #define HAVE_WCHAR_H 1
 
+/* Define to 1 if you have zlib support. */
+#define HAVE_ZLIB 1
+
 /* Version number of package */
 #ifdef ENABLE_ODBC
     #define VERSION_ENABLE_ODBC "-ODBC"
@@ -98,7 +101,7 @@
  * should both match the ones specified in the
  * AM_INIT_AUTOMAKE() macro of configure.in
  */
-#define VERSION "2.8.5.2"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
+#define VERSION "2.8.6.1"VERSION_ENABLE_ODBC""VERSION_ENABLE_MYSQL""VERSION_ENABLE_MSSQL""VERSION_ENABLE_ORACLE""VERSION_ENABLE_RESPONSE"-WIN32"VERSION_DEBUG
 #define PACKAGE "snort"
 
 #define IFNAMSIZ   255
@@ -107,6 +110,10 @@
 #define _WIN32_WINNT _WIN32_WINNT_WIN2K
 #undef NTDDI_VERSION
 #define NTDDI_VERSION NTDDI_WIN2K
+
+/* Abuse header guards to prevent winscard.h from being included.
+   This was needed to prevent conflict with sqlfront.h */
+#define _WINSCARD_H_
 
 #include <winsock2.h>
 #include <windows.h>

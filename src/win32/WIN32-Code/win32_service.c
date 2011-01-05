@@ -68,8 +68,6 @@
 #include "debug.h"
 #include "util.h"
 
-extern SnortConfig *snort_conf;
-
 static LPTSTR g_lpszServiceName        = "SnortSvc";
 static LPTSTR g_lpszServiceDisplayName = "Snort";
 static LPTSTR g_lpszServiceDescription = "The Open Source Network Intrusion Detection System";

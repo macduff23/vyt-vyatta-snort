@@ -3,7 +3,7 @@
 **
 ** pcrm.h
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 ** Dan Roelker <droelker@sourcefire.com>
 **
@@ -51,6 +51,17 @@ typedef void * RULE_PTR;
 #define PRM_GET_FIRST_GROUP_NODE_NC(pg) (pg->pgHeadNC)
 #define PRM_GET_NEXT_GROUP_NODE_NC(rn)  (rn->rnNext)
 
+typedef enum _PmType
+{
+    PM_TYPE__CONTENT = 0,
+    PM_TYPE__HTTP_URI_CONTENT,
+    PM_TYPE__HTTP_HEADER_CONTENT,
+    PM_TYPE__HTTP_CLIENT_BODY_CONTENT,
+    PM_TYPE__HTTP_METHOD_CONTENT,
+    PM_TYPE__MAX
+
+} PmType;
+
 typedef struct _not_rule_node_ {
 
   struct _not_rule_node_ * next;
@@ -66,11 +77,9 @@ typedef struct _rule_node_ {
   struct  _rule_node_ * rnNext;
  
   RULE_PTR rnRuleData; 
-
   int iRuleNodeID;
  
 }RULE_NODE;
-
 
 typedef struct {
   
@@ -86,21 +95,17 @@ typedef struct {
   RULE_NODE *pgUriHead, *pgUriTail, *pgUriCur;
   int   pgUriContentCount;
  
-  /* Setwise Pattern Matching data structures */
-  void * pgPatData;
-  void * pgPatDataUri;
-  void * pgNonContentTree;
+  /* Pattern Matching data structures (MPSE) */
+  void *pgPms[PM_TYPE__MAX];
+
+  /* detection option tree */
+  void *pgNonContentTree;
   
   int avgLen;  
   int minLen;
   int maxLen;
   int c1,c2,c3,c4,c5;
 
-  /*
-  **  Bit operation for validating matches
-  */
-  BITOP boRuleNodeID;
-  
   /*
   *   Not rule list for this group
   */
@@ -148,8 +153,8 @@ typedef struct {
 } BYTE_RULE_MAP ;
 
 
-PORT_RULE_MAP * prmNewMap( );
-BYTE_RULE_MAP * prmNewByteMap( );
+PORT_RULE_MAP * prmNewMap(void);
+BYTE_RULE_MAP * prmNewByteMap(void);
 
 void prmFreeMap( PORT_RULE_MAP * p );
 void prmFreeByteMap( BYTE_RULE_MAP * p );

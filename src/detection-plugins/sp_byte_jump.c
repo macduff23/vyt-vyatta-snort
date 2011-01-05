@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2009 Sourcefire, Inc.
+ ** Copyright (C) 2002-2010 Sourcefire, Inc.
  ** Author: Martin Roesch
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -77,6 +77,7 @@
 
 #include "bounds.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -223,7 +224,7 @@ void SetupByteJump(void)
         ByteJumpOverrideFuncsFree();
 
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("byte_jump", ByteJumpInit, ByteJumpOverride, OPT_TYPE_DETECTION);
+    RegisterRuleOption("byte_jump", ByteJumpInit, ByteJumpOverride, OPT_TYPE_DETECTION, NULL);
     AddFuncToCleanExitList(ByteJumpOverrideCleanup, NULL);
     AddFuncToRuleOptParseCleanupList(ByteJumpOverrideFuncsFree);
 
@@ -340,8 +341,6 @@ static ByteJumpOverrideData * ByteJumpParse(char *data, ByteJumpData *idx, OptTr
     int num_toks;
     char *cptr;
     int i =0;
-
-    idx->multiplier = 1;
 
     toks = mSplit(data, ",", 12, &num_toks, 0);
 
@@ -551,8 +550,11 @@ int ByteJump(void *option_data, Packet *p)
     end_ptr = start_ptr + dsize;
     base_ptr = start_ptr;
 
-    if(doe_ptr)
+    if(bjd->relative_flag && doe_ptr)
     {
+        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
+                                "Checking relative offset!\n"););
+
         /* @todo: possibly degrade to use the other buffer, seems non-intuitive*/        
         if(!inBounds(start_ptr, end_ptr, doe_ptr))
         {
@@ -562,12 +564,7 @@ int ByteJump(void *option_data, Packet *p)
             PREPROC_PROFILE_END(byteJumpPerfStats);
             return rval;
         }
-    }
 
-    if(bjd->relative_flag && doe_ptr)
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
-                                "Checking relative offset!\n"););
         base_ptr = doe_ptr + bjd->offset;
     }
     else
@@ -613,10 +610,11 @@ int ByteJump(void *option_data, Packet *p)
                             "grabbed %d of %d bytes, value = %08X\n", 
                             payload_bytes_grabbed, bjd->bytes_to_grab, value););
 
-    /* Adjust the jump_value (# bytes to jump forward) with
-     * the multiplier.
-     */
-    jump_value = value * bjd->multiplier;
+    /* Adjust the jump_value (# bytes to jump forward) with the multiplier. */
+    if (bjd->multiplier)
+        jump_value = value * bjd->multiplier;
+    else
+        jump_value = value;
 
     DEBUG_WRAP(DebugMessage(DEBUG_PATTERN_MATCH,
                             "grabbed %d of %d bytes, after multiplier value = %08X\n", 

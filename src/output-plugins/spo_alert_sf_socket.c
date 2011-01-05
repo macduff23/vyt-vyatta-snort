@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2003-2009 Sourcefire, Inc.
+** Copyright (C) 2003-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -32,6 +32,7 @@
 
 #include "event.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "debug.h"
 #include "util.h"
 #include "sfPolicy.h"
@@ -48,8 +49,6 @@
 #define SNORT_EINVAL 1
 #define SNORT_ENOENT 2
 #define SNORT_ENOMEM 3
-
-extern SnortConfig *snort_conf;
 
 static int configured = 0;
 static int connected = 0;

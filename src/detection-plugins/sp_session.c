@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -67,6 +67,7 @@
 #include <sys/stat.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -145,7 +146,7 @@ int SessionCompare(void *l, void *r)
 void SetupSession(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("session", SessionInit, NULL, OPT_TYPE_LOGGING);
+    RegisterRuleOption("session", SessionInit, NULL, OPT_TYPE_LOGGING, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("session", &sessionPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

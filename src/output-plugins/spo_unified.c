@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2005 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -52,8 +52,10 @@
 #include <errno.h>
 #include <time.h>
 
+#include "spo_unified.h"
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "util.h"
 #include "plugbase.h"
 #include "spo_plugbase.h"
@@ -71,7 +73,7 @@
 #include "stream_api.h"
 
 #ifdef GIDS
-#include "inline_extern.h"
+#include "inline.h"
 #endif
 
 #define SNORT_MAGIC     0xa1b2c3d4
@@ -82,7 +84,6 @@
 
 /* From fpdetect.c, for logging reassembled packets */
 extern uint16_t   event_id;
-extern SnortConfig *snort_conf;
 extern int pcap_snaplen;
 
 /* file header for snort unified format log files
@@ -154,6 +155,12 @@ typedef struct _UnifiedIPv6Alert
 /* ----------------External variables -------------------- */
 extern OptTreeNode *otn_tmp;
 
+#ifdef GIDS
+#ifndef IPFW
+extern ipq_packet_msg_t *g_m;
+#endif
+#endif
+
 /* ------------------ Data structures --------------------------*/
 typedef struct _UnifiedConfig
 {
@@ -205,7 +212,7 @@ static void RealUnifiedLogAlert6(Packet *, char *, void *, Event *,
         DataHeader *);
 static void RealUnifiedLogPacketAlert(Packet *, char *, void *, Event *, 
         DataHeader *);
-void RealUnifiedLogStreamAlert(Packet *,char *,void *,Event *,DataHeader *);
+static void RealUnifiedLogStreamAlert(Packet *,char *,void *,Event *,DataHeader *);
 static void UnifiedRotateFile(UnifiedConfig *data);
 
 /* Unified Alert functions (deprecated) */
@@ -220,6 +227,8 @@ static void UnifiedLogInit(char *);
 static void UnifiedInitLogFile(UnifiedConfig *);
 static void OldUnifiedLogPacketAlert(Packet *, char *, void *, Event *);
 static void UnifiedLogRotateFile(UnifiedConfig *data);
+static int UnifiedFirstPacketCallback(struct pcap_pkthdr *pkth,
+        uint8_t *packet_data, void *userdata);
 
 /* Used for buffering header and payload of unified records so only one
  * write is necessary. */
@@ -370,7 +379,7 @@ void UnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event)
     }
 }
   
-int UnifiedFirstPacketCallback(struct pcap_pkthdr *pkth,
+static int UnifiedFirstPacketCallback(struct pcap_pkthdr *pkth,
                                uint8_t *packet_data, void *userdata)
 {
     UnifiedAlert *alertdata = (UnifiedAlert*)userdata;
@@ -386,7 +395,7 @@ int UnifiedFirstPacketCallback(struct pcap_pkthdr *pkth,
     return 1;
 }
 
-void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event, 
+static void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event, 
         DataHeader *dHdr)
 {
     UnifiedConfig *data = (UnifiedConfig *)arg;
@@ -471,7 +480,7 @@ void RealUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event,
     data->current += sizeof(UnifiedAlert);
 }
 
-void RealUnifiedLogAlert6(Packet *p, char *msg, void *arg, Event *event, 
+static void RealUnifiedLogAlert6(Packet *p, char *msg, void *arg, Event *event, 
         DataHeader *dHdr)
 {
     UnifiedConfig *data = (UnifiedConfig *)arg;
@@ -793,7 +802,7 @@ int UnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
  * Log a set of packets stored in the stream reassembler
  *
  */
-void RealUnifiedLogStreamAlert(Packet *p, char *msg, void *arg, Event *event,
+static void RealUnifiedLogStreamAlert(Packet *p, char *msg, void *arg, Event *event,
         DataHeader *dHdr)
 {
     UnifiedLogStreamCallbackData unifiedData;
@@ -1084,12 +1093,12 @@ void UnifiedInitAlertFile(UnifiedConfig *data)
 }
 
 
-void OldUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event)
+static void OldUnifiedLogAlert(Packet *p, char *msg, void *arg, Event *event)
 {
     RealUnifiedLogAlert(p, msg, arg, event, NULL);
 }
 
-void UnifiedAlertRotateFile(UnifiedConfig *data)
+static void UnifiedAlertRotateFile(UnifiedConfig *data)
 {
 
     fclose(data->stream);
@@ -1099,7 +1108,7 @@ void UnifiedAlertRotateFile(UnifiedConfig *data)
 
 /* Unified Packet Log functions (deprecated) */
 
-void UnifiedLogInit(char *args)
+static void UnifiedLogInit(char *args)
 {
     UnifiedConfig *UnifiedInfo;
 
@@ -1154,7 +1163,7 @@ static void UnifiedLogInitFinalize(int unused, void *arg)
  *
  * Returns: void function
  */
-void UnifiedInitLogFile(UnifiedConfig *data)
+static void UnifiedInitLogFile(UnifiedConfig *data)
 {
     time_t curr_time;      /* place to stick the clock data */
     char logdir[STD_BUF];
@@ -1238,7 +1247,7 @@ typedef struct _OldUnifiedLogStreamCallbackData
  * Callback for the Stream reassembler to log packets
  *
  */
-int OldUnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
+static int OldUnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
                                 uint8_t *packet_data, void *userdata)
 {
     OldUnifiedLogStreamCallbackData *unifiedData;
@@ -1347,7 +1356,7 @@ int OldUnifiedLogStreamCallback(struct pcap_pkthdr *pkth,
  *
  * Returns: void function
  */
-void OldUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
+static void OldUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
 {
     OldUnifiedLogStreamCallbackData unifiedData;
     int first_time = 1;
@@ -1473,7 +1482,7 @@ void OldUnifiedLogPacketAlert(Packet *p, char *msg, void *arg, Event *event)
 }
 
 
-void UnifiedLogRotateFile(UnifiedConfig *data)
+static void UnifiedLogRotateFile(UnifiedConfig *data)
 {
 
     fclose(data->stream);

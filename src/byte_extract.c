@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2003-2009 Sourcefire, Inc.
+** Copyright (C) 2003-2010 Sourcefire, Inc.
 **               Chris Green <cmg@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify

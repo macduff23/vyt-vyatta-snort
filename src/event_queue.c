@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2004-2009 Sourcefire, Inc.
+ ** Copyright (C) 2004-2010 Sourcefire, Inc.
  **
  ** This program is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU General Public License Version 2 as
@@ -65,6 +65,18 @@
 #include "sfthreshold.h"
 #include "sfPolicy.h"
 
+static int qIndex = 0;
+
+void SnortEventqPush(void)
+{
+    if ( qIndex < NUM_EVENT_QUEUES-1 ) qIndex++;
+}
+
+void SnortEventqPop(void)
+{
+    if ( qIndex > 0 ) qIndex--;
+}
+
 /*
 **  Set default values
 */
@@ -107,7 +119,7 @@ int SnortEventqAdd(unsigned int gid,
 {
     EventNode *en;
     
-    en = (EventNode *)sfeventq_event_alloc(snort_conf->event_queue);
+    en = (EventNode *)sfeventq_event_alloc(snort_conf->event_queue[qIndex]);
     if(!en)
         return -1;
 
@@ -164,7 +176,7 @@ int SnortEventqAdd(unsigned int gid,
     }
 #endif
      
-    if (sfeventq_add(snort_conf->event_queue, (void *)en))
+    if (sfeventq_add(snort_conf->event_queue[qIndex], (void *)en))
     {
         return -1;
     }
@@ -243,10 +255,11 @@ static int OrderContentLength(void *event1, void *event2)
 #endif
 
 
-SF_EVENTQ * SnortEventqNew(EventQueueConfig *eq_config)
-{
-    SF_EVENTQ *eq;
+void SnortEventqNew(
+    EventQueueConfig *eq_config, SF_EVENTQ *eq[]
+) {
     int (*sort)(void *, void*) = NULL;
+    int i;
 
 #ifdef OLD_RULE_ORDER
     if (eq_config->order == SNORT_EVENTQ_PRIORITY)
@@ -263,13 +276,21 @@ SF_EVENTQ * SnortEventqNew(EventQueueConfig *eq_config)
     }
 #endif
 
-    eq = sfeventq_new(eq_config->max_events, eq_config->log_events,
+    for ( i = 0; i < NUM_EVENT_QUEUES; i++ )
+    {
+        eq[i] = sfeventq_new(eq_config->max_events, eq_config->log_events,
                       sizeof(EventNode), sort);
 
-    if (eq == NULL)
-        FatalError("Failed to initialize Snort event queue.\n");
+        if (eq[i] == NULL)
+            FatalError("Failed to initialize Snort event queue.\n");
+    }
+}
 
-    return eq;
+void SnortEventqFree(SF_EVENTQ *eq[])
+{
+    int i;
+    for ( i = 0; i < NUM_EVENT_QUEUES; i++ )
+        sfeventq_free(eq[i]);
 }
 
 static int LogSnortEvents(void *event, void *user)
@@ -362,14 +383,14 @@ static int LogSnortEvents(void *event, void *user)
 **  @return 1 logged events
 **  @return 0 did not log events or logged only decoder/preprocessor events
 */
-int SnortEventqLog(SF_EVENTQ *eq, Packet *p)
+int SnortEventqLog(SF_EVENTQ *eq[], Packet *p)
 {
     static SNORT_EVENTQ_USER user;
 
     user.rule_alert = 0x00;
     user.pkt = (void *)p;
 
-    if (sfeventq_action(eq, LogSnortEvents, (void *)&user) > 0)
+    if (sfeventq_action(eq[qIndex], LogSnortEvents, (void *)&user) > 0)
     {
         if (user.rule_alert)
             return 1;
@@ -380,10 +401,6 @@ int SnortEventqLog(SF_EVENTQ *eq, Packet *p)
 
 void SnortEventqReset(void)
 {
-    sfeventq_reset(snort_conf->event_queue);
+    sfeventq_reset(snort_conf->event_queue[qIndex]);
 }
 
-void SnortEventqFree(SF_EVENTQ *eq)
-{
-    sfeventq_free(eq);
-}

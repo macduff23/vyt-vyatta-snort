@@ -2,7 +2,7 @@
 /*
 ** perf-flow.h
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 ** Dan Roelker <droelker@sourcefire.com>
 **
@@ -29,9 +29,25 @@
 #define _PERF_FLOW_H
 
 #include "sf_types.h"
+#include "sfxhash.h"
+#include "ipv6_port.h"
 
 #define SF_MAX_PKT_LEN 4500
 #define SF_MAX_PORT (64*1024)
+
+typedef enum {
+    SFS_TYPE_TCP   = 0,
+    SFS_TYPE_UDP   = 1,
+    SFS_TYPE_OTHER = 2,
+    SFS_TYPE_MAX   = 3
+} SFSType;
+
+typedef enum {
+    SFS_STATE_TCP_ESTABLISHED = 0,
+    SFS_STATE_TCP_CLOSED      = 1,
+    SFS_STATE_UDP_CREATED     = 2,
+    SFS_STATE_MAX             = 3
+} SFSState;
 
 typedef struct _portflow {
 
@@ -72,6 +88,7 @@ typedef struct _sfflow {
 
     uint64_t    typeIcmpTotal;
 
+    SFXHASH     *ipMap;
 }  SFFLOW;
 
 typedef struct _sfflow_stats {
@@ -98,18 +115,23 @@ typedef struct _sfflow_stats {
 **  Functions for the performance functions to call
 */
 int InitFlowStats   (SFFLOW *sfFlow);
+int InitFlowIPStats   (SFFLOW *sfFlow);
 int UpdateFlowStats (SFFLOW *sfFlow, const unsigned char *pucBuffer, int len,
         int iRebuiltPkt);
 int ProcessFlowStats(SFFLOW *sfFlow);
+int ProcessFlowIPStats(SFFLOW *sfFlow, FILE *fh);
 
 /*
 **  These functions wrap the perf-flow functionality within
 **  decode.c so we don't have to decode the packet for our
 **  own stats.  Helps speed.
 */
-int UpdateUDPFlowStatsEx(SFFLOW *, int sport, int dport, int len );
-int UpdateTCPFlowStatsEx(SFFLOW *, int sport, int dport, int len );
+int UpdateUDPFlowStatsEx(SFFLOW *, int sport, int dport, int len);
+int UpdateTCPFlowStatsEx(SFFLOW *, int sport, int dport, int len);
 int UpdateICMPFlowStatsEx(SFFLOW *, int type, int len);
+int UpdateFlowIPStats(SFFLOW *, snort_ip_p src_addr, snort_ip_p dst_addr, int len, SFSType type);
+int UpdateFlowIPState(SFFLOW *, snort_ip_p src_addr, snort_ip_p dst_addr, SFSState state);
+void FreeFlowStats(SFFLOW *sfFlow);
 
 #endif
 

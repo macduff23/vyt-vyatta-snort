@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@
 
 #include "bitop_funcs.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "sf_types.h"
 #include "debug.h"
 
@@ -90,6 +91,7 @@ typedef enum _RuleOptType
 } RuleOptType;
 
 typedef void (*RuleOptConfigFunc)(char *, OptTreeNode *, int);
+typedef void (*RuleOptOtnHandler)(OptTreeNode *);
 typedef void (*RuleOptOverrideFunc)(char *, char *, char *, OptTreeNode *, int);
 typedef void (*RuleOptOverrideInitFunc)(char *, char *, RuleOptOverrideFunc);
 typedef int (*RuleOptEvalFunc)(void *, Packet *);
@@ -102,6 +104,7 @@ typedef struct _RuleOptConfigFuncNode
     char *keyword;
     RuleOptType type;
     RuleOptConfigFunc func;
+    RuleOptOtnHandler otn_handler;
     struct _RuleOptConfigFuncNode *next;
 
 } RuleOptConfigFuncNode;
@@ -111,6 +114,7 @@ typedef struct _RuleOptOverrideInitFuncNode
     char *keyword;
     RuleOptType type;
     RuleOptOverrideInitFunc func;
+    RuleOptOtnHandler otn_handler;
     struct _RuleOptOverrideInitFuncNode *next;
 
 } RuleOptOverrideInitFuncNode;
@@ -123,7 +127,7 @@ typedef struct _RuleOptParseCleanupNode
 } RuleOptParseCleanupNode;
 
 void RegisterRuleOptions(void);
-void RegisterRuleOption(char *, RuleOptConfigFunc, RuleOptOverrideInitFunc, RuleOptType);
+void RegisterRuleOption(char *, RuleOptConfigFunc, RuleOptOverrideInitFunc, RuleOptType, RuleOptOtnHandler);
 void RegisterOverrideKeyword(char *, char *, RuleOptOverrideFunc);
 void DumpRuleOptions(void);
 OptFpList * AddOptFuncToList(RuleOptEvalFunc, OptTreeNode *);

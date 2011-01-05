@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2009 Sourcefire, Inc.
+** Copyright (C) 1998-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -73,6 +73,7 @@ typedef struct _var_t {
     /* Linked list of IP variables for the variable table */
     struct _var_t *next;
 
+    uint32_t id;
     char *name;
 } sfip_var_t;
 
@@ -80,7 +81,15 @@ typedef struct _var_t {
 /* Expand later to use a faster data structure */
 typedef struct _vartable_t {
     sfip_var_t *head;
+    uint32_t id;
 } vartable_t;
+
+/* Creates a new variable that is an alias of another variable
+ * Does a "deep" copy so it owns it's own pointers */
+sfip_var_t * sfvar_create_alias(const sfip_var_t *alias_from, const char *alias_to);
+
+/* Returns 1 if the two variables are aliases of each other, 0 otherwise */
+int sfvar_is_alias(const sfip_var_t *one, const sfip_var_t *two);
 
 /* Allocates a new variable as according to "str" */
 sfip_var_t *sfvar_alloc(vartable_t *table, char *str, SFIP_RET *status);
@@ -106,10 +115,10 @@ SFIP_RET sfvar_add(sfip_var_t *dst, sfip_var_t *src);
 SFIP_RET sfvar_add_node(sfip_var_t *dst, sfip_node_t *src, int negated);
 
 /* Compares two variables.  Necessary when building RTN structure */
-SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two);
+SFIP_RET sfvar_compare(const sfip_var_t *one, const sfip_var_t *two);
 
 /* Deep copy. Returns identical, new, linked list of sfipnodes. */
-sfip_var_t *sfvar_deep_copy(sfip_var_t *src);
+sfip_var_t *sfvar_deep_copy(const sfip_var_t *src);
 
 /* Free an allocated variable */
 void sfvar_free(sfip_var_t *var);

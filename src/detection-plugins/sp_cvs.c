@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2007-2009 Sourcefire, Inc.
+** Copyright (C) 2007-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -47,6 +47,7 @@
 #include <errno.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -121,7 +122,7 @@ int CvsCompare(void *l, void *r)
 
 void SetupCvs(void)
 { 
-    RegisterRuleOption("cvs", CvsInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("cvs", CvsInit, NULL, OPT_TYPE_DETECTION, NULL);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("cvs", &cvsPerfStats, 3, &ruleOTNEvalPerfStats);

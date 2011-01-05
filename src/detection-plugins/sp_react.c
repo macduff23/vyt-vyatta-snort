@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Maciej Szarpak
 **
@@ -27,7 +27,7 @@
  * 
  * Purpose:
  *
- * React! Deny the access to some unsuitable web-sites (like porn sites) or
+ * React! Deny the access to some unsuitable web-sites or
  * close the offending connections.
  *
  * Arguments:
@@ -62,6 +62,7 @@
 #include <libnet.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -235,7 +236,7 @@ void SetupReact(void)
 
 /* we need an empty plug otherwise. To avoid #ifdef in plugbase */
 
-    RegisterRuleOption("react", ReactInit, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("react", ReactInit, NULL, OPT_TYPE_ACTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("react", &reactPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

@@ -2,7 +2,7 @@
 **
 **  spp_perfmonitor.c
 **
-**  Copyright (C) 2002-2009 Sourcefire, Inc.
+**  Copyright (C) 2002-2010 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -41,7 +41,6 @@
 
 #include "profiler.h"
 
-extern SnortConfig *snort_conf_for_parsing;
 extern pcap_t *pcap_handle;
 extern SFBASE sfBase;
 extern SFFLOW sfFlow;
@@ -132,6 +131,12 @@ static void PerfMonitorInit(char *args)
             ParseError("Cannot open performance log file '%s'.", perfmon_config->file);
     }
 
+    if (perfmon_config->flowip_file != NULL)
+    {
+        if (sfOpenFlowIPStatsFile(perfmon_config))
+            ParseError("Cannot open Flow-IP log file '%s'.", perfmon_config->flowip_file);
+    }
+
     /* Set the preprocessor function into the function list */
     AddFuncToPreprocList(ProcessPerfMonitor, PRIORITY_SCANNER, PP_PERFMONITOR, PROTO_BIT__ALL);
     AddFuncToPreprocCleanExitList(PerfMonitorCleanExit, NULL, PRIORITY_LAST, PP_PERFMONITOR);
@@ -166,10 +171,11 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
     int   iTokenNum=0;
     int   i, iTime=60, iFlow=0, iFlowMaxPort=1023, iEvents=0, iMaxPerfStats=0;
     int   iFile=0, iSnortFile=0, iConsole=0, iPkts=10000, iReset=1;
-    int   iStatsExit=0;
-    uint32_t uiMaxFileSize=MAX_PERF_FILE_SIZE;
+    int   iStatsExit=0, iFlowIP=0;
+    uint32_t uiMaxFileSize=MAX_PERF_FILE_SIZE, uiFlowIPMemcap=50*1024*1024;
     char  *file = NULL;
     char  *snortfile = NULL;
+    char  *flowipfile = NULL;
     char  *pcEnd;
 
     if (pconfig == NULL)
@@ -297,7 +303,7 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
                            "value should be a positive integer.");
             }
 
-            uiMaxFileSize = strtoul(Tokens[++i], &pcEnd, 10);
+            uiMaxFileSize = SnortStrtoul(Tokens[++i], &pcEnd, 10);
 
             if (*pcEnd || (errno == ERANGE))
             {
@@ -324,6 +330,29 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
         {
             iStatsExit = 1;
         }
+        else if (!strcasecmp(Tokens[i], "flow-ip"))
+        {
+            iFlowIP = 1;
+        }
+        else if (!strcasecmp(Tokens[i], "flow-ip-file"))
+        {
+            if (i == (iTokenNum - 1))
+            {
+                ParseError("Missing 'flow-ip-file' argument.  This value is the file to save flow-ip stats to.");
+            }
+
+            iFlowIP = 1;
+            flowipfile = ProcessFileOption(snort_conf_for_parsing, Tokens[++i]);
+        }
+        else if (!strcasecmp(Tokens[i], "flow-ip-memcap"))
+        {
+            iFlowIP = 1;
+            uiFlowIPMemcap = strtol(Tokens[++i], &pcEnd, 10);
+            if(iTime <= 0 || *pcEnd)
+            {
+                ParseError("Invalid Flow-IP memcap.  The value must be in bytes described by a positive integer.");
+            }
+        }
         else
         {
             ParseError("Invalid parameter '%s' to preprocessor "
@@ -344,6 +373,14 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
     {
         sfSetPerformanceStatistics(pconfig, SFPERF_FLOW);
         pconfig->flow_max_port_to_track = iFlowMaxPort;
+
+    }
+
+    if (iFlowIP)
+    {
+        sfSetPerformanceStatistics(pconfig, SFPERF_FLOWIP);
+        pconfig->flowip_file = flowipfile;
+        pconfig->flowip_memcap = uiFlowIPMemcap;
     }
 
     if (iEvents)
@@ -399,6 +436,12 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
     LogMessage("PerfMonitor config:\n");
     LogMessage("    Time:           %d seconds\n", iTime);
     LogMessage("    Flow Stats:     %s\n", iFlow ? "ACTIVE" : "INACTIVE");
+    LogMessage("    Flow IP Stats:  %s\n", iFlowIP ? "ACTIVE" : "INACTIVE");
+    if (iFlowIP)
+    {
+        LogMessage("       Flow IP Memcap:  %u\n", uiFlowIPMemcap);
+        LogMessage("       Flow IP File:    %s\n", flowipfile ? flowipfile : "INACTIVE");
+    }
     LogMessage("    Event Stats:    %s\n", iEvents ? "ACTIVE" : "INACTIVE");
     LogMessage("    Max Perf Stats: %s\n", 
                iMaxPerfStats ? "ACTIVE" : "INACTIVE");
@@ -433,6 +476,7 @@ static void ParsePerfMonitorArgs(SFPERF *pconfig, char *args)
 static void ProcessPerfMonitor(Packet *p, void *context)
 {
     static int first = 1;
+    SFSType type = SFS_TYPE_OTHER;
     PROFILE_VARS;
 
     if( first )
@@ -501,25 +545,41 @@ static void ProcessPerfMonitor(Packet *p, void *context)
     *  TCP Flow Perf
     */
     if(p->pkth && (perfmon_config->perf_flags & SFPERF_FLOW))
-   {
+    {
         /*
         **  TCP Flow Stats
         */
         if( p->tcph && !(p->packet_flags & PKT_REBUILT_STREAM))
         {
             UpdateTCPFlowStatsEx(&sfFlow, p->sp, p->dp, p->pkth->caplen);
+            type = SFS_TYPE_TCP;
         }
         /*
         *  UDP Flow Stats
         */
         else if( p->udph )
+        {
             UpdateUDPFlowStatsEx(&sfFlow, p->sp, p->dp, p->pkth->caplen);
-
+            type = SFS_TYPE_UDP;
+        }
         /*
         *  Get stats for ICMP packets
         */
         else if( p->icmph )
             UpdateICMPFlowStatsEx(&sfFlow, p->icmph->type, p->pkth->caplen);
+    }
+
+    /*
+     * IPv4 distribution flow stats
+     */
+    if (p->pkth && (perfmon_config->perf_flags & SFPERF_FLOWIP) && IsIP(p))
+    {
+        if (p->tcph && !(p->packet_flags & PKT_REBUILT_STREAM))
+            type = SFS_TYPE_TCP;
+        else if (p->udph)
+            type = SFS_TYPE_UDP;
+
+        UpdateFlowIPStats(&sfFlow, GET_SRC_IP(p), GET_DST_IP(p), p->pkth->caplen, type);
     }
 
     PREPROC_PROFILE_END(perfmonStats);
@@ -536,6 +596,11 @@ static void PerfMonitorCleanExit(int signal, void *foo)
 
     /* Close the performance stats file */
     sfSetPerformanceStatisticsEx(perfmon_config, SFPERF_FILECLOSE, NULL);
+    sfCloseFlowIPStatsFile(perfmon_config);
+    FreeFlowStats(&sfFlow);
+#ifdef LINUX_SMP
+    FreeProcPidStats(&sfBase.sfProcPidStats);
+#endif
 
     PerfMonitorFreeConfig(perfmon_config);
     perfmon_config = NULL;
@@ -548,6 +613,9 @@ static void PerfMonitorFreeConfig(SFPERF *config)
 
     if (config->file != NULL)
         free(config->file);
+
+    if (config->flowip_file != NULL)
+        free(config->flowip_file);
 
     free(config);
 }
@@ -562,6 +630,7 @@ static void PerfMonitorRestart(int signal, void *foo)
 
     /* Close the performance stats file */
     sfSetPerformanceStatisticsEx(perfmon_config, SFPERF_FILECLOSE, NULL);
+    sfCloseFlowIPStatsFile(perfmon_config);
 
     PerfMonitorFreeConfig(perfmon_config);
     perfmon_config = NULL;

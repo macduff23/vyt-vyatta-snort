@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -49,9 +49,6 @@
 #define S5_MAX_SSN_TIMEOUT      3600*24   /* max timeout (approx 1 day) */
 #define S5_MIN_SSN_TIMEOUT      1         /* min timeout (1 second) */
 #define S5_MIN_ALT_HS_TIMEOUT   0         /* min timeout (0 seconds) */
-#define S5_DEFAULT_MIN_TTL      1         /* default for min TTL */
-#define S5_MIN_MIN_TTL          1         /* min for min TTL */
-#define S5_MAX_MIN_TTL          255       /* max for min TTL */
 #define S5_TRACK_YES            1
 #define S5_TRACK_NO             0
 #define S5_MAX_MAX_WINDOW       0x3FFFc000 /* max window allowed by TCP */
@@ -212,11 +209,12 @@ typedef struct _Stream5LWSession
 
 typedef struct _Stream5GlobalConfig
 {
+    char       disabled;
     char       track_tcp_sessions;
-    uint32_t   max_tcp_sessions;
     char       track_udp_sessions;
-    uint32_t   max_udp_sessions;
     char       track_icmp_sessions;
+    uint32_t   max_tcp_sessions;
+    uint32_t   max_udp_sessions;
     uint32_t   max_icmp_sessions;
     uint32_t   memcap;
     uint32_t   prune_log_max;
@@ -267,12 +265,11 @@ typedef struct _Stream5TcpPolicy
 {
     uint16_t   policy;
     uint16_t   reassembly_policy;
+    uint16_t   flags;
     uint32_t   session_timeout;
-    uint8_t    min_ttl;
     uint32_t   max_window;
     uint32_t   overlap_limit;
     uint32_t   hs_timeout;
-    uint16_t   flags;
     IpAddrSet   *bound_addrs;
     FlushConfig flush_config[MAX_PORTS];
 #ifdef TARGET_BASED
@@ -286,7 +283,7 @@ typedef struct _Stream5TcpPolicy
 
     uint32_t   max_consec_small_segs;
     uint32_t   max_consec_small_seg_size;
-    char        small_seg_ignore[MAX_PORTS/8];
+    char       small_seg_ignore[MAX_PORTS/8];
 
 } Stream5TcpPolicy;
 

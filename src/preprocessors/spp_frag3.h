@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2004-2009 Sourcefire, Inc.
+** Copyright (C) 2004-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2004 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify

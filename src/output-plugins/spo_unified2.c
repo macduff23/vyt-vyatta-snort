@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2007-2009 Sourcefire, Inc.
+** Copyright (C) 2007-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -41,6 +41,7 @@
 #include "spo_unified2.h"
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "util.h"
 #include "plugbase.h"
 #include "spo_plugbase.h"
@@ -51,6 +52,7 @@
 #include "generators.h"
 #include "debug.h"
 #include "bounds.h"
+#include "obfuscation.h"
 
 #include "snort.h"
 #include "pcap_pkthdr32.h"
@@ -59,7 +61,7 @@
 #include "stream_api.h"
 
 #ifdef GIDS
-#include "inline_extern.h"
+#include "inline.h"
 #endif
 
 /* ------------------ Data structures --------------------------*/
@@ -78,18 +80,26 @@ typedef struct _Unified2Config
     int vlan_event_types;
 } Unified2Config;
 
-typedef struct _Unified2LogStreamCallbackData
+typedef struct _Unified2LogCallbackData
 {
     Unified2Packet *logheader;
     Unified2Config *config;
     Event *event;
-    int once;
-} Unified2LogStreamCallbackData;
+    uint32_t num_bytes;
+
+} Unified2LogCallbackData;
+
 
 /* ----------------External variables -------------------- */
 /* From fpdetect.c, for logging reassembled packets */
 extern uint16_t event_id;
 extern OptTreeNode *otn_tmp;
+
+#ifdef GIDS
+#ifndef IPFW
+extern ipq_packet_msg_t *g_m;
+#endif
+#endif
 
 /* -------------------- Global Variables ----------------------*/
 #ifdef GIDS
@@ -157,8 +167,10 @@ static void Unified2AlertInit(char *);
 /* Unified2 Packet Log functions (deprecated) */
 static void Unified2LogInit(char *);
 
-#define U2_PACKET_FLAG 1
+static ObRet Unified2LogObfuscationCallback(const struct pcap_pkthdr *pkth,
+        const uint8_t *packet_data, ob_size_t length, ob_char_t ob_char, void *userdata);
 
+#define U2_PACKET_FLAG 1
 #define U2_FLAG_BLOCKED 0x20
 
 /*
@@ -731,6 +743,26 @@ static void _Unified2LogPacketAlert(Packet *p, char *msg,
         logheader.event_second = 0;
     }
 
+    if ((p != NULL) && (p->pkt != NULL) && (p->pkth != NULL)
+            && obApi->payloadObfuscationRequired(p))
+    {
+        Unified2LogCallbackData unifiedData;
+
+        unifiedData.logheader = &logheader;
+        unifiedData.config = config;
+        unifiedData.event = event;
+        unifiedData.num_bytes = 0;
+
+        if (obApi->obfuscatePacket(p, Unified2LogObfuscationCallback,
+                (void *)&unifiedData) == OB_RET_SUCCESS)
+        {
+            /* Write the last record */
+            if (unifiedData.num_bytes != 0)
+                Unified2Write(write_pkt_buffer, unifiedData.num_bytes, config);
+            return;
+        }
+    }
+
     if(p && p->pkt && p->pkth)
     {
         logheader.packet_second = htonl((uint32_t)p->pkth->ts.tv_sec);
@@ -793,7 +825,7 @@ static void _Unified2LogPacketAlert(Packet *p, char *msg,
 static int Unified2LogStreamCallback(struct pcap_pkthdr *pkth,
                                      uint8_t *packet_data, void *userdata)
 {
-    Unified2LogStreamCallbackData *unifiedData = (Unified2LogStreamCallbackData *)userdata;
+    Unified2LogCallbackData *unifiedData = (Unified2LogCallbackData *)userdata;
     Unified2RecordHeader hdr;
     uint32_t write_len = sizeof(Unified2RecordHeader) + sizeof(Unified2Packet) - 4;
 
@@ -864,6 +896,94 @@ static int Unified2LogStreamCallback(struct pcap_pkthdr *pkth,
     return 0;
 }
 
+static ObRet Unified2LogObfuscationCallback(const struct pcap_pkthdr *pkth,
+        const uint8_t *packet_data, ob_size_t length,
+        ob_char_t ob_char, void *userdata)
+{
+    Unified2LogCallbackData *unifiedData = (Unified2LogCallbackData *)userdata;
+
+    if (userdata == NULL)
+        return OB_RET_ERROR;
+
+    if (pkth != NULL)
+    {
+        Unified2RecordHeader hdr;
+        uint32_t record_len = (pkth->caplen + sizeof(Unified2RecordHeader)
+                + (sizeof(Unified2Packet) - 4));
+
+        /* Write the last buffer if present.  Want to write an entire record
+         * at a time in case of failures, we don't corrupt the log file. */
+        if (unifiedData->num_bytes != 0)
+            Unified2Write(write_pkt_buffer, unifiedData->num_bytes, unifiedData->config);
+
+        if ((write_pkt_buffer + record_len) > write_pkt_end)
+        {
+            ErrorMessage("%s(%d) Too much data. Not writing unified2 event.\n",
+                    __FILE__, __LINE__);
+            return OB_RET_ERROR;
+        }
+
+        if ((unifiedData->config->current + record_len) > unifiedData->config->limit)
+            Unified2RotateFile(unifiedData->config);
+
+        hdr.type = htonl(UNIFIED2_PACKET);
+        hdr.length = htonl((sizeof(Unified2Packet) - 4) + pkth->caplen);
+
+        /* Event data will already be set */
+
+        unifiedData->logheader->packet_second = htonl((uint32_t)pkth->ts.tv_sec);
+        unifiedData->logheader->packet_microsecond = htonl((uint32_t)pkth->ts.tv_usec);
+        unifiedData->logheader->packet_length = htonl(pkth->caplen);
+
+        if (SafeMemcpy(write_pkt_buffer, &hdr, sizeof(Unified2RecordHeader),
+                    write_pkt_buffer, write_pkt_end) != SAFEMEM_SUCCESS)
+        {
+            ErrorMessage("%s(%d) Failed to copy Unified2RecordHeader. "
+                    "Not writing unified2 event.\n", __FILE__, __LINE__);
+            return OB_RET_ERROR;
+        }
+
+        if (SafeMemcpy(write_pkt_buffer + sizeof(Unified2RecordHeader),
+                    unifiedData->logheader, sizeof(Unified2Packet) - 4,
+                    write_pkt_buffer, write_pkt_end) != SAFEMEM_SUCCESS)
+        {
+            ErrorMessage("%s(%d) Failed to copy Unified2Packet. "
+                    "Not writing unified2 event.\n", __FILE__, __LINE__);
+            return OB_RET_ERROR;
+        }
+
+        /* Reset this for the new record */
+        unifiedData->num_bytes = (record_len - pkth->caplen);
+    }
+
+    if (packet_data != NULL)
+    {
+        if (SafeMemcpy(write_pkt_buffer + unifiedData->num_bytes,
+                    packet_data, (size_t)length,
+                    write_pkt_buffer, write_pkt_end) != SAFEMEM_SUCCESS)
+        {
+            ErrorMessage("%s(%d) Failed to copy packet data "
+                    "Not writing unified2 event.\n", __FILE__, __LINE__);
+            return OB_RET_ERROR;
+        }
+    }
+    else
+    {
+        if (SafeMemset(write_pkt_buffer + unifiedData->num_bytes,
+                    (uint8_t)ob_char, (size_t)length,
+                    write_pkt_buffer, write_pkt_end) != SAFEMEM_SUCCESS)
+        {
+            ErrorMessage("%s(%d) Failed to obfuscate packet data "
+                    "Not writing unified2 event.\n", __FILE__, __LINE__);
+            return OB_RET_ERROR;
+        }
+    }
+
+    unifiedData->num_bytes += length;
+
+    return OB_RET_SUCCESS;
+}
+
 
 /**
  * Log a set of packets stored in the stream reassembler
@@ -871,9 +991,8 @@ static int Unified2LogStreamCallback(struct pcap_pkthdr *pkth,
  */
 static void _Unified2LogStreamAlert(Packet *p, char *msg, Unified2Config *config, Event *event)
 {
-    Unified2LogStreamCallbackData unifiedData;
+    Unified2LogCallbackData unifiedData;
     Unified2Packet logheader;
-    int once = 0;
 
     logheader.sensor_id = 0;
     logheader.linktype = htonl(datalink);
@@ -894,7 +1013,23 @@ static void _Unified2LogStreamAlert(Packet *p, char *msg, Unified2Config *config
     unifiedData.logheader = &logheader;
     unifiedData.config = config;
     unifiedData.event = event;
-    unifiedData.once = once;
+    unifiedData.num_bytes = 0;
+
+    if ((p != NULL) && (p->pkt != NULL) && (p->pkth != NULL)
+            && obApi->payloadObfuscationRequired(p))
+    {
+        if (obApi->obfuscatePacketStreamSegments(p, Unified2LogObfuscationCallback,
+                (void *)&unifiedData) == OB_RET_SUCCESS)
+        {
+            /* Write the last record */
+            if (unifiedData.num_bytes != 0)
+                Unified2Write(write_pkt_buffer, unifiedData.num_bytes, config);
+            return;
+        }
+
+        /* Reset since we failed */
+        unifiedData.num_bytes = 0;
+    }
 
     stream_api->traverse_reassembled(p, Unified2LogStreamCallback, &unifiedData);
 }
@@ -952,7 +1087,7 @@ static Unified2Config * Unified2ParseArgs(char *args, char *default_filename)
 
                 if ((num_stoks > 1) && (config->limit == 0))
                 {
-                    config->limit = strtoul(stoks[1], &end, 10);
+                    config->limit = SnortStrtoul(stoks[1], &end, 10);
                     if ((stoks[1] == end) || (errno == ERANGE))
                     {
                         FatalError("Argument Error in %s(%i): %s\n",

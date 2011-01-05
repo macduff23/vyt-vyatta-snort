@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -87,6 +87,7 @@
 #include "detection-plugins/sp_isdataat.h"
 #include "detection-plugins/sp_pcre.h"
 #include "detection-plugins/sp_flowbits.h"
+#include "detection-plugins/sp_file_data.h"
 #include "detection-plugins/sp_asn1.h"
 #ifdef ENABLE_REACT
 #include "detection-plugins/sp_react.h"
@@ -126,7 +127,6 @@
 #include "output-plugins/spo_alert_test.h"
 
 extern ListHead *head_tmp;
-extern SnortConfig *snort_conf_for_parsing;
 extern PreprocConfigFuncNode *preproc_config_funcs;
 extern OutputConfigFuncNode *output_config_funcs;
 extern RuleOptConfigFuncNode *rule_opt_config_funcs;
@@ -188,6 +188,7 @@ void RegisterRuleOptions(void)
     SetupByteTest();
     SetupByteJump();
     SetupIsDataAt();
+    SetupFileData();
     SetupPcre();
     SetupFlowBits();
     SetupAsn1();
@@ -219,7 +220,8 @@ void RegisterRuleOptions(void)
  ***************************************************************************/
 void RegisterRuleOption(char *opt_name, RuleOptConfigFunc config_func,
                         RuleOptOverrideInitFunc override_init_func,
-                        RuleOptType opt_type)
+                        RuleOptType opt_type,
+                        RuleOptOtnHandler otn_handler)
 {
     RuleOptConfigFuncNode *node;
 
@@ -257,6 +259,7 @@ void RegisterRuleOption(char *opt_name, RuleOptConfigFunc config_func,
     node->keyword = SnortStrdup(opt_name);
     node->type = opt_type;
     node->func = config_func;
+    node->otn_handler = otn_handler;
 
     if (override_init_func != NULL)
     {
@@ -292,6 +295,7 @@ void RegisterRuleOption(char *opt_name, RuleOptConfigFunc config_func,
         node_override->keyword = SnortStrdup(opt_name);
         node_override->type = opt_type;
         node_override->func = override_init_func;
+        node_override->otn_handler = otn_handler;
     }
 }
 
@@ -773,6 +777,7 @@ PreprocEvalFuncNode * AddFuncToPreprocList(PreprocEvalFunc func, uint16_t priori
 
     p->num_preprocs++;
     p->preproc_proto_mask |= proto_mask;
+    p->preproc_bit_mask |= node->preproc_bit;
 
     return node;
 }

@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
- * ** Copyright (C) 2005-2009 Sourcefire, Inc.
+ * ** Copyright (C) 2005-2010 Sourcefire, Inc.
  * ** AUTHOR: Steven Sturges
  * **
  * ** This program is free software; you can redistribute it and/or modify
@@ -108,9 +108,21 @@
 #define STREAM_API_VERSION5 5
 
 typedef void (*StreamAppDataFree)(void *);
-typedef int (*PacketIterator)(struct pcap_pkthdr *,
-                              uint8_t *,
-                              void *); /* user-defined data pointer */
+typedef int (*PacketIterator)
+    (
+     struct pcap_pkthdr *,
+     uint8_t *,  /* pkt pointer */
+     void *      /* user-defined data pointer */
+    );
+
+typedef int (*StreamSegmentIterator)
+    (
+     struct pcap_pkthdr *,
+     uint8_t *,  /* pkt pointer */
+     uint8_t *,  /* payload pointer */
+     uint32_t,   /* sequence number */
+     void *      /* user-defined data pointer */
+    );
 
 typedef struct _StreamFlowData
 {
@@ -126,7 +138,7 @@ typedef struct _stream_api
      * Drop on Inline Alerts for Midstream pickups
      *
      * Parameters
-     *
+     *,
      * Returns
      *     0 if not alerting
      *     !0 if alerting
@@ -279,6 +291,20 @@ typedef struct _stream_api
      *     number of packets
      */
     int (*traverse_reassembled)(Packet *, PacketIterator, void *userdata);
+
+    /* Calls user-provided callback function for each segment of
+     * a reassembled stream.  If the callback function returns non-zero,
+     * iteration ends.
+     *
+     * Parameters
+     *     Packet
+     *     StreamSegmentIterator Function (called for each packet in the stream)
+     *     user data (may be NULL)
+     *
+     * Returns
+     *     number of packets
+     */
+    int (*traverse_stream_segments)(Packet *, StreamSegmentIterator, void *userdata);
 
     /* Add session alert
      *
@@ -446,6 +472,26 @@ typedef struct _stream_api
      */
     void (*set_flush_point)(void *, char, uint32_t);
 
+#ifdef TARGET_BASED
+    /* Turn off inspection for potential session.
+     * Adds session identifiers to a hash table.
+     * TCP only.
+     *
+     * Parameters
+     *     IP addr #1
+     *     Port #1
+     *     IP addr #2
+     *     Port #2
+     *     Protocol
+     *     ID
+     *
+     * Returns
+     *     0 on success
+     *     -1 on failure
+     */
+    int (*set_application_protocol_id_expected)(snort_ip_p, uint16_t, snort_ip_p, uint16_t,
+                          char, int16_t);
+#endif
 } StreamAPI;
 
 /* To be set by Stream5 (or Stream4) */

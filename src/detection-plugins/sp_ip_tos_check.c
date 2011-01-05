@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,7 @@
 #endif
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -109,7 +110,7 @@ int IpTosCheckCompare(void *l, void *r)
 void SetupIpTosCheck(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("tos", IpTosCheckInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("tos", IpTosCheckInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("tos", &ipTosPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

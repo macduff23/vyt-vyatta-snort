@@ -1,3 +1,6 @@
+# To use Rule or Preprocessor profiling, you must build snort using the
+# --enable-perfprofiling option to configure.
+
 # Rule Profiling Configuration
 #
 # syntax:

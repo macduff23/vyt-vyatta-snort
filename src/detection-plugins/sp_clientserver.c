@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- ** Copyright (C) 2002-2009 Sourcefire, Inc.
+ ** Copyright (C) 2002-2010 Sourcefire, Inc.
  ** Author: Martin Roesch
  **
  ** This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,7 @@
 #include <ctype.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -186,7 +187,7 @@ int OtnFlowOnlyReassembled( OptTreeNode * otn )
 void SetupClientServer(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("flow", FlowInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("flow", FlowInit, NULL, OPT_TYPE_DETECTION, NULL);
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("flow", &flowCheckPerfStats, 3, &ruleOTNEvalPerfStats);

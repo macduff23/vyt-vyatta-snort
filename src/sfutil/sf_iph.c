@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2007-2009 Sourcefire, Inc.
+ * Copyright (C) 2007-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -37,6 +37,7 @@
  * So, for performance reasons, argument validation can be disabled
  * and removed from the code at compile time to prevent unecessary extra 
  * conditionals from being checked at run-time. */
+#define ERR_CHK_LVL  0
 #if ERR_CHK_LVL == 2
 #define VALIDATE(x,y) if(!x || !y) return FAILURE;
 #elif ERR_CHK_LVL == 1

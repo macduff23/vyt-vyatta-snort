@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -399,6 +399,25 @@ void sfrt_iterate(table_t* table, sfrt_iterator_callback userfunc)
     }
 
     return;
+}
+
+int sfrt_iterate2(table_t* table, sfrt_iterator_callback3 userfunc)
+{
+    uint32_t index;
+    if (!table)
+        return 0;
+
+    for (index = 0; index < table->num_ent; index++)
+    {
+        if (table->data[index])
+        {
+            int ret = userfunc(table->data[index]);
+            if (ret != 0)
+                return ret;
+        }
+    }
+
+    return 0;
 }
 
 void sfrt_cleanup2(

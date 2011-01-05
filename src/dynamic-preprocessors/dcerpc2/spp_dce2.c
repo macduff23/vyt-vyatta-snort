@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -176,13 +176,6 @@ static void DCE2_InitGlobal(char *args)
         DCE2_StatsInit();
         DCE2_EventsInit();
 
-        if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
-        {
-            DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
-                     "TCP and UDP tracking.",
-                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
-        }
-        
         /* Initialize reassembly packet */
         DCE2_InitRpkts();   
 
@@ -251,8 +244,22 @@ static void DCE2_InitGlobal(char *args)
     /* Parse configuration args */
     DCE2_GlobalConfigure(pCurrentPolicyConfig, args);
 
+    if (policy_id != 0)
+        pCurrentPolicyConfig->gconfig->memcap = pDefaultPolicyConfig->gconfig->memcap;
+
+    if ( pCurrentPolicyConfig->gconfig->disabled )
+        return;
+
+    if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: "
+            "Stream5 must be enabled with TCP and UDP tracking.",
+            *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+
     /* Register callbacks */
-    _dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
+    _dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, 
+        PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
 
 #ifdef TARGET_BASED
     _dpd.streamAPI->set_service_filter_status
@@ -261,9 +268,6 @@ static void DCE2_InitGlobal(char *args)
     _dpd.streamAPI->set_service_filter_status
         (dce2_proto_ids.nbss, PORT_MONITOR_SESSION, policy_id, 1);
 #endif
-
-    if (policy_id != 0)
-        pCurrentPolicyConfig->gconfig->memcap = pDefaultPolicyConfig->gconfig->memcap;
 }
 
 /*********************************************************************
@@ -305,19 +309,19 @@ static int DCE2_CheckConfigPolicy(
     DCE2_Config *pPolicyConfig = (DCE2_Config *)pData;
     DCE2_ServerConfig *dconfig;
 
+    if ( pPolicyConfig->gconfig->disabled )
+        return 0;
+
     _dpd.setParserPolicy(policyId);
+    // config_file/config_line are not set here
     if (!_dpd.isPreprocEnabled(PP_STREAM5))
     {
-        DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
-                "TCP and UDP tracking.",
-                *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        DCE2_Die("Stream5 must be enabled with TCP and UDP tracking.");
     }
 
     if (_dpd.isPreprocEnabled(PP_DCERPC))
     {
-        DCE2_Die("%s(%d) \"%s\" configuration: Only one DCE/RPC preprocessor "
-                "can be configured.",
-                *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+        DCE2_Die("Only one DCE/RPC preprocessor can be configured.");
     }
 
     dconfig = pPolicyConfig->dconfig;
@@ -368,7 +372,7 @@ static void DCE2_CheckConfig(void)
  *********************************************************************/
 static void DCE2_Main(void *pkt, void *context)
 {
-	SFSnortPacket *p = (SFSnortPacket *)pkt;
+    SFSnortPacket *p = (SFSnortPacket *)pkt;
     PROFILE_VARS;
 
     DEBUG_WRAP(DCE2_DebugMsg(DCE2_DEBUG__ALL, "%s\n", DCE2_DEBUG__START_MSG));
@@ -1282,14 +1286,6 @@ static void DCE2_ReloadGlobal(char *args)
                      "configuration.\n",
                      *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
         }
-
-        if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
-        {
-            DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
-                     "TCP and UDP tracking.",
-                     *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
-        }
-
         _dpd.addPreprocReloadVerify(DCE2_ReloadVerify);
     }
 
@@ -1313,13 +1309,25 @@ static void DCE2_ReloadGlobal(char *args)
 
     DCE2_RegRuleOptions();
 
-    pCurrentPolicyConfig = (DCE2_Config *)DCE2_Alloc(sizeof(DCE2_Config), DCE2_MEM_TYPE__CONFIG);
+    pCurrentPolicyConfig = (DCE2_Config *)DCE2_Alloc(sizeof(DCE2_Config),
+        DCE2_MEM_TYPE__CONFIG);
+
     sfPolicyUserDataSetCurrent(dce2_swap_config, pCurrentPolicyConfig);
 
     /* Parse configuration args */
     DCE2_GlobalConfigure(pCurrentPolicyConfig, args);
 
-	_dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2, PROTO_BIT__TCP | PROTO_BIT__UDP);
+    if ( pCurrentPolicyConfig->gconfig->disabled )
+        return;
+
+    if ((_dpd.streamAPI == NULL) || (_dpd.streamAPI->version != STREAM_API_VERSION5))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: "
+            "Stream5 must be enabled with TCP and UDP tracking.",
+            *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
+    _dpd.addPreproc(DCE2_Main, PRIORITY_APPLICATION, PP_DCE2,
+        PROTO_BIT__TCP | PROTO_BIT__UDP);
 
 #ifdef TARGET_BASED
     _dpd.streamAPI->set_service_filter_status
@@ -1375,8 +1383,15 @@ static int DCE2_ReloadVerifyPolicy(
 
     //do any housekeeping before freeing DCE2_Config
 
-    if (swap_config == NULL)
+    if ( swap_config == NULL || swap_config->gconfig->disabled )
         return 0;
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+    {
+        DCE2_Die("%s(%d) \"%s\" configuration: "
+            "Stream5 must be enabled with TCP and UDP tracking.",
+            *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
+    }
 
     dconfig = swap_config->dconfig;
 
@@ -1424,13 +1439,6 @@ static int DCE2_ReloadVerify(void)
 {
     if ((dce2_swap_config == NULL) || (dce2_config == NULL))
         return 0;
-
-    if (!_dpd.isPreprocEnabled(PP_STREAM5))
-    {
-        DCE2_Die("%s(%d) \"%s\" configuration: Stream5 must be enabled with "
-                 "TCP and UDP tracking.",
-                 *_dpd.config_file, *_dpd.config_line, DCE2_GNAME);
-    }
 
     if (_dpd.isPreprocEnabled(PP_DCERPC))
     {

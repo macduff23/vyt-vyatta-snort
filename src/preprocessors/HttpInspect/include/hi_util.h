@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -35,6 +35,7 @@
 #ifndef __HI_UTIL_H__
 #define __HI_UTIL_H__
 
+#include <string.h>
 #include "hi_include.h"
 
 /*
@@ -70,5 +71,42 @@ static INLINE int hi_util_in_bounds(const u_char *start, const u_char *end, cons
     return 0;
 }
 
-#endif
+static INLINE void SkipWhiteSpace(const u_char *start, const u_char *end, 
+        const u_char **ptr)
+{
+    while (hi_util_in_bounds(start, end, *ptr) && isspace((int)**ptr) && (**ptr != '\n')) 
+        (*ptr)++;
+}
+static INLINE void SkipBlankSpace(const u_char *start, const u_char *end,
+       const u_char **ptr)
+{
+    while((hi_util_in_bounds(start, end, *ptr)) && ( **ptr == ' ' || **ptr == '\t') ) {(*ptr)++;}
+}
+static INLINE void SkipDigits(const u_char *start, const u_char *end,
+        const u_char **ptr)
+{
+    while((hi_util_in_bounds(start, end, *ptr)) && (isdigit((int)**ptr)) ) {(*ptr)++;}
+}
+
+static INLINE void SkipBlankAndNewLine(const u_char *start, const u_char *end,
+        const u_char **ptr)
+{
+    while( (hi_util_in_bounds(start, end, *ptr)) && 
+            ( **ptr == ' ' || **ptr == '\t') && (**ptr != '\n')  ) {(*ptr)++;}
+}
+
+static INLINE int IsHeaderFieldName(const u_char *p, const u_char *end,
+        const char *header_name, size_t header_len)
+{        
+    if ((p+header_len) <= end)
+    {    
+        if(!strncasecmp((const char *)p, header_name, header_len))
+            return 1;
+        else 
+            return 0; 
+    }
+    return 0;
+}   
+
+#endif  /* __HI_UTIL_H__ */
 

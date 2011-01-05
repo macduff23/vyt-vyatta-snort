@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -74,7 +74,6 @@
 
 extern char *file_name;
 extern int   file_line;
-extern SnortConfig *snort_conf_for_parsing;
 
 tSfPolicyUserContextId portscan_config = NULL;
 PortscanConfig *portscan_eval_config = NULL;
@@ -896,7 +895,8 @@ static void PortscanDetect(Packet *p, void *context)
     PROFILE_VARS;
     sfPolicyUserPolicySet (portscan_config, policy_id);
     pPolicyConfig = (PortscanConfig *)sfPolicyUserDataGetCurrent(portscan_config); 
-    if ( pPolicyConfig == NULL)
+
+    if ( pPolicyConfig == NULL )
         return;
 
     portscan_eval_config = pPolicyConfig;
@@ -1385,8 +1385,9 @@ static void PortscanInit(char *args)
         }
     }
 
-    AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
-                         PortscanGetProtoBits(pPolicyConfig->detect_scans));
+    if ( !pPolicyConfig->disabled )
+        AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
+            PortscanGetProtoBits(pPolicyConfig->detect_scans));
 }
 
 void SetupSfPortscan(void)
@@ -1498,6 +1499,10 @@ static void ParsePortscan(PortscanConfig *config, char *args)
                  *    have been flagged as being picked up mid-stream
                  */
                 config->include_midstream = 1;
+            }
+            else if(!strcasecmp(pcTok, "disabled"))
+            {
+                config->disabled = 1;
             }
             else
             {
@@ -1650,8 +1655,9 @@ static void PortscanReload(char *args)
         }
     }
 
-    AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
-                         PortscanGetProtoBits(pPolicyConfig->detect_scans));
+    if ( !pPolicyConfig->disabled )
+        AddFuncToPreprocList(PortscanDetect, PRIORITY_SCANNER, PP_SFPORTSCAN,
+            PortscanGetProtoBits(pPolicyConfig->detect_scans));
 
     AddFuncToPreprocReloadVerifyList(PortscanReloadVerify);
 }

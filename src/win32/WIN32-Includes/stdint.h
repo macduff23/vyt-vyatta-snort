@@ -52,10 +52,14 @@ typedef          __int64    int64_t;
 # if _MSC_VER <= 1200
 typedef long int           intptr_t;
 typedef unsigned long int  uintptr_t;
+#define _INTPTR_T_DEFINED
+#define _UINTPTR_T_DEFINED
 # endif  /* #if _MSC_VER <= 1200 */
 #else
 typedef long int           intptr_t;
 typedef unsigned long int  uintptr_t;
+#define _INTPTR_T_DEFINED
+#define _UINTPTR_T_DEFINED
 #endif  /* #ifdef _MSC_VER */
 
 #ifndef HAVE_U_INT8_T

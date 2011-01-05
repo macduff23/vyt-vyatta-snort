@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -59,60 +59,12 @@
 #include "hi_util_hbm.h"
 #include "hi_return_codes.h"
 #include "util.h"
-
-/* These numbers were chosen to avoid conflicting with 
- * the return codes in hi_return_codes.h */ 
-#define URI_END  99
-#define POST_END 100
-#define NO_URI   101
-#define INVALID_HEX_VAL -1
-
-
 #define HEADER_NAME__COOKIE "Cookie"
 #define HEADER_LENGTH__COOKIE 6
 #define HEADER_NAME__CONTENT_LENGTH "Content-length"
 #define HEADER_LENGTH__CONTENT_LENGTH 14
 
-/**
-**  This structure holds pointers to the different sections of an HTTP
-**  request.  We need to track where whitespace begins and ends, so we
-**  can evaluate the placement of the URI correctly.
-**
-**  For example,
-**
-**  GET     / HTTP/1.0
-**     ^   ^          
-**   start end
-**
-**  The end space pointers are set to NULL if there is space until the end
-**  of the buffer.
-*/
-typedef struct s_URI_PTR
-{
-    const u_char *uri;                /* the beginning of the URI */
-    const u_char *uri_end;            /* the end of the URI */
-    const u_char *norm;               /* ptr to first normalization occurence */
-    const u_char *ident;              /* ptr to beginning of the HTTP identifier */
-    const u_char *first_sp_start;     /* beginning of first space delimiter */
-    const u_char *first_sp_end;       /* end of first space delimiter */
-    const u_char *second_sp_start;    /* beginning of second space delimiter */
-    const u_char *second_sp_end;      /* end of second space delimiter */
-    const u_char *param;              /* '?' (beginning of parameter field) */
-    const u_char *delimiter;          /* HTTP URI delimiter (\r\n\) */
-    const u_char *last_dir;           /* ptr to last dir, so we catch long dirs */
-    const u_char *proxy;              /* ptr to the absolute URI */
-}  URI_PTR;
-
-typedef struct s_HEADER_PTR
-{
-    URI_PTR header;
-    //HEADER_FIELD_PTR hdr_field;
-    COOKIE_PTR cookie;
-    CONTLEN_PTR content_len;
-} HEADER_PTR;
-
-/**
-**  This makes passing function arguments much more readable and easier
+/**  This makes passing function arguments much more readable and easier
 **  to follow.
 */
 typedef int (*LOOKUP_FCN)(HI_SESSION *, const u_char *, const u_char *, const u_char **,
@@ -122,9 +74,9 @@ typedef int (*LOOKUP_FCN)(HI_SESSION *, const u_char *, const u_char *, const u_
 **  The lookup table contains functions for different HTTP delimiters 
 **  (like whitespace and the HTTP delimiter \r and \n).
 */
-static LOOKUP_FCN lookup_table[256];
-static int hex_lookup[256];
-static int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start,
+LOOKUP_FCN lookup_table[256];
+int hex_lookup[256];
+int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr);
 
 /*
@@ -154,18 +106,45 @@ static int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start,
 **  @retval HI_SUCCESS      function successful
 **  @retval HI_INVALID_ARG  invalid argument
 */
-static int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_char *end, const u_char **post_end)
+int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_char *end, 
+        const u_char **post_end, u_char *iChunkBuf, int max_size,
+        int last_chunk_size, int *chunkSize)
 {
     u_int   iChunkLen   = 0;
     int    iChunkChars = 0;
+    int chunkPresent = 0;
     int    iCheckChunk = 1;
     const u_char *ptr;
     const u_char *jump_ptr;
+    u_int iDataLen = 0;
 
     if(!start || !end)
         return HI_INVALID_ARG;
 
     ptr = start;
+
+    if(last_chunk_size)
+    {
+        if(last_chunk_size > max_size)
+        {
+            if(chunkSize)
+                *chunkSize = last_chunk_size - max_size ;
+            last_chunk_size = max_size;
+        }
+
+        jump_ptr = ptr + last_chunk_size - 1;
+
+        if(hi_util_in_bounds(start, end, jump_ptr))
+        {
+            chunkPresent = 1;
+            if(iChunkBuf)
+            {
+                memcpy(iChunkBuf, ptr, last_chunk_size);
+            }
+            ptr = jump_ptr;
+        }
+
+    }
 
     while(hi_util_in_bounds(start, end, ptr))
     {
@@ -180,7 +159,25 @@ static int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_
                                            NULL, NULL);
                 }
 
-                jump_ptr = ptr + iChunkLen;
+                SkipBlankAndNewLine(start,end, &ptr);
+
+                if(*ptr == '\n')
+                    ptr++;
+
+                iDataLen = end - ptr ;
+
+                if( iChunkLen > iDataLen)
+                {
+                    if(chunkSize)
+                        *chunkSize = iChunkLen - iDataLen;
+                    iChunkLen = iDataLen;
+                    jump_ptr = ptr + iDataLen - 1;
+                }
+                else
+                {
+                    jump_ptr = ptr + iChunkLen;
+                }
+
 
                 if(jump_ptr <= ptr)
                 {
@@ -189,7 +186,19 @@ static int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_
 
                 if(hi_util_in_bounds(start, end, jump_ptr))
                 {
+                    chunkPresent = 1;
+                    if(iChunkBuf && ((int)(strlen((char *)iChunkBuf) + iChunkLen) <= max_size))
+                    {
+                        memcpy(iChunkBuf+strlen((char *)iChunkBuf), ptr, iChunkLen);
+                    }
                     ptr = jump_ptr;
+                    /* Check to see if the chunks ends */
+                    if( ((ptr + 2) < end) && (*(ptr + 2) != '\n') && 
+                            hi_eo_generate_event(Session, HI_EO_CLIENT_CHUNK_SIZE_MISMATCH))
+                    {
+                        hi_eo_client_event_log(Session, HI_EO_CLIENT_CHUNK_SIZE_MISMATCH,
+                                NULL, NULL);
+                    }
                 }
                 else
                 {
@@ -265,7 +274,6 @@ static int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_
                 {
                     iChunkLen <<= 4;
                     iChunkLen |= (unsigned int)hex_lookup[*ptr];
-
                     iChunkChars++;
                 }
             }
@@ -273,9 +281,12 @@ static int CheckChunkEncoding(HI_SESSION *Session, const u_char *start, const u_
 
         ptr++;
     }
-    if (post_end && iChunkChars )
+    if (chunkPresent )
     {
-        *(post_end) = ptr;
+        if(post_end)
+        {
+            *(post_end) = ptr;
+        }
         return 1;
     }
 
@@ -406,7 +417,7 @@ static INLINE const u_char *FindPipelineReq(HI_SESSION *Session,
 **  @retval 1 this is an HTTP version identifier
 **  @retval 0 this is not an HTTP identifier, or bad parameters
 */
-static int IsHttpVersion(const u_char **ptr, const u_char *end)
+int IsHttpVersion(const u_char **ptr, const u_char *end)
 {
     static u_char s_acHttpDelimiter[] = "HTTP/";
     static int    s_iHttpDelimiterLen = 5;
@@ -488,7 +499,7 @@ static int IsHttpVersion(const u_char **ptr, const u_char *end)
 **  @retval URI_END end of the URI is found, check URI_PTR.
 **  @retval NO_URI  malformed delimiter, no URI.
 */
-static int find_rfc_delimiter(HI_SESSION *Session, const u_char *start, 
+int find_rfc_delimiter(HI_SESSION *Session, const u_char *start, 
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     if(*ptr == start || !uri_ptr->uri)
@@ -551,7 +562,7 @@ static int find_rfc_delimiter(HI_SESSION *Session, const u_char *start,
 **  @retval URI_END delimiter found, end of URI
 **  @retval NO_URI  
 */
-static int find_non_rfc_delimiter(HI_SESSION *Session, const u_char *start,
+int find_non_rfc_delimiter(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -638,7 +649,7 @@ static int find_non_rfc_delimiter(HI_SESSION *Session, const u_char *start,
 **  @retval URI_END          delimiter found, end of URI
 **  @retval NO_URI
 */
-static int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start, 
+int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start, 
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -890,7 +901,7 @@ static int NextNonWhiteSpace(HI_SESSION *Session, const u_char *start,
 **  
 **  @retval HI_SUCCESS function successful
 */
-static int SetPercentNorm(HI_SESSION *Session, const u_char *start,
+int SetPercentNorm(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -966,7 +977,7 @@ static INLINE int CheckLongDir(HI_SESSION *Session, URI_PTR *uri_ptr,
 **  @retval HI_SUCCESS       function successful
 **  @retval HI_OUT_OF_BOUNDS reached the end of the buffer
 */
-static int SetSlashNorm(HI_SESSION *Session, const u_char *start,
+int SetSlashNorm(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -1053,7 +1064,7 @@ static int SetSlashNorm(HI_SESSION *Session, const u_char *start,
 **  
 **  @retval HI_SUCCESS       function successful
 */
-static int SetBackSlashNorm(HI_SESSION *Session, const u_char *start,
+int SetBackSlashNorm(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -1064,6 +1075,39 @@ static int SetBackSlashNorm(HI_SESSION *Session, const u_char *start,
         {
             uri_ptr->norm = *ptr;
         }
+    }
+
+    (*ptr)++;
+
+    return HI_SUCCESS;
+}
+
+/*
+ * **  NAME
+ * **    SetPlusNorm::
+ * */
+/**
+ * **  Check for "+" and if we need to normalize.
+ * **  
+ * **  
+ * **  @param ServerConf pointer to the server configuration
+ * **  @param start      pointer to the start of payload
+ * **  @param end        pointer to the end of the payload
+ * **  @param ptr        pointer to the pointer of the current index
+ * **  @param uri_ptr    pointer to the URI_PTR construct  
+ * **  
+ * **  @return integer
+ * **  
+ * **  @retval HI_SUCCESS       function successful
+ * */
+
+
+int SetPlusNorm(HI_SESSION *Session, const u_char *start,
+        const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
+{
+    if(!uri_ptr->norm && !uri_ptr->ident)
+    {
+        uri_ptr->norm = *ptr;
     }
 
     (*ptr)++;
@@ -1092,7 +1136,7 @@ static int SetBackSlashNorm(HI_SESSION *Session, const u_char *start,
 **  
 **  @retval HI_SUCCESS       function successful
 */
-static int SetBinaryNorm(HI_SESSION *Session, const u_char *start,
+int SetBinaryNorm(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     if(!uri_ptr->norm && !uri_ptr->ident)
@@ -1124,7 +1168,7 @@ static int SetBinaryNorm(HI_SESSION *Session, const u_char *start,
 **  
 **  @retval HI_SUCCESS       function successful
 */
-static int SetParamField(HI_SESSION *Session, const u_char *start,
+int SetParamField(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     if(!uri_ptr->ident)
@@ -1153,7 +1197,7 @@ static int SetParamField(HI_SESSION *Session, const u_char *start,
 **  
 **  @retval HI_SUCCESS       function successful
 */
-static int SetProxy(HI_SESSION *Session, const u_char *start,
+int SetProxy(HI_SESSION *Session, const u_char *start,
         const u_char *end, const u_char **ptr, URI_PTR *uri_ptr)
 {
     HTTPINSPECT_CONF *ServerConf = Session->server_conf;
@@ -1265,7 +1309,6 @@ static INLINE int hi_client_extract_post(
     HI_SESSION *Session, HTTPINSPECT_CONF *ServerConf,
     const u_char *ptr, const u_char *end, URI_PTR *result, int content_length)
 {
-    int iRet;
     const u_char *start = ptr;
     const u_char *post_end = end;
 
@@ -1274,7 +1317,8 @@ static INLINE int hi_client_extract_post(
     /* Limit search depth */
     if ((!content_length))
     {
-        if ( ServerConf->chunk_length && (CheckChunkEncoding(Session, start, end, &post_end) == 1) )
+        if ( ServerConf->chunk_length && (CheckChunkEncoding(Session, start, end, &post_end, NULL,
+                        0, 0 , NULL) == 1))
         {
             result->uri = start;
             result->uri_end = post_end;
@@ -1285,58 +1329,19 @@ static INLINE int hi_client_extract_post(
             return HI_NONFATAL_ERR;
         }
     }
-    if ( ServerConf->post_depth && (content_length > ServerConf->post_depth) && ((post_end - ptr ) > ServerConf->post_depth))
+    if ( ServerConf->post_depth && (content_length > ServerConf->post_depth) && 
+            ((post_end - ptr ) > ServerConf->post_depth))
     {
         post_end = ptr + ServerConf->post_depth;
-        result->uri_end = ptr + content_length;
     }
     else if (((post_end - ptr ) > content_length) && content_length > 0 )
     {
         post_end = ptr + content_length;
-        result->uri_end = post_end;
     }
 
     result->uri = start;
+    result->uri_end = post_end;
 
-    while(hi_util_in_bounds(start, post_end, ptr))
-    {
-        if(lookup_table[*ptr] || ServerConf->whitespace[*ptr])
-        {
-            if(lookup_table[*ptr])
-            {
-                iRet = (lookup_table[*ptr])(Session, start, post_end, &ptr, result);
-            }
-            else
-            {
-                iRet = NextNonWhiteSpace(Session, start, post_end, &ptr, result);
-            }
-            if (iRet)
-            {
-                if(iRet == URI_END || iRet == HI_OUT_OF_BOUNDS)
-                {
-                    result->uri = start;
-                    return POST_END;
-                }
-                else if(iRet != HI_SUCCESS)
-                {
-                    result->uri = start;
-                    return HI_NONFATAL_ERR;
-                }
-            }
-            else 
-            {
-                continue;
-            }
-
-        }
-
-        /* Reset these, since we're not delimited by spaces for the version
-         * with post data */
-        result->first_sp_start = result->first_sp_end = NULL;
-        ptr++;
-    }
-
-    result->uri = start;
     return POST_END;
 }
 
@@ -1365,12 +1370,15 @@ static INLINE int hi_client_extract_uri(
 
     while(hi_util_in_bounds(start, end, ptr))
     {
-        /* isascii returns non-zero if it is ascii */
-        if (isascii((int)*ptr) == 0)
+        if(!ServerConf->extended_ascii_uri)
         {
-            /* Possible post data or something else strange... */
-            iRet = URI_END;
-            break;
+            /* isascii returns non-zero if it is ascii */
+            if (isascii((int)*ptr) == 0)
+            {
+                /* Possible post data or something else strange... */
+                iRet = URI_END;
+                break;
+            }
         }
 
         if(lookup_table[*ptr] || ServerConf->whitespace[*ptr])
@@ -1410,7 +1418,7 @@ static INLINE int hi_client_extract_uri(
                     **  to us if we don't do this first.
                     */
                     if(Session->server_conf->chunk_length)
-                            CheckChunkEncoding(Session, start, end, NULL);
+                            CheckChunkEncoding(Session, start, end, NULL, NULL, 0, 0, NULL);
 
                     /*
                     **  We only inspect the packet for another pipeline
@@ -1454,20 +1462,10 @@ static INLINE int hi_client_extract_uri(
 }
 
 
-static INLINE int IsHeaderFieldName(const u_char *p, const u_char *start, const u_char *end, const char *header_name, size_t header_len)
+const u_char *extract_http_cookie(const u_char *p, const u_char *end, HEADER_PTR *header_ptr, 
+        HEADER_FIELD_PTR *header_field_ptr)
 {
-    if( hi_util_in_bounds(start, end, p+header_len))  
-    {
-        if(!strncasecmp((const char *)p, header_name, header_len))
-            return 1;
-        else
-            return 0;
-    }
-    return 0;
-}
-
-static INLINE const u_char *extract_http_cookie(const u_char *p, const u_char *end, HEADER_PTR *header_ptr, HEADER_FIELD_PTR *header_field_ptr)
-{
+    const u_char *crlf;
     if (header_ptr->cookie.cookie)
     {
         /* unusal, multiple cookies... alloc new cookie pointer */
@@ -1478,34 +1476,37 @@ static INLINE const u_char *extract_http_cookie(const u_char *p, const u_char *e
             header_ptr->header.uri_end = p;
             return p;
         }
-        (header_field_ptr)->cookie->next = extra_cookie;
-        (header_field_ptr)->cookie = extra_cookie;
+        header_field_ptr->cookie->next = extra_cookie;
+        header_field_ptr->cookie = extra_cookie;
         /* extra_cookie->next = NULL; */ /* removed, since calloc NULLs this. */
     }
     else
     {
-        (header_field_ptr)->cookie = &header_ptr->cookie;
+        header_field_ptr->cookie = &header_ptr->cookie;
     }
-    (header_field_ptr)->cookie->cookie = p;                           
+    header_field_ptr->cookie->cookie = p;                           
 
     {
-        const u_char *crlf = (u_char *)SnortStrnStr((const char *)p, end - p, "\n");
+        crlf = (u_char *)SnortStrnStr((const char *)p, end - p, "\n");
+
         /* find a \n  */
         if (crlf) /* && hi_util_in_bounds(start, end, crlf+1)) bounds is checked in SnortStrnStr */
         {
-            (header_field_ptr)->cookie->cookie_end = crlf + 1;
+            header_field_ptr->cookie->cookie_end = crlf + 1;
             p = crlf;
         }
         else
         {
-            header_ptr->header.uri_end = (header_field_ptr)->cookie->cookie_end = end;                     
+            header_ptr->header.uri_end = header_field_ptr->cookie->cookie_end = end;                     
             return end;
         }
     }
     return p;
 }
 
-static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTTPINSPECT_CONF *ServerConf, const u_char *p, const u_char *start, const u_char *end, HEADER_PTR *header_ptr, HEADER_FIELD_PTR *header_field_ptr)
+static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, 
+        HTTPINSPECT_CONF *ServerConf, const u_char *p, const u_char *start, 
+        const u_char *end, HEADER_PTR *header_ptr, HEADER_FIELD_PTR *header_field_ptr)
 {
     const u_char *crlf;
     int space_present = 0;
@@ -1513,17 +1514,16 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
     {
         hi_eo_client_event_log(Session, HI_EO_CLIENT_MULTIPLE_CONTLEN, NULL, NULL);
         header_ptr->header.uri_end = p;
-        //header_ptr->content_len.cont_len_start = header_ptr->content_len.cont_len_end = NULL;
         header_ptr->content_len.len = 0;
         return p;
     }
     else
     {
-        (header_field_ptr)->content_len = &header_ptr->content_len;
+        header_field_ptr->content_len = &header_ptr->content_len;
         p = p + 14;
     }
     /* Move past all the blank spaces. Only tabs and spaces are allowed here */
-    while((hi_util_in_bounds(start, end, p)) && ( *p == ' ' || *p == '\t') ) {p++;}
+    SkipBlankSpace(start,end,&p);
 
     if(hi_util_in_bounds(start, end, p) && *p == ':')
     {
@@ -1532,11 +1532,11 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
         {
             if ( ServerConf->profile == HI_APACHE || ServerConf->profile == HI_ALL) 
             {
-                while( (hi_util_in_bounds(start, end, p)) && isspace((int)*p) && (*p != '\n') ) {p++;}
+                SkipWhiteSpace(start,end,&p);
             }
             else
             {
-                while( (hi_util_in_bounds(start, end, p)) && ( *p == ' ' || *p == '\t') && (*p != '\n')  ) {p++;}
+                SkipBlankAndNewLine(start,end,&p);
             }
             if( hi_util_in_bounds(start, end, p))
             {
@@ -1556,37 +1556,41 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
                             {
                                 if ( isdigit((int)*p))
                                     break;
-                                else if(isspace((int)*p) && (ServerConf->profile == HI_APACHE || ServerConf->profile == HI_ALL) )
+                                else if(isspace((int)*p) && 
+                                        (ServerConf->profile == HI_APACHE || ServerConf->profile == HI_ALL) )
                                 {
-                                    while((hi_util_in_bounds(start, end, p)) && isspace((int)*p) && (*p != '\n') ) {p++;}
+                                    SkipWhiteSpace(start,end,&p);
                                 }
                                 else
                                 {   
-                                    (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                                    (header_field_ptr)->content_len->len = 0;
+                                    header_field_ptr->content_len->cont_len_start = 
+                                        header_field_ptr->content_len->cont_len_end = NULL;
+                                    header_field_ptr->content_len->len = 0;
                                     return p;
                                 }
                             }
                             else
                             {
-                                (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                                (header_field_ptr)->content_len->len = 0;
+                                header_field_ptr->content_len->cont_len_start = 
+                                    header_field_ptr->content_len->cont_len_end = NULL;
+                                header_field_ptr->content_len->len = 0;
                                 return p;
                             }
                         }
                         else
-                        break;
+                          break;
                     }
                 }
                 else if(!isdigit((int)*p))
                 {
-                    (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                    (header_field_ptr)->content_len->len = 0;
+                    header_field_ptr->content_len->cont_len_start = 
+                        header_field_ptr->content_len->cont_len_end = NULL;
+                    header_field_ptr->content_len->len = 0;
                     return p;
                 }
                 if(isdigit((int)*p))
                 {
-                    (header_field_ptr)->content_len->cont_len_start = p;                           
+                    header_field_ptr->content_len->cont_len_start = p;                           
                     p++;
                     while(hi_util_in_bounds(start, end, p))
                     {
@@ -1597,13 +1601,14 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
                         }
                         else if((*p == '\n')) /* digit followed by \n */
                         {
-                            (header_field_ptr)->content_len->cont_len_end = p;
+                            header_field_ptr->content_len->cont_len_end = p;
                             break;
                         }
-                        else if( (!isdigit((int)*p)) && (!isspace((int)*p))) // alphabet after digit
+                        else if( (!isdigit((int)*p)) && (!isspace((int)*p))) /* alphabet after digit*/
                         {
-                            (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                            (header_field_ptr)->content_len->len = 0;
+                            header_field_ptr->content_len->cont_len_start = 
+                                header_field_ptr->content_len->cont_len_end = NULL;
+                            header_field_ptr->content_len->len = 0;
 
                             crlf = (u_char *)SnortStrnStr((const char *)p, end - p, "\n");
                             if (crlf)
@@ -1620,21 +1625,22 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
                         {
                             if (ServerConf->profile == HI_APACHE || ServerConf->profile == HI_ALL)
                             {
-                                while( (hi_util_in_bounds(start, end, p)) && isspace((int)*p) && (*p != '\n') ) {p++;}
+                                SkipWhiteSpace(start,end,&p);
                             }
                             else
                             {
-                                while( (hi_util_in_bounds(start, end, p)) && ( *p == ' ' || *p == '\t') && (*p != '\n')  ) {p++;}
+                                SkipBlankAndNewLine(start,end,&p);
                             }
                             if ( *p == '\n' )
                             {
-                                (header_field_ptr)->content_len->cont_len_end = p;
+                                header_field_ptr->content_len->cont_len_end = p;
                                 break;
                             }
                             else /*either a "digit digit" or "digit other character" */
                             {
-                                (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                                (header_field_ptr)->content_len->len = 0;
+                                header_field_ptr->content_len->cont_len_start = 
+                                    header_field_ptr->content_len->cont_len_end = NULL;
+                                header_field_ptr->content_len->len = 0;
                                 crlf = (u_char *)SnortStrnStr((const char *)p, end - p, "\n");
                                 if (crlf)
                                 {
@@ -1653,8 +1659,9 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
                 }
                 else
                 {
-                    (header_field_ptr)->content_len->cont_len_start = (header_field_ptr)->content_len->cont_len_end = NULL;
-                    (header_field_ptr)->content_len->len = 0;
+                    header_field_ptr->content_len->cont_len_start = 
+                        header_field_ptr->content_len->cont_len_end = NULL;
+                    header_field_ptr->content_len->len = 0;
                     return p;
                 }
             }
@@ -1676,15 +1683,14 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
             }
         }
     }
-    if ( header_field_ptr && ((header_field_ptr)->content_len->cont_len_start) )
+    if ( header_field_ptr && (header_field_ptr->content_len->cont_len_start) )
     {
         char *pcEnd;
-        errno = 0;
-        (header_field_ptr)->content_len->len = strtol((char *)(header_field_ptr)->content_len->cont_len_start, &pcEnd, 10);
-        if(errno == ERANGE || ((char *)(header_field_ptr)->content_len->cont_len_start == pcEnd))
+        header_field_ptr->content_len->len = SnortStrtol((char *)header_field_ptr->content_len->cont_len_start, &pcEnd, 10);
+        if(errno == ERANGE || ((char *)header_field_ptr->content_len->cont_len_start == pcEnd))
         {
             //warning
-            (header_field_ptr)->content_len->len = 0;
+            header_field_ptr->content_len->len = 0;
         }
     }
     if(!p || !hi_util_in_bounds(start, end, p))
@@ -1693,16 +1699,19 @@ static INLINE const u_char *extract_http_content_length(HI_SESSION *Session, HTT
     return p;
 }
 
-static INLINE const u_char *extractHeaderFieldValues(HI_SESSION *Session, HTTPINSPECT_CONF *ServerConf, const u_char *p, const u_char *offset, const u_char *start, const u_char *end, HEADER_PTR *header_ptr, HEADER_FIELD_PTR *header_field_ptr)
+static INLINE const u_char *extractHeaderFieldValues(HI_SESSION *Session, 
+        HTTPINSPECT_CONF *ServerConf, const u_char *p, const u_char *offset, 
+        const u_char *start, const u_char *end, HEADER_PTR *header_ptr, HEADER_FIELD_PTR *header_field_ptr)
 {
     if (((p - offset) == 0) && ((*p == 'C') || (*p == 'c')))
     {
         /* Search for 'Cookie' at beginning, starting from current *p */
-        if (IsHeaderFieldName(p, start, end, HEADER_NAME__COOKIE, HEADER_LENGTH__COOKIE))
+        if ( ServerConf->enable_cookie && 
+                IsHeaderFieldName(p, end, HEADER_NAME__COOKIE, HEADER_LENGTH__COOKIE))
         {
             p = extract_http_cookie(p, end, header_ptr, header_field_ptr);
         }
-        else if ( IsHeaderFieldName(p, start, end, HEADER_NAME__CONTENT_LENGTH, HEADER_LENGTH__CONTENT_LENGTH) )
+        else if ( IsHeaderFieldName(p, end, HEADER_NAME__CONTENT_LENGTH, HEADER_LENGTH__CONTENT_LENGTH) )
         {
             p = extract_http_content_length(Session, ServerConf, p, start, end, header_ptr, header_field_ptr );
 
@@ -1742,8 +1751,8 @@ static INLINE const u_char *extractHeaderFieldValues(HI_SESSION *Session, HTTPIN
 */
 static INLINE const u_char *hi_client_extract_header(
     HI_SESSION *Session, HTTPINSPECT_CONF *ServerConf, 
-    HI_CLIENT * Client, HEADER_PTR *header_ptr,
-    const u_char *start, const u_char *end)
+    HEADER_PTR *header_ptr, const u_char *start, 
+    const u_char *end)
 {
     int iRet = HI_SUCCESS;
     const u_char *p;
@@ -1884,7 +1893,8 @@ static INLINE const u_char *hi_client_extract_header(
             }
             
         }
-        else if( (p == header_ptr->header.uri) && (p = extractHeaderFieldValues(Session, ServerConf, p, offset, start, end, header_ptr, &header_field_ptr)) == end)
+        else if( (p == header_ptr->header.uri) && 
+                (p = extractHeaderFieldValues(Session, ServerConf, p, offset, start, end, header_ptr, &header_field_ptr)) == end)
         {
             return end;
         }
@@ -1968,7 +1978,7 @@ static INLINE const u_char *hi_client_extract_header(
 **  @retval HI_NONFATAL_ERR no URI detected
 **  @retval HI_SUCCESS      URI detected and Session pointers updated
 */
-static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
+int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
         int dsize)
 {
     HTTPINSPECT_CONF *ServerConf;
@@ -2170,7 +2180,7 @@ static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
         //
         // uri_ptr.end points to end of URI & HTTP version identifier.
         if (hi_util_in_bounds(start, end, uri_ptr.uri_end + 1))
-            ptr = hi_client_extract_header(Session, ServerConf, Client, &header_ptr, uri_ptr.uri_end+1, end);
+            ptr = hi_client_extract_header(Session, ServerConf, &header_ptr, uri_ptr.uri_end+1, end);
 
         if (header_ptr.header.uri)
         {
@@ -2182,20 +2192,22 @@ static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
             }
             else
             {
-                hi_stats.headers++;
-                Client->request.header_norm = header_ptr.header.norm;
+                hi_stats.req_headers++;
+                Client->request.header_norm = header_ptr.header.uri;
                 if (header_ptr.cookie.cookie)
                 {
-                    hi_stats.cookies++;
+                    hi_stats.req_cookies++;
                     Client->request.cookie.cookie = header_ptr.cookie.cookie;
                     Client->request.cookie.cookie_end = header_ptr.cookie.cookie_end;
                     Client->request.cookie.next = header_ptr.cookie.next;
+                    Client->request.cookie_norm = header_ptr.cookie.cookie;
                 }
                 else
                 {
                     Client->request.cookie.cookie = NULL;
                     Client->request.cookie.cookie_end = NULL;
                     Client->request.cookie.next = NULL;
+                    Client->request.cookie_norm = NULL;
                 }
             }
         }
@@ -2268,6 +2280,7 @@ static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
     }
     else 
     {
+        CLR_HEADER(Client);
         CLR_POST(Client);
         if (method_ptr.uri)
         {
@@ -2288,7 +2301,7 @@ static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
         if(uri_ptr.uri != uri_ptr.first_sp_end)
         {
             if(Session->server_conf->chunk_length)
-                CheckChunkEncoding(Session, start, end, NULL);
+                CheckChunkEncoding(Session, start, end, NULL, NULL, 0, 0, NULL);
 
             return HI_NONFATAL_ERR;
         }
@@ -2318,7 +2331,6 @@ static int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
             Client->request.pipeline_req = NULL;
         }
     }
-
 
     /*
     **  We set the HI_CLIENT variables from the URI_PTR structure.  We also
@@ -2466,6 +2478,9 @@ int hi_client_init(HTTPINSPECT_GLOBAL_CONF *GlobalConf)
         **  Looking for backslashs
         */
         lookup_table['\\'] = SetBackSlashNorm;
+
+        lookup_table['+'] = SetPlusNorm;
+
 
         /*
         **  Look up parameter field, so we don't alert on long directory

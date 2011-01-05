@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 1999,2000,2001 Christian Lademann <cal@zls.de>
 **
@@ -39,6 +39,7 @@
 
 #include "decode.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "plugbase.h"
 #include "parser.h"
 #include "debug.h"
@@ -124,7 +125,7 @@ static int Respond(Packet *, RspFpList *);
 
 void SetupRespond(void)
 {
-    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION);
+    RegisterRuleOption("resp", RespondInit, NULL, OPT_TYPE_ACTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("resp", &respondPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

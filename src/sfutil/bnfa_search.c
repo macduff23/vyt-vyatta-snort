@@ -8,7 +8,7 @@
 ** author: marc norton
 ** date:   started 12/21/05
 **
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 ** 
 ** General Design
 **  Aho-Corasick based NFA state machine. 
@@ -808,7 +808,9 @@ int _bnfa_opt_nfa (bnfa_struct_t * bnfa)
            FailState[ k ] = fs;
         }
     }
+#ifdef DEBUG
     if( cnt)LogMessage("ac-bnfa: %d nfa optimizations found in %d states\n",cnt,bnfa->bnfaNumStates);
+#endif
     return 0;
 }
 
@@ -1316,14 +1318,7 @@ bnfa_struct_t * bnfaNew(void (*userfree)(void *p),
                         void (*neg_list_free)(void **p))
 {
   bnfa_struct_t * p;
-  static int first=1;
   int bnfa_memory=0;
-
-  if( first )
-  {
-      bnfaInitSummary();
-      first=0;
-  }
   
   init_xlatcase ();
 
@@ -1470,13 +1465,7 @@ bnfaCompile (bnfa_struct_t * bnfa,
     bnfa_match_node_t   ** tmpMatchList;
     unsigned          cntMatchStates;
     int               i;
-    static int first=1;
 
-    if( first )
-    {
-        bnfaInitSummary();
-        first=0;
-    }
     queue_memory =0;
 
     /* Count number of states */ 
@@ -2040,9 +2029,9 @@ void bnfa_print_qinfo(void)
     if( snort_conf->max_inq )
     {
         LogMessage("ac-bnfa: queue size     = %d, max = %d\n",snort_conf->max_inq, MAX_INQ );
-        LogMessage("ac-bnfa: queue flushes  = %d \n", (unsigned)snort_conf->tot_inq_flush );
-        LogMessage("ac-bnfa: queue inserts  = %d \n", (unsigned)snort_conf->tot_inq_inserts );
-        LogMessage("ac-bnfa: queue uinserts = %d \n", (unsigned)snort_conf->tot_inq_uinserts );
+        LogMessage("ac-bnfa: queue flushes  = "STDu64"\n", snort_conf->tot_inq_flush );
+        LogMessage("ac-bnfa: queue inserts  = "STDu64"\n", snort_conf->tot_inq_inserts );
+        LogMessage("ac-bnfa: queue uinserts = "STDu64"\n", snort_conf->tot_inq_uinserts );
     }
 #endif
 }

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2009 Sourcefire, Inc.
+** Copyright (C) 1998-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -33,7 +33,15 @@
 
 vartable_t * sfvt_alloc_table(void)
 {
-    return (vartable_t *)SnortAlloc(sizeof(vartable_t));
+    vartable_t *table = (vartable_t *)SnortAlloc(sizeof(vartable_t));
+
+    /* ID for recognition of variables with different name, but same content
+     * Start at 1, so a value of zero indicates not set.
+     * This value should be incremented for each variable that hasn't been
+     * identified as an alias of another variable */
+    table->id = 1;
+ 
+    return table;
 }
 
 // XXX this implementation is just used to support
@@ -76,6 +84,10 @@ SFIP_RET sfvt_add_str(vartable_t *table, char *str)
     {
          return status;
     }
+
+    /* If this is an alias of another var, id will be set */
+    if (var->id == 0)
+        var->id = table->id++;
 
     /* Insertion sort */
     
@@ -143,7 +155,7 @@ SFIP_RET sfvt_add_str(vartable_t *table, char *str)
  * using the vartable for looking variables used within "src" */
 SFIP_RET sfvt_add_to_var(vartable_t *table, sfip_var_t *dst, char *src)
 {
-    int ret;
+    SFIP_RET ret;
 
     if(!table || !dst || !src) return SFIP_ARG_ERR;        
 

@@ -16,7 +16,7 @@
 %\IfFileExists{url.sty}{\usepackage{url}}
 %                      {\newcommand{\url}{\texttt}}
 
-\usepackage{hyperref}
+\usepackage{html}
 
 % \makeatletter
 
@@ -71,18 +71,18 @@
 }
 %\end{latexonly}
 
-%\begin{htmlonly}
-%\newenvironment{note}{
-%        \begin{rawhtml}
-%        <p><table border="1"><tr><td><b>
-%        Note:&nbsp;&nbsp;</b>
-%        \end{rawhtml}
-%}{
-%        \begin{rawhtml}
-%        </b></td></tr></table></p>
-%        \end{rawhtml}
-%}
-%\end{htmlonly}
+\begin{htmlonly}
+\newenvironment{note}{
+        \begin{rawhtml}
+        <p><table border="1"><tr><td><b>
+        Note:&nbsp;&nbsp;</b>
+        \end{rawhtml}
+}{
+        \begin{rawhtml}
+        </b></td></tr></table></p>
+        \end{rawhtml}
+}
+\end{htmlonly}
 
 \usepackage{babel}
 
@@ -101,7 +101,7 @@
 
 \begin{document}
 
-\title{SNORT\textsuperscript{\textregistered} Users Manual\\2.8.5}
+\title{SNORT\textsuperscript{\textregistered} Users Manual\\2.8.6.1}
 
 \author{The Snort Project}
 
@@ -113,7 +113,7 @@ Copyright \copyright 1998-2003 Martin Roesch
 
 Copyright \copyright 2001-2003 Chris Green
 
-Copyright \copyright 2003-2009 Sourcefire, Inc.
+Copyright \copyright 2003-2010 Sourcefire, Inc.
 
 \tableofcontents{}
 
@@ -527,7 +527,7 @@ packet will never make it onto the network.
 iptables.  We take the indev name from ip\_queue and use this as the interface
 on which to send resets. We no longer need an IP loaded on the bridge, and can
 remain pretty stealthy as the \texttt{config layer2\_resets} in
-snort.conf takes a source MAC address which we substitue for the MAC of
+snort.conf takes a source MAC address which we substitute for the MAC of
 the bridge. For example:
 
 \begin{verbatim}
@@ -577,9 +577,12 @@ before they leave the network.  For example:
 \end{verbatim}
 
 These rules will comb TCP port 80 traffic looking for GET, and UDP port 53
-traffic looking for yahoo.  Once they are found, they are replaced with BET and
-xxxxx, respectively.  The only catch is that the replace must be the same
-length as the content.
+traffic looking for yahoo. Once they are found, they are replaced with BET and
+xxxxx, respectively. The replace pattern  and content can be of different 
+lengths. When the replace pattern is longer than the content, the replace
+pattern gets truncated and when the replace pattern is shorter than the content,
+first few bytes of the content (equivalent to the length of the replace pattern) 
+are replaced. 
 
 \subsection{Installing Snort Inline}
 \label{InlineInstall}
@@ -786,7 +789,7 @@ Same as -r.  Added for completeness. \\
 \hline
 \texttt{--pcap-file=<file>} &
 
-File that contains a list of pcaps to read.  Can specifiy path to pcap or
+File that contains a list of pcaps to read.  Can specify path to pcap or
 directory to recurse to get pcaps. \\
 
 \hline
@@ -805,7 +808,7 @@ A directory to recurse to look for pcaps.  Sorted in ascii order. \\
 Shell style filter to apply when getting pcaps from file or directory.  This
 filter will apply to any \texttt{--pcap-file} or \texttt{--pcap-dir} arguments
 following.  Use \texttt{--pcap-no-filter} to delete filter for following
-\texttt{--pcap-file} or \texttt{--pcap-dir} arguments or specifiy
+\texttt{--pcap-file} or \texttt{--pcap-dir} arguments or specify
 \texttt{--pcap-filter} again to forget previous filter and to apply to
 following \texttt{--pcap-file} or \texttt{--pcap-dir} arguments. \\
 
@@ -1380,39 +1383,147 @@ to enable or disable the loading of rules into the detection engine.  Default
 loading rules. \\
 
 \hline
-\texttt{config detection: <search-method> [lowmem] [no\_stream\_inserts]
-[max\_queue\_events <num>]} & Makes changes to the detection engine.  The following
-options can be used:
-
+\texttt{config detection: [search-method <method>]} & Select type of fast pattern
+matcher algorithm to use.
 \begin{itemize}
-\item \texttt{search-method $<$ac $|$ ac-std
-$|$ ac-bnfa $|$ acs $|$ ac-banded $|$ ac-sparsebands $|$ lowmem $>$}
-
+\item \texttt{search-method <method>}
 \begin{itemize}
-
-\item \texttt{ac} Aho-Corasick Full (high memory, best performance)
-
-\item \texttt{ac-std} Aho-Corasick Standard (moderate memory, high performance)
-
-\item \texttt{ac-bnfa} Aho-Corasick NFA (low memory, high performance)
-
-\item \texttt{acs} Aho-Corasick Sparse (small memory, moderate performance)
-
-\item \texttt{ac-banded} Aho-Corasick Banded (small memory, moderate
-performance)
-
-\item \texttt{ac-sparsebands} Aho-Corasick Sparse-Banded (small memory, high
-performance)
-
-\item \texttt{lowmem} Low Memory Keyword Trie (small memory, low performance)
-
+\item Queued match search methods -  Matches are queued until the fast pattern
+matcher is finished with the payload, then evaluated.  This was found to generally
+increase performance through fewer cache misses (evaluating each rule would
+generally blow away the fast pattern matcher
+state in the cache).
+\begin{itemize}
+\item \texttt{ac} and \texttt{ac-q} - Aho-Corasick Full (high memory, best performance).
+\item \texttt{ac-bnfa} and \texttt{ac-bnfa-q} - Aho-Corasick Binary NFA (low memory, high performance)
+\item \texttt{lowmem} and \texttt{lowmem-q} - Low Memory Keyword Trie (low memory, moderate performance)
+\item \texttt{ac-split} - Aho-Corasick Full with ANY-ANY port group evaluated separately (low memory, high performance).  Note this is shorthand for \texttt{search-method ac, split-any-any}
 \end{itemize}
+\end{itemize}
+\begin{itemize}
+\item No queue search methods - The "nq" option specifies that matches should not
+be queued and evaluated as they are found.
+\begin{itemize}
+\item \texttt{ac-nq} - Aho-Corasick Full (high memory, best performance).
+\item \texttt{ac-bnfa-nq} - Aho-Corasick Binary NFA (low memory, high performance).
+This is the default search method if none is specified.
+\item \texttt{lowmem-nq} - Low Memory Keyword Trie (low memory, moderate performance)
+\end{itemize}
+\end{itemize}
+\begin{itemize}
+\item Other search methods (the above are considered superior to these)
+\begin{itemize}
+\item \texttt{ac-std} - Aho-Corasick Standard (high memory, high performance)
+\item \texttt{acs} - Aho-Corasick Sparse (high memory, moderate performance)
+\item \texttt{ac-banded} - Aho-Corasick Banded (high memory, moderate performance)
+\item \texttt{ac-sparsebands} - Aho-Corasick Sparse-Banded (high memory, moderate performance)
+\end{itemize}
+\end{itemize}
+\end{itemize} \\
 
+\hline
+\texttt{config detection: [split-any-any] [search-optimize] [max-pattern-len <int>]} & Other options
+that affect fast pattern matching.
+\begin{itemize}
+\item \texttt{split-any-any}
+\begin{itemize}
+\item A memory/performance tradeoff.  By default, ANY-ANY port rules are added to 
+every non ANY-ANY port group so that only one port group rule evaluation needs to 
+be done per packet.  Not putting the ANY-ANY port rule group into every other
+port group can significantly reduce the memory footprint of the fast pattern
+matchers if there are many ANY-ANY port rules.  But doing so may require two
+port group evaluations per packet - one for the specific port group and one for
+the ANY-ANY port group, thus potentially reducing performance.  This option is
+generic and can be used with any \texttt{search-method} but was specifically
+intended for use with the \texttt{ac} \texttt{search-method} where the memory
+footprint is significantly reduced though overall fast pattern performance is
+better than \texttt{ac-bnfa}.  Of note is that the lower memory footprint can
+also increase performance through fewer cache misses.  Default is not to split
+the ANY-ANY port group.
+\end{itemize}
+\item \texttt{search-optimize}
+\begin{itemize}
+\item Optimizes fast pattern memory when used with \texttt{search-method}
+\texttt{ac} or \texttt{ac-split} by dynamically determining the size of a 
+state based on the total number of states. When used with \texttt{ac-bnfa}, some
+fail-state resolution will be attempted, potentially increasing performance.
+Default is not to optimize.
+\end{itemize}
+\item \texttt{max-pattern-len <integer>}
+\begin{itemize}
+\item This is a memory optimization that specifies the maximum length of a pattern
+that will be put in the fast pattern matcher.  Patterns longer than this length
+will be truncated to this length before inserting into the pattern matcher.  Useful
+when there are very long contents being used and truncating the pattern won't diminish
+the uniqueness of the patterns.  Note that this may cause more false positive rule
+evaluations, i.e. rules that will be evaluated because a fast pattern was matched,
+but eventually fail, however CPU cache can play a part in performance so a smaller memory
+footprint of the fast pattern matcher can potentially increase performance.  Default
+is to not set a maximum pattern length.
+\end{itemize}
+\end{itemize} \\
+
+\hline
+\texttt{config detection: [no\_stream\_inserts] [max\_queue\_events <int>] [enable-single-rule-group] [bleedover-port-limit]} & Other detection engine options.
+\begin{itemize}
 \item \texttt{no\_stream\_inserts}
+\begin{itemize}
+\item Specifies that stream inserted packets should not be evaluated against the detection engine.
+This is a potential performance improvement with the idea that the stream rebuilt packet will
+contain the payload in the inserted one so the stream inserted packet doesn't need to be
+evaluated.  Default is to inspect stream inserts.
+\end{itemize}
+\item \texttt{max\_queue\_events <integer>}
+\begin{itemize}
+\item Specifies the maximum number of events to queue per packet.  Default is 5 events.
+\end{itemize}
+\item \texttt{enable-single-rule-group}
+\begin{itemize}
+\item Put all rules into one port group.  Not recommended.  Default is not to
+do this.
+\end{itemize}
+\item \texttt{bleedover-port-limit}
+\begin{itemize}
+\item The maximum number of source or destination ports designated in a rule
+before the rule is considered an ANY-ANY port group rule.  Default is 1024.
+\end{itemize}
+\end{itemize} \\
 
-\item \texttt{max\_queue\_events$<$integer$>$}
-
-\end{itemize}\\
+\hline
+\texttt{config detection: [debug] [debug-print-nocontent-rule-tests] [debug-print-rule-group-build-details] [debug-print-rule-groups-uncompiled] [debug-print-rule-groups-compiled] [debug-print-fast-pattern] [bleedover-warnings-enabled]} & Options for detection engine debugging.
+\begin{itemize}
+\item \texttt{debug}
+\begin{itemize}
+\item Prints fast pattern information for a particular port group.
+\end{itemize}
+\item \texttt{debug-print-nocontent-rule-tests}
+\begin{itemize}
+\item Prints port group information during packet evaluation.
+\end{itemize}
+\item \texttt{debug-print-rule-group-build-details}
+\begin{itemize}
+\item Prints port group information during port group compilation.
+\end{itemize}
+\item \texttt{debug-print-rule-groups-uncompiled}
+\begin{itemize}
+\item Prints uncompiled port group information.
+\end{itemize}
+\item \texttt{debug-print-rule-groups-compiled}
+\begin{itemize}
+\item Prints compiled port group information.
+\end{itemize}
+\item \texttt{debug-print-fast-pattern}
+\begin{itemize}
+\item For each rule with fast pattern content, prints information about the content
+being used for the fast pattern matcher.
+\end{itemize}
+\item \texttt{bleedover-warnings-enabled}
+\begin{itemize}
+\item Prints a warning if the number of source or destination ports used in a
+rule exceed the \texttt{bleedover-port-limit} forcing the rule to be moved into
+the ANY-ANY port group.
+\end{itemize}
+\end{itemize} \\
 
 \hline
 \texttt{config disable\_decode\_alerts} & Turns off the alerts generated by the
@@ -1792,7 +1903,7 @@ within them.  When IP stacks are written for different operating systems, they
 are usually implemented by people who read the RFCs and then write their
 interpretation of what the RFC outlines into code.  Unfortunately, there are
 ambiguities in the way that the RFCs define some of the edge conditions that
-may occurr and when this happens different people implement certain aspects of
+may occur and when this happens different people implement certain aspects of
 their IP stacks differently.  For an IDS this is a big problem.
 
 In an environment where the attacker can determine what style of IP
@@ -1850,6 +1961,10 @@ is 4MB.
 
 \item \texttt{prealloc\_frags $<$number$>$} - Alternate memory management mode.
 Use preallocated fragment nodes (faster in some situations).
+
+\item \texttt{disabled} - Option to turn off the preprocessor. By default this
+option is turned off. When the preprocessor is disabled only the options memcap, 
+prealloc\_memcap, and prealloc\_frags are applied when specified with the configuration.
 
 \end{itemize}                               
 \end{itemize}    
@@ -2055,7 +2170,7 @@ Global settings for the Stream5 preprocessor.
         [track_udp <yes|no>], [max_udp <number>], \
         [track_icmp <yes|no>], [max_icmp <number>], \
         [flush_on_alert], [show_rebuilt_packets], \
-        [prune_log_max <bytes>]
+        [prune_log_max <bytes>], [disabled]
 \end{verbatim}
 
 \begin{center}
@@ -2104,10 +2219,17 @@ Track sessions for ICMP.  The default is "yes".\\
 Maximum simultaneous ICMP sessions tracked.  The default is "64000", maximum is
 "1052672", minimum is "1".\\
 
+\hline 
+\texttt{disabled} &
+
+Option to disble the stream5 tracking. By default this option is turned off.
+When the preprocessor is disabled only the options memcap, max\_tcp, max\_udp 
+and max\_icmp are applied when specified with the configuration.\\
+
 \hline
 \texttt{flush\_on\_alert} &
 
-Backwards compatibilty.  Flush a TCP stream when an alert is generated on that
+Backwards compatibility.  Flush a TCP stream when an alert is generated on that
 stream.  The default is set to off.\\
 
 \hline
@@ -2130,14 +2252,14 @@ specified number of bytes.  The default is "1048576" (1MB), minimum is "0"
 \subsubsection{Stream5 TCP Configuration}
 
 Provides a means on a per IP address target to configure TCP policy.  This can
-have multiple occurances, per policy that is bound to an IP address or network.
+have multiple occurrences, per policy that is bound to an IP address or network.
 One default policy must be specified, and that policy is not bound to an IP
 address or network.
 
 \begin{verbatim}
     preprocessor stream5_tcp: \
-        [bind_to <ip_addr>], [timeout <number secs>], \
-        [policy <policy_id>], [min_ttl <number>], \
+        [bind_to <ip_addr>], \
+        [timeout <number secs>], [policy <policy_id>], \
         [overlap_limit <number>], [max_window <number>], \
         [require_3whs [<number secs>]], [detect_anomalies], \
         [check_session_hijacking], [use_static_footprint_sizes], \
@@ -2218,12 +2340,6 @@ Favor first overlapped segment.\\
 
 \hline
 \end{tabular}\\
-
-\hline
-\texttt{min\_ttl <number>} &
-
-Minimum TTL.  The default is "1", the minimum is "1" and the maximum is "255".
-\\
 
 \hline
 \texttt{overlap\_limit <number>} &
@@ -2337,7 +2453,7 @@ policy uses all of the default values.
 \subsubsection{Stream5 UDP Configuration}
 
 Configuration for UDP session tracking.  Since there is no target based
-binding, there should be only one occurance of the UDP configuration.
+binding, there should be only one occurrence of the UDP configuration.
 
 \begin{verbatim}
     preprocessor stream5_udp: [timeout <number secs>], [ignore_any_rules]
@@ -2393,7 +2509,7 @@ rule, the ignore\_any\_rules option will be disabled in this case.
 \subsubsection{Stream5 ICMP Configuration}
 
 Configuration for ICMP session tracking.  Since there is no target based
-binding, there should be only one occurance of the ICMP configuration.
+binding, there should be only one occurrence of the ICMP configuration.
 
 \begin{note}
 
@@ -2597,7 +2713,7 @@ sfPortscan only generates one alert for each host pair in question during the
 time window (more on windows below). On TCP scan alerts, sfPortscan will also
 display any open ports that were scanned. On TCP sweep alerts however,
 sfPortscan will only track open ports after the alert has been triggered. Open
-port events are not individual alerts, but tags based on the orginal scan
+port events are not individual alerts, but tags based on the original scan
 alert.
 
 \subsubsection{sfPortscan Configuration}
@@ -2642,7 +2758,7 @@ Available options:
 
 \item \texttt{low} - ``Low'' alerts are only generated on error packets sent
 from the target host, and because of the nature of error responses, this
-setting should see very few false postives. However, this setting will never
+setting should see very few false positives. However, this setting will never
 trigger a Filtered Scan alert because of a lack of error responses. This
 setting is based on a static time window of 60 seconds, afterwhich this window
 is reset.
@@ -2697,6 +2813,14 @@ which is necessary to detect ACK scans.  However, this can lead to false
 alerts, especially under heavy load with dropped packets; which is why the
 option is off by default.
 
+\item \textbf{disabled}
+
+This optional keyword is allowed with any policy to avoid packet processing.
+This option disables the preprocessor. When the preprocessor is disabled
+only the memcap option is applied when specified with the configuration.
+The other options are parsed but not used. Any valid configuration may have
+"disabled" added to it.
+
 \end{slist}
 
 \subsubsection{Format}
@@ -2708,7 +2832,8 @@ option is off by default.
         watch_ip <IP or IP/CIDR> \
         ignore_scanners <IP list> \
         ignore_scanned <IP list> \
-        logfile <path and filename>
+        logfile <path and filename> \
+        disabled 
 \end{verbatim}
 
 \subsubsection{Example}
@@ -2862,7 +2987,7 @@ also the confidence of the portscan.  In the future, we hope to automate much
 of this analysis in assigning a scope level and confidence level, but for now
 the user must manually do this.  The easiest way to determine false positives
 is through simple ratio estimations.  The following is a list of ratios to
-estimate and the associated values that indicate a legimite scan and not a
+estimate and the associated values that indicate a legitimate scan and not a
 false positive.
      
 \textbf{Connection Count / IP Count:}  This ratio indicates an estimated
@@ -3047,10 +3172,19 @@ protocol distributions that Snort is seeing. This option can produce large
 amounts of output.
 
 \item \texttt{events} - Turns on event reporting.  This prints out statistics
-as to the number of signatures that were matched by the setwise pattern matcher
-(\textit{non-qualified events}) and the number of those matches that were
-verified with the signature flags (\textit{qualified events}).  This shows the
-user if there is a problem with the rule set that they are running.
+as to the number of rules that were evaluated and didn't match
+(\textit{non-qualified events}) vs. the number of rules that were evaluated and
+matched (\textit{qualified events}).  A high \textit{non-qualified event} to
+\textit{qualified event} ratio can indicate there are many rules with either
+minimal content or no content that are being evaluated without success.  The
+fast pattern matcher is used to select a set of rules for evaluation based on
+the longest \texttt{content} or a \texttt{content} modified with the
+\texttt{fast\_pattern} rule option in a rule.  Rules with short, generic
+contents are more likely to be selected for evaluation than those with
+longer, more unique contents.  Rules without \texttt{content} are not
+filtered via the fast pattern matcher and are always evaluated, so if
+possible, adding a \texttt{content} rule option to those rules can decrease the
+number of times they need to be evaluated and improve performance.
 
 \item \texttt{max} - Turns on the theoretical maximum performance that Snort
 calculates given the processor speed and current performance.  This is only
@@ -3063,7 +3197,9 @@ accurate kernel statistics for multiple CPUs.
 that is specified.  Not all statistics are output to this file.  You may also
 use \texttt{snortfile} which will output into your defined Snort log directory.
 Both of these directives can be overridden on the command line with the
-\texttt{-Z} or \texttt{--perfmon-file} options.
+\texttt{-Z} or \texttt{--perfmon-file} options.  At startup, Snort will log
+a distinctive line to this file with a timestamp to all readers to easily identify
+gaps in the stats caused by Snort not running.
 
 \item \texttt{pktcnt} - Adjusts the number of packets to process before
 checking for the time sample.  This boosts performance, since checking the time
@@ -3080,9 +3216,36 @@ used.
 \item \texttt{max\_file\_size} - Defines the maximum size of the
 comma-delimited file.  Before the file exceeds this size, it will be rolled
 into a new date stamped file of the format YYYY-MM-DD, followed by
-YYYY-MM-DD.x, where x will be incremented each time the comma delimiated file
+YYYY-MM-DD.x, where x will be incremented each time the comma delimited file
 is rolled over.  The minimum is 4096 bytes and the maximum is 2147483648 bytes
 (2GB).  The default is the same as the maximum.
+
+\item \texttt{flow-ip} - Collects IP traffic distribution statistics based on
+host pairs.  For each pair of hosts for which IP traffic has been seen, the
+following statistics are collected for both directions (A to B and B to A):
+\begin{itemize}
+\item TCP Packets
+\item TCP Traffic in Bytes
+\item TCP Sessions Established
+\item TCP Sessions Closed
+\item UDP Packets
+\item UDP Traffic in Bytes
+\item UDP Sessions Created
+\item Other IP Packets
+\item Other IP Traffic in Bytes
+\end{itemize}
+These statistics are printed and reset at the end of each interval.
+
+\item \texttt{flow-ip-file} - Prints the flow IP statistics in a
+comma-delimited format to the file that is specified.  All of the statistics
+mentioned above, as well as the IP addresses of the host pairs in
+human-readable format, are included.
+
+\item \texttt{flow-ip-memcap} - Sets the memory cap on the hash table used to
+store IP traffic statistics for host pairs.  Once the cap has been reached, the
+table will start to prune the statistics for the least recently seen host pairs
+to free memory.  This value is in bytes and the default value is
+52428800 (50MB).
 
 \end{itemize}
 \subsubsection{Examples}
@@ -3093,6 +3256,9 @@ is rolled over.  The minimum is 4096 bytes and the maximum is 2147483648 bytes
 
     preprocessor perfmonitor: \
         time 300 file /var/tmp/snortstat pktcnt 10000
+
+    preprocessor perfmonitor: \
+        time 30 flow-ip flow-ip-file flow-ip-stats.csv pktcnt 1000
 \end{verbatim}
 
 \subsection{HTTP Inspect}
@@ -3127,7 +3293,10 @@ global configuration format:
         iis_unicode_map <map_filename> \
         codemap <integer> \
         [detect_anomalous_servers] \
-        [proxy_alert]
+        [proxy_alert] \
+	[max_gzip_mem <num>] \
+	[compress_depth <num>] [decompress_depth <num>] \
+	disabled
 \end{verbatim}
 
 You can only have a single global configuration, you'll get an error if you try
@@ -3178,6 +3347,40 @@ using a rogue proxy server.
 Please note that if users aren't required to configure web proxy use, then you
 may get a lot of proxy alerts.  So, please only use this feature with
 traditional proxy environments. Blind firewall proxies don't count.
+
+\item \texttt{compress\_depth $<$integer$>$}
+This option specifies the maximum amount of packet payload to decompress. This
+value can be set from 1 to 20480. The default for this option is 1460.
+
+\item \texttt{decompress\_depth $<$integer$>$}
+This option specifies the maximum amount of decompressed data to obtain from the
+compressed packet payload. This value can be set from 1 to 20480. The default for
+this option is 2920.
+
+\item \texttt{max\_gzip\_mem}
+
+This option determines (in bytes) the maximum amount of memory the HTTP Inspect 
+preprocessor will use for decompression. This value can be set from 3276 bytes 
+to 100MB. This option along with \texttt{compress\_depth} and \texttt{decompress\_depth} 
+determines the gzip sessions that will be decompressed at any given instant. The default 
+value for this option is 838860.
+
+\begin{note}
+
+It is suggested to set this value such that the max gzip session calculated as
+follows is atleast 1.
+
+max gzip session = \texttt{max\_gzip\_mem} /(\texttt{decompress\_depth} + \texttt{compress\_depth})
+
+\end{note}
+
+\item \texttt{disabled}
+
+This optional keyword is allowed with any policy to avoid packet processing.
+This option disables the preprocessor. When the preprocessor is disabled
+only the "max\_gzip\_mem", "compress\_depth" and "decompress\_depth" options
+are applied when specified with the configuration. Other options are
+parsed but not used. Any valid configuration may have "disabled" added to it.
 
 \end{slist}
 \subsubsection{Example Global Configuration}
@@ -3505,6 +3708,9 @@ with any other options except:
 \item \texttt{normalize\_cookies} 
 \item \texttt{max\_header\_length} 
 \item \texttt{max\_headers} 
+\item \texttt{extended\_response\_inspection}
+\item \texttt{enable\_cookie}
+\item \texttt{inspect\_gzip}
 \end{itemize}
 
 These options must be specified after the \texttt{profile} option.
@@ -3540,6 +3746,38 @@ codemap to use for you server; it's the ANSI code page.  You can select the
 correct code page by looking at the available code pages that the
 ms\_unicode\_generator outputs.
 
+\item \texttt{extended\_response\_inspection}
+This enables the extended HTTP response inspection. The default http response
+inspection does not inspect the various fields of a HTTP response. By turning
+this option the HTTP response will be thoroughly inspected. The different fields
+of a HTTP response such as status code, status message, headers, cookie (when
+enable\_cookie is configured) and body are extracted and saved into buffers.
+Different rule options are provided to inspect these buffers.
+
+\item \texttt{enable\_cookie}
+This options turns on the cookie extraction from HTTP requests and HTTP response.
+By default the cookie inspection and extraction will be turned off.
+
+\item \texttt{inspect\_gzip}
+This option specifies the HTTP inspect module to uncompress the compressed
+data(gzip/deflate) in HTTP response. You should select the config option
+"extended\_response\_inspection" before configuring this option.  Decompression 
+is done across packets. So the decompression will end when either the 
+'compress\_depth' or 'decompress\_depth' is reached or when the decompress data ends.
+When the compressed data is spanned across multiple packets, the state of the last 
+decompressed packet is used to decompressed the data of the next packet. 
+But the decompressed data are individually inspected. (i.e. the 
+decompressed data from different packets are not combined while inspecting). 
+Also the amount of decompressed data that will be inspected depends on the 
+'server\_flow\_depth' configured.
+
+\begin{note}
+
+To enable compression of HTTP server response, Snort should be configured
+with the --enable-zlib flag.
+
+\end{note}
+
 \item \texttt{server\_flow\_depth $<$integer$>$}
 
 This specifies the amount of server response payload to inspect.  This option
@@ -3551,12 +3789,14 @@ either the HTTP header, or the content that is likely to be in the first
 hundred or so bytes of non-header data.  Headers are usually under 300 bytes
 long, but your mileage may vary.
 
-This value can be set from -1 to 1460. A value of -1 causes Snort to ignore all
+This value can be set from -1 to 2920. A value of -1 causes Snort to ignore all
 server side traffic for ports defined in \texttt{ports}.  Inversely, a value of
 0 causes Snort to inspect all HTTP server payloads defined in \texttt{ports}
 (note that this will likely slow down IDS performance).  Values above 0 tell
 Snort the number of bytes to inspect in the first packet of the server
-response.
+response.It is suggested to set the 'server\_flow\_depth' to its maximum value or 
+the 'decompress\_depth' (if 'decompress\_depth' is less than 2920) when 'inspect\_gzip' 
+is enabled.
 
 \begin{note}
 
@@ -3569,14 +3809,14 @@ option, which will be deprecated in a future release.
 
 This specifies the amount of raw client request payload to inspect.  It is
 similar to \texttt{server\_flow\_depth} (above), and has a default value of
-300.  It primarily eliminates Snort fro inspecting larger HTTP Cookies that
+300.  It primarily eliminates Snort from inspecting larger HTTP Cookies that
 appear at the end of many client request Headers.
 
 \item \texttt{post\_depth $<$integer$>$}
 
 This specifies the amount of data to inspect in a client post message. The 
 value can be set from 0 to 65495. The default value is 0. This increases the 
-perfomance by inspecting only specified bytes in the post message.
+performance by inspecting only specified bytes in the post message.
 
 \item \texttt{ascii $<$yes$|$no$>$}
 
@@ -3584,6 +3824,12 @@ The \texttt{ascii} decode option tells us whether to decode encoded ASCII
 chars, a.k.a \%2f = /, \%2e = ., etc.  It is normal to see ASCII encoding usage
 in URLs, so it is recommended that you disable HTTP Inspect alerting for this
 option.
+
+\item \texttt{extended\_ascii\_uri}
+
+This option enables the support for extended ascii codes in the HTTP request
+URI. This option is turned off by default and is not supported with any of
+the profiles.
 
 \item \texttt{utf\_8 $<$yes$|$no$>$}
 
@@ -3837,7 +4083,7 @@ etc.).  It is useful for normalizing data in HTTP Cookies that may be encoded.
 This option takes an integer as an argument.  The integer is the maximum number
 of HTTP client request header fields.  Requests that contain more HTTP Headers
 than this value will cause a "Max Header" alert.  The alert is off by default.
-To enable, specify an integer argumnet to max\_headers of 1 to 1024.
+To enable, specify an integer argument to max\_headers of 1 to 1024.
 Specifying a value of 0 is treated as disabling the alert.
 
 \end{slist}
@@ -4049,7 +4295,7 @@ and server responses.
 FTP/Telnet has the capability to handle stateless processing, meaning it only
 looks for information on a packet-by-packet basis.  
 
-The default is to run FTP/Telent in stateful inspection mode, meaning it looks
+The default is to run FTP/Telnet in stateful inspection mode, meaning it looks
 for information and handles reassembled data correctly.
 
 FTP/Telnet has a very ``rich'' user configuration, similar to that of HTTP
@@ -4109,7 +4355,7 @@ session will be noted as encrypted and not inspected any further.
 
 \item \texttt{check\_encrypted}
 
-Instructs the the preprocessor to continue to check an encrypted session for a
+Instructs the preprocessor to continue to check an encrypted session for a
 subsequent command to cease encryption.
 
 \end{slist}
@@ -4154,7 +4400,7 @@ Typically port 23 will be included.
 This option tells the preprocessor to normalize the telnet traffic by
 eliminating the telnet escape sequences.  It functions similarly to its
 predecessor, the telnet\_decode preprocessor.  Rules written with 'raw' content
-options will ignore the normailzed buffer that is created when this option is
+options will ignore the normalized buffer that is created when this option is
 in use.
 
 \item \texttt{ayt\_attack\_thresh $<$ number $>$}
@@ -4168,7 +4414,7 @@ applicable when the mode is stateful.
 In order to support certain options, Telnet supports subnegotiation. Per the
 Telnet RFC, subnegotiation begins with SB (subnegotiation begin) and must end
 with an SE (subnegotiation end). However, certain implementations of Telnet
-servers will ignore the SB without a cooresponding SE. This is anomalous
+servers will ignore the SB without a corresponding SE. This is anomalous
 behavior which could be an evasion case. Being that FTP uses the Telnet
 protocol on the control connection, it is also susceptible to this behavior.
 The \texttt{detect\_anomalies} option enables alerting on Telnet SB without the
@@ -4632,7 +4878,7 @@ Enable alerts for non-SSH traffic on SSH ports.
 
 The SSH preprocessor should work by default.  After max\_encrypted\_packets is
 reached, the preprocessor will stop processing traffic for a given session.  If
-Challenge-Respone Overflow or CRC 32 false positive, try increasing the number
+Challenge-Response Overflow or CRC 32 false positive, try increasing the number
 of required client bytes with max\_client\_bytes.
 
 \subsubsection{Example Configuration from snort.conf}
@@ -4651,6 +4897,12 @@ within 20 encrypted packets for the Challenge-Response Overflow/CRC32 exploits.
 
 \subsection{DCE/RPC}
 \label{sub:dcerpc}
+
+\begin{note}
+The \texttt{dcerpc} preprocessor is now considered deprecated and will be removed
+in a future release.  Please use the \texttt{dcerpc2} preprocessor in its place.
+See section \ref{sub:dcerpc2} of this manual and README.dcerpc2 for documentation.
+\end{note}
 
 The dcerpc preprocessor detects and decodes SMB and DCE/RPC traffic.  It is
 primarily interested in DCE/RPC requests, and only decodes SMB to get to the
@@ -4676,7 +4928,7 @@ DCE/RPC data.  If subsequent checks are nonsensical, it ends processing.
 
 \subsubsection{Configuration}
 
-The proprocessor has several optional configuration options.  They are
+The preprocessor has several optional configuration options.  They are
 described below:
 
 \begin{itemize}
@@ -4726,6 +4978,15 @@ Default is 3000 bytes.
 
 Maximum amount of memory available to the DCE/RPC preprocessor for
 desegmentation and defragmentation, in kilobytes.  Default is 100000 kilobytes.
+
+\item \texttt{disabled}
+\newline
+
+This optional keyword is allowed with any policy to avoid packet processing.
+This option disables the preprocessor. When the preprocessor is disabled
+only the memcap option is applied when specified with the configuration.
+The other options are parsed but not used. Any valid configuration may have
+"disabled" added to it.
 
 \item \texttt{alert\_memcap}
 \newline
@@ -4937,6 +5198,84 @@ traffic.
     preprocessor ssl: noinspect_encrypted
 \end{verbatim}
 
+\subsubsection{Rule Options}
+
+The following rule options are supported by enabling the \texttt{ssl} preprocessor:
+
+\begin{itemize}
+\item[]
+\begin{verbatim}
+    ssl_version
+    ssl_state
+\end{verbatim}
+\end{itemize}
+
+\texttt{ssl\_version}
+\label{ssl:ssl_version}
+\begin{itemize}
+
+\item[] The \texttt{ssl\_version} rule option tracks the version negotiated between
+the endpoints of the SSL encryption.  The list of version identifiers are below, and
+more than one identifier can be specified, via a comma separated list.  Lists of
+identifiers are OR'ed together.
+
+The option will match if any one of the OR'ed versions are used in the SSL
+connection.  To check for two SSL versions in use simultaneously, multiple
+\texttt{ssl\_version} rule options should be used.
+
+The rule option does not support negation.
+
+\textit{Syntax}
+\footnotesize
+\begin{verbatim}
+   ssl_version: <ssl-version-list>
+
+   ssl-version-list = ssl-version | ssl-version , ssl-version-list
+   ssl-version = sslv2 | sslv3 | tls1.0 | tls1.1 | tls1.2
+\end{verbatim}
+
+\textit{Example}
+\begin{verbatim}
+   ssl_version: sslv3
+
+   ssl_version: tls1.0 | tls1.1 | tls1.2
+\end{verbatim}
+
+\end{itemize}
+
+\texttt{ssl\_state}
+\label{ssl:ssl_state}
+\begin{itemize}
+    
+\item[] The \texttt{ssl\_state} rule option tracks the state of the SSL encryption
+during the process of hello and key exchange.  The list of states are below.  More than
+one state can be specified, via a comma separated list, and are OR'e together.
+
+The option will match if the connection has passed through any one of the OR'ed states.
+To ensure the connection is reached each of a set of states, multiple \texttt{ssl\_state}
+rule options should be used.
+
+The rule option does not support negation. 
+
+\textit{Syntax}
+\footnotesize
+\begin{verbatim}
+   ssl_state: <ssl-state-list>
+
+   ssl-state-list = ssl-state | ssl-state , ssl-state-list
+   ssl-state = client_hello | server_hello | client_keyx | server_keyx | unknown
+\end{verbatim}
+
+
+\textit{Example}
+\begin{verbatim}
+   ssl_state: client_hello
+
+   ssl_state: client_keyx | server_keyx
+\end{verbatim}
+
+\end{itemize}
+
 \subsection{ARP Spoof Preprocessor}
 \label{sub:arpspoof}
 
@@ -4986,7 +5325,7 @@ Alert SID 4 is used in this case.
 \subsubsection{Example Configuration}
 
 The first example configuration does neither unicast detection nor ARP mapping
-monitoring. The preprosessor merely looks for Ethernet address inconsistencies.
+monitoring. The preprocessor merely looks for Ethernet address inconsistencies.
 
 \begin{verbatim}
     preprocessor arpspoof
@@ -5329,9 +5668,11 @@ Option & Argument & Required & Default\\
 \hline
 \texttt{max\_frag\_len} & \texttt{<max-frag-len>} & NO & OFF\\
 \hline
-\texttt{events} & \texttt{<events>} & NO & \texttt{events [smb, co, cl]}\\
+\texttt{events} & \texttt{<events>} & NO & OFF\\
 \hline
 \texttt{reassemble\_threshold} & \texttt{<re-thresh>} & NO & OFF\\
+\hline
+\texttt{disabled} & NONE & NO & OFF\\
 \hline
 \end{tabular}
 \end{itemize}
@@ -5356,6 +5697,15 @@ Option & Argument & Required & Default\\
 \item[] Specifies the maximum amount of run-time memory that can be allocated.
 Run-time memory includes any memory allocated after configuration.  Default is
 100 MB.
+
+\end{itemize}
+
+\item[] \texttt{disabled}
+\begin{itemize}
+
+\item[] Disables the preprocessor. By default this value is turned off. When the 
+preprocessor is disabled only the memcap option is applied when specified 
+with the configuration.
 
 \end{itemize}
 
@@ -5412,8 +5762,7 @@ connection-oriented DCE/RPC processing.
 \begin{itemize}
 
 \item[] Stands for connectionless DCE/RPC. Alert on events related to
-connectionless DCE/RPC processing.  Defaults are \texttt{smb}, \texttt{co} and
-\texttt{cl}.
+connectionless DCE/RPC processing.
 
 \end{itemize}
 \end{itemize}
@@ -5463,7 +5812,7 @@ Default is disabled.
 \textit{Default global configuration}
 \footnotesize
 \begin{verbatim}
-    preprocessor dcerpc2: memcap 102400, events [smb, co, cl]
+    preprocessor dcerpc2: memcap 102400
 \end{verbatim}
 \normalsize
 
@@ -5742,8 +6091,7 @@ of 0 disables this option.
 \underline{Complete \texttt{dcerpc2} default configuration}
 \footnotesize
 \begin{verbatim}
-    preprocessor dcerpc2: \
-        memcap 102400, events [smb, co, cl]
+    preprocessor dcerpc2: memcap 102400
 
     preprocessor dcerpc2_server: \
         default, policy WinXP, \
@@ -6157,6 +6505,20 @@ first fragment (or full request) unless the \texttt{any\_frag} option is
 supplied in which case only the interface UUID and version need match.  Note
 that a defragmented DCE/RPC request will be considered a full request.
 
+\begin{note}
+Using this rule option will automatically insert fast pattern contents into
+the fast pattern matcher.  For UDP rules, the interface UUID, in both big and
+little endian format will be inserted into the fast pattern matcher.  For TCP
+rules, (1) if the rule option \texttt{flow:to\_server|from\_client} is used, $|$05 00 00$|$
+will be inserted into the fast pattern matcher, (2) if the rule option
+\texttt{flow:from\_server|to\_client} is used, $|$05 00 02$|$ will be inserted into the
+fast pattern matcher and (3) if the flow isn't known, $|$05 00$|$ will be inserted
+into the fast pattern matcher.  Note that if the rule already has content rule
+options in it, the best (meaning longest) pattern will be used.  If a content
+in the rule uses the \texttt{fast\_pattern} rule option, it will unequivocally be used
+over the above mentioned patterns.
+\end{note}
+
 \end{itemize}
 
 \texttt{dce\_opnum}
@@ -6316,6 +6678,244 @@ isset flowbit) rules that are necessary if the new rule options are not used:
 \normalsize
 \end{itemize}
 
+\subsection{Sensitive Data Preprocessor}
+\label{sub:sensitive_data}
+
+The Sensitive Data preprocessor is a Snort module that performs detection and
+filtering of Personally Identifiable Information (PII). This information
+includes credit card numbers, U.S. Social Security numbers, and email addresses.
+A limited regular expression syntax is also included for defining your own PII.
+
+\subsubsection{Dependencies}
+
+The Stream5 preprocessor must be enabled for the Sensitive Data preprocessor
+to work.
+
+\subsubsection{Preprocessor Configuration}
+
+Sensitive Data configuration is split into two parts: the preprocessor config,
+and the rule options. The preprocessor config starts with:
+
+\begin{verbatim}
+preprocessor sensitive_data:
+\end{verbatim}
+
+\textit{Option syntax}
+\begin{itemize}
+
+\item[]
+\begin{tabular}{|l|c|c|p{6cm}|}
+\hline
+Option & Argument & Required & Default\\
+\hline
+\hline
+\texttt{alert\_threshold} & \texttt{<number>} & NO & \texttt{alert\_threshold 25}\\
+\hline
+\texttt{mask\_output} & NONE & NO & OFF\\
+\hline
+\texttt{ssn\_file} & \texttt{<filename>} & NO & OFF\\
+\hline
+\end{tabular}
+\end{itemize}
+
+\footnotesize
+\begin{verbatim}
+    alert_threshold     =  1 - 4294067295
+\end{verbatim}
+\normalsize
+
+\textit{Option explanations}
+\begin{itemize}
+\item[] \texttt{alert\_threshold}
+\begin{itemize}
+
+\item[] The preprocessor will alert when any combination of PII are detected
+in a session. This option specifies how many need to be detected before
+alerting.
+This should be set higher than the highest individual count in your
+"sd\_pattern" rules.
+
+\end{itemize}
+
+\item[] \texttt{mask\_output}
+\begin{itemize}
+
+\item[] This option replaces all but the last 4 digits of a detected PII with
+"X"s. This is only done on credit card \& Social Security numbers, where
+an organization's regulations may prevent them from seeing unencrypted
+numbers.
+
+\end{itemize}
+
+\item[] \texttt{ssn\_file}
+\begin{itemize}
+
+\item[] A Social Security number is broken up into 3 sections:
+Area (3 digits), Group (2 digits), and Serial (4 digits).
+On a monthly basis, the Social Security Administration publishes a list
+of which Group numbers are in use for each Area.
+These numbers can be updated in Snort by supplying a CSV file with the
+new maximum Group numbers to use.
+By default, Snort recognizes Social Security numbers issued up through
+November 2009.
+
+\end{itemize}
+\end{itemize}
+
+\textit{Example preprocessor config}
+\begin{verbatim}
+preprocessor sensitive_data: alert_threshold 25 \
+                             mask_output \
+                             ssn_file ssn_groups_Jan10.csv
+\end{verbatim}
+
+\subsubsection{Rule Options}
+
+Snort rules are used to specify which PII the preprocessor should look for.
+A new rule option is provided by the preprocessor:
+
+\begin{verbatim}
+sd_pattern
+\end{verbatim}
+
+This rule option specifies what type of PII a rule should detect.
+
+\textit{Syntax}
+\begin{verbatim}
+    sd_pattern: <count>,<pattern>
+\end{verbatim}
+\footnotesize
+\begin{verbatim}
+
+    count   = 1-255
+    pattern = any string
+\end{verbatim}
+\normalsize
+
+\textit{Option Explanations}
+
+\begin{itemize}
+\item[] \texttt{count}
+
+\begin{itemize}
+\item[] This dictates how many times a PII pattern must be matched for an alert
+to be generated. The count is tracked across all packets in a session.
+\end{itemize}
+
+\item[] \texttt{pattern}
+
+\begin{itemize}
+\item[] This is where the pattern of the PII gets specified. There are a few
+built-in patterns to choose from:
+
+\begin{itemize}
+\item[] \texttt{credit\_card}
+
+\begin{itemize}
+\item[] The "credit\_card" pattern matches 15- and 16-digit credit card
+numbers. These numbers may have spaces, dashes, or nothing in
+between groups. This covers Visa, Mastercard, Discover, and
+American Express.
+Credit card numbers matched this way have their check digits
+verified using the Luhn algorithm.
+\end{itemize}
+
+\item[] \texttt{us\_social}
+
+\begin{itemize}
+\item[] This pattern matches against 9-digit U.S. Social Security numbers.
+The SSNs are expected to have dashes between the Area, Group, and
+Serial sections.
+
+SSNs have no check digits, but the preprocessor will check matches
+against the list of currently allocated group numbers.
+\end{itemize}
+
+\item[] \texttt{us\_social\_nodashes}
+
+\begin{itemize}
+\item[] This pattern matches U.S. Social Security numbers without dashes
+separating the Area, Group, and Serial sections.
+\end{itemize}
+
+\item[] \texttt{email}
+
+\begin{itemize}
+\item[] This pattern matches against email addresses.
+\end{itemize}
+\end{itemize}
+
+\item[] If the pattern specified is not one of the above built-in patterns,
+then it is the definition of a custom PII pattern. Custom PII types
+are defined using a limited regex-style syntax. The following
+special characters and escape sequences are supported:
+
+\item[]
+\begin{tabular}{|c|p{10cm}|}
+
+\hline
+\texttt{\textbackslash d} & matches any digit\\
+\hline
+\texttt{\textbackslash D} & matches any non-digit\\
+\hline
+\texttt{\textbackslash l} & matches any letter\\
+\hline
+\texttt{\textbackslash L} & matches any non-letter\\
+\hline
+\texttt{\textbackslash w} & matches any alphanumeric character\\
+\hline
+\texttt{\textbackslash W} & matches any non-alphanumeric character\\
+\hline
+\texttt{\{num\}} & used to repeat a character or escape sequence "num" times.
+example:  "\d\{3\}" matches 3 digits.\\
+\hline
+\texttt{?} & makes the previous character or escape sequence optional.
+example:  " ?" matches an optional space.
+This behaves in a greedy manner.\\
+\hline
+\texttt{\textbackslash\textbackslash} & matches a backslash\\
+\hline
+\textbackslash \{, \textbackslash \} & matches \{ and \}\\
+\hline
+\textbackslash ? & matches a question mark.\\
+\hline
+\end{tabular}
+
+\item[] Other characters in the pattern will be matched literally.
+
+\begin{note}
+Unlike PCRE, \texttt{\textbackslash w} in this rule option does NOT match underscores.
+\end{note}
+\end{itemize}
+
+\item[] \textit{Examples}
+\begin{verbatim}
+    sd_pattern: 2,us_social;
+\end{verbatim}
+    Alerts when 2 social security numbers (with dashes) appear in a session.
+
+\begin{verbatim}
+    sd_pattern: 5,(\d{3})\d{3}-\d{4};
+\end{verbatim}
+    Alerts on 5 U.S. phone numbers, following the format (123)456-7890
+
+    Whole rule example:
+
+\begin{verbatim}
+    alert tcp $HOME_NET $HIGH_PORTS -> $EXTERNAL_NET $SMTP_PORTS \
+    (msg:"Credit Card numbers sent over email"; gid:138; sid:1000; rev:1; \
+    sd_pattern:4,credit_card; metadata:service smtp;)
+\end{verbatim}
+
+
+\item[] \textit{Caveats}
+\begin{itemize}
+\item[] \texttt{sd\_pattern} is not compatible with other rule options. Trying to use
+other rule options with \texttt{sd\_pattern} will result in an error message.
+
+Rules using \texttt{sd\_pattern} must use GID 138.
+\end{itemize}
+\end{itemize}
 
 \section{Decoder and Preprocessor Rules}
 
@@ -6420,7 +7020,7 @@ needs:
 \begin{itemize} 
 \item \texttt{Detection Filters} 
 
-You can use detection filters to specifiy a threshold that must be exceeded
+You can use detection filters to specify a threshold that must be exceeded
 before a rule generates an event.  This is covered in section
 \ref{detection_filter}.
 
@@ -6921,8 +7521,13 @@ Snort can provide statistics on rule and preprocessor performance.  Each
 require only a simple \texttt{config} option to \texttt{snort.conf} and Snort
 will print statistics on the worst (or all) performers on exit. When a file
 name is provided in \texttt{profile\_rules} or \texttt{profile\_preprocs}, the
-statistics will be saved in these files. If the \texttt{append} option is not
-present, previous data in these files will be overwritten.
+statistics will be saved in these files.  If \texttt{append} is not specified,
+a new file will be created each time Snort is run. The filenames will have
+timestamps appended to them.  These files will be found in the logging
+directory.
+
+To use this feature, you must build snort with the \texttt{--enable-perfprofiling}
+option to the configure script.
 
 \subsection{Rule Profiling}
 \label{rule profiling}
@@ -6962,7 +7567,7 @@ time (optional)
 \subitem \texttt{config profile\_rules}
 
 \item Print all rules, sort by avg\_ticks, and append to file \texttt{rules\_stats.txt} 
-\subitem \texttt{config profile\_rules filename \texttt{rules\_stats.txt} append}
+\subitem \texttt{config profile\_rules: filename \texttt{rules\_stats.txt} append}
 
 \item Print the top 10 rules, based on highest average time
 \subitem \texttt{config profile\_rules: print 10, sort avg\_ticks}
@@ -7070,7 +7675,7 @@ option is turned on)
 
 \item Print all preprocessors, sort by avg\_ticks, and append to file
 \texttt{preprocs\_stats.txt} 
-\subitem \texttt{config profile\_preprocs, filename \texttt{preprocs\_stats.txt} append}
+\subitem \texttt{config profile\_preprocs: filename \texttt{preprocs\_stats.txt} append}
 
 \item Print the top 10 preprocessors, based on highest average time
 \subitem \texttt{config profile\_preprocs: print 10, sort avg\_ticks}
@@ -8125,7 +8730,7 @@ An example of the file format is shown below.
                         <CONFIDENCE>100</CONFIDENCE>
                     </PROTOCOL>
                     <APPLICATION>
-                        <ATTRIBUTE_ID>OpenSSH</ATTRIBUTE_ID>
+                        <ATTRIBUTE_VALUE>OpenSSH</ATTRIBUTE_VALUE>
                         <CONFIDENCE>100</CONFIDENCE>
                         <VERSION>
                             <ATTRIBUTE_VALUE>3.9p1</ATTRIBUTE_VALUE>
@@ -8386,12 +8991,14 @@ preprocessor frag3_global
  memcap
  prealloc_frags
  prealloc_memcap
+ disabled
 preprocessor perfmonitor
  file
  snortfile
 preprocessor sfportscan
  memcap
  logfile
+ disabled
 preprocessor stream5_global
  memcap
  max_tcp
@@ -8434,7 +9041,8 @@ allowed within ranges. Valid vlanId is any number in 0-4095 range. Negative vlan
 Ids and alphanumeric are not supported.
 
 \item [\texttt{ipList}] - Refers to ip subnets. Subnets can be CIDR blocks for 
-IPV6 or IPv4.
+IPV6 or IPv4.  A maximum of 512 individual IPv4 or IPv6 addresses or CIDRs can be
+specified.
 
 \end{description}
 
@@ -9089,8 +9697,8 @@ Attack classifications defined by Snort reside in the
 \end{verbatim}
 
 These attack classifications are listed in Table \ref{Snort Default
-Classifications}. They are currently ordered with 3 default priorities. A
-priority of 1 (high) is the most severe and 3 (low) is the least severe.
+Classifications}. They are currently ordered with 4 default priorities. A
+priority of 1 (high) is the most severe and 4 (very low) is the least severe.
 
 \begin{center}
 \begin{longtable}[h]{|p{2in}|p{2.5in}|c|}
@@ -9106,8 +9714,8 @@ Attempted Administrator Privilege Gain & high \\
 attempted-user&
 Attempted User Privilege Gain & high\\
 \hline
-kickass-porn&
-SCORE! Get the lotion! & high\\
+inappropriate-content&
+Inappropriate Content was Detected & high\\
 \hline 
 policy-violation&
 Potential Corporate Privacy Violation & high\\
@@ -9396,7 +10004,7 @@ to alert on packets that do not match a certain pattern
 Also note that the following characters must be escaped inside a content rule:
 
 \begin{verbatim}
-    : ; \ "
+    ; \ "
 \end{verbatim}
 \end{note}
 
@@ -9466,14 +10074,29 @@ http\_client\_body & \ref{sub:HttpClientBody} \\
 \hline 
 http\_cookie & \ref{sub:HttpCookie} \\
 
+\hline
+http\_raw\_cookie & \ref{sub:RawHttpCookie} \\
+
 \hline 
 http\_header & \ref{sub:HttpHeader} \\
+
+\hline 
+http\_raw\_header & \ref{sub:RawHttpHeader} \\
 
 \hline 
 http\_method & \ref{sub:HttpMethod} \\
 
 \hline 
 http\_uri & \ref{sub:HttpUri} \\
+
+\hline 
+http\_raw\_uri & \ref{sub:RawHttpUri} \\
+
+\hline
+http\_stat\_code & \ref{sub:HttpStatCode} \\
+
+\hline
+http\_stat\_msg & \ref{sub:HttpStatMsg} \\
 
 \hline
 fast\_pattern & \ref{sub:FastPattern} \\
@@ -9622,7 +10245,7 @@ This rule constrains the search of EFG to not go past 10 bytes past the ABC matc
 \label{sub:HttpClientBody}
 
 The http\_client\_body keyword is a content modifier that restricts the search
-to the NORMALIZED body of an HTTP client request.
+to the body of an HTTP client request.
 
 As this keyword is a modifier to the previous 'content' keyword, there must be
 a content in the rule before 'http\_client\_body' is specified.
@@ -9635,7 +10258,7 @@ a content in the rule before 'http\_client\_body' is specified.
 
 \subsubsection{Examples}
 
-This rule constrains the search for the pattern "EFG" to the NORMALIZED body of
+This rule constrains the search for the pattern "EFG" to the raw body of
 an HTTP client request.
 
 \begin{verbatim}
@@ -9651,10 +10274,13 @@ the \texttt{rawbytes} modifier for the same content.
 \label{sub:HttpCookie}
 
 The http\_cookie keyword is a content modifier that restricts the search to the
-extracted Cookie Header field of an HTTP client request.
+extracted Cookie Header field of a HTTP client request or a HTTP server 
+response (per the configuration of HttpInspect \ref{sub:http-inspect}).
 
 As this keyword is a modifier to the previous 'content' keyword, there must be
-a content in the rule before 'http\_cookie' is specified.
+a content in the rule before 'http\_cookie' is specified. This keyword is dependent
+on the 'enable\_cookie' config option. The Cookie Header field will be extracted only
+when this option is configured.
 
 The extracted Cookie Header field may be NORMALIZED, per the configuration of
 HttpInspect (see \ref{sub:http-inspect}).
@@ -9668,7 +10294,7 @@ HttpInspect (see \ref{sub:http-inspect}).
 \subsubsection{Examples}
 
 This rule constrains the search for the pattern "EFG" to the extracted Cookie
-Header field of an HTTP client request.
+Header field of a HTTP client request.
 
 \begin{verbatim}
     alert tcp any any -> any 80 (content:"ABC"; content: "EFG"; http_cookie;)
@@ -9681,11 +10307,47 @@ The \texttt{http\_cookie} modifier is not allowed to be used with the
 
 \end{note}
 
+\subsection{http\_raw\_cookie}
+\label{sub:RawHttpCookie}
+
+The http\_raw\_cookie keyword is a content modifier that restricts the search to the
+extracted UNNORMALIZED Cookie Header field of a HTTP client request or a HTTP server 
+response (per the configuration of HttpInspect \ref{sub:http-inspect}).
+
+As this keyword is a modifier to the previous 'content' keyword, there must be
+a content in the rule before 'http\_raw\_cookie' is specified. This keyword is dependent
+on the 'enable\_cookie' config option. The Cookie Header field will be extracted only
+when this option is configured.
+
+\subsubsection{Format}
+
+\begin{verbatim}
+    http_raw_cookie;
+\end{verbatim}
+
+\subsubsection{Examples}
+
+This rule constrains the search for the pattern "EFG" to the extracted Unnormalized
+Cookie Header field of a HTTP client request.
+
+\begin{verbatim}
+    alert tcp any any -> any 80 (content:"ABC"; content: "EFG"; http_raw_cookie;)
+\end{verbatim}
+
+\begin{note}
+
+The \texttt{http\_raw\_cookie} modifier is not allowed to be used with the
+\texttt{rawbytes}, \texttt{http\_cookie} or \texttt{fast\_pattern} modifiers for the same 
+content.
+
+\end{note}
+
 \subsection{http\_header}
 \label{sub:HttpHeader}
 
 The http\_header keyword is a content modifier that restricts the search to the
-extracted Header fields of an HTTP client request.
+extracted Header fields of a HTTP client request or a HTTP server response (per the 
+configuration of HttpInspect \ref{sub:http-inspect}).
 
 As this keyword is a modifier to the previous 'content' keyword, there must be
 a content in the rule before 'http\_header' is specified.
@@ -9702,7 +10364,7 @@ HttpInspect (see \ref{sub:http-inspect}).
 \subsubsection{Examples}
 
 This rule constrains the search for the pattern "EFG" to the extracted Header
-fields of an HTTP client request.
+fields of a HTTP client request or a HTTP server response.
 
 \begin{verbatim}
     alert tcp any any -> any 80 (content:"ABC"; content: "EFG"; http_header;)
@@ -9715,11 +10377,44 @@ The \texttt{http\_header} modifier is not allowed to be used with the
 
 \end{note}
 
+\subsection{http\_raw\_header}
+\label{sub:RawHttpHeader}
+
+The http\_raw\_header keyword is a content modifier that restricts the search to the
+extracted UNNORMALIZED Header fields of a HTTP client request or a HTTP server
+response (per the configuration of HttpInspect \ref{sub:http-inspect}).
+
+As this keyword is a modifier to the previous 'content' keyword, there must be
+a content in the rule before 'http\_raw\_header' is specified.
+
+\subsubsection{Format}
+
+\begin{verbatim}
+    http_raw_header;
+\end{verbatim}
+
+\subsubsection{Examples}
+
+This rule constrains the search for the pattern "EFG" to the extracted Header fields
+of a HTTP client request or a HTTP server response.
+
+\begin{verbatim}
+    alert tcp any any -> any 80 (content:"ABC"; content: "EFG"; http_raw_header;)
+\end{verbatim}
+
+\begin{note}
+
+The \texttt{http\_raw\_header} modifier is not allowed to be used with the
+\texttt{rawbytes}, \texttt{http\_header} or \texttt{fast\_pattern} modifiers for the same
+content.
+
+\end{note}
+
 \subsection{http\_method}
 \label{sub:HttpMethod}
 
 The http\_method keyword is a content modifier that restricts the search to the
-extracted Method from an HTTP client request.
+extracted Method from a HTTP client request.
 
 As this keyword is a modifier to the previous 'content' keyword, there must be
 a content in the rule before 'http\_method' is specified.
@@ -9733,7 +10428,7 @@ a content in the rule before 'http\_method' is specified.
 \subsubsection{Examples}
 
 This rule constrains the search for the pattern "GET" to the extracted Method
-from an HTTP client request.
+from a HTTP client request.
 
 \begin{verbatim}
     alert tcp any any -> any 80 (content:"ABC"; content: "GET"; http_method;)
@@ -9778,41 +10473,266 @@ The \texttt{http\_uri} modifier is not allowed to be used with the
 
 \end{note}
 
-\subsection{fast\_pattern}
-\label{sub:FastPattern}
-
-The fast\_pattern keyword is a content modifier that sets the content within a
-rule to be used with the Fast Pattern Matcher.  It overrides the default of
-using the longest content within the rule.
-
-fast\_pattern may be specified at most once for each of the buffer modifiers
-(excluding the http\_cookie modifier).
+\subsection{http\_raw\_uri}
+\label{sub:RawHttpUri}
+The http\_raw\_uri keyword is a content modifier that restricts the search to the
+UNNORMALIZED request \textsc{URI} field . 
 
 As this keyword is a modifier to the previous 'content' keyword, there must be
-a content in the rule before 'fast\_pattern' is specified.
+a content in the rule before 'http\_raw\_uri' is specified.
 
 \subsubsection{Format}
 
 \begin{verbatim}
-    fast_pattern;
+    http_raw_uri;
 \end{verbatim}
 
 \subsubsection{Examples}
 
-This rule causes the pattern "EFG" to be used with the Fast Pattern Matcher,
-even though it is shorter than the earlier pattern "ABCD".
+This rule constrains the search for the pattern "EFG" to the UNNORMALIZED URI.
 
 \begin{verbatim}
-    alert tcp any any -> any 80 (content:"ABCD"; content: "EFG"; fast_pattern;)
+    alert tcp any any -> any 80 (content:"ABC"; content: "EFG"; http_raw_uri;)
+\end{verbatim}
+\begin{note}
+
+The \texttt{http\_raw\_uri} modifier is not allowed to be used with the
+\texttt{rawbytes}, \texttt{http\_uri} or \texttt{fast\_pattern} modifiers for the same
+content.
+
+\end{note}
+
+\subsection{http\_stat\_code}
+\label{sub:HttpStatCode}
+
+The http\_stat\_code keyword is a content modifier that restricts the search to the
+extracted Status code field from a HTTP server response.
+
+As this keyword is a modifier to the previous 'content' keyword, there must be
+a content in the rule before 'http\_stat\_code' is specified. 
+
+The Status Code field will be extracted only if the extended\_reponse\_inspection is 
+configured for the HttpInspect (see \ref{sub:http-inspect}).
+
+\subsubsection{Format}
+
+\begin{verbatim}
+    http_stat_code;
+\end{verbatim}
+
+\subsubsection{Examples}
+
+This rule constrains the search for the pattern "200" to the extracted Status Code field 
+of a HTTP server response.
+
+\begin{verbatim}
+    alert tcp any any -> any 80 (content:"ABC"; content: "200"; http_stat_code;)
 \end{verbatim}
 
 \begin{note}
 
-The \texttt{fast\_pattern} modifier is not allowed to be used with the
-\texttt{http\_cookie} modifier for the same content, nor with a content that is
-negated with a \texttt{!}.
+The \texttt{http\_stat\_code} modifier is not allowed to be used with the
+\texttt{rawbytes} or \texttt{fast\_pattern} modifiers for the same content.
 
 \end{note}
+
+\subsection{http\_stat\_msg}
+\label{sub:HttpStatMsg}
+
+The http\_stat\_msg keyword is a content modifier that restricts the search to the
+extracted Status Message field from a HTTP server response.
+
+As this keyword is a modifier to the previous 'content' keyword, there must be
+a content in the rule before 'http\_stat\_msg' is specified.
+
+The Status Message field will be extracted only if the extended\_reponse\_inspection is
+configured for the HttpInspect (see \ref{sub:http-inspect}).
+
+\subsubsection{Format}
+
+\begin{verbatim}
+    http_stat_msg;
+\end{verbatim}
+
+\subsubsection{Examples}
+
+This rule constrains the search for the pattern "Not Found" to the extracted Status 
+Message field of a HTTP server response.
+
+\begin{verbatim}
+    alert tcp any any -> any 80 (content:"ABC"; content: "Not Found"; http_stat_msg;)
+\end{verbatim}
+
+\begin{note}
+
+The \texttt{http\_stat\_msg} modifier is not allowed to be used with the
+\texttt{rawbytes} or \texttt{fast\_pattern} modifiers for the same content.
+
+\end{note}
+
+\subsection{http\_encode}
+\label{sub:HttpEncode}
+
+The \texttt{http\_encode} keyword will enable alerting based on encoding type present
+in a HTTP client request or a HTTP server response (per the configuration of 
+HttpInspect \ref{sub:http-inspect}).
+
+There are nine keyword associated with \texttt{http\_encode}. The keywords 'uri', 'header' 
+and 'cookie' determine the HTTP fields used to search for a particular encoding type.
+The keywords 'utf8', 'double\_encode', 'non\_ascii', 'base36', 'uencode' and 'bare\_byte' 
+determine the encoding type which would trigger the alert. These keywords can be combined 
+using a OR operation. Negation is allowed on these keywords.
+
+The config option 'normalize\_headers' needs to be turned on for rules to work with keyword 'header'.
+The keyword 'cookie' is depedent on config options 'enable\_cookie' and 'normalize\_cookies' (see
+\ref{sub:http-inspect}).  This rule option will not be able to detect encodings if the specified 
+HTTP fields are not NORMALIZED.
+
+\begin{tabular}{| l | p{4.5in} |}
+\hline
+{\bf Option} & {\bf Description}\\
+\hline
+\hline
+\texttt{uri} & Check for the specified encoding type in HTTP client request URI field.\\
+\hline
+\texttt{header} & Ckeck for the specified encoding type in HTTP request or HTTP response header fields
+(depending on the packet flow)\\
+\hline
+\texttt{cookie} & Check for the specified encoding type in HTTP request or HTTP response cookie 
+header fields (depending on the packet flow)\\
+\hline
+\texttt{utf8} & Check for utf8 encoding in the specified buffer\\
+\hline
+\texttt{double\_encode} & Check for double encoding in the specified buffer\\
+\hline
+\texttt{non\_ascii} & Check for non-ascii encoding in the specified buffer\\
+\hline
+\texttt{base36} & Check for base36 encoding in the specified buffer\\
+\hline
+\texttt{uencode} & Check for u-encoding in the specified buffer\\
+\hline
+\texttt{bare\_byte} & Check for bare byte encoding in the specified buffer\\
+\hline
+\end{tabular}
+
+\subsubsection{Format}
+
+\begin{verbatim}
+    http_encode: <http buffer type>, [!] <encoding type>
+    http_encode: [uri|header|cookie], [!][<utf8|double_encode|non_ascii|base36|uencode|bare_byte>];
+\end{verbatim}
+
+\subsubsection{Examples}
+\begin{verbatim}
+    alert tcp any any -> any any (msg:"UTF8/UEncode Encoding present"; http_encode:uri,utf8|uencode;)
+    alert tcp any any -> any any (msg:"No UTF8"; http_encode:uri,!utf8;)
+\end{verbatim}
+
+
+\begin{note}
+
+Negation(!) and OR({\tt |}) operations cannot be used in conjunction with each other for the 
+\texttt{http\_encode} keyword. The OR and negation operations work only on the encoding type
+field and not on http buffer type field.
+
+\end{note}
+
+\subsection{fast\_pattern}
+\label{sub:FastPattern}
+
+The \texttt{fast\_pattern} keyword is a content modifier that sets the content
+within a rule to be used with the fast pattern matcher.  Since the default
+behavior of fast pattern determination is to use the longest content in the
+rule, it is useful if a shorter content is more "unique" than the longer content,
+meaning the shorter content is less likely to be found in a packet than the
+longer content.
+
+The fast pattern matcher is used to select only those rules that have a
+chance of matching by using a content in the rule for selection and only
+evaluating that rule if the content is found in the payload.  Though this
+may seem to be overhead, it can significantly reduce the number of rules
+that need to be evaluated and thus increases performance.  The better the
+content used for the fast pattern matcher, the less likely the rule will
+needlessly be evaluated.
+
+As this keyword is a modifier to the previous \texttt{content} keyword, there must be
+a \texttt{content} rule option in the rule before \texttt{fast\_pattern} is specified.
+The \texttt{fast\_pattern} option may be specified only once per rule.
+
+\begin{note}
+The \texttt{fast\_pattern} modifier cannot be used with the following http
+content modifiers: \texttt{http\_cookie}, \texttt{http\_raw\_uri},
+\texttt{http\_raw\_header}, \texttt{http\_raw\_cookie},
+\texttt{http\_stat\_code}, \texttt{http\_stat\_msg}.  Note, however, that
+it is okay to use the \texttt{fast\_pattern} modifier if another http content
+modifier not mentioned above is used in combination with one of the above
+to modify the same content.
+\end{note}
+
+\begin{note}
+The \texttt{fast\_pattern} modifier can be used with negated contents only if
+those contents are not modified with \texttt{offset}, \texttt{depth},
+\texttt{distance} or \texttt{within}.
+\end{note}
+
+\subsubsection{Format}
+The \texttt{fast\_pattern} option can be used alone or optionally take arguments.
+When used alone, the meaning is simply to use the specified content as the
+fast pattern content for the rule.
+
+\begin{verbatim}
+fast_pattern;
+\end{verbatim}
+
+The optional argument \texttt{only} can be used to specify that the content
+should only be used for the fast pattern matcher and should not be evaluated
+as a rule option.  This is useful, for example, if a known content must be
+located in the payload independent of location in the payload, as it saves
+the time necessary to evaluate the rule option.  
+Note that (1) the modified content must be case insensitive since
+patterns are inserted into the pattern matcher in a case insensitive manner,
+(2) negated contents cannot be used and (3) contents cannot have any positional
+modifiers such as \texttt{offset}, \texttt{depth}, \texttt{distance}
+or \texttt{within}.
+\begin{verbatim}
+fast_pattern:only;
+\end{verbatim}
+
+The optional argument \texttt{<offset>,<length>} can be used to specify that
+only a portion of the content should be used for the fast pattern matcher.
+This is useful if the pattern is very long and only a portion of the pattern
+is necessary to satisfy "uniqueness" thus reducing the memory required to
+store the entire pattern in the fast pattern matcher.
+\begin{verbatim}
+fast_pattern:<offset>,<length>;
+\end{verbatim}
+
+\begin{note}
+The optional arguments \texttt{only} and \texttt{<offset>,<length>} are
+mutually exclusive.
+\end{note}
+
+\subsubsection{Examples}
+
+This rule causes the pattern "IJKLMNO" to be used with the fast pattern matcher,
+even though it is shorter than the earlier pattern "ABCDEFGH".
+
+\begin{verbatim}
+alert tcp any any -> any 80 (content:"ABCDEFGH"; content:"IJKLMNO"; fast_pattern;)
+\end{verbatim}
+
+This rule says to use the content "IJKLMNO" for the fast pattern matcher and that
+the content should only be used for the fast pattern matcher and not evaluated
+as a \texttt{content} rule option.
+\begin{verbatim}
+alert tcp any any -> any 80 (content:"ABCDEFGH"; content:"IJKLMNO"; nocase; fast_pattern:only;)
+\end{verbatim}
+
+This rule says to use "JKLMN" as the fast pattern content, but still evaluate
+the \texttt{content} rule option as "IJKLMNO".
+\begin{verbatim}
+alert tcp any any -> any 80 (content:"ABCDEFGH"; content:"IJKLMNO"; fast_pattern:1,5;)
+\end{verbatim}
 
 \subsection{uricontent}
 \label{sub:UriContent}
@@ -9915,7 +10835,7 @@ for data relative to the end of the previous content match.
 \subsubsection{Format}
 
 \begin{verbatim}
-    isdataat:<int>[,relative];
+    isdataat:[!] <int>[,relative];
 \end{verbatim}
 
 \subsubsection{Example}
@@ -9929,6 +10849,11 @@ This rule looks for the string PASS exists in the packet, then verifies there
 is at least 50 bytes after the end of the string PASS, then verifies that there
 is not a newline character within 50 bytes of the end of the PASS string.
 
+A \texttt{!} modifier negates the results of the isdataat test. It will alert 
+if a certain amount of data is not present within the payload. For example,
+the rule with modifiers \texttt{content:"foo"; isdataat:!10,relative;}  would 
+alert if there were not 10 bytes after "foo" before the payload ended. 
+
 \subsection{pcre}
 \label{pcre}
 
@@ -9939,7 +10864,7 @@ expression, check out the PCRE web site \url{http://www.pcre.org}
 \subsubsection{Format}
 
 \begin{verbatim}
-    pcre:[!]"(/<regex>/|m<delim><regex><delim>)[ismxAEGRUBPHMCO]";
+    pcre:[!]"(/<regex>/|m<delim><regex><delim>)[ismxAEGRUBPHMCOIDKYS]";
 \end{verbatim}
 
 The post-re modifiers set compile time flags for the regular expression.  See tables
@@ -10021,12 +10946,20 @@ U &
 Match the decoded URI buffers (Similar to \texttt{uricontent} and \texttt{http\_uri}) \\
 
 \hline
+I &
+Match the unormalized HTTP request uri buffer (Similar to \texttt{http\_raw\_uri}) \\
+
+\hline
 P &
-Match normalized HTTP request body (Similar to \texttt{http\_client\_body}) \\
+Match unnormalized HTTP request body (Similar to \texttt{http\_client\_body}) \\
 
 \hline
 H &
-Match normalized HTTP request header (Similar to \texttt{http\_header}) \\
+Match normalized HTTP request or HTTP response header (Similar to \texttt{http\_header}) \\
+
+\hline
+D &
+Match unnormalized HTTP request or HTTP response header (Similar to \texttt{http\_raw\_header}) \\
 
 \hline
 M &
@@ -10034,7 +10967,19 @@ Match normalized HTTP request method (Similar to \texttt{http\_method}) \\
 
 \hline
 C &
-Match normalized HTTP request cookie (Similar to \texttt{http\_cookie}) \\
+Match normalized HTTP request or HTTP response cookie (Similar to \texttt{http\_cookie}) \\
+
+\hline
+K &
+Match unnormalized HTTP request or HTTP response cookie (Similar to \texttt{http\_raw\_cookie}) \\
+
+\hline
+S &
+Match HTTP response status code (Similar to \texttt{http\_stat\_code}) \\
+
+\hline
+Y &
+Match HTTP response status message (Similar to \texttt{http\_stat\_msg}) \\
 
 \hline
 B &
@@ -10068,6 +11013,30 @@ when used without a \texttt{uricontent} only evaluates the first URI.  In order
 to use pcre to inspect all URIs, you must use either a content or a uricontent.
 
 \end{note}
+
+\subsection{file\_data}
+\label{sub:file_data}
+This option is used to place the cursor (used to walk the packet payload in
+rules processing) at the beginning of either the entity body of a HTTP     
+response or the SMTP body data. This option takes no arguments.
+
+\subsubsection{Format}
+
+\begin{verbatim}
+	file_data;
+\end{verbatim}
+
+This option matches if there is HTTP response body or SMTP body. This option       
+option will operate similarly to the \texttt{dce\_stub\_data} option added with DCE/RPC2, 
+in that it simply sets a reference for other relative rule options 
+( byte test, byte jump, pcre) to use. This \texttt{file\_data} can point to either a 
+file or a block of data.
+
+\subsubsection{Example}
+
+\begin{verbatim}
+	alert tcp any any -> any any(msg:"foo at the start of the payload"; file_data; pcre:"/foo/i";)
+\end{verbatim}
 
 \subsection{byte\_test}
 \label{sub:byte_test}
@@ -10424,11 +11393,6 @@ examples of using this rule option.
 %\begin{figure}
 %\begin{verbatim}
 %# adult sites 
-%"porn"
-%"porn"
-%"adults"
-%"hard core"
-%"www.pornsite.com"
 %\end{verbatim}
 %\caption{\label{content-list example}Content-list adults
 %file example}
@@ -10440,6 +11404,16 @@ examples of using this rule option.
 %\begin{verbatim}
 %content-list: <file_name>;
 %\end{verbatim}
+
+\subsection{ssl\_version}
+
+See the SSL/TLS Preprocessor section \ref{sub:SSL/TLS} for a description and examples of
+using this rule option.
+
+\subsection{ssl\_state}
+
+See the SSL/TLS Preprocessor section \ref{sub:SSL/TLS} for a description and examples of
+using this rule option.
 
 \subsection{Payload Detection Quick Reference}
 \begin{center}
@@ -10855,26 +11829,32 @@ packets\\
 
 The \texttt{flowbits} keyword is used in conjunction with conversation tracking
 from the Stream preprocessor (see Section\ref{stream5 section}).  It allows
-rules to track states across transport protocol sessions.  The flowbits option
+rules to track states during a transport protocol session.  The flowbits option
 is most useful for TCP sessions, as it allows rules to generically track the
 state of an application protocol.
 
-There are seven keywords associated with flowbits. Most of the options need a
+There are eight keywords associated with flowbits. Most of the options need a
 user-defined name for the specific state that is being checked.  This string
 should be limited to any alphanumeric string including periods, dashes, and
-underscores.
+underscores. The keywords set and toggle take an optional argument which specifies
+the group to which the keywords will belong. When no group name is specified the 
+flowbits will belong to a default group. All the flowbits in a particular group 
+(with an exception of default group) are mutually exclusive. A particular flow 
+cannot belong to more than one group.
 
 \begin{tabular}{| l | p{4.5in} |}
 \hline
 {\bf Option} & {\bf Description}\\
 \hline
 \hline
-\texttt{set} & Sets the specified state for the current flow.\\
+\texttt{set} & Sets the specified state for the current flow and unsets all the other 
+flowbits in a group when a GROUP\_NAME is specified.\\
 \hline
 \texttt{unset} & Unsets the specified state for the current flow.\\
 \hline
-\texttt{toggle} & Sets the specified state if the state is unset, otherwise unsets the 
-state if the state is set.\\
+\texttt{toggle} & Sets the specified state if the state is unset and unsets all the 
+other flowbits in a group when a GROUP\_NAME is specified, otherwise unsets the state 
+if the state is set.\\
 \hline
 \texttt{isset} & Checks if the specified state is set.\\
 \hline
@@ -10887,7 +11867,7 @@ state if the state is set.\\
 \subsubsection{Format}
 
 \begin{verbatim}
-    flowbits: [set|unset|toggle|isset|reset|noalert][,<STATE_NAME>];
+    flowbits: [set|unset|toggle|isset|reset|noalert][,<STATE_NAME>][,<GROUP_NAME>];
 \end{verbatim}
 
 \subsubsection{Examples}
@@ -10899,6 +11879,7 @@ state if the state is set.\\
       
     alert tcp any any -> any 143 (msg:"IMAP LIST"; content:"LIST"; 
         flowbits:isset,logged_in;)
+	
 \end{verbatim}
 
 \subsection{seq}
@@ -11198,8 +12179,8 @@ traffic flow. \\
 \hline
 \texttt{flowbits} &
 
-The flowbits keyword allows rules to track states across transport protocol
-sessions. \\
+The flowbits keyword allows rules to track states during a transport protocol
+session. \\
 
 \hline
 \texttt{seq} &
@@ -11369,8 +12350,8 @@ The following example attempts to reset any TCP connection to port 1524.
 This keyword implements an ability for users to react to traffic that matches a
 Snort rule. The basic reaction is blocking interesting sites users want to
 access: New York Times, slashdot, or something really important - napster and
-porn sites. The React code allows Snort to actively close offending connections
-and send a visible notice to the browser. The notice may include your own
+any inappropriate sites. The React code allows Snort to actively close offending 
+connections and send a visible notice to the browser. The notice may include your own
 comment. The following arguments (basic modifiers) are valid for this option:
 
 \begin{itemize}
@@ -11817,15 +12798,21 @@ maximize efficiency and speed.
 
 \subsection{Content Matching}
 
-The 2.0 detection engine changes the way Snort works slightly by having the
-first phase be a setwise pattern match.  The longer a content option is, the
-more \emph{exact} the match.  Rules without \emph{content} (or
-\emph{uricontent}) slow the entire system down.
-
-While some detection options, such as \emph{pcre} and \emph{byte\_test},
-perform detection in the payload section of the packet, they do not use the
-setwise pattern matching engine.  If at all possible, try and have at least one
-\emph{content} option if at all possible.
+Snort groups rules by protocol (ip, tcp, udp, icmp), then by ports
+(ip and icmp use slightly differnet logic), then by those with \texttt{content}
+and those without.  For rules with \texttt{content}, a multi-pattern matcher is
+used to select rules that have a chance at matching based on a single content.
+Selecting rules for evaluation via this "fast" pattern matcher was found to
+increase performance, especially when applied to large rule groups like HTTP.
+The longer and more unique a \texttt{content} is, the less likely that rule and
+all of it's rule options will be evaluated unnecessarily - it's safe to say
+there is generally more "good" traffic than "bad".  Rules without
+\texttt{content} are always evaluated (relative to the protocol and port group
+in which they reside), potentially putting a drag on performance.
+While some detection options, such as \texttt{pcre} and \texttt{byte\_test},
+perform detection in the payload section of the packet, they are not used by the
+fast pattern matching engine.  If at all possible, try and have at least one
+\texttt{content} (or \texttt{uricontent}) rule option in your rule.
 
 \subsection{Catch the Vulnerability, Not the Exploit}
 
@@ -11882,11 +12869,12 @@ There are a few important things to note in this rule:
 \begin{itemize}
 
 \item The rule has a \emph{flow} option, verifying this is traffic going to the
-server on an enstablished session.
+server on an established session.
 
 \item The rule has a \emph{content} option, looking for \emph{root}, which is
 the longest, most unique string in the attack.  This option is added to allow
-Snort's setwise pattern match detection engine to give Snort a boost in speed.
+the fast pattern matcher to select this rule for evaluation only if the
+content \emph{root} is found in the payload.
 
 \item The rule has a \emph{pcre} option, looking for user, followed at least
 one space character (which includes tab), followed by root, ignoring case.

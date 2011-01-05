@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -53,10 +53,11 @@
 #define PP_TELNET                 14
 #define PP_ARPSPOOF               15
 #define PP_DCE2                   16
+#define PP_SDF                    17
 
 // used externally
-#define PP_ISAKMP                 17
-#define PP_SKYPE                  18
+#define PP_ISAKMP                 18
+#define PP_SKYPE                  19
 
 // currently 32 bits (preprocessors)
 // are available.  most of these can

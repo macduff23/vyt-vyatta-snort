@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -53,11 +53,15 @@
 
 #include "snort.h"
 #include "rules.h"
+#include "treenodes.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "parser.h"
 #include "plugin_enum.h"
 #include "util.h"
 #include "rules.h"
+#include "treenodes.h"
+#include "treenodes.h"
 #include "fpcreate.h"
 #include "event_queue.h"
 #include "event_wrapper.h"
@@ -245,9 +249,7 @@ void ppm_print_summary(ppm_cfg_t *ppm_cfg)
         if( ppm_cfg->tot_pcre_rules )
             LogMessage("   avg nc-pcre-rule time : %g usecs\n",
                        ppm_ticks_to_usecs((PPM_TICKS)(ppm_cfg->tot_pcre_rule_time/ppm_cfg->tot_pcre_rules)) );
-#ifdef PORTLISTS
         fpWalkOtns( 0, print_rule );
-#endif
     }
 }
 

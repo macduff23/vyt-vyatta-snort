@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -53,6 +53,7 @@
 #endif /* !WIN32 */
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "parser.h"
@@ -136,7 +137,7 @@ int IpProtoCheckCompare(void *l, void *r)
 void SetupIpProto(void)
 {
     /* map the keyword to an initialization/processing function */
-    RegisterRuleOption("ip_proto", IpProtoInit, NULL, OPT_TYPE_DETECTION);
+    RegisterRuleOption("ip_proto", IpProtoInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("ip_proto", &ipProtoPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif
@@ -257,7 +258,7 @@ void IpProtoRuleParseFunction(char *data, IpProtoData *ds_ptr)
         unsigned long ip_proto;
         char *endptr;
 
-        ip_proto = strtoul(data, &endptr, 10);
+        ip_proto = SnortStrtoul(data, &endptr, 10);
         if ((errno == ERANGE) || (ip_proto >= NUM_IP_PROTOS))
         {
             FatalError("%s(%d) Invalid protocol number for \"ip_proto\" "

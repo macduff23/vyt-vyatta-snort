@@ -1,7 +1,7 @@
 /*
  * spp_dcerpc.c
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -94,8 +94,8 @@ PreprocStats dcerpcDetectPerfStats;
 tSfPolicyUserContextId dcerpc_config = NULL;
 DceRpcConfig *dcerpc_eval_config = NULL;
  
-void DCERPCInit(char *);
-void ProcessDCERPCPacket(void *, void *);
+static void DCERPCInit(char *);
+static void ProcessDCERPCPacket(void *, void *);
 static void DCERPCCleanExitFunction(int, void *);
 static void DCERPCReset(int, void *);
 static void DCERPCResetStats(int, void *);
@@ -153,7 +153,7 @@ void SetupDCERPC(void)
  * Returns: void function
  *
  */
-void DCERPCInit(char *args)
+static void DCERPCInit(char *args)
 {
     tSfPolicyId policy_id = _dpd.getParserPolicy();
     char ErrorString[ERRSTRLEN];
@@ -165,18 +165,18 @@ void DCERPCInit(char *args)
 
     if (dcerpc_config == NULL)
     {
+        _dpd.logMsg("********** WARNING **********\n");
+        _dpd.logMsg("The dcerpc preprocessor is superceded by the dcerpc2 "
+                "preprocessor.  It is considered deprecated and will be "
+                "removed in a future release.\n");
+        _dpd.logMsg("*****************************\n");
+
         //create a context
         dcerpc_config = sfPolicyConfigCreate();
         if (dcerpc_config == NULL)
         {
             DynamicPreprocessorFatalMessage("%s(%d) => Could not allocate memory "
                                             "for dcerpc preprocessor configuration.\n");
-        }
-
-        if (_dpd.streamAPI == NULL)
-        {
-            DynamicPreprocessorFatalMessage("%s(%d) => dcerpc: Stream5 must be enabled.\n",
-                                            *_dpd.config_file, *_dpd.config_line);
         }
 
 #ifdef PERF_PROFILING
@@ -244,7 +244,18 @@ void DCERPCInit(char *args)
 
     /* Parse configuration */
     if (DCERPCProcessConf(pPolicyConfig, token, ErrorString, iErrStrLen))
-        DynamicPreprocessorFatalMessage("%s(%d) => %s\n", *_dpd.config_file, *_dpd.config_line, ErrorString);
+        DynamicPreprocessorFatalMessage("%s(%d) => %s\n",
+            *_dpd.config_file, *_dpd.config_line, ErrorString);
+
+    if ( pPolicyConfig->disabled )
+        return;
+
+    if (_dpd.streamAPI == NULL)
+    {
+        DynamicPreprocessorFatalMessage(
+            "%s(%d) => dcerpc: Stream5 must be enabled.\n",
+            *_dpd.config_file, *_dpd.config_line);
+    }
 
     /* Set the preprocessor function into the function list */
     _dpd.addPreproc(ProcessDCERPCPacket, PRIORITY_APPLICATION, PP_DCERPC, PROTO_BIT__TCP);
@@ -275,6 +286,7 @@ static void DCERPC_DisablePreprocessors(SFSnortPacket *p)
     _dpd.setPreprocBit(p, PP_SFPORTSCAN);
     _dpd.setPreprocBit(p, PP_PERFMONITOR);
     _dpd.setPreprocBit(p, PP_STREAM5);
+    _dpd.setPreprocBit(p, PP_SDF);
 }
 
 
@@ -289,10 +301,10 @@ static void DCERPC_DisablePreprocessors(SFSnortPacket *p)
  * Returns: void function
  *
  */
-void ProcessDCERPCPacket(void *pkt, void *context)
+static void ProcessDCERPCPacket(void *pkt, void *context)
 {
-	SFSnortPacket *p = (SFSnortPacket *)pkt;
-    uint32_t      session_flags = 0;
+    SFSnortPacket *p = (SFSnortPacket *)pkt;
+    uint32_t session_flags = 0;
     PROFILE_VARS;
 
     /* no data to inspect */
@@ -402,12 +414,18 @@ static void _addServicesToStream5Filter(tSfPolicyId policy_id)
 #endif
 
 static int DCERPCCheckPolicyConfig(
-        tSfPolicyUserContextId config,
+        tSfPolicyUserContextId contextId,
         tSfPolicyId policyId,
         void* pData
         )
 {
+    DceRpcConfig* config = (DceRpcConfig*)pData;
+
+    if ( config->disabled )
+        return 0;
+
     _dpd.setParserPolicy(policyId);
+
     if (!_dpd.isPreprocEnabled(PP_STREAM5))
         DynamicPreprocessorFatalMessage("dcerpc: Stream5 must be enabled.\n");
 
@@ -438,12 +456,6 @@ static void DCERPCReload(char *args)
         {
             DynamicPreprocessorFatalMessage("%s(%d) => Could not allocate memory "
                                             "for dcerpc preprocessor configuration.\n");
-        }
-
-        if (_dpd.streamAPI == NULL)
-        {
-            DynamicPreprocessorFatalMessage("%s(%d) => dcerpc: Stream5 must be enabled.\n",
-                                            *_dpd.config_file, *_dpd.config_line);
         }
 
         _dpd.addPreprocReloadVerify(DCERPCVerifyReload);
@@ -484,9 +496,20 @@ static void DCERPCReload(char *args)
 
     /* Parse configuration */
     if (DCERPCProcessConf(pPolicyConfig, token, ErrorString, iErrStrLen))
-        DynamicPreprocessorFatalMessage("%s(%d) => %s\n", *_dpd.config_file, *_dpd.config_line, ErrorString);
+        DynamicPreprocessorFatalMessage("%s(%d) => %s\n",
+            *_dpd.config_file, *_dpd.config_line, ErrorString);
 
-	_dpd.addPreproc(ProcessDCERPCPacket, PRIORITY_APPLICATION, PP_DCERPC, PROTO_BIT__TCP);
+    if ( pPolicyConfig->disabled )
+        return;
+
+    if (_dpd.streamAPI == NULL)
+    {
+        DynamicPreprocessorFatalMessage(
+            "%s(%d) => dcerpc: Stream5 must be enabled.\n",
+            *_dpd.config_file, *_dpd.config_line);
+    }
+
+    _dpd.addPreproc(ProcessDCERPCPacket, PRIORITY_APPLICATION, PP_DCERPC, PROTO_BIT__TCP);
 
 #ifdef TARGET_BASED
     _addServicesToStream5Filter(policy_id);
@@ -515,9 +538,6 @@ static int DCERPCVerifyReload(void)
         return 0;
     }
 
-    if (!_dpd.isPreprocEnabled(PP_STREAM5))
-        DynamicPreprocessorFatalMessage("dcerpc: Stream5 must be enabled.\n");
-
     if (configNext->memcap != config->memcap)
     {
         _dpd.errMsg("DCERPC reload: Changing the memcap requires a restart.\n");
@@ -525,6 +545,12 @@ static int DCERPCVerifyReload(void)
         dcerpc_swap_config = NULL;
         return -1;
     }
+
+    if ( configNext->disabled )
+        return 0;
+
+    if (!_dpd.isPreprocEnabled(PP_STREAM5))
+        DynamicPreprocessorFatalMessage("dcerpc: Stream5 must be enabled.\n");
 
     return 0;
 }

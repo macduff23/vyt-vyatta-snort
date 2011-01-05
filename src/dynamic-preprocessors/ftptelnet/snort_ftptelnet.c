@@ -1,7 +1,7 @@
 /*
  * snort_ftptelnet.c
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -2214,7 +2214,7 @@ static int ProcessFTPMaxRespLen(FTP_CLIENT_PROTO_CONF *ClientConf,
         return FTPP_FATAL_ERR;
     }
 
-    max_resp_len = strtol(pcToken, &pcEnd, 10);
+    max_resp_len = _dpd.SnortStrtol(pcToken, &pcEnd, 10);
 
     /*
      * Let's check to see if the entire string was valid.
@@ -2274,7 +2274,7 @@ int ParseBounceTo(char* token, FTP_BOUNCE_TO* bounce)
     bounce->relevant_bits = tmp_ip.bits;
 #endif
 
-    port_lo = strtol(toks[1], &endptr, 10);
+    port_lo = _dpd.SnortStrtol(toks[1], &endptr, 10);
     if ((errno == ERANGE) || (*endptr != '\0') ||
         (port_lo < 0) || (port_lo >= MAXPORTS))
     {
@@ -2286,7 +2286,7 @@ int ParseBounceTo(char* token, FTP_BOUNCE_TO* bounce)
 
     if (num_toks == 3)
     {
-        long int port_hi = strtol(toks[2], &endptr, 10);
+        long int port_hi = _dpd.SnortStrtol(toks[2], &endptr, 10);
 
         if ((errno == ERANGE) || (*endptr != '\0') ||
             (port_hi < 0) || (port_hi >= MAXPORTS))

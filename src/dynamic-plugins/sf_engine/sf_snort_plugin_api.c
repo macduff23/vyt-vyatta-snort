@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy  Mullican
@@ -113,6 +113,70 @@ ENGINE_LINKAGE int getBuffer(void *packet, int flags, const u_int8_t **start, co
             return CONTENT_TYPE_MISMATCH;
         }
     }
+    else if (flags & CONTENT_BUF_RAW_URI)
+    {
+        if (p->flags & FLAG_HTTP_DECODE)
+        {
+            *start = _ded.uriBuffers[HTTP_BUFFER_RAW_URI]->uriBuffer;
+            *end = *start + _ded.uriBuffers[HTTP_BUFFER_RAW_URI]->uriLength;
+        }
+        else
+        {
+            return CONTENT_TYPE_MISMATCH;
+        }
+    }
+    else if (flags & CONTENT_BUF_RAW_HEADER)
+    {
+        if (p->flags & FLAG_HTTP_DECODE)
+        {
+            *start = _ded.uriBuffers[HTTP_BUFFER_RAW_HEADER]->uriBuffer;
+            *end = *start + _ded.uriBuffers[HTTP_BUFFER_RAW_HEADER]->uriLength;
+        }
+        else
+        {
+            return CONTENT_TYPE_MISMATCH;
+        }
+    }
+
+    else if (flags & CONTENT_BUF_RAW_COOKIE)
+    {
+        if (p->flags & FLAG_HTTP_DECODE)
+        {
+            *start = _ded.uriBuffers[HTTP_BUFFER_RAW_COOKIE]->uriBuffer;
+            *end = *start + _ded.uriBuffers[HTTP_BUFFER_RAW_COOKIE]->uriLength;
+        }
+        else
+        {
+            return CONTENT_TYPE_MISMATCH;
+        }
+    }
+
+    else if (flags & CONTENT_BUF_STAT_CODE)
+    {
+        if (p->flags & FLAG_HTTP_DECODE)
+        {
+            *start = _ded.uriBuffers[HTTP_BUFFER_STAT_CODE]->uriBuffer;
+            *end = *start + _ded.uriBuffers[HTTP_BUFFER_STAT_CODE]->uriLength;
+        }
+        else
+        {
+            return CONTENT_TYPE_MISMATCH;
+        }
+    }
+
+    else if (flags & CONTENT_BUF_STAT_MSG)
+    {
+        if (p->flags & FLAG_HTTP_DECODE)
+        {
+            *start = _ded.uriBuffers[HTTP_BUFFER_STAT_MSG]->uriBuffer;
+            *end = *start + _ded.uriBuffers[HTTP_BUFFER_STAT_MSG]->uriLength;
+        }
+        else
+        {
+            return CONTENT_TYPE_MISMATCH;
+        }
+    }
+
     else
     {
         return CONTENT_TYPE_MISSING;

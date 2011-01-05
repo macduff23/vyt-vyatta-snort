@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -91,7 +91,9 @@ static HI_EVENT_INFO client_event_info[HI_EO_CLIENT_EVENT_NUM] = {
     {HI_EO_CLIENT_MAX_HEADERS, HI_EO_LOW_PRIORITY,
         HI_EO_CLIENT_MAX_HEADERS_STR},
     {HI_EO_CLIENT_MULTIPLE_CONTLEN, HI_EO_HIGH_PRIORITY,
-            HI_EO_CLIENT_MULTIPLE_CONTLEN_STR}
+            HI_EO_CLIENT_MULTIPLE_CONTLEN_STR},
+    {HI_EO_CLIENT_CHUNK_SIZE_MISMATCH, HI_EO_HIGH_PRIORITY,
+            HI_EO_CLIENT_CHUNK_SIZE_MISMATCH_STR}
 };
 
 static HI_EVENT_INFO anom_server_event_info[HI_EO_ANOM_SERVER_EVENT_NUM] = {

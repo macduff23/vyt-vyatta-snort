@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -25,6 +25,7 @@
 #include "sfxhash.h"
 #include "stream5_common.h"
 #include "rules.h"
+#include "treenodes.h"
 
 typedef void(*Stream5SessionCleanup)(Stream5LWSession *ssn);
 

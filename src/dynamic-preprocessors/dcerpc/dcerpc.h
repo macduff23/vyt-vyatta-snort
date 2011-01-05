@@ -1,7 +1,7 @@
 /*
  * dcerpc.h
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  * Andrew Mullican
  *
  * This program is free software; you can redistribute it and/or modify
@@ -68,6 +68,16 @@ typedef struct dcerpc_req
 
 } DCERPC_REQ;
 
+typedef enum _DCERPC_FragType
+{
+    DCERPC_FRAG_TYPE__FULL,
+    DCERPC_FRAG_TYPE__FRAG,
+    DCERPC_FRAG_TYPE__LAST,
+    DCERPC_FRAG_TYPE__ERROR
+
+} DCERPC_FragType;
+
+
 /* Packet types */
 #define DCERPC_REQUEST   0
 #define DCERPC_BIND     11
@@ -115,7 +125,7 @@ int IsCompleteDCERPCMessage(const uint8_t *, uint16_t);
 int ProcessDCERPCMessage(const uint8_t *, uint16_t, const uint8_t *, uint16_t);
 
 void ReassembleDCERPCRequest(const uint8_t *, uint16_t, const uint8_t *);
-int DCERPC_Fragmentation(const uint8_t *, uint16_t, uint16_t);
+DCERPC_FragType DCERPC_Fragmentation(const uint8_t *, uint16_t, uint16_t);
 
 
 #ifdef WIN32

@@ -76,7 +76,7 @@ sfrt_dir.c: ../include/sfrt_dir.c
 sfPolicyUserData.c: ../include/sfPolicyUserData.c
 	cp $? $@
 
-all-local:
+all-local: $(LTLIBRARIES)
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:

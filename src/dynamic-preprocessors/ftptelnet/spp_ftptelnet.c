@@ -1,7 +1,7 @@
 /*
  * spp_ftptelnet.c
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  * Steven A. Sturges <ssturges@sourcefire.com>
  * Daniel J. Roelker <droelker@sourcefire.com>
  * Marc A. Norton <mnorton@sourcefire.com>
@@ -104,6 +104,7 @@ FTPTELNET_GLOBAL_CONF *ftp_telnet_eval_config = NULL;
 
 #ifdef TARGET_BASED
 int16_t ftp_app_id = 0;
+int16_t ftp_data_app_id = 0;
 int16_t telnet_app_id = 0;
 #endif
 
@@ -251,6 +252,7 @@ static void FTPTelnetInit(char *args)
         {
             /* Find and store the application ID for FTP & Telnet */
             ftp_app_id = _dpd.addProtocolReference("ftp");
+            ftp_data_app_id = _dpd.addProtocolReference("ftp-data");
             telnet_app_id = _dpd.addProtocolReference("telnet");
         }
 #endif
@@ -298,7 +300,8 @@ static void FTPTelnetInit(char *args)
 
                 /* Add FTPTelnet into the preprocessor list */
                 _dpd.addPreproc(FTPTelnetChecks, PRIORITY_APPLICATION, PP_FTPTELNET, PROTO_BIT__TCP);
-                _dpd.preprocOptRegister("ftp.bounce", &FTPPBounceInit, &FTPPBounceEval, NULL, NULL, NULL);
+                _dpd.preprocOptRegister("ftp.bounce", &FTPPBounceInit, &FTPPBounceEval,
+                        NULL, NULL, NULL, NULL, NULL);
 
 #ifdef TARGET_BASED
                 if (_dpd.streamAPI != NULL)
@@ -517,7 +520,8 @@ static void FtpTelnetReload(char *args)
 
                 /* Add FTPTelnet into the preprocessor list */
                 _dpd.addPreproc(FTPTelnetChecks, PRIORITY_APPLICATION, PP_FTPTELNET, PROTO_BIT__TCP);
-                _dpd.preprocOptRegister("ftp.bounce", &FTPPBounceInit, &FTPPBounceEval, NULL, NULL, NULL);
+                _dpd.preprocOptRegister("ftp.bounce", &FTPPBounceInit, &FTPPBounceEval,
+                        NULL, NULL, NULL, NULL, NULL);
             }
         }
     }

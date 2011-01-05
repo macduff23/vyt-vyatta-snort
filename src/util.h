@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -29,6 +29,8 @@
 # include <sys/time.h>
 # include <sys/types.h>
 #endif
+#include<stdlib.h>
+#include<errno.h>
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -37,6 +39,7 @@
 #include "sf_types.h"
 #include "sflsq.h"
 #include "sfutil/sf_ipvar.h"
+#include "ipv6_port.h"
 
 /* Macros *********************************************************************/
 #define PCAP_CLOSE  // allow for rollback for now
@@ -200,6 +203,7 @@ void *SnortAlloc2(size_t, const char *, ...);
 char *CurrentWorkingDir(void);
 char *GetAbsolutePath(char *dir);
 char *StripPrefixDir(char *prefix, char *dir);
+void PrintPacketData(const uint8_t *, const uint32_t);
 #ifdef TIMESTATS
 void DropStatsPerTimeInterval(void);
 void ResetTimeStats(void);
@@ -213,6 +217,12 @@ int UpdatePcapPktStats(int cacheReturn);
 int UpdatePcapPktStats(void);
 #endif
 
+#ifndef SUP_IP6
+char * ObfuscateIpToText(const struct in_addr);
+#else
+char * ObfuscateIpToText(sfip_t *);
+#endif
+
 uint64_t GetPcapPktStatsRecv(void);
 uint64_t GetPcapPktStatsDrop(void);
 void TimeStats(void);
@@ -224,8 +234,8 @@ int GetFilesUnderDir(const char *, SF_QUEUE *, const char *);
 
 char *GetUniqueName(char *);
 char *GetIP(char *);
-char *GetHostname();
-int GetLocalTimezone();
+char *GetHostname(void);
+int GetLocalTimezone(void);
 
 /***********************************************************
  If you use any of the functions in this section, you need
@@ -234,7 +244,7 @@ int GetLocalTimezone();
  leak.
 ***********************************************************/
 char *GetTimestamp(register const struct timeval *, int);
-char *GetCurrentTimestamp();
+char *GetCurrentTimestamp(void);
 char *base64(const u_char *, int);
 char *ascii(const u_char *, int);
 char *hex(const u_char *, int);
@@ -242,5 +252,23 @@ char *fasthex(const u_char *, int);
 long int xatol(const char *, const char *);
 unsigned long int xatou(const char *, const char *);
 unsigned long int xatoup(const char *, const char *); // return > 0
+
+static INLINE long SnortStrtol(const char *nptr, char **endptr, int base)
+{
+    long iRet;
+    errno = 0;
+    iRet = strtol(nptr, endptr, base);
+
+    return iRet;
+}
+
+static INLINE unsigned long SnortStrtoul(const char *nptr, char **endptr, int base)
+{
+        unsigned long iRet;
+        errno = 0;
+        iRet = strtoul(nptr, endptr, base);
+
+        return iRet;
+}
 
 #endif /*__UTIL_H__*/

@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2003-2009 Sourcefire, Inc.
+ * Copyright (C) 2003-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -74,7 +74,7 @@ int hi_split_header_cookie(HI_SESSION *Session, u_char *header, int *i_header_le
     const u_char *cookie_end;
 
     if (!cookie || !i_header_len || !i_cookie_len)
-        return iRet;
+        return HI_INVALID_ARG;
 
     /* Can't use hi_util_in_bounds header because == is okay */
     if (cookie->cookie_end > raw_header + i_raw_header_len)
@@ -202,6 +202,7 @@ int hi_client_norm(HI_SESSION *Session)
     int iHeaderBufSize = MAX_URI;
     int iCookieBufSize = MAX_URI;
     int iPostBufSize = MAX_URI;
+    uint16_t encodeType = 0;
 
     if(!Session || !Session->server_conf)
     {
@@ -209,18 +210,23 @@ int hi_client_norm(HI_SESSION *Session)
     }
 
     ClientReq = &Session->client.request;
+    ClientReq->uri_encode_type = 0;
+    ClientReq->header_encode_type = 0;
+    ClientReq->cookie_encode_type = 0;
+    ClientReq->post_encode_type = 0;
 
     /* Handle URI normalization */
     if(ClientReq->uri_norm)
     {
         Session->norm_flags &= ~HI_BODY;
         iRet = hi_norm_uri(Session, UriBuf, &iUriBufSize, 
-                           ClientReq->uri, ClientReq->uri_size);
+                           ClientReq->uri, ClientReq->uri_size, &encodeType);
         if (iRet == HI_NONFATAL_ERR)
         {
             /* There was a non-fatal problem normalizing */
             ClientReq->uri_norm = NULL;
             ClientReq->uri_norm_size = 0;
+            ClientReq->uri_encode_type = 0;
         }
         else 
         {
@@ -228,7 +234,9 @@ int hi_client_norm(HI_SESSION *Session)
              * normalization occurred. */
             ClientReq->uri_norm      = UriBuf;
             ClientReq->uri_norm_size = iUriBufSize;
+            ClientReq->uri_encode_type = encodeType;
         }
+        encodeType = 0;
     }
 
     if (ClientReq->cookie.cookie)
@@ -240,6 +248,12 @@ int hi_client_norm(HI_SESSION *Session)
             RawCookieBuf, &iRawCookieBufSize,
             ClientReq->header_raw, ClientReq->header_raw_size,
             &ClientReq->cookie);
+        if( iRet == HI_SUCCESS )
+        {
+            ClientReq->cookie.cookie = RawCookieBuf;
+            ClientReq->cookie.cookie_end = RawCookieBuf + iRawCookieBufSize;
+
+        }
     }
     else
     {
@@ -261,12 +275,13 @@ int hi_client_norm(HI_SESSION *Session)
     {
         Session->norm_flags &= ~HI_BODY;
         iRet = hi_norm_uri(Session, HeaderBuf, &iHeaderBufSize, 
-                       RawHeaderBuf, iRawHeaderBufSize);
+                       RawHeaderBuf, iRawHeaderBufSize, &encodeType);
         if (iRet == HI_NONFATAL_ERR)
         {
             /* There was a non-fatal problem normalizing */
             ClientReq->header_norm = NULL;
             ClientReq->header_norm_size = 0;
+            ClientReq->header_encode_type = 0;
         }
         else 
         {
@@ -274,7 +289,9 @@ int hi_client_norm(HI_SESSION *Session)
              * normalization occurred. */
             ClientReq->header_norm      = HeaderBuf;
             ClientReq->header_norm_size = iHeaderBufSize;
+            ClientReq->header_encode_type = encodeType;
         }
+        encodeType = 0;
     }
     else
     {
@@ -284,19 +301,21 @@ int hi_client_norm(HI_SESSION *Session)
         {
             ClientReq->header_norm      = RawHeaderBuf;
             ClientReq->header_norm_size = iRawHeaderBufSize;
+            ClientReq->header_encode_type = 0;
         }
     }
 
-    if(ClientReq->header_norm && Session->server_conf->normalize_cookies)
+    if(ClientReq->cookie.cookie && Session->server_conf->normalize_cookies)
     {
         Session->norm_flags &= ~HI_BODY;
         iRet = hi_norm_uri(Session, CookieBuf, &iCookieBufSize, 
-                       RawCookieBuf, iRawCookieBufSize);
+                       RawCookieBuf, iRawCookieBufSize, &encodeType);
         if (iRet == HI_NONFATAL_ERR)
         {
             /* There was a non-fatal problem normalizing */
             ClientReq->cookie_norm = NULL;
             ClientReq->cookie_norm_size = 0;
+            ClientReq->cookie_encode_type = 0;
         }
         else 
         {
@@ -304,7 +323,9 @@ int hi_client_norm(HI_SESSION *Session)
              * normalization occurred. */
             ClientReq->cookie_norm      = CookieBuf;
             ClientReq->cookie_norm_size = iCookieBufSize;
+            ClientReq->cookie_encode_type = encodeType;
         }
+        encodeType = 0;
     }
     else
     {
@@ -314,6 +335,7 @@ int hi_client_norm(HI_SESSION *Session)
         {
             ClientReq->cookie_norm      = RawCookieBuf;
             ClientReq->cookie_norm_size = iRawCookieBufSize;
+            ClientReq->cookie_encode_type = 0;
         }
     }
 
@@ -323,17 +345,20 @@ int hi_client_norm(HI_SESSION *Session)
     {
         Session->norm_flags |= HI_BODY;
         iRet = hi_norm_uri(Session, PostBuf, &iPostBufSize, 
-                           ClientReq->post_raw, ClientReq->post_raw_size);
+                           ClientReq->post_raw, ClientReq->post_raw_size, &encodeType);
         if (iRet == HI_NONFATAL_ERR)
         {
             ClientReq->post_norm = NULL;
             ClientReq->post_norm_size = 0;
+            ClientReq->post_encode_type = 0;
         }
         else 
         {
             ClientReq->post_norm      = PostBuf;
             ClientReq->post_norm_size = iPostBufSize;
+            ClientReq->post_encode_type = encodeType;
         }
+        encodeType = 0;
     }
 
     /*

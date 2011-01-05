@@ -31,7 +31,7 @@ sf_dynamic_preproc_lib.c: ../include/sf_dynamic_preproc_lib.c
 sfPolicyUserData.c: ../include/sfPolicyUserData.c
 	cp $? $@
 
-all-local:
+all-local: $(LTLIBRARIES)
 	$(MAKE) DESTDIR=`pwd`/../build install-libLTLIBRARIES
 
 clean-local:

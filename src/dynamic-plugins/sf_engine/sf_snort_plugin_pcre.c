@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -220,7 +220,7 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, const u_int8_t **curs
         relative = 1;
     }
 
-    if (pcre_info->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD | CONTENT_BUF_COOKIE))
+    if (pcre_info->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD | CONTENT_BUF_COOKIE | CONTENT_BUF_RAW_URI | CONTENT_BUF_RAW_HEADER |CONTENT_BUF_RAW_COOKIE | CONTENT_BUF_STAT_CODE | CONTENT_BUF_STAT_MSG))
     {
         int i;
         for (i=0; i<sp->num_uris; i++)
@@ -246,6 +246,26 @@ ENGINE_LINKAGE int pcreMatch(void *p, PCREInfo* pcre_info, const u_int8_t **curs
                 case HTTP_BUFFER_COOKIE:
                     if (!(pcre_info->flags & CONTENT_BUF_COOKIE))
                         continue; /* Go to next, not looking at COOKIE buffer */
+                    break;
+                case HTTP_BUFFER_RAW_URI:
+                    if (!(pcre_info->flags & CONTENT_BUF_RAW_URI))
+                        continue;
+                    break;
+                case HTTP_BUFFER_RAW_HEADER:
+                    if (!(pcre_info->flags & CONTENT_BUF_RAW_HEADER))
+                        continue;
+                    break;
+                case HTTP_BUFFER_RAW_COOKIE:
+                    if (!(pcre_info->flags & CONTENT_BUF_RAW_COOKIE))
+                        continue;
+                    break;
+                case HTTP_BUFFER_STAT_CODE:
+                    if (!(pcre_info->flags & CONTENT_BUF_STAT_CODE))
+                        continue;
+                    break;
+                case HTTP_BUFFER_STAT_MSG:
+                    if (!(pcre_info->flags & CONTENT_BUF_STAT_MSG))
+                        continue;
                     break;
                 default:
                     /* Uh, what buffer is this? */
