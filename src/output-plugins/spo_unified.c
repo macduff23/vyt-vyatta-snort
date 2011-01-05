@@ -73,7 +73,7 @@
 #include "stream_api.h"
 
 #ifdef GIDS
-#include "inline.h"
+#include "inline_extern.h"
 #endif
 
 #define SNORT_MAGIC     0xa1b2c3d4
@@ -154,12 +154,6 @@ typedef struct _UnifiedIPv6Alert
 
 /* ----------------External variables -------------------- */
 extern OptTreeNode *otn_tmp;
-
-#ifdef GIDS
-#ifndef IPFW
-extern ipq_packet_msg_t *g_m;
-#endif
-#endif
 
 /* ------------------ Data structures --------------------------*/
 typedef struct _UnifiedConfig
