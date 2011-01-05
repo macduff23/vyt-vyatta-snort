@@ -1,0 +1,24 @@
+commit ac6366e7cda5ab3f7b3e284e121c4bca529ed298
+Author: Stig Thormodsrud <stig@vyatta.com>
+Date:   Mon Dec 20 17:38:22 2010 -0800
+
+    apply vyatta patch3
+
+diff --git a/src/snort.c b/src/snort.c
+index dd0d642..41310fd 100644
+--- a/src/snort.c
++++ b/src/snort.c
+@@ -1044,6 +1044,13 @@ void PcapProcessPacket(char *user, struct pcap_pkthdr * pkthdr, const u_char * p
+ #ifndef SUP_IP6
+     BsdPseudoPacket = NULL;
+ #endif
++    
++    if (InlineMode())
++    {
++        /* in inline mode, create this file to signal the completion of
++         * initialization. */
++        CreatePidFile("inline_init");
++    }
+ 
+     ProcessPacket(user, pkthdr, pkt, NULL);
+     

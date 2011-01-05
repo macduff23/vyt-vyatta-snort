@@ -1,0 +1,178 @@
+diff --git a/configure.in b/configure.in
+index c3c29f8..30f3b18 100644
+--- a/configure.in
++++ b/configure.in
+@@ -740,32 +740,40 @@ if test "$enable_inline" != "no"; then
+         if test "$enable_ipfw" = "yes"; then
+             CPPFLAGS="$CPPFLAGS -DIPFW"
+         else
+-           AC_ARG_WITH(libipq_includes,
+-                      [  --with-libipq-includes=DIR     libipq include directory],
+-                      [with_libipq_includes="$withval"],[with_libipq_includes="no"])
+-           AC_ARG_WITH(libipq_libraries,
+-                      [  --with-libipq-libraries=DIR    libipq library directory],
+-                      [with_libipq_libraries="$withval"],[with_libipq_libraries="no"])
+-           if test "$with_libipq_includes" != "no"; then
+-                CPPFLAGS="${CPPFLAGS} -I${with_libipq_includes}"
+-           fi
++            CFLAGS="${CFLAGS} -DNFNETLINKQ -DGIDS"
++            LDFLAGS="${LDFLAGS} -lnetfilter_queue -lnfnetlink"
+ 
+-           AC_CHECK_HEADER(libipq.h,,[AC_MSG_ERROR([libipq.h not found ...])])
+-           if test "$with_libipq_libraries" != "no"; then
+-                LDFLAGS="${LDFLAGS}  -L${with_libipq_libraries}"
+-           fi
++            AC_CHECK_HEADER(libnetfilter_queue/libnetfilter_queue.h,,[AC_ERROR(libnetfilter_queue/libnetfilter_queue.h not found ...)])
+ 
+-           LIPQ=""
+-           AC_CHECK_LIB(ipq, ipq_set_mode,, LIPQ="no")
++            NFQ=""
++            AC_CHECK_LIB(netfilter_queue, nfqnl_open,, NFQ="no")
+ 
+-           if test "$LIPQ" = "no"; then
+-               echo
+-               echo "   ERROR!  Libipq library/headers not found, go get it from"
+-               echo "   www.netfilter.org or use the --with-libipq-* options, "
+-               echo "   if you have it installed in unusual place"
+-               echo
+-               exit 1
+-           fi
++            if test "NFQ" = "no"; then
++                echo
++                echo "   ERROR!  netfilter_queue library not found, go get it"
++                echo "   from www.netfilter.org."
++                echo
++                exit 1
++            fi
++                
++            # look for nfq_set_queue_maxlen
++            NFQ_MAXLEN=""
++            AC_CHECK_LIB(netfilter_queue, nfq_set_queue_maxlen,, NFQ_MAXLEN="no")
++
++            if test "$NFQ_MAXLEN" != "no"; then
++                 CFLAGS="$CFLAGS -DHAVE_NFQ_MAXLEN"
++            fi
++
++            NFNL=""
++            AC_CHECK_LIB(nfnetlink, nfnl_fd,, NFNL="no")
++
++            if test "NFNL" = "no"; then
++                echo
++                echo "   ERROR!  nfnetlink library not found, go get it"
++                echo "   from www.netfilter.org."
++                echo
++                exit 1
++            fi
+         fi
+ 
+         LIBNET_INC_DIR=""
+diff --git a/src/output-plugins/spo_unified.c b/src/output-plugins/spo_unified.c
+index 465cb08..a9f99e7 100644
+--- a/src/output-plugins/spo_unified.c
++++ b/src/output-plugins/spo_unified.c
+@@ -73,7 +73,7 @@
+ #include "stream_api.h"
+ 
+ #ifdef GIDS
+-#include "inline.h"
++#include "inline_extern.h"
+ #endif
+ 
+ #define SNORT_MAGIC     0xa1b2c3d4
+@@ -155,12 +155,6 @@ typedef struct _UnifiedIPv6Alert
+ /* ----------------External variables -------------------- */
+ extern OptTreeNode *otn_tmp;
+ 
+-#ifdef GIDS
+-#ifndef IPFW
+-extern ipq_packet_msg_t *g_m;
+-#endif
+-#endif
+-
+ /* ------------------ Data structures --------------------------*/
+ typedef struct _UnifiedConfig
+ {
+diff --git a/src/output-plugins/spo_unified2.c b/src/output-plugins/spo_unified2.c
+index f011170..28ec517 100644
+--- a/src/output-plugins/spo_unified2.c
++++ b/src/output-plugins/spo_unified2.c
+@@ -61,7 +61,7 @@
+ #include "stream_api.h"
+ 
+ #ifdef GIDS
+-#include "inline.h"
++#include "inline_extern.h"
+ #endif
+ 
+ /* ------------------ Data structures --------------------------*/
+@@ -95,12 +95,6 @@ typedef struct _Unified2LogCallbackData
+ extern uint16_t event_id;
+ extern OptTreeNode *otn_tmp;
+ 
+-#ifdef GIDS
+-#ifndef IPFW
+-extern ipq_packet_msg_t *g_m;
+-#endif
+-#endif
+-
+ /* -------------------- Global Variables ----------------------*/
+ #ifdef GIDS
+ EtherHdr g_ethernet;
+diff --git a/src/snort.c b/src/snort.c
+index bd35cab..2f9250d 100644
+--- a/src/snort.c
++++ b/src/snort.c
+@@ -350,7 +350,7 @@ static char **snort_argv = NULL;
+ #ifndef WIN32
+ # ifdef GIDS
+ #  ifndef IPFW
+-static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQr:R:sS:t:Tu:UvVw:XxyzZ:";
++static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:Ik:K:l:L:m:Mn:NoOpP:qQ:r:R:sS:t:Tu:UvVw:XxyzZ:";
+ #  else
+ static char *valid_options = "?a:A:bB:c:CdDeEfF:g:G:h:Hi:IJ:k:K:l:L:m:Mn:NoOpP:qr:R:sS:t:Tu:UvVw:XxyzZ:";
+ #  endif /* IPFW */
+@@ -1652,7 +1652,7 @@ static int ShowUsage(char *program_name)
+                                     SNAPLEN);
+     FPUTS_BOTH ("        -q         Quiet. Don't show banner and status report\n");
+ #if !defined(IPFW) && !defined(WIN32)
+-    FPUTS_BOTH ("        -Q         Enable inline mode operation.\n");
++    FPUTS_BOTH ("        -Q         Enable NFQUEUE inline mode operation.\n");
+ #endif
+     FPUTS_BOTH ("        -r <tf>    Read and process tcpdump file <tf>\n");
+     FPUTS_BOTH ("        -R <id>    Include 'id' in snort_intf<id>.pid file name\n");
+@@ -2263,7 +2263,10 @@ static void ParseCmdLine(int argc, char **argv)
+ 
+ #if !defined(IPFW) && !defined(WIN32)
+             case 'Q':
+-                LogMessage("Enabling inline operation\n");
++                LogMessage("Reading from iptables\n");
++                nfqueue_num = 0; 
++                nfqueue_num = atoi(optarg) % 65536;
++                LogMessage("Enabling NFQUEUE queue number %u\n", nfqueue_num);
+                 sc->run_flags |= RUN_FLAG__INLINE;
+                 break;
+ #endif
+@@ -3718,9 +3721,12 @@ static void SnortCleanup(int exit_val)
+ #if defined(GIDS) && !defined(IPFW)
+     if (ScAdapterInlineMode())
+     {
+-        if (ipqh)
++        if (nfq_q_h)
+         {
+-            ipq_destroy_handle(ipqh);
++            nfq_destroy_queue(nfq_q_h);
++        }
++        if (nfq_h) {
++           nfq_close(nfq_h);
+         }
+     }
+ #endif /* defined(GIDS) && !defined(IPFW) (may need cleanup code here) */
+@@ -5335,7 +5341,7 @@ static void SnortProcess(void)
+     if (ScAdapterInlineMode())
+     {
+ #ifndef IPFW
+-        IpqLoop();
++        nfqLoop();
+ #else
+         IpfwLoop();
+ #endif
