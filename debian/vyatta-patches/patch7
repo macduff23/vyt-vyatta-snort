@@ -1,0 +1,38 @@
+commit 4c74ad1d33caecb808b98bdaebc13f75483680c7
+Author: Stig Thormodsrud <stig@vyatta.com>
+Date:   Mon Dec 20 18:13:41 2010 -0800
+
+    apply vyatta patch7
+
+diff --git a/src/snort.c b/src/snort.c
+index e660ed6..bd35cab 100644
+--- a/src/snort.c
++++ b/src/snort.c
+@@ -1045,13 +1045,6 @@ void PcapProcessPacket(char *user, struct pcap_pkthdr * pkthdr, const u_char * p
+     BsdPseudoPacket = NULL;
+ #endif
+     
+-    if (InlineMode())
+-    {
+-        /* in inline mode, create this file to signal the completion of
+-         * initialization. */
+-        CreatePidFile("inline_init");
+-    }
+-
+     ProcessPacket(user, pkthdr, pkt, NULL);
+     
+     /* Collect some "on the wire" stats about packet size, etc */
+@@ -5294,6 +5287,13 @@ static void SnortPostInit(void)
+     PPM_PRINT_CFG(&snort_conf->ppm_cfg);
+ #endif
+ 
++    if (ScAdapterInlineMode())
++    {
++       /* in inline mode, create this file to signal the completion of
++        * initialization. */
++       CreatePidFile("inline_init");
++    }
++
+     LogMessage("\n");
+     LogMessage("        --== Initialization Complete ==--\n");
+ 
