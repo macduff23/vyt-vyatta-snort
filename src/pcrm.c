@@ -3,7 +3,7 @@
 **
 **  pcrm.c
 **
-**  Copyright (C) 2002-2009 Sourcefire, Inc.
+**  Copyright (C) 2002-2010 Sourcefire, Inc.
 **  Marc Norton <mnorton@sourcefire.com>
 **  Dan Roelker <droelker@sourcefire.com>
 **
@@ -206,6 +206,8 @@
 
 #include "pcrm.h"
 #include "util.h"
+#include "fpcreate.h"
+#include "snort.h"
 
 /*
 ** 
@@ -1119,11 +1121,8 @@ int prmAddByteRuleNC( BYTE_RULE_MAP * p, int dport, RULE_PTR rd )
 **    PORT_GROUP **   - the generic PORT_GROUP ptr to set.
 **
 **  FORMAL OUTPUT
-**    int -  0: No rules
-**           1: Use Dst Rules
-**           2: Use Src Rules
-**           3: Use Both Dst and Src Rules
-**           4: Use Generic Rules
+**    int -  0: Don't evaluate
+**           1: There are port groups to evaluate
 **
 **  NOTES
 **    Currently, if there is a "unique conflict", we return both the src
@@ -1136,45 +1135,46 @@ int prmAddByteRuleNC( BYTE_RULE_MAP * p, int dport, RULE_PTR rd )
 **    what to match against.
 **
 */
-int prmFindRuleGroup( PORT_RULE_MAP * p, int dport, int sport, PORT_GROUP ** src, PORT_GROUP **dst , PORT_GROUP ** gen)
+int
+prmFindRuleGroup(
+        PORT_RULE_MAP *p,
+        int dport,
+        int sport,
+        PORT_GROUP **src,
+        PORT_GROUP **dst,
+        PORT_GROUP **gen
+        )
 {
-    int stat= 0;
-
-    if (!p)
+    if ((p == NULL) || (src == NULL)
+            || (dst == NULL) || (gen == NULL))
+    {
         return 0;
-
-    if( (dport != ANYPORT && dport < MAX_PORTS) && p->prmDstPort[dport] )
-    {
-         *dst  = p->prmDstPort[dport];
-         stat = 1;
-
-    }else{
-      
-       *dst=NULL;
     }
 
-    if( (sport != ANYPORT && sport < MAX_PORTS ) && p->prmSrcPort[sport])
-    {
-       *src   = p->prmSrcPort[sport];
-        stat |= 2;
-       
-    }else{
-       *src = NULL;
-    }
+    *src = NULL;
+    *dst = NULL;
+    *gen = NULL;
+
+    if ((dport != ANYPORT) && (dport < MAX_PORTS))
+        *dst = p->prmDstPort[dport];
+
+    if ((sport != ANYPORT) && (sport < MAX_PORTS))
+        *src = p->prmSrcPort[sport];
 
     /* If no Src/Dst rules - use the generic set, if any exist  */
-    if( !stat &&  ((p->prmGeneric != NULL) && (p->prmGeneric->pgCount > 0)) ) 
+    if ((p->prmGeneric != NULL) && (p->prmGeneric->pgCount > 0)) 
     {
-       *gen  = p->prmGeneric;
-        stat = 4;
-
-    }else{
-     
-      *gen = NULL;
+        if (fpDetectSplitAnyAny(snort_conf->fast_pattern_config)
+                || ((*src == NULL) && (*dst == NULL)))
+        {
+            *gen = p->prmGeneric;
+        }
     }
 
-    
-    return stat;
+    if ((*src == NULL) && (*dst == NULL) && (*gen == NULL))
+        return 0;
+
+    return 1;
 }
 
 /*
@@ -1241,7 +1241,7 @@ PORT_GROUP * prmFindSrcRuleGroup( PORT_RULE_MAP * p, int port )
 */
 int prmSetGroupPatData( PORT_GROUP * pg, void * data )
 {
-    pg->pgPatData = data;
+    pg->pgPms[PM_TYPE__CONTENT] = data;
     return 0;
 }
 
@@ -1250,7 +1250,7 @@ int prmSetGroupPatData( PORT_GROUP * pg, void * data )
 */
 void * prmGetGroupPatData( PORT_GROUP * pg )
 {
-    return pg->pgPatData;
+    return pg->pgPms[PM_TYPE__CONTENT];
 }  
 
 /*

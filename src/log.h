@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,7 @@
 /*  P R O T O T Y P E S  ******************************************************/
 
 
+void PrintIpAddrs(FILE *, Packet *);
 void PrintIPPkt(FILE *, int,Packet*);
 void PrintNetData(FILE *, const u_char *, const int);
 void ClearDumpBuf(void);

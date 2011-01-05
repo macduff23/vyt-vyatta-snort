@@ -3,7 +3,7 @@
 **
 **  mpse.h       
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Marc Norton <mnorton@sourcefire.com>
 **
 ** Multi-Pattern Search Engine
@@ -102,7 +102,7 @@ uint64_t mpseGetPatByteCount(void);
 void   mpseResetByteCount(void);
 
 int mpsePrintInfo( void * obj );
-int mpsePrintSummary(void );
+int mpsePrintSummary(int);
   
 void   mpseVerbose( void * pvoid );
 void   mpseSetOpt( void * pvoid,int flag);

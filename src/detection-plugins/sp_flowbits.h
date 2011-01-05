@@ -1,7 +1,7 @@
 /* $Id$ */
 /****************************************************************************
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -29,6 +29,7 @@
 #include "sfghash.h"
 #include "sf_types.h"
 #include "decode.h"
+#include "bitop_funcs.h"
 
 /* Normally exported functions, for plugin registration. */
 void SetupFlowBits(void);
@@ -57,6 +58,7 @@ typedef struct _FLOWBITS_OBJECT
     uint32_t id;
     uint8_t  types;
     int toggle;
+    char *group;
 
 } FLOWBITS_OBJECT;
 
@@ -71,7 +73,17 @@ typedef struct _FLOWBITS_OP
     uint32_t id;
     uint8_t  type;        /* Set, Unset, Invert, IsSet, IsNotSet, Reset  */
     char *name;
+    char *group;
 } FLOWBITS_OP;
+
+typedef struct _FLOWBITS_GRP
+{
+    uint32_t count;
+    uint32_t max_id;
+    char *name;
+    BITOP GrpBitOp;
+} FLOWBITS_GRP;
+
 
 
 #define FLOWBITS_SET       0x01  

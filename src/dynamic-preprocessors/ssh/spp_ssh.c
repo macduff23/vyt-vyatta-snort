@@ -1,7 +1,7 @@
 /* $Id */
 
 /*
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 **
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 /*
  * SSH preprocessor
  * Author: Chris Sherwin
- * Contributors: Adam Keeton
+ * Contributors: Adam Keeton, Ryan Jordan
  *
  *
  * Alert for Gobbles, CRC32, protocol mismatch (Cisco catalyst vulnerability),
@@ -960,7 +960,7 @@ ProcessSSHProtocolVersionExchange( SSHData* sessionp, SFSnortPacket* packetp,
 		/* Not SSH on SSH port, CISCO vulnerability */
 		if ((direction == SSH_DIR_FROM_CLIENT) && 
 			( known_port != 0 ) && 
-            !( sessionp->state_flags & SSH_FLG_AUTODETECTED ) &&
+            ( !(sessionp->state_flags & SSH_FLG_AUTODETECTED) ) &&
 			( ssh_eval_config->EnabledAlerts & 
 				SSH_ALERT_PROTOMISMATCH ))
 		{

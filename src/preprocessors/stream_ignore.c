@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 ** AUTHOR: Steven Sturges
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -67,6 +67,7 @@ typedef struct _IgnoreNode
     int direction;
     int numOccurances;
     tSfPolicyId policyId;
+    int16_t appId;
 } IgnoreNode;
 
 typedef struct _IgnoreHashKey
@@ -85,7 +86,7 @@ static SFGHASH *channelHash = NULL;
 int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
                   snort_ip_p srvIP, uint16_t srvPort,
                   char protocol, char direction, char flags,
-                  uint32_t timeout)
+                  uint32_t timeout, int16_t appId)
 {
     IgnoreHashKey hashKey;
     time_t now;
@@ -169,6 +170,7 @@ int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
             node->direction = direction;
             node->protocol = protocol;
             node->policyId = getRuntimePolicy();
+            node->appId = appId;
         }
         else
         {
@@ -211,6 +213,7 @@ int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
         else
             node->expires = now + timeout;
         node->numOccurances = 1;
+        node->appId = appId;
 
         /* Add it to the table */
         if (sfghash_add(channelHash, &hashKey, (void *)node)
@@ -231,7 +234,7 @@ int IgnoreChannel(snort_ip_p cliIP, uint16_t cliPort,
     return 0;
 }
 
-char CheckIgnoreChannel(Packet *p)
+char CheckIgnoreChannel(Packet *p, int16_t *appId)
 {
     snort_ip_p srcIP, dstIP;
     short srcPort, dstPort;
@@ -367,8 +370,11 @@ char CheckIgnoreChannel(Packet *p)
             {
                 node->numOccurances--;
                 /* Matched & Still valid --> ignore it! */
-                retVal = node->direction;
 
+                if (node->appId) /* If this is 0, we're ignoring, otherwise setting id of new session */
+                    *appId = node->appId;
+                else
+                    retVal = node->direction;
 #ifdef DEBUG
                 {
                     /* Have to allocate & copy one of these since inet_ntoa
@@ -400,7 +406,6 @@ char CheckIgnoreChannel(Packet *p)
 
         if (((node->numOccurances <= 0) || (expired)) &&
                 (node->expires != 0))
-
         {
             /* Either expired or was the only one in the hash
              * table.  Remove this node.  */

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -592,14 +592,24 @@ struct enc_header {
 #define PKT_DCE_FRAG         0x00400000  /* this is a DCE/RPC defragmented packet */
 #define PKT_SMB_TRANS        0x00800000  /* this is an SMB Transact reassembled packet */
 #define PKT_DCE_PKT          0x01000000  /* this is a DCE packet processed by DCE/RPC preprocessor */
+#define PKT_RPC_PKT          0x02000000  /* this is an ONC RPC packet processed by rpc decode preprocessor */
+
+#define PKT_HTTP_RESP_BODY   0x04000000  /* this packet contains non-zipped HTTP response Body */
 
 #define PKT_STATELESS        0x10000000  /* Packet has matched a stateless rule */
 #define PKT_INLINE_DROP      0x20000000
-#define PKT_OBFUSCATED       0x40000000  /* this packet has been obfuscated */
+/* Replaces PKT_OBFUSCATED which is no longer in use because we no longer
+ * modify the packet when doing IP obfuscation */
+#define PKT_PAYLOAD_OBFUSCATE  0x40000000
 #define PKT_LOGGED           0x80000000  /* this packet has been logged */
 #define DECODE_START_INDEX  400
 #define DECODE_SID_MAX      405    /* Highest numbered sid in decoder rules */
 #define DECODE_INDEX_MAX    (DECODE_SID_MAX - DECODE_START_INDEX + 1)
+
+/* Only include application layer reassembled data
+ * flags here - no PKT_REBUILT_FRAG */
+#define REASSEMBLED_PACKET_FLAGS \
+    (PKT_REBUILT_STREAM|PKT_SMB_SEG|PKT_DCE_SEG|PKT_DCE_FRAG|PKT_SMB_TRANS)
 
 
 /*  D A T A  S T R U C T U R E S  *********************************************/
@@ -1453,24 +1463,42 @@ typedef struct _PPPoE_Tag
 #define DECODE_BLEN 65535
 
 /* Max Number of HTTP/1.1 requests in a single segment */
-#define URI_COUNT        5
+#define URI_COUNT       10 
 
 #define HTTPURI_PIPELINE_REQ 0x01
 
 #define HTTP_BUFFER_URI 0
-#define HTTP_BUFFER_HEADER 1
-#define HTTP_BUFFER_CLIENT_BODY 2
-#define HTTP_BUFFER_METHOD 3
-#define HTTP_BUFFER_COOKIE 4
+#define HTTP_BUFFER_RAW_URI 1
+#define HTTP_BUFFER_HEADER 2
+#define HTTP_BUFFER_RAW_HEADER 3
+#define HTTP_BUFFER_CLIENT_BODY 4
+#define HTTP_BUFFER_METHOD 5
+#define HTTP_BUFFER_COOKIE 6
+#define HTTP_BUFFER_RAW_COOKIE 7
+#define HTTP_BUFFER_STAT_CODE 8
+#define HTTP_BUFFER_STAT_MSG 9 
 
 #define MPLS_HEADER_LEN    4
 #define NUM_RESERVED_LABELS    16
+
+typedef enum _HttpEncodeType
+{
+    HTTP_ENCODE_TYPE__UTF8_UNICODE   = 0x00000001,
+    HTTP_ENCODE_TYPE__DOUBLE_ENCODE  = 0x00000002,
+    HTTP_ENCODE_TYPE__NONASCII       = 0x00000004,
+    HTTP_ENCODE_TYPE__BASE36         = 0x00000008,
+    HTTP_ENCODE_TYPE__UENCODE        = 0x00000010,
+    HTTP_ENCODE_TYPE__BARE_BYTE      = 0x00000020,
+    HTTP_ENCODE_TYPE__IIS_UNICODE    = 0x00000040
+
+} _HttpEncodeType;
 
 typedef struct _HttpUri
 {
     const uint8_t *uri;  /* static buffer for uri length */
     uint16_t length;
-    uint32_t decode_flags;
+    /*uint32_t decode_flags;*/
+    int encode_type;
 } HttpUri;
 
 struct IPH_API;
@@ -1537,16 +1565,17 @@ typedef struct _Packet
     int bytes_to_inspect;       /* Number of bytes to check against rules */
                                 /* this is not set - always 0 (inspect all) */
 
-    uint32_t preprocessor_bits; /* flags for preprocessors to check */
-    uint32_t preproc_reassembly_pkt_bits;
-
     /* int ip_payload_len; */   /* Replacement for IP_LEN(p->iph->ip_len) << 2 */
     /* int ip_payload_off; */   /* IP_LEN(p->iph->ip_len) << 2 + p->data */
+
+    uint32_t preprocessor_bits; /* flags for preprocessors to check */
+    uint32_t preproc_reassembly_pkt_bits;
 
     uint32_t caplen;
     uint32_t http_pipeline_count; /* Counter for HTTP pipelined requests */
     uint32_t packet_flags;      /* special flags for the packet */
-    uint32_t proto_bits;
+    uint16_t proto_bits;
+    uint16_t data_flags;
 
     uint16_t dsize;             /* packet payload size */
     uint16_t ip_dsize;          /* IP payload size */
@@ -1624,13 +1653,15 @@ typedef struct _Packet
 
 #define PKT_ZERO_LEN offsetof(Packet, ip_options)
 
-#define PROTO_BIT__NONE  0x00000000
-#define PROTO_BIT__IP    0x00000001
-#define PROTO_BIT__ARP   0x00000002
-#define PROTO_BIT__TCP   0x00000004
-#define PROTO_BIT__UDP   0x00000008
-#define PROTO_BIT__ICMP  0x00000010
-#define PROTO_BIT__ALL   0xffffffff
+#define PROTO_BIT__NONE  0x0000
+#define PROTO_BIT__IP    0x0001
+#define PROTO_BIT__ARP   0x0002
+#define PROTO_BIT__TCP   0x0004
+#define PROTO_BIT__UDP   0x0008
+#define PROTO_BIT__ICMP  0x0010
+#define PROTO_BIT__ALL   0xffff
+
+#define DATA_FLAGS_GZIP  0x0002
 
 #define IsIP(p) (IPH_IS_VALID(p))
 #define IsTCP(p) (IsIP(p) && (GET_IPH_PROTO(p) == IPPROTO_TCP))
@@ -1678,6 +1709,13 @@ static INLINE void set_callbacks(struct _Packet *p, int family, char orig)
     }
 }
 #endif
+
+const u_char *file_data_ptr;
+
+static INLINE void setFileDataPtr(const u_char *ptr)
+{
+    file_data_ptr = ptr;
+}
 
 
 typedef struct s_pseudoheader

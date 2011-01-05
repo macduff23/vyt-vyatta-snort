@@ -31,7 +31,7 @@ attacks within them.  When IP stacks are written for different operating
 systems, they are usually implemented by people who read the RFCs and then
 their interpretation of what the RFC outlines into code.  Unfortunately, there
 are ambiguities in the way that the RFCs define some of the edge conditions 
-that may occurr and when this happens differnt people implement certain aspects
+that may occur and when this happens differnt people implement certain aspects
 of their IP stacks differently.  For an IDS this is a big problem.
 
 In an environment where the attacker can determine what style of IP 
@@ -86,6 +86,17 @@ Global configuration
      prealloc_frags <number> - alternate memory management mode, use
                                preallocated fragment nodes based on a
                                static number (faster in some situations)
+     disabled                - This optional keyword is allowed with any 
+			       policy to avoid packet processing. This 
+			       option disables the preprocessor. When 
+			       the preprocessor is disabled only the 
+			       options memcap, prealloc_memcap, and 
+                               prealloc_frags are applied when 
+                               specified with the configuration. 
+                               The other options are parsed but not 
+                               used. Any valid configuration may have 
+                               "disabled" added to it.
+
 
 Engine Configuration                          
  - Preprocessor name: frag3_engine

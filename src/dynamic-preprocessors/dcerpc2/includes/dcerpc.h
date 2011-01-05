@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -171,6 +171,17 @@ typedef enum _DceRpcCoBindNakReason
     DCERPC_CO_BIND_NAK_REASON__NO_PSAP_AVAILABLE
 
 } DceRpcCoBindNakReason;
+
+typedef enum _DceRpcCoAuthLevelType
+{
+    DCERPC_CO_AUTH_LEVEL__NONE = 1,
+    DCERPC_CO_AUTH_LEVEL__CONNECT,
+    DCERPC_CO_AUTH_LEVEL__CALL,
+    DCERPC_CO_AUTH_LEVEL__PKT,
+    DCERPC_CO_AUTH_LEVEL__PKT_INTEGRITY,
+    DCERPC_CO_AUTH_LEVEL__PKT_PRIVACY
+
+} DceRpcCoAuthLevelType;
 
 /********************************************************************
  * Structures
@@ -561,6 +572,7 @@ static INLINE uint16_t DceRpcCoSecAddrLen(const DceRpcCoHdr *, const DceRpcCoBin
 static INLINE uint8_t DceRpcCoContNumResults(const DceRpcCoContResultList *);
 static INLINE uint16_t DceRpcCoContRes(const DceRpcCoHdr *, const DceRpcCoContResult *);
 static INLINE uint16_t DceRpcCoAuthPad(const DceRpcCoAuthVerifier *);
+static INLINE uint8_t DceRpcCoAuthLevel(const DceRpcCoAuthVerifier *);
 
 /********************************************************************
  * Function:
@@ -929,7 +941,7 @@ static INLINE uint8_t DceRpcCoVersMin(const DceRpcCoHdr *co)
  ********************************************************************/
 static INLINE DceRpcPduType DceRpcCoPduType(const DceRpcCoHdr *co)
 {
-    return co->ptype;
+    return (DceRpcPduType)co->ptype;
 }
 
 /********************************************************************
@@ -1260,6 +1272,21 @@ static INLINE uint16_t DceRpcCoContRes(const DceRpcCoHdr *co, const DceRpcCoCont
 static INLINE uint16_t DceRpcCoAuthPad(const DceRpcCoAuthVerifier *coav)
 {
     return coav->auth_pad_length;
+}
+
+/********************************************************************
+ * Function:
+ *
+ * Purpose:
+ *
+ * Arguments:
+ *
+ * Returns:
+ *
+ ********************************************************************/
+static INLINE uint8_t DceRpcCoAuthLevel(const DceRpcCoAuthVerifier *coav)
+{
+    return coav->auth_level;
 }
 
 #endif  /* DCERPC_H */

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -40,6 +40,7 @@
 #include "config.h"
 #endif
 
+#include "spo_alert_fast.h"
 #include "event.h"
 #include "decode.h"
 #include "debug.h"
@@ -86,7 +87,6 @@
 #define DEFAULT_LIMIT (128*M_BYTES)
 
 extern char *pcap_interface;
-extern SnortConfig *snort_conf_for_parsing;
 
 typedef struct _SpoAlertFastData
 {
@@ -193,40 +193,12 @@ static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
     }
 
     /* print the packet header to the alert file */
-    if(p && IPH_IS_VALID(p))
+    if ((p != NULL) && IPH_IS_VALID(p))
     {
         LogPriorityData(data->log, 0);
-
         TextLog_Print(data->log, "{%s} ", protocol_names[GET_IPH_PROTO(p)]);
-
-        if(p->frag_flag)
-        {
-            /* just print the straight IP header */
-            TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
-            TextLog_Puts(data->log, " -> ");
-            TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
-        }
-        else
-        {
-            switch(GET_IPH_PROTO(p))
-            {
-                case IPPROTO_UDP:
-                case IPPROTO_TCP:
-                    /* print the header complete with port information */
-                    TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
-                    TextLog_Print(data->log, ":%d -> ", p->sp);
-                    TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
-                    TextLog_Print(data->log, ":%d", p->dp);
-                    break;
-                case IPPROTO_ICMP:
-                default:
-                    /* just print the straight IP header */
-                    TextLog_Puts(data->log, inet_ntoa(GET_SRC_ADDR(p)));
-                    TextLog_Puts(data->log, " -> ");
-                    TextLog_Puts(data->log, inet_ntoa(GET_DST_ADDR(p)));
-            }
-        }
-    }               /* end of if (p) */
+        LogIpAddrs(data->log, p);
+    }
 
     if(p && data->packet_flag)
     {
@@ -361,8 +333,14 @@ static SpoAlertFastData *ParseAlertFastArgs(char *args)
         DEBUG_INIT, "alert_fast: '%s' %d %ld\n",
         filename?filename:"alert", data->packet_flag, limit
     ););
+
+    if ((filename == NULL) && (snort_conf->alert_file != NULL))
+        filename = SnortStrdup(snort_conf->alert_file);
+
     data->log = TextLog_Init(filename, bufSize, limit);
-    if ( filename ) free(filename);
+
+    if (filename != NULL)
+        free(filename);
 
     return data;
 }

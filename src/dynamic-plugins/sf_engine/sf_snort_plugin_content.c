@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Marc Norton
  *         Steve Sturges
@@ -123,6 +123,11 @@ ENGINE_LINKAGE int contentMatch(void *p, ContentInfo* content, const u_int8_t **
     char   relative = 0;
     SFSnortPacket *sp = (SFSnortPacket *) p;
 
+    /* This content is only used for fast pattern matching and
+     * should not be evaluated */
+    if (content->flags & CONTENT_FAST_PATTERN_ONLY)
+        return CONTENT_MATCH;
+
     if (content->flags & CONTENT_RELATIVE)
     {
         if( !cursor || !(*cursor) )
@@ -132,7 +137,7 @@ ENGINE_LINKAGE int contentMatch(void *p, ContentInfo* content, const u_int8_t **
         relative = 1;
     }
 
-    if (content->flags & (CONTENT_BUF_URI | CONTENT_BUF_POST | CONTENT_BUF_HEADER | CONTENT_BUF_METHOD | CONTENT_BUF_COOKIE))
+    if (content->flags & URI_CONTENT_BUFS)
     {
         for (i=0; i<sp->num_uris; i++)
         {
@@ -157,6 +162,26 @@ ENGINE_LINKAGE int contentMatch(void *p, ContentInfo* content, const u_int8_t **
                 case HTTP_BUFFER_COOKIE:
                     if (!(content->flags & CONTENT_BUF_COOKIE))
                         continue; /* Go to next, not looking at COOKIE buffer */
+                    break;
+                case HTTP_BUFFER_RAW_URI:
+                    if (!(content->flags & CONTENT_BUF_RAW_URI))
+                        continue; /* Go to next, not looking at RAW URI buffer */
+                    break;
+                case HTTP_BUFFER_RAW_HEADER:
+                    if (!(content->flags & CONTENT_BUF_RAW_HEADER))
+                        continue; /* Go to next, not looking at RAW HEADER buffer */
+                    break;
+                case HTTP_BUFFER_RAW_COOKIE:
+                    if (!(content->flags & CONTENT_BUF_RAW_COOKIE))
+                        continue; /* Go to next, not looking at RAW COOKIE buffer */
+                    break;
+                case HTTP_BUFFER_STAT_CODE:
+                    if (!(content->flags & CONTENT_BUF_STAT_CODE))
+                        continue; /* Go to next, not looking at STAT CODE buffer */
+                    break;
+                case HTTP_BUFFER_STAT_MSG:
+                    if (!(content->flags & CONTENT_BUF_STAT_MSG))
+                        continue; /* Go to next, not looking at STAT MSG buffer */
                     break;
                 default:
                     /* Uh, what buffer is this? */

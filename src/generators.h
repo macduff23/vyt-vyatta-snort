@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -136,6 +136,8 @@
 #define     DECODE_ZERO_TTL                       404 
 #define     DECODE_BAD_FRAGBITS                   405 
 
+#define     DECODE_UDP_IPV6_ZERO_CHECKSUM         406
+
 
 /*
 **  HttpInspect Generator IDs
@@ -168,6 +170,7 @@
 #define     HI_CLIENT_LONG_HDR                      19  /* done */
 #define     HI_CLIENT_MAX_HEADERS                   20  /* done */
 #define     HI_CLIENT_MULTIPLE_CONTLEN              21
+#define     HI_CLIENT_CHUNK_SIZE_MISMATCH           22
 
 #define GENERATOR_SPP_HTTP_INSPECT_ANOM_SERVER      120
 #define     HI_ANOM_SERVER_ALERT                    1   /* done */
@@ -277,6 +280,8 @@
 #define     STREAM5_SESSION_HIJACKED_SERVER        10
 #define     STREAM5_DATA_WITHOUT_FLAGS             11
 #define     STREAM5_SMALL_SEGMENT                  12
+#define     STREAM5_4WAY_HANDSHAKE                 13
+#define     STREAM5_NO_TIMESTAMP                   14
 
 #define GENERATOR_DCERPC                          130
 #define     DCERPC_MEMORY_OVERFLOW                  1
@@ -347,6 +352,10 @@
 
 #define GENERATOR_SPP_SSLPP                         137
 
+#define GENERATOR_SPP_SDF_RULES                     138
+#define GENERATOR_SPP_SDF_PREPROC                   139
+#define     SDF_COMBO_ALERT                           1
+
 /*  This is where all the alert messages will be archived for each
     internal alerts */
 
@@ -391,6 +400,8 @@
 #define STREAM5_SESSION_HIJACKED_SERVER_STR "TCP Server possibly hijacked, different Ethernet Address"
 #define STREAM5_DATA_WITHOUT_FLAGS_STR "TCP Data with no TCP Flags set"
 #define STREAM5_SMALL_SEGMENT_STR "Consecutive TCP small segments exceeding threshold"
+#define STREAM5_4WAY_HANDSHAKE_STR "4-way handshake detected"
+#define STREAM5_NO_TIMESTAMP_STR "TCP Timestamp is missing"
 
 #define STREAM5_INTERNAL_EVENT_STR ""
 
@@ -477,6 +488,8 @@
 #define DECODE_SYN_TO_MULTICAST_STR "(snort_decoder) Bad Traffic SYN to multicast address"
 #define DECODE_ZERO_TTL_STR "(snort_decoder) WARNING: IPV4 packet with zero TTL"
 #define DECODE_BAD_FRAGBITS_STR "(snort_decoder) WARNING: IPV4 packet with bad frag bits (Both MF and DF set)"
+
+#define DECODE_UDP_IPV6_ZERO_CHECKSUM_STR "(snort_decoder): Invalid IPv6 UDP packet, checksum zero" 
 
 /*  RPC decode preprocessor strings */
 #define RPC_FRAG_TRAFFIC_STR "(spp_rpc_decode) Fragmented RPC Records"

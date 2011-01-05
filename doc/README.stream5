@@ -105,11 +105,20 @@ Global settings for the Stream5 preprocessor
                               bytes.  The default is "1048576" (1MB), minimum
                               is "0" (unlimited), maximum is not bounded, other
                               than by the memcap.
+    disabled		    - This optional keyword is allowed with any policy
+			      to avoid packet processing. This option disables
+			      the preprocessor. When the preprocessor is disabled 
+			      only the options memcap, max_tcp, max_udp and 
+			      max_icmp are applied when specified with the 
+		              configuration. The other options are parsed but 
+		              not used. Any valid configuration may have 
+		              "disabled" added to it.
+			      
 
 TCP Configuration
 -----------------
 Provides a means on a per IP address target to configure a TCP policy.
-This can have multiple occurances, per policy that is bound to an IP
+This can have multiple occurrences, per policy that is bound to an IP
 address or network.  One default policy must be specified, and that policy
 is not bound to an IP address or network.
 
@@ -142,8 +151,6 @@ is not bound to an IP address or network.
                                    macos     - MacOS 10.3 and newer
                               The default is "bsd".
 
-    min_ttl <number>        - Minimum Time To Live.  The default is "1", the
-                              minimum is "1" and the maximum is "255".
     overlap_limit <number>  - Limits number of overlapping packets. 
                               The default is "0" (unlimited), the minimum is
                               "0", and the maximum is "255".
@@ -234,7 +241,7 @@ TCP policy uses all of the default values.
 UDP Configuration
 -----------------
 Configuration for UDP session tracking.  Since there is no target based
-binding, there should be only one occurance of the UDP configuration.
+binding, there should be only one occurrence of the UDP configuration.
 - Preprocessor name: stream5_udp
 - Options:
     timeout <number (secs)> - Session timeout.  The default is "30", the
@@ -268,7 +275,7 @@ NOTE: ICMP is currently untested, in minimal code form and is NOT ready
 for use in production networks.  It is not turned on by default.
 
 Configuration for ICMP session tracking.  Since there is no target based
-binding, there should be only one occurance of the ICMP configuration.
+binding, there should be only one occurrence of the ICMP configuration.
 - Preprocessor name: stream5_icmp
 - Options:
     timeout <number (secs)> - Session timeout.  The default is "30", the
@@ -312,3 +319,7 @@ SID   Description
 8     Data after Reset packet
 9     Possible Hijacked Client
 10    Possible Hijacked Server
+11    TCP packet with any control flags set
+12    Limit on number of consecutive small segments reached
+13    4-way handshake detected
+14    Packet missing timestamp

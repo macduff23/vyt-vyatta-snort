@@ -11,7 +11,7 @@
 *   
 *
 **  Copyright (C) 2001 Marc Norton
-** Copyright (C) 2003-2009 Sourcefire, Inc.
+** Copyright (C) 2003-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -304,7 +304,7 @@ int KTrieAddPattern( KTRIE_STRUCT * ts, unsigned char * P, int n,
    ts->npats++;
    ts->memory += sizeof(KTRIEPATTERN) + 2 * n ; /* Case and nocase */
    
-   return 1;
+   return 0;
 }
 
 
@@ -609,9 +609,9 @@ void sfksearch_print_qinfo(void)
     if( snort_conf->max_inq )
     {
         LogMessage("lowmem: queue size     = %u, max  = %u\n", snort_conf->max_inq,SFK_MAX_INQ );
-        LogMessage("lowmem: queue flushes  = %u \n", (unsigned)snort_conf->tot_inq_flush );
-        LogMessage("lowmem: queue inserts  = %u \n", (unsigned)snort_conf->tot_inq_inserts );
-        LogMessage("lowmem: queue uinserts = %u \n", (unsigned)snort_conf->tot_inq_uinserts );
+        LogMessage("lowmem: queue flushes  = "STDu64"\n", snort_conf->tot_inq_flush );
+        LogMessage("lowmem: queue inserts  = "STDu64"\n", snort_conf->tot_inq_inserts );
+        LogMessage("lowmem: queue uinserts = "STDu64"\n", snort_conf->tot_inq_uinserts );
     }
 #endif
 }

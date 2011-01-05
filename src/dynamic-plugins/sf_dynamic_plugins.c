@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -27,7 +27,7 @@
 #ifdef DYNAMIC_PLUGIN
 
 #ifdef HAVE_CONFIG_H
-#include <config.h>
+#include "config.h"
 #endif
 
 #ifndef WIN32
@@ -82,15 +82,17 @@ extern HttpUri UriBufs[URI_COUNT]; /* detect.c */
 #include "sfsnprintfappend.h"
 #include "stream_api.h"
 #include "sf_iph.h"
+#include "fpdetect.h"
+#include "sfportobject.h"
 #include <pcre.h>
+#include "parser.h"
+#include "event_wrapper.h"
+#include "util.h"
 
 #ifdef TARGET_BASED
 #include "target-based/sftarget_protocol_reference.h"
 #include "target-based/sftarget_reader.h"
 #endif
-
-extern SnortConfig *snort_conf;
-extern SnortConfig *snort_conf_for_parsing;
 
 #ifndef DEBUG
 char *no_file = "unknown";
@@ -146,7 +148,9 @@ static DynamicPreprocessorPlugin *loadedPreprocessorPlugins = NULL;
 void CloseDynamicLibrary(PluginHandle handle)
 {
 #ifndef WIN32
+# ifndef DISABLE_DLCLOSE_FOR_VALGRIND_TESTING
     dlclose(handle);
+# endif
 #else
     FreeLibrary(handle);
 #endif
@@ -1324,9 +1328,30 @@ void DynamicSetParserPolicy(tSfPolicyId id)
 {
     setParserPolicy(id);
 }
+
+void DynamicSetFileDataPtr(const u_char *ptr)
+{
+    setFileDataPtr(ptr);
+}
 int DynamicGetInlineMode(void)
 {
     return ScInlineMode();
+}
+
+long DynamicSnortStrtol(const char *nptr, char **endptr, int base)
+{
+    return SnortStrtol(nptr,endptr,base);
+}
+
+unsigned long DynamicSnortStrtoul(const char *nptr, char **endptr, int base)
+{
+    return SnortStrtoul(nptr,endptr,base);
+}
+
+
+int DynamicEvalRTN(void *rtn, void *p, int check_ports)
+{
+    return fpEvalRTN((RuleTreeNode *)rtn, (Packet *)p, check_ports);
 }
 
 int InitDynamicPreprocessors(void)
@@ -1336,6 +1361,7 @@ int InitDynamicPreprocessors(void)
 
     preprocData.version = PREPROCESSOR_DATA_VERSION;
     preprocData.size = sizeof(DynamicPreprocessorData);
+
     preprocData.altBuffer = &DecodeBuffer[0];
     preprocData.altBufferLen = DECODE_BLEN;
     for (i=0;i<MAX_URIINFOS;i++)
@@ -1364,6 +1390,7 @@ int InitDynamicPreprocessors(void)
 #endif
 
     preprocData.alertAdd = &SnortEventqAdd;
+    preprocData.genSnortEvent = &GenerateSnortEvent;
     preprocData.thresholdCheck = &sfthreshold_test;
     preprocData.inlineMode = DynamicGetInlineMode;
     preprocData.inlineDrop = &DynamicDropInline;
@@ -1409,6 +1436,8 @@ int InitDynamicPreprocessors(void)
 
     preprocData.logAlerts = &DynamicSnortEventqLog;
     preprocData.resetAlerts = &SnortEventqReset;
+    preprocData.pushAlerts = SnortEventqPush;
+    preprocData.popAlerts = SnortEventqPop;
 
 #ifdef TARGET_BASED
     preprocData.findProtocolReference = &FindProtocolReference;
@@ -1418,14 +1447,23 @@ int InitDynamicPreprocessors(void)
 
     preprocData.preprocOptOverrideKeyword = &RegisterPreprocessorRuleOptionOverride;
     preprocData.isPreprocEnabled = &IsPreprocEnabled;
-    preprocData.getParserPolicy = DynamicGetParserPolicy;
-    preprocData.getRuntimePolicy = DynamicGetRuntimePolicy;
-    preprocData.getDefaultPolicy = DynamicGetDefaultPolicy;
-    preprocData.setParserPolicy = DynamicSetParserPolicy;
 
 #ifdef SNORT_RELOAD
     preprocData.addPreprocReloadVerify = AddFuncToPreprocReloadVerifyList;
 #endif
+
+    preprocData.getRuntimePolicy = DynamicGetRuntimePolicy;
+    preprocData.getParserPolicy = DynamicGetParserPolicy;
+    preprocData.getDefaultPolicy = DynamicGetDefaultPolicy;
+    preprocData.setParserPolicy = DynamicSetParserPolicy;
+    preprocData.setFileDataPtr = DynamicSetFileDataPtr;
+    preprocData.SnortStrtol = DynamicSnortStrtol;
+    preprocData.SnortStrtoul = DynamicSnortStrtoul;
+
+    preprocData.portObjectCharPortArray = PortObjectCharPortArray;
+    preprocData.fpEvalRTN = DynamicEvalRTN;
+
+    preprocData.obApi = obApi;
 
     return InitDynamicPreprocessorPlugins(&preprocData);
 }

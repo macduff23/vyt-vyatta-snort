@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2009 Sourcefire, Inc.
+** Copyright (C) 1998-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -331,7 +331,7 @@ static SFIP_RET sfvar_list_compare(sfip_node_t *list1, sfip_node_t *list2)
 }
 
 /* Check's if two variables have the same nodes */
-SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
+SFIP_RET sfvar_compare(const sfip_var_t *one, const sfip_var_t *two)
 {
     /* If both NULL, consider equal */
     if(!one && !two)
@@ -340,6 +340,9 @@ SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
     /* If one NULL and not the other, consider unequal */
     if((one && !two) || (!one && two)) 
         return SFIP_FAILURE;
+
+    if (sfvar_is_alias(one, two))
+        return SFIP_EQUAL;
 
     if (sfvar_list_compare(one->head, two->head) == SFIP_FAILURE)
         return SFIP_FAILURE;
@@ -355,7 +358,7 @@ SFIP_RET sfvar_compare(sfip_var_t *one, sfip_var_t *two)
  *  (Can't just do strchr(str, ']') because of the 
  *  [a, [b], c] case, and can't do strrchr because
  *  of the [a, [b], [c]] case) */
-char *_find_end_token(char *str)
+static char *_find_end_token(char *str)
 {
     int stack = 0;
 
@@ -580,7 +583,7 @@ SFIP_RET sfvar_validate(sfip_var_t *var)
         for(neg_idx = var->neg_head; neg_idx; neg_idx = neg_idx->next)
         {
             /* A smaller netmask means "less specific" */
-            if(sfip_bits(neg_idx->ip) <= sfip_bits(idx->ip) &&
+            if((sfip_bits(neg_idx->ip) <= sfip_bits(idx->ip)) &&
                 /* Verify they overlap */
                 (sfip_contains(neg_idx->ip, idx->ip) == SFIP_CONTAINS))
             {
@@ -592,11 +595,39 @@ SFIP_RET sfvar_validate(sfip_var_t *var)
     return SFIP_SUCCESS;
 }
 
+sfip_var_t * sfvar_create_alias(const sfip_var_t *alias_from, const char *alias_to)
+{
+    sfip_var_t *ret;
+
+    if ((alias_from == NULL) || (alias_to == NULL))
+        return NULL;
+
+    ret = sfvar_deep_copy(alias_from);
+    if (ret == NULL)
+        return NULL;
+
+    ret->name = SnortStrdup(alias_to);
+    ret->id = alias_from->id;
+
+    return ret;
+}
+
+int sfvar_is_alias(const sfip_var_t *one, const sfip_var_t *two)
+{
+    if ((one == NULL) || (two == NULL))
+        return 0;
+
+    if ((one->id != 0) && (one->id == two->id))
+        return 1;
+    return 0;
+}
+
 /* Allocates and returns a new variable, described by "variable". */
 sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
 {
-    sfip_var_t *ret;
-    char *str, *end;
+    sfip_var_t *ret, *tmpvar;
+    char *str, *end, *tmp;
+    SFIP_RET stat;
     
     if(!variable || !(*variable))
     {
@@ -615,6 +646,14 @@ sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
     /* Extract and save the variable's name */
     /* Start by skipping leading whitespace or line continuations: '\' */
     for(str = variable ; *str && (isspace((int)*str) || *str == '\\'); str++) ;
+    if (*str == 0)  /* Didn't get anything */
+    {
+        if (status)
+            *status = SFIP_ARG_ERR;
+
+        sfvar_free(ret);
+        return NULL;
+    }
 
     /* Find the end of the name */
     for(end = str; *end && !isspace((int)*end) && *end != '\\'; end++) ;
@@ -624,7 +663,8 @@ sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
         if(status)
             *status = SFIP_ARG_ERR;
 
-         return NULL;
+        sfvar_free(ret);
+        return NULL;
     }
 
     /* Set the new variable's name/key */
@@ -633,22 +673,60 @@ sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
         if(status)
             *status = SFIP_ALLOC_ERR;
 
+        sfvar_free(ret);
         return NULL;
     }
 
-    /* End points to the end of the name.  Skip past it */
+    /* End points to the end of the name.  Skip past it and any whitespace
+     * or potential line continuations */
     str = end;
+    for (; (*str != 0) && (isspace((int)*str) || (*str == '\\')); str++);
+    if (*str == 0)  /* Didn't get anything */
+    {
+        if (status)
+            *status = SFIP_ARG_ERR;
+
+        sfvar_free(ret);
+        return NULL;
+    }
+
+    /* Trim off whitespace and line continuations from the end of the string */
+    end = (str + strlen(str)) - 1;
+    for (; (end > str) && (isspace((int)*end) || (*end == '\\')); end--);
+    end++;
+
+    /* See if this is just an alias */
+    tmp = SnortStrndup(str, end - str);
+    tmpvar = sfvt_lookup_var(table, tmp);
+    free(tmp);
+    if (tmpvar != NULL)
+    {
+        sfip_var_t *aliased = sfvar_create_alias(tmpvar, ret->name);
+        if (aliased != NULL)
+        {
+            if (status != NULL)
+                *status = SFIP_SUCCESS;
+
+            sfvar_free(ret);
+            return aliased;
+        }
+    }
 
     /* Everything is treated as a list, even if it's one element that's not
      * surrounded by brackets */
-    if((*status = sfvar_parse_iplist(table, ret, str, 0)) != SFIP_SUCCESS)
+    stat = sfvar_parse_iplist(table, ret, str, 0);
+    if (status != NULL)
+        *status = stat;
+
+    if (stat != SFIP_SUCCESS)
     {
+        sfvar_free(ret);
         return NULL;
     }
 
     if(ret->head && 
-       (ret->head->flags & SFIP_ANY && ret->head->flags & SFIP_NEGATED))
-       {
+            (ret->head->flags & SFIP_ANY && ret->head->flags & SFIP_NEGATED))
+    {
         if(status)
             *status = SFIP_NOT_ANY;
 
@@ -668,7 +746,7 @@ sfip_var_t *sfvar_alloc(vartable_t *table, char *variable, SFIP_RET *status)
     return ret;
 }
 
-static INLINE sfip_node_t *_sfvar_deep_copy_list(sfip_node_t *idx)
+static INLINE sfip_node_t *_sfvar_deep_copy_list(const sfip_node_t *idx)
 {
     sfip_node_t *ret, *temp, *prev;
 
@@ -707,7 +785,7 @@ static INLINE sfip_node_t *_sfvar_deep_copy_list(sfip_node_t *idx)
     return ret;
 }
 
-sfip_var_t *sfvar_deep_copy(sfip_var_t *var)
+sfip_var_t *sfvar_deep_copy(const sfip_var_t *var)
 {
     sfip_var_t *ret;
 

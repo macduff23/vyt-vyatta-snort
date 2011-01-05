@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 ** AUTHOR: Steven Sturges <ssturges@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -587,6 +587,15 @@ int RemoveLWSession(Stream5SessionCache *sessionCache, Stream5LWSession *ssn)
 int DeleteLWSession(Stream5SessionCache *sessionCache,
                     Stream5LWSession *ssn, char *delete_reason)
 {
+    /* Need to save the current configurations being used since this function
+     * may cause a packet reassembly on this deleted session when flushing
+     * (via sessionCache->cleanup_fcn) and a preprocessor may call an API
+     * function changing the configurations to this one to be deleted */
+    Stream5GlobalConfig *save_global_eval_config = s5_global_eval_config;
+    Stream5TcpConfig *save_tcp_eval_config = s5_tcp_eval_config;
+    Stream5UdpConfig *save_udp_eval_config = s5_udp_eval_config;
+    Stream5IcmpConfig *save_icmp_eval_config = s5_icmp_eval_config;
+
     int ret;
     uint32_t prune_log_max;
 
@@ -663,6 +672,11 @@ int DeleteLWSession(Stream5SessionCache *sessionCache,
         free(client_ip_str);
         free(server_ip_str);
     }
+
+    s5_global_eval_config = save_global_eval_config;
+    s5_tcp_eval_config = save_tcp_eval_config;
+    s5_udp_eval_config = save_udp_eval_config;
+    s5_icmp_eval_config = save_icmp_eval_config;
 
     return ret;
 }

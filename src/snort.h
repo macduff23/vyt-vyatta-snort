@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2005 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -39,6 +39,7 @@
 #include "sfutil/sflsq.h"
 #include "profiler.h"
 #include "rules.h"
+#include "treenodes.h"
 #include "sfutil/sf_ipvar.h"
 #include "sfutil/sfghash.h"
 #include "sfutil/sfrim.h"
@@ -59,7 +60,8 @@
 # include "inline.h"
 #endif /* GIDS */
 
-#if defined(INLINE_FAILOPEN) || defined(TARGET_BASED) || defined(SNORT_RELOAD)
+#if defined(HAVE_LIBPRELUDE) || defined(INLINE_FAILOPEN) || \
+    defined(TARGET_BASED) || defined(SNORT_RELOAD)
 # include <pthread.h>
 #endif
 
@@ -193,6 +195,8 @@ typedef struct _VarEntry
     char *name;
     char *value;
     unsigned char flags;
+    IpAddrSet *addrset;
+    uint32_t id;
     struct _VarEntry *prev;
     struct _VarEntry *next;
 
@@ -213,7 +217,6 @@ typedef enum _GetOptLongIds
     DUMP_DYNAMIC_RULES,
 #endif
 
-    ARG_RESTART,
     CREATE_PID_FILE,
     TREAT_DROP_AS_ALERT,
     PROCESS_ALL_EVENTS,
@@ -527,15 +530,14 @@ typedef struct _SnortPolicy
     PreprocConfig *preproc_configs;
 
     VarEntry *var_table;
+    uint32_t var_id;
 #ifdef SUP_IP6
     vartable_t *ip_vartable;
 #endif  /* SUP_IP6 */
 
-#ifdef PORTLISTS
     /* The portobjects in these are attached to rtns and used during runtime */
     PortVarTable *portVarTable;     /* named entries, uses a hash table */
     PortTable *nonamePortVarTable;  /* un-named entries */
-#endif
 
     PreprocEvalFuncNode *preproc_eval_funcs;
     PreprocReassemblyPktFuncNode *preproc_reassembly_pkt_funcs;
@@ -544,6 +546,9 @@ typedef struct _SnortPolicy
     SFGHASH *preproc_rule_options;
     int num_preprocs;
     int policy_mode;
+
+    /* mask of preprocessors that have registered runtime process functions */
+    int preproc_bit_mask;
 
     /** Identifier assigned by user to correlate unified2 events to actual 
      * policy. User or DC should assign each policy a unique number. Snort
@@ -754,7 +759,7 @@ typedef struct _SnortConfig
     RateFilterConfig *rate_filter_config;
     DetectionFilterConfig *detection_filter_config;
 
-    SF_EVENTQ *event_queue;
+    SF_EVENTQ *event_queue[NUM_EVENT_QUEUES];
 
     SF_LIST **ip_proto_only_lists;
     uint8_t ip_proto_array[NUM_IP_PROTOS];
@@ -783,10 +788,8 @@ typedef struct _SnortConfig
     uint64_t tot_inq_inserts;
     uint64_t tot_inq_uinserts;
 
-#ifdef PORTLISTS
     /* master port list table */
     rule_port_tables_t *port_tables;
-#endif
 
 #ifdef PPM_MGR
     ppm_cfg_t ppm_cfg;
@@ -1499,6 +1502,11 @@ static INLINE int ScGid(void)
     return snort_conf->group_id;
 }
 
+static INLINE char * ScPcapLogFile(void)
+{
+    return snort_conf->pcap_log_file;
+}
+
 // use of macro avoids depending on generators.h
 #define EventIsInternal(gid) (gid == GENERATOR_INTERNAL)
      
@@ -1517,6 +1525,23 @@ static INLINE int InternalEventIsEnabled(RateFilterConfig *config, uint32_t sid)
 
     return (config->internal_event_mask & (1 << sid));
 } 
+
+static INLINE int ScIsPreprocEnabled(uint32_t preproc_id, tSfPolicyId policy_id)
+{
+    SnortPolicy *policy;
+
+    if (policy_id >= snort_conf->num_policies_allocated)
+        return 0;
+
+    policy = snort_conf->targeted_policies[policy_id];
+    if (policy == NULL)
+        return 0;
+
+    if (policy->preproc_bit_mask & (1 << preproc_id))
+        return 1;
+
+    return 0;
+}
 
 #endif  /* __SNORT_H__ */
 

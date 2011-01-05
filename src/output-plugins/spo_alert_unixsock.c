@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -79,18 +79,18 @@ typedef struct _SpoAlertUnixSockData
 
 static int alertsd;
 #ifndef WIN32
-struct sockaddr_un alertaddr;
+static struct sockaddr_un alertaddr;
 #else
-struct sockaddr_in alertaddr;
+static struct sockaddr_in alertaddr;
 #endif
 
-void AlertUnixSockInit(char *);
-void AlertUnixSock(Packet *, char *, void *, Event *);
-void ParseAlertUnixSockArgs(char *);
-void AlertUnixSockCleanExit(int, void *);
-void AlertUnixSockRestart(int, void *);
-void OpenAlertSock(void);
-void CloseAlertSock(void);
+static void AlertUnixSockInit(char *);
+static void AlertUnixSock(Packet *, char *, void *, Event *);
+static void ParseAlertUnixSockArgs(char *);
+static void AlertUnixSockCleanExit(int, void *);
+static void AlertUnixSockRestart(int, void *);
+static void OpenAlertSock(void);
+static void CloseAlertSock(void);
 
 /*
  * Function: SetupAlertUnixSock()
@@ -124,7 +124,7 @@ void AlertUnixSockSetup(void)
  * Returns: void function
  *
  */
-void AlertUnixSockInit(char *args)
+static void AlertUnixSockInit(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_INIT,"Output: AlertUnixSock Initialized\n"););
 
@@ -153,7 +153,7 @@ void AlertUnixSockInit(char *args)
  *
  * Returns: void function
  */
-void ParseAlertUnixSockArgs(char *args)
+static void ParseAlertUnixSockArgs(char *args)
 {
     DEBUG_WRAP(DebugMessage(DEBUG_LOG,"ParseAlertUnixSockArgs: %s\n", args););
     /* eventually we may support more than one socket */
@@ -170,7 +170,7 @@ void ParseAlertUnixSockArgs(char *args)
  * Returns: void function
  *
  ***************************************************************************/
-void AlertUnixSock(Packet *p, char *msg, void *arg, Event *event)
+static void AlertUnixSock(Packet *p, char *msg, void *arg, Event *event)
 {
     static Alertpkt alertpkt;
 
@@ -267,7 +267,7 @@ void AlertUnixSock(Packet *p, char *msg, void *arg, Event *event)
  *
  * Returns: void function
  */
-void OpenAlertSock(void)
+static void OpenAlertSock(void)
 {
     char srv[STD_BUF];
 
@@ -295,19 +295,19 @@ void OpenAlertSock(void)
     }
 }
 
-void AlertUnixSockCleanExit(int signal, void *arg) 
+static void AlertUnixSockCleanExit(int signal, void *arg) 
 {
     DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertUnixSockCleanExitFunc\n"););
     CloseAlertSock();
 }
 
-void AlertUnixSockRestart(int signal, void *arg) 
+static void AlertUnixSockRestart(int signal, void *arg) 
 {
     DEBUG_WRAP(DebugMessage(DEBUG_LOG,"AlertUnixSockRestartFunc\n"););
     CloseAlertSock();
 }
 
-void CloseAlertSock(void)
+static void CloseAlertSock(void)
 {
     if(alertsd >= 0) {
         close(alertsd);

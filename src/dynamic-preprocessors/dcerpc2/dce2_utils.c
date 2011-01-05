@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -408,7 +408,7 @@ void DCE2_Log(DCE2_LogType ltype, const char *format, ...)
  * Returns:
  *
  ********************************************************************/
-const char * DCE2_UuidToStr(const Uuid *uuid, int byte_order)
+const char * DCE2_UuidToStr(const Uuid *uuid, DceRpcBoFlag byte_order)
 {
 #define UUID_BUF_SIZE  50 
     static char uuid_buf1[UUID_BUF_SIZE];

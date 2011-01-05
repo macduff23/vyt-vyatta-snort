@@ -1,7 +1,7 @@
 /*
  * snort_dcerpc.h
  *
- * Copyright (C) 2004-2009 Sourcefire, Inc.
+ * Copyright (C) 2004-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -93,8 +93,8 @@ typedef struct _DceRpcConfig
     uint8_t disable_smb_fragmentation;
     uint8_t disable_dcerpc_fragmentation;
     int reassemble_increment;
-
     int ref_count;
+    int disabled;
 
 } DceRpcConfig;
 

@@ -3,7 +3,7 @@
 **
 ** perf-base.c
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 ** Marc Norton <mnorton@sourcefire.com>
 **

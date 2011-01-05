@@ -14,7 +14,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steven Sturges
  *
@@ -37,8 +37,9 @@ typedef struct _DynamicData
     void *contextData;
     OTNCheckFunction checkFunction;
     OTNHasFunction hasOptionFunction;
-    int fpContentFlags;
-    GetFPContentFunction fastPatternContents;
+    int contentFlags;
+    GetDynamicContentsFunction getDynamicContents;
+    GetDynamicPreprocOptFpContentsFunc getPreprocFpContents;
     PatternMatchData *pmds;
 
 } DynamicData;
@@ -51,9 +52,10 @@ int RegisterDynamicRule(
     void *info,
     OTNCheckFunction,
     OTNHasFunction,
-    int fpContentFlags,
-    GetFPContentFunction,
-    RuleFreeFunc freeFunc
+    int contentFlags,
+    GetDynamicContentsFunction,
+    RuleFreeFunc freeFunc,
+    GetDynamicPreprocOptFpContentsFunc
     );
 
 typedef struct _DynamicRuleNode
@@ -61,10 +63,11 @@ typedef struct _DynamicRuleNode
     Rule *rule;
     OTNCheckFunction chkFunc;
     OTNHasFunction hasFunc;
-    int fpContentFlags;
-    GetFPContentFunction fpFunc;
+    int contentFlags;
+    GetDynamicContentsFunction contentsFunc;
     int converted;
     RuleFreeFunc freeFunc;
+    GetDynamicPreprocOptFpContentsFunc preprocFpContentsFunc;
     struct _DynamicRuleNode *next;
 
 } DynamicRuleNode;

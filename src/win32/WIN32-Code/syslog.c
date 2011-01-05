@@ -43,8 +43,6 @@
 #define FMT_LEN         1024
 #define INTERNALLOG     LOG_ERR|LOG_CONS|LOG_PERROR|LOG_PID
 
-extern SnortConfig *snort_conf;
-
 static int      LogFile = -1;           /* fd for log */
 static int      opened;                 /* have done openlog() */
 static int      LogStat = 0;            /* status bits, set by openlog() */

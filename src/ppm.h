@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -217,7 +217,7 @@ extern int ppm_suspend_this_rule;
 #if 0 && defined(PPM_TEST)
 #define PPM_DBG_CSV(state, otn, when) \
     LogMessage( \
-                "PPM, %u, %u, %s, %llu\n", \
+                "PPM, %u, %u, %s, " STDu64 "\n", \
                 otn->sigInfo.generator, otn->sigInfo.id, state, when \
               )
 #else

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -128,7 +128,7 @@ static INLINE int DCE2_IsEmptyStr(char *);
 static INLINE DCE2_Ret DCE2_Memcpy(void *, const void *, uint32_t, const void *, const void *);
 static INLINE DCE2_Ret DCE2_Memmove(void *, const void *, uint32_t, const void *, const void *);
 static INLINE int DCE2_UuidCompare(const void *, const void *);
-static INLINE void DCE2_CopyUuid(Uuid *, const Uuid *, const int);
+static INLINE void DCE2_CopyUuid(Uuid *, const Uuid *, const DceRpcBoFlag);
 
 /********************************************************************
  * Public function prototypes
@@ -141,7 +141,7 @@ void DCE2_BufferDestroy(DCE2_Buffer *);
 DCE2_Ret DCE2_HandleSegmentation(DCE2_Buffer *, const uint8_t *, uint16_t, uint32_t, uint16_t *);
 NORETURN void DCE2_Die(const char *, ...);
 void DCE2_Log(DCE2_LogType, const char *, ...);
-const char * DCE2_UuidToStr(const Uuid *, int);
+const char * DCE2_UuidToStr(const Uuid *, DceRpcBoFlag);
 void DCE2_PrintPktData(const uint8_t *, const uint16_t);
 
 /*********************************************************************
@@ -448,7 +448,7 @@ static INLINE int DCE2_UuidCompare(const void *data1, const void *data2)
  * Returns: None
  *
  *********************************************************************/
-static INLINE void DCE2_CopyUuid(Uuid *dst_uuid, const Uuid *pkt_uuid, const int byte_order)
+static INLINE void DCE2_CopyUuid(Uuid *dst_uuid, const Uuid *pkt_uuid, const DceRpcBoFlag byte_order)
 {
     dst_uuid->time_low = DceRpcNtohl(&pkt_uuid->time_low, byte_order);
     dst_uuid->time_mid = DceRpcNtohs(&pkt_uuid->time_mid, byte_order);

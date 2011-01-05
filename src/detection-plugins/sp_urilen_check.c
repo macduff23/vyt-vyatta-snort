@@ -1,6 +1,6 @@
 /* $Id */
 /*  
-** Copyright (C) 2005-2009 Sourcefire, Inc.
+** Copyright (C) 2005-2010 Sourcefire, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License Version 2 as
@@ -32,6 +32,7 @@
 #include <string.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "plugbase.h"
 #include "debug.h"
@@ -104,7 +105,7 @@ int UriLenCheckCompare(void *l, void *r)
 void 
 SetupUriLenCheck(void)
 {
-	RegisterRuleOption("urilen", UriLenCheckInit, NULL, OPT_TYPE_DETECTION);
+	RegisterRuleOption("urilen", UriLenCheckInit, NULL, OPT_TYPE_DETECTION, NULL);
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("urilen_check", &urilenCheckPerfStats, 3, &ruleOTNEvalPerfStats);
 #endif

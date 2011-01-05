@@ -1,7 +1,7 @@
 /* $Id$ */
 
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -4244,18 +4244,33 @@ void DecodeUDP(const uint8_t * pkt, const uint32_t len, Packet * p)
             ph6.zero = 0;
             ph6.protocol = GET_IPH_PROTO(p);
             ph6.udplen = htons((u_short)len);
+
+            /* Alert on checksum value 0 for ipv6 packets */
+            if(!p->udph->uh_chk)
+            {
+                csum = 1;
+                if (ScLogVerbose())
+                {
+                    ErrorMessage("Invalid UDP Packet, Checksum zero \n");
+                }
+                if(ScIdsMode())
+                {
+                    queueDecoderEvent(GENERATOR_SNORT_DECODE,
+                            DECODE_UDP_IPV6_ZERO_CHECKSUM, 1, DECODE_CLASS, 3,
+                            DECODE_UDP_IPV6_ZERO_CHECKSUM_STR, 0);
+                    if (ScInlineMode())
+                    {
+                        queueDecoderInlineDrop(p);
+                    }
+                }
+            }
             /* Don't do checksum calculation if
              * 1) Framented, OR
-             * 2) UDP header chksum value is 0.
              */
-            if( !fragmented_udp_flag && p->udph->uh_chk )
+            else if( !fragmented_udp_flag )
             {
                 csum = in_chksum_udp6((uint16_t *)&ph6, 
                         (uint16_t *)(p->udph), uhlen); 
-            }
-            else if ( !p->udph->uh_chk )
-            {
-                csum = 1;
             }
             else
             {
@@ -5268,6 +5283,18 @@ void DecodeICMPEmbeddedIP6(const uint8_t *pkt, const uint32_t len, Packet *p)
 
 void DecodeICMP6(const uint8_t *pkt, uint32_t len, Packet *p)
 {
+    struct pseudoheader6
+    {
+        uint32_t sip[4], dip[4];
+        uint8_t  zero;
+        uint8_t  protocol;
+        uint16_t icmplen;
+    };
+    u_short csum;
+#ifdef SUP_IP6
+    struct pseudoheader6 ph6;
+#endif
+
     if(len < ICMP6_MIN_HEADER_LEN)
     {
         if (ScLogVerbose())
@@ -5285,20 +5312,41 @@ void DecodeICMP6(const uint8_t *pkt, uint32_t len, Packet *p)
 //    p->icmph = (ICMPHdr*)p->icmp6h;
 //    memcpy(&p->icmp6h, pkt, ICMP6_MIN_HEADER_LEN);
 //    p->icmp6h.body = pkt + ICMP6_MIN_HEADER_LEN;  
-
     /* Do checksums */
-    if(ScIcmpChecksums() && in_chksum_icmp6((uint16_t*)p->icmph, len))
+    if (ScIcmpChecksums())
     {
-        p->csum_flags |= CSE_ICMP;
+#ifdef SUP_IP6
+        if(IS_IP4(p))
+        {
+#endif
+            csum = in_chksum_icmp((uint16_t *)(p->icmph), len);
+#ifdef SUP_IP6
+        }
+        /* IPv6 traffic */
+        else
+        {
+            COPY4(ph6.sip, p->ip6h->ip_src.ip32);
+            COPY4(ph6.dip, p->ip6h->ip_dst.ip32);
+            ph6.zero = 0;
+            ph6.protocol = GET_IPH_PROTO(p);
+            ph6.icmplen = htons((u_short)len);
 
-        DEBUG_WRAP(DebugMessage(DEBUG_DECODE, "Bad ICMP Checksum\n"););
- 
-        if (ScIdsMode() && ScInlineMode())
-            queueIcmpChksmInlineDrop(p);
-    }
-    else
-    {
-        DEBUG_WRAP(DebugMessage(DEBUG_DECODE,"ICMP Checksum: OK\n"););
+            csum = in_chksum_icmp6((uint16_t *)&ph6, (uint16_t *)(p->icmph), len);
+        }
+#endif
+        if(csum)
+        {
+            p->csum_flags |= CSE_ICMP;
+
+            DEBUG_WRAP(DebugMessage(DEBUG_DECODE, "Bad ICMP Checksum\n"););
+     
+            if (ScIdsMode() && ScInlineMode())
+                queueIcmpChksmInlineDrop(p);
+        }
+        else
+        {
+            DEBUG_WRAP(DebugMessage(DEBUG_DECODE,"ICMP Checksum: OK\n"););
+        }
     }
 
     

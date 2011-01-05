@@ -1,7 +1,12 @@
-
 DCE/RPC Preprocessor
 ====================
 Andrew Mullican <amullican@sourcefire.com>
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! The dcerpc preprocessor is now considered deprecated and will be removed
+! in a future release.  Please use the dcerpc2 preprocessor in its place.
+! See the Snort Manual and README.dcerpc2 for documentation.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 Overview
 ========
@@ -33,7 +38,7 @@ are nonsensical, it ends processing.
 
 Configuration
 =============
-The proprocessor has several optional configuration options.
+The preprocessor has several optional configuration options.
 They are described below:
 
 The configuration options are described below:
@@ -72,6 +77,13 @@ The configuration options are described below:
   Maximum amount of memory available to the DCE/RPC preprocessor for
   desegmentation and defragmentation, in kilobytes.
   Default is 100000 kilobytes.
+
+* disabled
+  This optional keyword is allowed with any policy to avoid packet processing. 
+  This option disables the preprocessor. When the preprocessor is disabled
+  only the memcap option is applied when specified with the configuration.
+  The other options are parsed but not used. Any valid configuration may have
+  "disabled" added to it.
    
 * alert_memcap
   Alert if memcap is exceeded.

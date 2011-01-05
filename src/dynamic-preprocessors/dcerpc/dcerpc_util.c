@@ -1,7 +1,7 @@
 /*
  * dcerpc_util.c
  *
- * Copyright (C) 2006-2009 Sourcefire, Inc.
+ * Copyright (C) 2006-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as

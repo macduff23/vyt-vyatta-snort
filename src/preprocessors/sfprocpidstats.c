@@ -3,7 +3,7 @@
 **
 **  sfprocpidstats.c
 **
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Dan Roelker <droelker@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -36,6 +36,7 @@
 #include <sys/types.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
 
 #include "util.h"
 
@@ -117,7 +118,11 @@ static int GetCpuNum(void)
             return 0;
 
         iRet = sscanf(buf, "%10s %*u %*u %*u %*u", acCpuName);
-        if(iRet < 1 || iRet == EOF)
+
+        if(errno == ERANGE)
+            errno = 0;
+
+        if(iRet < 1 || iRet == EOF )
         {
             return 0;
         }
@@ -182,6 +187,27 @@ int sfInitProcPidStats(SFPROCPIDSTATS *sfProcPidStats)
     fclose(proc_stat);
 
     return 0;
+}
+
+void FreeProcPidStats(SFPROCPIDSTATS *sfProcPidStats)
+{
+    if (gpStatCPUs != NULL)
+    {
+        free(gpStatCPUs);
+        gpStatCPUs = NULL;
+    }
+
+    if (gpStatCPUs_2 != NULL)
+    {
+        free(gpStatCPUs_2);
+        gpStatCPUs_2 = NULL;
+    }
+
+    if (sfProcPidStats->SysCPUs != NULL)
+    {
+        free(sfProcPidStats->SysCPUs);
+        sfProcPidStats->SysCPUs = NULL;
+    }
 }
 
 int sfProcessProcPidStats(SFPROCPIDSTATS *sfProcPidStats)

@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * Author: Steve Sturges
  *         Andy Mullican
@@ -55,6 +55,7 @@ typedef struct _VlanHeader
 
 //#define NO_NON_ETHER_DECODER
 #define ETHER_HDR_LEN  14
+#define ETHERNET_TYPE_IP    0x0800
 #define ETHERNET_TYPE_8021Q 0x8100
 
 typedef struct _EtherHeader
@@ -510,16 +511,17 @@ typedef struct _SFSnortPacket
     int outer_family;
     int number_bytes_to_check;
 
-    u_int32_t preprocessor_bit_mask;
-    u_int32_t preproc_reassembly_pkt_bit_mask;
-
     //int ip_payload_length;
     //int ip_payload_offset;
+
+    u_int32_t preprocessor_bit_mask;
+    u_int32_t preproc_reassembly_pkt_bit_mask;
 
     u_int32_t pcap_cap_len;
     u_int32_t http_pipeline_count;
     u_int32_t flags;
-    u_int32_t proto_bits;
+    u_int16_t proto_bits;
+    u_int16_t data_flags;
 
     u_int16_t payload_size;
     u_int16_t ip_payload_size;
@@ -585,16 +587,23 @@ typedef struct _SFSnortPacket
     TCPOptions tcp_options[MAX_TCP_OPTIONS];
     IP6Extension ip6_extensions[MAX_IP6_EXTENSIONS];
 
+    /**policyId provided in configuration file. Used for correlating configuration 
+     * with event output
+     */
+    uint16_t config_policy_id;
+
 } SFSnortPacket;
 
 #define PKT_ZERO_LEN offsetof(SFSnortPacket, ip_options)
 
-#define PROTO_BIT__IP    0x00000001
-#define PROTO_BIT__ARP   0x00000002
-#define PROTO_BIT__TCP   0x00000004
-#define PROTO_BIT__UDP   0x00000008
-#define PROTO_BIT__ICMP  0x00000010
-#define PROTO_BIT__ALL   0xffffffff
+#define PROTO_BIT__IP    0x0001
+#define PROTO_BIT__ARP   0x0002
+#define PROTO_BIT__TCP   0x0004
+#define PROTO_BIT__UDP   0x0008
+#define PROTO_BIT__ICMP  0x0010
+#define PROTO_BIT__ALL   0xffff
+
+#define DATA_FLAGS_GZIP  0x0002
 
 #define IsIP(p) (IPH_IS_VALID(p))
 #define IsTCP(p) (IsIP(p) && (GET_IPH_PROTO(p) == IPPROTO_TCP))
@@ -637,6 +646,9 @@ typedef struct _SFSnortPacket
 #define FLAG_DCE_FRAG         0x00400000  /* this is a DCE/RPC defragmented packet */
 #define FLAG_SMB_TRANS        0x00800000  /* this is an SMB Transact reassembled packet */
 #define FLAG_DCE_PKT          0x01000000  /* this is a DCE packet processed by DCE/RPC preprocessor */
+#define FLAG_RPC_PKT          0x02000000  /* this is an ONC RPC packet processed by rpc decode preprocessor */
+
+#define FLAG_HTTP_RESP_BODY   0x04000000  /* this packet contains non-zipped HTTP response Body */
 
 #define FLAG_STATELESS        0x10000000  /* Packet has matched a stateless rule */
 #define FLAG_INLINE_DROP      0x20000000
@@ -644,6 +656,11 @@ typedef struct _SFSnortPacket
 #define FLAG_LOGGED           0x80000000  /* this packet has been logged */
 
 #define SFTARGET_UNKNOWN_PROTOCOL -1
+
+/* Only include application layer reassembled data
+ * flags here - no PKT_REBUILT_FRAG */
+#define REASSEMBLED_PACKET_FLAGS \
+    (FLAG_REBUILT_STREAM|FLAG_SMB_SEG|FLAG_DCE_SEG|FLAG_DCE_FRAG|FLAG_SMB_TRANS)
 
 #endif /* _SF_SNORT_PACKET_H_ */
 

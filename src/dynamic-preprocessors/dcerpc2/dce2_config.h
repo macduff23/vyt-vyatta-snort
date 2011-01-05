@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2008-2009 Sourcefire, Inc.
+ * Copyright (C) 2008-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -194,6 +194,7 @@ typedef enum _DCE2_IntType
 /* Global configuration struct */
 typedef struct _DCE2_GlobalConfig
 {
+    int disabled;
     uint32_t memcap;
     int event_mask;
     DCE2_CS dce_defrag;

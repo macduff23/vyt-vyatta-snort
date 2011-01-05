@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (C) 2005-2009 Sourcefire, Inc.
+ * Copyright (C) 2005-2010 Sourcefire, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License Version 2 as
@@ -45,6 +45,8 @@ void Stream5TcpBlockPacket(Packet *p);
 Stream5LWSession *GetLWTcpSession(SessionKey *key);
 int GetTcpRebuiltPackets(Packet *p, Stream5LWSession *ssn,
         PacketIterator callback, void *userdata);
+int GetTcpStreamSegments(Packet *p, Stream5LWSession *ssn,
+        StreamSegmentIterator callback, void *userdata);
 int Stream5AddSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, uint32_t gid, uint32_t sid);
 int Stream5CheckSessionAlertTcp(Stream5LWSession *lwssn, Packet *p, uint32_t gid, uint32_t sid);
 char Stream5GetReassemblyDirectionTcp(Stream5LWSession *lwssn);

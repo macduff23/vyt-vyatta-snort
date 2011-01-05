@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -60,8 +60,9 @@ void PayloadReplaceInit(char *data, OptTreeNode * otn, int protocol)
     {
         FatalError("%s(%d) => \"replace\" option is not supported "
                 "with uricontent, nor in conjunction with http_uri, " 
-                "http_header, http_method http_cookie or "
-                "http_client_body modifiers.\n",
+                "http_header, http_method http_cookie,"
+                "http_raw_uri, http_raw_header, or "
+                "http_raw_cookie modifiers.\n",
                 file_name, file_line);
     }
     idx = (PatternMatchData *) otn->ds_list[PLUGIN_PATTERN_MATCH];
@@ -75,12 +76,6 @@ void PayloadReplaceInit(char *data, OptTreeNode * otn, int protocol)
 
     test_idx = Replace_Parse(data, otn);
 
-    if (test_idx && test_idx->pattern_size != test_idx->replace_size)
-    {
-        FatalError("%s(%d) => The length of the replacement "
-                   "string must be the same length as the content string.\n",
-                   file_name, file_line);
-    }
 }
 
 static PatternMatchData * Replace_Parse(char *rule, OptTreeNode * otn)
@@ -413,9 +408,17 @@ void Replace_QueueChange(PatternMatchData* pmd)
 
 static INLINE void Replace_ApplyChange(Packet *p, Replacement* r)
 {
-    int err = SafeMemcpy(
+    int err;
+    int rsize;
+
+    if( (p->data + r->depth + r->size) >= (p->data + p->dsize))
+        rsize = (p->dsize - r->depth);
+    else
+        rsize = r->size;
+
+    err = SafeMemcpy(
         (void *)(p->data + r->depth), r->data,
-        r->size, p->data, (p->data + p->dsize) );
+        rsize, p->data, (p->data + p->dsize) );
 
     if ( err == SAFEMEM_ERROR )
     {
@@ -572,7 +575,7 @@ static void Replace_UpdateIP6Checksums(Packet* p)
         ph6.protocol = IPPROTO_ICMP;
         ((ICMPHdr *)p->icmph)->csum = 0;
         ((ICMPHdr *)p->icmph)->csum =
-            in_chksum_icmp6((uint16_t *)(p->icmph), ip_len);
+            in_chksum_icmp6((u_short *)&ph6, (u_short *)(p->icmph), ip_len);
     }
 }
 #endif

@@ -1,5 +1,5 @@
 /*             
-** Copyright (C) 2002-2009 Sourcefire, Inc.
+** Copyright (C) 2002-2010 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000-2001 Andrew R. Baker <andrewb@uab.edu>
 **             
@@ -31,6 +31,7 @@
 #include <sfPolicy.h>
 
 #include "rules.h"
+#include "treenodes.h"
 #include "decode.h"
 #include "sflsq.h"
 #include "snort.h"
@@ -63,9 +64,7 @@
 #define SNORT_CONF_KEYWORD__EVENT_FILTER         "event_filter"
 # define SNORT_CONF_KEYWORD__IPVAR               "ipvar"
 #define SNORT_CONF_KEYWORD__OUTPUT               "output"
-#ifdef PORTLISTS
-# define SNORT_CONF_KEYWORD__PORTVAR             "portvar"
-#endif  /* PORTLISTS */
+#define SNORT_CONF_KEYWORD__PORTVAR              "portvar"
 #define SNORT_CONF_KEYWORD__PREPROCESSOR         "preprocessor"
 #define SNORT_CONF_KEYWORD__RATE_FILTER          "rate_filter"
 #define SNORT_CONF_KEYWORD__RULE_STATE           "rule_state"
@@ -191,6 +190,7 @@
 #endif
 
 
+extern SnortConfig *snort_conf_for_parsing;
 
 /* exported values */
 extern char *file_name;
@@ -212,9 +212,8 @@ int GetPcaps(SF_LIST *, SF_QUEUE *);
 void ParserCleanup(void);
 void FreeRuleLists(SnortConfig *);
 void VarTablesFree(SnortConfig *);
-#ifdef PORTLISTS
 void PortTablesFree(rule_port_tables_t *);
-#endif
+int CompareIPNodes(IpAddrNode *, IpAddrNode *);
 
 void ResolveOutputPlugins(SnortConfig *, SnortConfig *);
 void ConfigureOutputPlugins(SnortConfig *);
