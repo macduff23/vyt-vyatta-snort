@@ -25,7 +25,8 @@ CONFFLAGS= --prefix=/usr \
 	--enable-smbalerts \
 	--enable-prelude \
 	--enable-inline \
-        --enable-flexresp
+        --enable-flexresp \
+        --enable-zlib
 
 clean-sources:
 	# Clean the sources
