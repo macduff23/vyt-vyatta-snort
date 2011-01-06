@@ -1,3 +1,11 @@
+vyatta-snort (2.8.6.1-vyatta-1+mendocino2) unstable; urgency=low
+
+  * Remove #include of rules since the rules no longer exist.
+  * enable zlib
+  * change default to use queue 0
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Wed, 05 Jan 2011 17:07:31 -0800
+
 vyatta-snort (2.8.6.1-vyatta-1+mendocino1) unstable; urgency=low
 
   * Merge upstream 2.8.6.1
