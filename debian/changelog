@@ -1,3 +1,9 @@
+vyatta-snort (2.8.6.1-vyatta-1+mendocino3) unstable; urgency=low
+
+  * remove generated files
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 06 Jan 2011 10:57:36 -0800
+
 vyatta-snort (2.8.6.1-vyatta-1+mendocino2) unstable; urgency=low
 
   * Remove #include of rules since the rules no longer exist.
