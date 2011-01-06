@@ -1,6 +1,6 @@
 ## $Id$
 AUTOMAKE_OPTIONS=foreign no-dependencies
-SUBDIRS = src doc etc templates contrib schemas rpm m4 preproc_rules
+SUBDIRS = src etc templates contrib schemas rpm m4 preproc_rules
 
 INCLUDES = @INCLUDES@
 
