@@ -1,3 +1,9 @@
+vyatta-snort (2.8.6.1-vyatta-2) unstable; urgency=low
+
+  * fix version string
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Thu, 06 Jan 2011 17:40:25 -0800
+
 vyatta-snort (2.8.5.2-vyatta-20) unstable; urgency=low
 
   * 2.8.6.1-vyatta-1+napa1
