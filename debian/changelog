@@ -1,3 +1,9 @@
+vyatta-snort (2.8.5.2-vyatta-20) unstable; urgency=low
+
+  * 2.8.6.1-vyatta-1+napa1
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Thu, 06 Jan 2011 17:30:17 -0800
+
 vyatta-snort (2.8.5.2-vyatta-19) unstable; urgency=low
 
   * Merge upstream 2.8.6.1
