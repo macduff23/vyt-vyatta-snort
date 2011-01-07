@@ -1,3 +1,9 @@
+vyatta-snort (2.8.6.1-vyatta-1+mendocino4) unstable; urgency=low
+
+  * Fix 6654: snort rules update fails if snort is already running.
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Fri, 07 Jan 2011 15:42:22 -0800
+
 vyatta-snort (2.8.6.1-vyatta-1+mendocino3) unstable; urgency=low
 
   * remove generated files
