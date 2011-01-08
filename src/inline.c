@@ -299,7 +299,7 @@ int InitInline(void)
 #ifndef IPFW
 void nfqLoop(void)
 {
-    int status;
+    ssize_t status;
     char buf[PKT_BUFSIZE];
     int nfq_sd;
     
