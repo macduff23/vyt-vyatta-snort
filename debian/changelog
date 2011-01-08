@@ -1,3 +1,9 @@
+vyatta-snort (2.8.6.1-vyatta-1+mendocino5) unstable; urgency=low
+
+  * Change recv() status from int to ssize_t.
+
+ -- Stig Thormodsrud <stig@vyatta.com>  Fri, 07 Jan 2011 17:07:07 -0800
+
 vyatta-snort (2.8.6.1-vyatta-1+mendocino4) unstable; urgency=low
 
   * Fix 6654: snort rules update fails if snort is already running.
