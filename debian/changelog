@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.4-vyatta-2) unstable; urgency=low
+
+  * test-release
+
+ -- John Southworth <john.southworth@vyatta.com>  Tue, 08 Mar 2011 13:40:46 -0600
+
 vyatta-snort (2.9.0.4-vyatta-1) unstable; urgency=low
 
   * Initial import of snort 2.9.0.4
