@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.4-vyatta-1) unstable; urgency=low
+
+  * Initial import of snort 2.9.0.4
+
+ -- John Southworth <john.southworth@vyatta.com>  Mon, 07 Mar 2011 18:09:00 -0800
+
 vyatta-snort (2.8.6.1-vyatta-3) unstable; urgency=low
 
   * Fix 6654: snort rules update fails if snort is already running.
