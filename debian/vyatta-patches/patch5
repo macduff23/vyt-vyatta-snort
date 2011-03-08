@@ -1,0 +1,26 @@
+commit c6314ec3b28024c2e88c1b43151f97dcaf9c505a
+Author: Stig Thormodsrud <stig@vyatta.com>
+Date:   Fri May 28 10:26:26 2010 -0700
+
+    Add support for output alert_null.
+
+diff --git a/src/output-plugins/spo_log_null.c b/src/output-plugins/spo_log_null.c
+index 8e065bb..6dfb711 100644
+--- a/src/output-plugins/spo_log_null.c
++++ b/src/output-plugins/spo_log_null.c
+@@ -61,6 +61,7 @@ void LogNullSetup(void)
+     /* link the preprocessor keyword to the init function in 
+        the preproc list */
+     RegisterOutputPlugin("log_null", OUTPUT_TYPE_FLAG__LOG, LogNullInit);
++    RegisterOutputPlugin("alert_null", OUTPUT_TYPE_FLAG__ALERT, LogNullInit);
+ 
+     DEBUG_WRAP(DebugMessage(DEBUG_PLUGIN, "Output plugin: LogNull is setup...\n"););
+ }
+@@ -72,6 +73,7 @@ void LogNullInit(char *args)
+ 
+     /* Set the preprocessor function into the function list */
+     AddFuncToOutputList(LogNull, OUTPUT_TYPE__LOG, NULL);
++    AddFuncToOutputList(LogNull, OUTPUT_TYPE__ALERT, NULL);
+     AddFuncToCleanExitList(LogNullCleanExitFunc, NULL);
+     AddFuncToRestartList(LogNullRestartFunc, NULL);
+ }

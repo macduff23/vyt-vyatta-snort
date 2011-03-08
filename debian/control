@@ -1,0 +1,84 @@
+Source: vyatta-snort
+Section: net
+Priority: optional
+Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
+Build-Depends: libdumbnet-dev,
+ libdaq-dev,
+ libpcap0.8-dev,
+ libpcre3-dev,
+ debhelper (>= 5),
+ po-debconf (>= 0.5.0),
+ libprelude-dev,
+ iptables-dev,
+ libgnutls-dev,
+ libnetfilter-queue-dev,
+Standards-Version:  3.8.0
+Homepage: http://www.snort.org/
+
+Package: vyatta-snort
+Architecture: any
+Pre-Depends: adduser (>= 3.11)
+Depends: vyatta-snort-common-libraries (>=${binary:Version}),
+ debconf (>= 0.2.80) | debconf-2.0, 
+ rsyslog | system-log-daemon, 
+ ${shlibs:Depends}, 
+ vyatta-snort-common (>= ${source:Version}), 
+ logrotate
+Conflicts: snort-mysql, snort-pgsql
+Replaces: snort-common (<< 2.0.2-3), snort
+Recommends: iproute
+Description: flexible Network Intrusion Detection System
+ Snort is a libpcap-based packet sniffer/logger which can be used as a
+ lightweight network intrusion detection system. It features rules
+ based logging and can perform content searching/matching in addition
+ to being used to detect a variety of other attacks and probes, such
+ as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
+ much more. Snort has a real-time alerting capability, with alerts being
+ sent to syslog, a separate "alert" file, or even to a Windows computer
+ via Samba.
+ .
+ This package provides the plain-vanilla version of Snort and does not
+ provide database (available in snort-pgsql and snort-mysql) support.
+
+Package: vyatta-snort-common
+Architecture: all
+Pre-Depends: adduser (>= 3.11)
+Depends: perl-modules, 
+ debconf (>= 0.2.80) | debconf-2.0, 
+ rsyslog | system-log-daemon, 
+ ${shlibs:Depends}, 
+ lsb-base
+Conflicts: snort (<< ${binary:Version})
+Replaces: snort (<< 1.8.4beta1-1), snort-common
+Suggests: snort-doc
+Description: flexible Network Intrusion Detection System [common files]
+ Snort is a libpcap-based packet sniffer/logger which can be used as a
+ lightweight network intrusion detection system. It features rules
+ based logging and can perform content searching/matching in addition
+ to being used to detect a variety of other attacks and probes, such
+ as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
+ much more. Snort has a real-time alerting capability, with alerts being
+ sent to syslog, a separate "alert" file, or even to a Windows computer
+ via Samba.
+ .
+ This is a common package which holds cron jobs, tools and config files used
+ by all Snort-based packages.
+
+Package: vyatta-snort-common-libraries
+Architecture: any
+Depends: ${shlibs:Depends}
+Suggests: vyatta-snort
+Conflicts: snort-common (<< 2.7.0-6)
+Replaces: snort-common-libraries
+Description: flexible Network Intrusion Detection System ruleset
+ Snort is a libpcap-based packet sniffer/logger which can be used as a
+ lightweight network intrusion detection system. It features rules
+ based logging and can perform content searching/matching in addition
+ to being used to detect a variety of other attacks and probes, such
+ as buffer overflows, stealth port scans, CGI attacks, SMB probes, and
+ much more. Snort has a real-time alerting capability, with alerts being
+ sent to syslog, a separate "alert" file, or even to a Windows computer
+ via Samba.
+ .
+ This package provides libraries used by all the Snort binary packages.
+
