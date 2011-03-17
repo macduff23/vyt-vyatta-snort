@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.4-vyatta-3) unstable; urgency=low
+
+  * Change default snort.conf file to work with pulledpork
+
+ -- John Southworth <john.southworth@vyatta.com>  Thu, 17 Mar 2011 18:07:24 -0500
+
 vyatta-snort (2.9.0.4-vyatta-2) unstable; urgency=low
 
   * test-release
