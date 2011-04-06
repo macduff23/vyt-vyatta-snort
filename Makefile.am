@@ -14,6 +14,7 @@ dist-hook:
 # always ensure that the win32 build is in sync
 	perl $(distdir)/verstuff.pl $(distdir)
 # work around a horrible doc/Makefile.am
+	rm -rf $(distdir)/doc/signatures/CVS
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = snort.pc

@@ -315,7 +315,7 @@ static int CvsDecode(const uint8_t *data, uint16_t data_len,
                     ret = CvsValidateEntry(command.cmd_arg,
                                            (command.cmd_arg + command.cmd_arg_len));
                     
-                    if (ret == CVS_ENTRY_INVALID)
+                    if ((ret == CVS_ENTRY_INVALID)&&(eol < end))
                     {
                         return CVS_ALERT;
                     }
@@ -405,7 +405,7 @@ static void CvsGetCommand(const uint8_t *line, const uint8_t *end, CvsCommand *c
     {
         cmd->cmd_str_len = cmd_end - line;
         cmd->cmd_arg = cmd_end + 1;
-        cmd->cmd_arg_len = end - cmd_end;
+        cmd->cmd_arg_len = end - cmd_end - 1;
     }
     else
     {
@@ -446,25 +446,24 @@ static int CvsValidateEntry(const uint8_t *entry_arg, const uint8_t *end_arg)
     /* There should be exactly 5 slashes in the string */
     while (entry_arg < end_arg)
     {
-        /* if on the 3rd slash, check for next char == '/'
-         * This is where the heap overflow on multiple Is-Modified
-         * commands occurs */
-        if (slashes == 3)
-        {
-            if (*entry_arg != '/')
-            {
-                return CVS_ENTRY_INVALID;
-            }
-        }
-        else
-        {
-            entry_arg = memchr(entry_arg, '/', end_arg - entry_arg);
-            if (entry_arg == NULL)
-                break;
-        }
-
-        slashes++;
-        entry_arg++;
+    	/* if on the 3rd slash, check for next char == '/' or '+'
+    	 * This is where the heap overflow on multiple Is-Modified
+    	 * commands occurs */
+    	if (slashes == 3)
+    	{
+    		if((*entry_arg != '/')&&(*entry_arg != '+'))
+    		{
+    			return CVS_ENTRY_INVALID;
+    		}
+    	}
+    	if (*entry_arg != '/')
+    	{
+    		entry_arg = memchr(entry_arg, '/', end_arg - entry_arg);
+    		if (entry_arg == NULL)
+    			break;
+    	}
+    	slashes++;
+    	entry_arg++;
     }
 
     if (slashes != 5)

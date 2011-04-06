@@ -442,7 +442,8 @@ static int MakePortscanPkt(PS_PKT *ps_pkt, PS_PROTO *proto, int proto_type,
 #ifdef SUP_IP6
         else if (IS_IP6(p))
         {
-            // FIXTHIS what if there are extension headers?
+            if ( g_tmp_pkt->raw_ip6h )
+                ((IP6RawHdr*)g_tmp_pkt->raw_ip6h)->ip6nxt = IPPROTO_PS;
             g_tmp_pkt->inner_ip6h.next = IPPROTO_PS;
             g_tmp_pkt->ip6h = &g_tmp_pkt->inner_ip6h;
         }

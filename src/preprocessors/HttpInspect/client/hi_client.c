@@ -2330,7 +2330,7 @@ int StatelessInspection(HI_SESSION *Session, const unsigned char *data,
         {
             Client->request.header_raw = header_ptr.header.uri;
             Client->request.header_raw_size = header_ptr.header.uri_end - header_ptr.header.uri;
-            if ((int)Client->request.header_raw_size <= 0)
+            if(!Client->request.header_raw_size)
             {
                 CLR_HEADER(Client);
             }

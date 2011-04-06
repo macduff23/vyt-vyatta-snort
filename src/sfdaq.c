@@ -444,7 +444,7 @@ int DAQ_Stop ()
     int err = daq_stop(daq_mod, daq_hand);
 
     if ( err )
-        FatalError("Can't stop DAQ (%d) - %s!\n",
+        LogMessage("Can't stop DAQ (%d) - %s!\n",
             err, daq_get_error(daq_mod, daq_hand));
 
     return err;

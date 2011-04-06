@@ -1282,7 +1282,7 @@ static void PrintVersion(void)
     snort_conf->logging_flags |= save_quiet_flag;
 }
 
-static void PrintSpiModules (SnortConfig* sc, char* dir)
+static void PrintDaqModules (SnortConfig* sc, char* dir)
 {
     if ( dir )
         ConfigDaqDir(sc, dir);
@@ -1424,6 +1424,7 @@ int ProcessPacket(
 {
     Packet p;
     DAQ_Verdict verdict = DAQ_VERDICT_PASS;
+    int inject = 0;
 
     setRuntimePolicy(getDefaultPolicy());
 
@@ -1515,19 +1516,20 @@ int ProcessPacket(
         {
             // this packet was normalized and/or has replacements
             Encode_Update(&p);
-
-#ifdef NORMALIZER
-            if ( p.packet_flags & PKT_RESIZED )
-            {
-                // we never increase, only trim, but
-                // daq doesn't support resizing wire packet
-                DAQ_Inject(p.pkth, 0, p.pkt, p.pkth->pktlen);
-                verdict = DAQ_VERDICT_BLOCK;
-            }
-            else
-#endif
-                verdict = DAQ_VERDICT_REPLACE;
+            verdict = DAQ_VERDICT_REPLACE;
         }
+#ifdef NORMALIZER
+        else if ( p.packet_flags & PKT_RESIZED )
+        {
+            // we never increase, only trim, but
+            // daq doesn't support resizing wire packet
+            if ( !DAQ_Inject(p.pkth, 0, p.pkt, p.pkth->pktlen) )
+            {
+                verdict = DAQ_VERDICT_BLOCK;
+                inject = 1;
+            }
+        }
+#endif
         else
         {
             verdict = DAQ_VERDICT_PASS;
@@ -1535,7 +1537,7 @@ int ProcessPacket(
     }
 
     /* Collect some "on the wire" stats about packet size, etc */
-    UpdateWireStats(&sfBase, pkthdr->caplen, Active_PacketWasDropped());
+    UpdateWireStats(&sfBase, pkthdr->caplen, Active_PacketWasDropped(), inject);
     Active_Reset();
     return verdict;
 }
@@ -1990,7 +1992,7 @@ static void ParseCmdLine(int argc, char **argv)
                 break;
 
             case ARG_DAQ_LIST:
-                PrintSpiModules(sc, optarg);
+                PrintDaqModules(sc, optarg);
                 exit(0);
                 break;
 
@@ -4595,7 +4597,6 @@ static void SnortUnprivilegedInit(void)
     // to /var/log/snort.  in this case they must override log path.
     PostConfigInitPlugins(snort_conf->plugin_post_config_funcs);
 
-
     LogMessage("\n");
     LogMessage("        --== Initialization Complete ==--\n");
 
@@ -4615,6 +4616,7 @@ static void SnortUnprivilegedInit(void)
     snort_initializing = 0;
     /* Vyatta specific pid to signal initialization has completed */
     CreatePidFile("vyatta_init", getpid());
+
 }
 
 #if defined(NOCOREFILE) && !defined(WIN32)

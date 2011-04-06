@@ -543,6 +543,16 @@ NORETURN void FatalError(const char *format,...)
     char buf[STD_BUF+1];
     va_list ap;
 
+    // -----------------------------
+    // bail now if we are reentering
+    static uint8_t fatal = 0;
+
+    if ( fatal )
+        exit(1);
+    else
+        fatal = 1;
+    // -----------------------------
+
     va_start(ap, format);
     vsnprintf(buf, STD_BUF, format, ap);
     va_end(ap);

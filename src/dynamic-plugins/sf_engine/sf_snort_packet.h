@@ -677,7 +677,7 @@ typedef struct _SFSnortPacket
 #define FLAG_REBUILT_FRAG     0x00000001
 #define FLAG_REBUILT_STREAM   0x00000002
 #define FLAG_STREAM_UNEST_UNI 0x00000004
-#define FLAG_STREAM_UNEST_BI  0x00000008
+#define FLAG_PSEUDO           0x00000008
 
 //--------------------------------------
 // beware:  these are redefined in dynamic-plugins/sf_dynamic_define.h!
@@ -719,7 +719,6 @@ typedef struct _SFSnortPacket
 #define FLAG_HTTP_RESP_BODY   0x20000000  /* packet contains non-zipped HTTP response Body */
 #define FLAG_ALLOW_MULTIPLE_DETECT 0x40000000
 
-
 #define SFTARGET_UNKNOWN_PROTOCOL -1
 
 static INLINE int PacketWasCooked(SFSnortPacket* p)
@@ -727,7 +726,7 @@ static INLINE int PacketWasCooked(SFSnortPacket* p)
     return ( p->flags &
         ( FLAG_REBUILT_STREAM | FLAG_REBUILT_FRAG |
           FLAG_DCE_RPKT | FLAG_DCE_SEG | FLAG_DCE_FRAG |
-          FLAG_SMB_SEG | FLAG_SMB_TRANS) ) != 0;
+          FLAG_SMB_SEG | FLAG_SMB_TRANS | FLAG_PSEUDO) ) != 0;
 }
 
 /* Only include application layer reassembled data

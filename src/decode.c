@@ -3112,14 +3112,7 @@ void DecodeIP(const uint8_t * pkt, const uint32_t len, Packet * p)
     if (p->family != NO_IP)
 #endif  /* SUP_IP6 */
     {
-        IPHdr *tmp = (IPHdr *)pkt;
-
-        if (p->encapsulated ||
-            ((tmp->ip_proto == IPPROTO_IPIP) || (tmp->ip_proto == IPPROTO_GRE))
-#ifdef SUP_IP6
-             || (tmp->ip_proto == IPPROTO_IPV6)
-#endif
-           )
+        if (p->encapsulated)
         {
             DecoderAlertEncapsulated(p, DECODE_IP_MULTIPLE_ENCAPSULATION,
                             DECODE_IP_MULTIPLE_ENCAPSULATION_STR,
@@ -3977,8 +3970,8 @@ void DecodeUDP(const uint8_t * pkt, const uint32_t len, Packet * p)
         p->dp == TEREDO_PORT ||
         ScDeepTeredoInspection())
     {
-        DecodeTeredo(pkt + sizeof(UDPHdr),
-                     len - sizeof(UDPHdr), p);
+        if ( !p->frag_flag )
+            DecodeTeredo(pkt + sizeof(UDPHdr), len - sizeof(UDPHdr), p);
     }
 #endif
 }
@@ -4112,7 +4105,7 @@ void DecodeICMP(const uint8_t * pkt, const uint32_t len, Packet * p)
     p->data = pkt + ICMP_HEADER_LEN;
 
     DEBUG_WRAP(DebugMessage(DEBUG_DECODE, "ICMP type: %d   code: %d\n", 
-                p->icmph->code, p->icmph->type););
+                p->icmph->type, p->icmph->code););
 
     switch(p->icmph->type)
     {
@@ -5003,7 +4996,7 @@ void DecodeICMP6(const uint8_t *pkt, uint32_t len, Packet *p)
     p->data = pkt + ICMP6_MIN_HEADER_LEN;
 
     DEBUG_WRAP(DebugMessage(DEBUG_DECODE, "ICMP type: %d   code: %d\n", 
-                p->icmph->code, p->icmph->type););
+                p->icmph->type, p->icmph->code););
 
     switch(p->icmph->type)
     {
@@ -5354,12 +5347,14 @@ void DecodeIPV6Options(int type, const uint8_t *pkt, uint32_t len, Packet *p)
                 hdrlen = sizeof(IP6Frag);
                 p->ip_frag_len = (uint16_t)(len - hdrlen);
 
-                if (p->frag_offset > 0)
+                if ( (p->frag_offset > 0) ||
+                     (exthdr->ip6e_nxt != IPPROTO_UDP) )
                 {
                     /* For non-zero offset frags, we stop decoding after the
                        Frag header. According to RFC 2460, the "Next Header"
                        value may differ from that of the offset zero frag,
                        but only the Next Header of the original frag is used. */
+                    // check DecodeIP(); we handle frags the same way here
                     p->ip6_extension_count++;
                     return;
                 }
@@ -5852,15 +5847,13 @@ void DecodeIPV6(const uint8_t *pkt, uint32_t len, Packet *p)
 
     if (p->family != NO_IP)
     {
-        if (p->encapsulated ||
-            ((hdr->ip6nxt == IPPROTO_IPIP) || (hdr->ip6nxt == IPPROTO_GRE) ||
-             (hdr->ip6nxt == IPPROTO_IPV6)))
+        if (p->encapsulated)
         {
 
             DecoderAlertEncapsulated(p, DECODE_IP_MULTIPLE_ENCAPSULATION,
                             DECODE_IP_MULTIPLE_ENCAPSULATION_STR,
                             pkt, len);
-            return;
+            goto decodeipv6_fail;
         }
         else
         {

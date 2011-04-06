@@ -1689,8 +1689,7 @@ static void Frag3Defrag(Packet *p, void *context)
     /* check to make sure this preprocessor should run */
     if( (p == NULL) || 
             !IPH_IS_VALID(p) || !p->frag_flag ||
-            (p->error_flags & PKT_ERR_CKSUM_IP) ) /*||
-            (p->packet_flags & PKT_REBUILT_FRAG)) */
+            (p->error_flags & PKT_ERR_CKSUM_IP) )
     {
         return;
     }
@@ -2291,10 +2290,6 @@ static FragTracker *Frag3GetTracker(Packet *p, FRAGKEY *fkey)
     else
         fkey->mlabel = 0;
 #endif
-    if (p->vh)
-        fkey->vlan_tag = (uint16_t)VTH_VLAN(p->vh);
-    else
-        fkey->vlan_tag = 0;
 
     /*
      * if the hash table is empty we're done
@@ -3992,13 +3987,14 @@ static void Frag3Rebuild(FragTracker *ft, Packet *p)
 
     if (IS_IP4(p))
     {
-        dpkt->dsize = (uint16_t)ft->calculated_size;
-        Encode_Update(dpkt);
         /* 
          * tell the rest of the system that this is a rebuilt fragment 
          */
-        dpkt->packet_flags = PKT_REBUILT_FRAG;
+        dpkt->packet_flags |= PKT_REBUILT_FRAG;
         dpkt->frag_flag = 0;
+        dpkt->dsize = (uint16_t)ft->calculated_size;
+
+        Encode_Update(dpkt);
     }
 #ifdef SUP_IP6
     else /* Inner/only is IP6 */

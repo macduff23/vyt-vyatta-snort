@@ -263,6 +263,7 @@ int Encode_Format (EncodeFlags f, const Packet* p, Packet* c)
     len = c->data - c->pkt;
     c->max_dsize = PKT_SZ - len;
     c->proto_bits = p->proto_bits;
+    c->packet_flags |= PKT_PSEUDO;
 
     // setup pkt capture header
     pkth->caplen = pkth->pktlen = len;
@@ -294,7 +295,13 @@ void Encode_Update (Packet* p)
         Layer* lyr = p->layers + i;
         encoders[lyr->proto].fupdate(p, lyr, &len);
     }
-    pkth->caplen = pkth->pktlen = len;
+    // see IP6_Update() for an explanation of this ...
+    if ( !(p->packet_flags & PKT_MODIFIED)
+#ifdef NORMALIZER
+        || (p->packet_flags & PKT_RESIZED)
+#endif
+    )
+        pkth->caplen = pkth->pktlen = len;
 }
 
 //-------------------------------------------------------------------------
@@ -366,7 +373,7 @@ static const uint8_t* Encode_Packet(
 //-------------------------------------------------------------------------
 // ip id considerations:
 //
-// we use dnet's rand services to generate a vector of random 16-bit values and
+// we use dumbnet's rand services to generate a vector of random 16-bit values and
 // iterate over the vector as IDs are assigned.  when we wrap to the beginning,
 // the vector is randomly reordered.
 //-------------------------------------------------------------------------
@@ -753,7 +760,7 @@ static ENC_STATUS UDP_Update (Packet* p, Layer* lyr, uint32_t* len)
     h->uh_len = htons((u_int16_t)*len);
 
     // don't calculate the UDP checksum here;
-    // dnet's ip_checksum() will do it
+    // dumbnet's ip_checksum() will do it
     return ENC_OK;
 }
 
@@ -847,7 +854,7 @@ static ENC_STATUS TCP_Encode (EncState* enc, Buffer* in, Buffer* out)
         ho->th_flags = TH_RST | TH_ACK;
     }
 
-    // we don't need to set th_sum here because dnet's
+    // we don't need to set th_sum here because dumbnet's
     // ip_checksum() sets both IP and TCP checksums and
     // ip6_checksum() sets the TCP checksum.
     return ENC_OK;
@@ -859,7 +866,7 @@ static ENC_STATUS TCP_Update (Packet* p, Layer* lyr, uint32_t* len)
     *len += GET_TCP_HDR_LEN(h) + p->dsize;
 
     // don't calculate the TCP checksum here;
-    // dnet's ip_checksum() will do it
+    // dumbnet's ip_checksum() will do it
 
     return ENC_OK;
 }
@@ -958,21 +965,33 @@ static ENC_STATUS IP6_Update (Packet* p, Layer* lyr, uint32_t* len)
     IP6RawHdr* h = (IP6RawHdr*)(lyr->start);
     int i = lyr - p->layers;
 
-    if ( i + 1 == p->next_layer )
-        *len += p->dsize;
-
-    // TBD can't just add fixed ip6 hdr len until
-    // all extension headers are decoded as layers
-    //*len += sizeof(*h);
-
-    // the workaround is to do some pointer math
-    if ( i + 1 == p->next_layer )
-        *len += p->data - lyr->start;
+    // if we didn't trim payload or format this packet,
+    // we may not know the actual lengths because not all
+    // extension headers are decoded and we stop at frag6.
+    // in such case we do not modify the packet length.
+    if ( (p->packet_flags & PKT_MODIFIED)
+#ifdef NORMALIZER
+        && !(p->packet_flags & PKT_RESIZED)
+#endif
+    ) {
+        *len = ntohs(h->ip6plen) + sizeof(*h);
+    }
     else
-        *len += lyr[1].start - lyr->start;
+    {
+        if ( i + 1 == p->next_layer )
+            *len += lyr->length + p->dsize;
 
-    // len includes header, remove for payload
-    h->ip6plen = htons((uint16_t)(*len - sizeof(*h)));
+        // w/o all extension headers, can't use just the
+        // fixed ip6 header length so we compute header delta
+        else
+            *len += lyr[1].start - lyr->start;
+
+        // len includes header, remove for payload
+        h->ip6plen = htons((uint16_t)(*len - sizeof(*h)));
+    }
+
+    if ( !PacketWasCooked(p) || (p->packet_flags & PKT_REBUILT_FRAG) )
+        ip6_checksum(h, *len);
 
     return ENC_OK;
 }
@@ -1024,19 +1043,10 @@ static ENC_STATUS Opt6_Encode (EncState* enc, Buffer* in, Buffer* out)
 static ENC_STATUS Opt6_Update (Packet* p, Layer* lyr, uint32_t* len)
 {
     int i = lyr - p->layers;
+    *len += lyr->length;
 
     if ( i + 1 == p->next_layer )
         *len += p->dsize;
-
-    // TBD can't just add layer length until
-    // all extension headers are decoded as layers
-    //*len += lyr->length;
-
-    // the workaround is to do some pointer math
-    if ( i + 1 == p->next_layer )
-        *len += p->data - lyr->start;
-    else
-        *len += lyr[1].start - lyr->start;
 
     return ENC_OK;
 }
@@ -1101,7 +1111,7 @@ static void ICMP6_Format (EncodeFlags f, const Packet* p, Packet* c, Layer* lyr)
 
 static ENC_STATUS XXX_Encode (EncState* enc, Buffer* in, Buffer* out)
 {
-    int n = enc->p->layers[enc->layer].length;
+    int n = enc->p->layers[enc->layer-1].length;
 
     uint8_t* hi = enc->p->layers[enc->layer-1].start;
     uint8_t* ho = (uint8_t*)(out->base + out->end);

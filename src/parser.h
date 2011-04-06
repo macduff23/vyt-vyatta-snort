@@ -196,6 +196,7 @@
 #define CONFIG_OPT__UMASK                           "umask"
 #define CONFIG_OPT__UTC                             "utc"
 #define CONFIG_OPT__VERBOSE                         "verbose"
+#define CONFIG_OPT__VLAN_AGNOSTIC                   "vlan_agnostic"
 #ifdef DYNAMIC_PLUGIN
 #define CONFIG_OPT__DUMP_DYNAMIC_RULES_PATH         "dump-dynamic-rules-path"
 #endif
@@ -364,6 +365,7 @@ void ConfigTreatDropAsIgnore(SnortConfig *, char *);
 void ConfigUmask(SnortConfig *, char *);
 void ConfigUtc(SnortConfig *, char *);
 void ConfigVerbose(SnortConfig *, char *);
+void ConfigVlanAgnostic(SnortConfig *, char *);
 #ifdef DYNAMIC_PLUGIN
 void ConfigDumpDynamicRulesPath(SnortConfig *, char *);
 #endif

@@ -71,6 +71,7 @@ typedef enum _HttpRespCompressType
 
 typedef struct s_DECOMPRESS_STATE
 {
+    uint8_t inflate_init;
     int compr_bytes_read;
     int decompr_bytes_read;
     int compr_depth;
@@ -148,6 +149,7 @@ static INLINE void ResetGzipState(DECOMPRESS_STATE *ds)
 
     memset(ds->gzip_bucket->data, 0, ds->compr_depth + ds->decompr_depth);
 
+    ds->inflate_init = 0;
     ds->compr_bytes_read = 0;
     ds->decompr_bytes_read = 0;
     ds->compress_fmt = 0;

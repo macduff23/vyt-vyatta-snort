@@ -74,10 +74,10 @@ void FTPTelnetCleanupFTPBounceTo(void *ftpBounce);
 void FTPTelnetCheckFTPServerConfigs(FTPTELNET_GLOBAL_CONF *);
 void _FTPTelnetAddPortsOfInterest(FTPTELNET_GLOBAL_CONF *, tSfPolicyId);
 
-int ProcessGlobalConf(FTPTELNET_GLOBAL_CONF *, char *, int);
+int ProcessFTPGlobalConf(FTPTELNET_GLOBAL_CONF *, char *, int);
 int ProcessTelnetConf(FTPTELNET_GLOBAL_CONF *, char *, int);
 int ProcessFTPClientConf(FTPTELNET_GLOBAL_CONF *, char *, int);
 int ProcessFTPServerConf(FTPTELNET_GLOBAL_CONF *, char *, int);
-int PrintGlobalConf(FTPTELNET_GLOBAL_CONF *);
+int PrintFTPGlobalConf(FTPTELNET_GLOBAL_CONF *);
 int FTPTelnetCheckConfigs( void* , tSfPolicyId );
 #endif

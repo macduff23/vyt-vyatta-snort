@@ -55,7 +55,7 @@ extern SFPERF *perfmon_config;
 
 
 int InitPerfStats(SFPERF *sfPerf, Packet *p);
-int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
+int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, uint32_t len,
         int iRebuiltPkt);
 int ProcessPerfStats(SFPERF *sfPerf);
 
@@ -574,7 +574,7 @@ int ResetPerfStats(SFPERF *sfPerf)
     return InitPerfStats(sfPerf, NULL);
 }
 
-int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, int len,
+int UpdatePerfStats(SFPERF *sfPerf, const unsigned char *pucPacket, uint32_t len,
                     int iRebuiltPkt)
 {
     if(sfPerf->perf_flags & SFPERF_BASE)

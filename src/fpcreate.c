@@ -70,6 +70,8 @@
 #include "dynamic-plugins/sp_preprocopt.h"
 #endif
 
+#include "dynamic-plugins/sf_dynamic_define.h"
+
   
 /*
  *  Content flag values
@@ -1810,9 +1812,11 @@ static int fpAddPortGroupRule(PORT_GROUP *pg, OptTreeNode *otn, FastPatternConfi
         fpAddAllContents(pg->pgPms[PM_TYPE__CONTENT], otn, id, pmd, fp);
 #endif
 
+#ifdef DYNAMIC_PLUGIN
     /* No content added */
     if (pmd == preproc_opt_pmds)
         FreePmdList(pmd);
+#endif
 
     if (fpFinishPortGroupRule(pg, PM_TYPE__MAX, otn, NULL, fp) != 0)
         return -1;

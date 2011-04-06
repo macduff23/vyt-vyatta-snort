@@ -1,3 +1,121 @@
+2011-03-23 Steven Sturges <ssturges@sourcefire.com>
+  * src/build.h:
+      Increment Snort build number to 134
+  * src/: decode.h, encode.c:
+  * src/dynamic-plugins/sf_engine/: sf_snort_packet.h:
+  * src/preprocessors/: spp_sfportscan.c, spp_frag3.c:
+  * src/output-plugins/: spo_alert_fast.c:
+  * src/preprocessors/Stream5/: stream5_common.c:
+      Updated portscan to set protocol correctly in raw packet for
+      IPv6 and changed the encoder to recognize portscan packets as pseudo
+	  packets so that the checksum isn't calculated
+  * src/: sfdaq.c, util.c:
+      Improve handling of DAQ failure codes when Snort is shutting down.
+  * src/preprocessors/spp_perfmonitor.c:
+      Update perfmonitor to create now files prior to dropping privs
+
+2011-03-16 Ryan Jordan <ryan.jordan@sourcefire.com>
+Snort 2.9.0.5
+  * src/build.h:
+      Increment Snort build number to 132
+  * src/snort.c:
+  * src/preprocessors/: normalize.c, perf-base.c, perf-base.h,
+    Stream5/snort_stream5_tcp.c:
+      TCP timestamp options are only NOPed by the Normalization preprocessor
+      if Stream5 has seen a full 3-way handshake, and timestamps weren't
+      negotiated.
+
+      The IPS mode reassembly policy has been refactored to do stream
+      normalization within the first policy.
+
+      Packets injected by the normalization preprocessor are now counted
+      in the packet statistics.
+  * doc/snort_manual.tex:
+  * src/: parser.c, parser.h:
+  * src/preprocessors/: spp_frag3.c, Stream5/snort_stream5_session.c:
+      Added a "config vlan_agnostic" setting that globally disables Stream's
+      use of vlan tag in session tracking.
+  * src/: snort.c, preprocessors/normalize.c,
+    preprocessors/spp_normalize.c, preprocessors/spp_normalize.h,
+    preprocessors/perf-base.c, preprocessors/perf-base.h:
+  * doc/: README.normalize, snort_manual.pdf, snort_manual.tex:
+      Fixed the normalization preprocessor to call its post-initialization
+      config functions during a policy reload.
+
+      Packets can no longer be trimmed below the minimum ethernet frame
+      length. Trimming is now configurable with the "normalize_ip4: trim;"
+      option. TOS clearing is now configurable with "normalize_ip4: tos;".
+
+      The "normalize_ip4: trim" option is automatically disabled if the
+      DAQ can't inject packets. If the DAQ tries and fails to inject
+      a given packet, the wire packet is not blocked.
+
+      Updated documentation regarding these changes.
+  * src/detection-plugins/sp_cvs.c: 
+      Fixed a false positive in the CVS detection plugin. It was incorrectly
+      parsing CVS entries that had a '+' in between the 3rd and 4th slashes.
+  * src/preprocessors/HttpInspect/: client/hi_client.c,
+    server/hi_server.c: 
+      Changed a pointer comparison to a size check for code readability.
+      Belated thanks to Dwane Atkins and Parker Crook for reporting a
+      related issue that was fixed in Snort 2.9.0.4 build 111.
+
+      Moved the zlib initialization such that gzipped responses are still
+      inspected if the zipped data starts after the first Stream-reassembled
+      packet is inspected.
+  * src/decode.c: 
+      Fixed an issue with decoding too many IP layers in a single packet. The
+      Teredo proto bit was not unset after hitting the limit on IP layers.
+      Thanks to Dwane Atkins for reporting this issue.
+
+      IPv6 fragmented packets are no longer inspected unless they have an
+      offset of zero and the next layer is UDP. This behavior is consistent
+      with IPv4 decoding.
+      Thanks to Martin Schütte for reporting an issue where fragged ICMPv6
+      packets were being inspected.
+
+      The decoder no longer attempts to decode Teredo packets inside of
+      IPv4 fragments, instead waiting for the reassembled packet.
+  * src/encode.c: 
+      Fixed a problem where encoded packets had their lengths calculated
+      incorrectly. This caused the active response feature to generate
+      incorrect RST packets if the original packet had a VLAN tag.
+  * preproc_rules/preprocessor.rules: 
+      Updated references to rule 125:1:1 
+  * src/preprocessors/spp_perfmonitor.c:
+      Perfmonitor files are now created after Snort changes uid/gid.
+  * src/dynamic-plugins/sf_preproc_example/sf_dynamic_preproc_lib.c:
+      Fixed the size formatting of an error message argument when
+      compiling with --enable-rzb-saac.
+      Thanks to Cleber S. Brandão for reporting this issue.
+  * etc/snort.conf:
+      Updated the default snort.conf with max compress and decompress
+      depths to enable unlimited decompression of gzipped HTTP responses.
+  * snort.8:
+      Fixed the man page's URL regarding the location of Snort rules.
+      Thanks to Michael Scheidell for reporting an out-of-date man page section.
+  * doc/README.http_inspect, doc/snort_manual.tex,
+    src/preprocessors/snort_httpinspect.c:
+      HTTP Inspect's "unlimited_decompress" option now requires that
+      "compress_depth" and "decompress_depth" are set to their max values.
+  * src/: fpcreate.c, dynamic-plugins/sf_dynamic_define.h,
+    dynamic-plugins/sf_dynamic_engine.h,
+    preprocessors/Stream5/snort_stream5_tcp.c:
+      Fixed an error that prevented compiling with --disable-dynamicplugin.
+      Thanks to Jason Wallace for reporting this issue.
+  * src/dynamic-preprocessors/ftptelnet/: snort_ftptelnet.c,
+    snort_ftptelnet.h, spp_ftptelnet.c:
+      Changed the names of ProcessGlobalConf() and PrintGlobalConf() inside
+      the ftp_telnet preprocessor to avoid a naming conflict with similar
+      functions in HTTP Inspect.
+      Thanks to Bruce Corwin for reporting this issue.
+  * src/preprocessors/: perf.c, perf-base.c, perf-base.h, perf-flow.c,
+    perf-flow.h:
+      Fixed comparisons between signed and unsigned int, which lead to
+      a faulty length check.
+      Thanks to Cihan Ayyildiz and Jason Wallace for helping us debug this
+      issue.
+
 2011-02-28 Ryan Jordan <ryan.jordan@sourcefire.com>
 Snort 2.9.0.4
   * src/build.h:

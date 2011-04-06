@@ -132,6 +132,7 @@ int InitBaseStats(SFBASE *sfBase)
     }
 
     sfBase->total_blocked_packets = 0;
+    sfBase->total_injected_packets = 0;
     sfBase->total_wire_packets = 0;
     sfBase->total_ipfragmented_packets = 0;
     sfBase->total_ipreassembled_packets = 0;
@@ -241,7 +242,7 @@ int InitBaseStats(SFBASE *sfBase)
 ** separate statistics between wire pkts and rebuilt pkts.
 **
 */
-int UpdateBaseStats(SFBASE *sfBase, int len, int iRebuiltPkt)
+int UpdateBaseStats(SFBASE *sfBase, uint32_t len, int iRebuiltPkt)
 {
     /* If rebuilt, count info for TCP rebuilt packet */
     if(iRebuiltPkt)
@@ -278,7 +279,7 @@ int UpdateBaseStats(SFBASE *sfBase, int len, int iRebuiltPkt)
 **  FORMAL OUTPUTS
 **    none
 */
-void UpdateWireStats(SFBASE *sfBase, int len, int dropped)
+void UpdateWireStats(SFBASE *sfBase, int len, int dropped, int inject)
 {
     sfBase->total_wire_packets++;
 
@@ -290,6 +291,8 @@ void UpdateWireStats(SFBASE *sfBase, int len, int dropped)
       sfBase->total_blocked_packets++;
       sfBase->total_blocked_bytes += len;
     }
+    if ( inject )
+        sfBase->total_injected_packets++;
 }
 
 void UpdateMPLSStats(SFBASE *sfBase, int len, int dropped)
@@ -962,6 +965,7 @@ int CalculateBasePerfStats(SFBASE *sfBase, SFBASE_STATS *sfBaseStats)
         return -1;
 
     sfBaseStats->total_blocked_packets = sfBase->total_blocked_packets;
+    sfBaseStats->total_injected_packets = sfBase->total_injected_packets;
     sfBaseStats->total_mpls_packets = sfBase->total_mpls_packets;
     sfBaseStats->total_mpls_bytes = sfBase->total_mpls_bytes;
     sfBaseStats->total_blocked_mpls_packets = sfBase->total_blocked_mpls_packets;
@@ -1352,6 +1356,7 @@ int LogBasePerfStats(SFBASE_STATS *sfBaseStats,  FILE * fh )
         fprintf(fh, CSVu64, sfBaseStats->pegs[iCtr]);
 #endif
 
+    fprintf(fh, CSVu64, sfBaseStats->total_injected_packets);
     fprintf(fh,"\n");
     fflush(fh);
 
@@ -1360,7 +1365,7 @@ int LogBasePerfStats(SFBASE_STATS *sfBaseStats,  FILE * fh )
 
 #ifdef NORMALIZER
 static const char* iNames[PERF_COUNT_MAX] = {
-    "ip4::resize",
+    "ip4::trim",
     "ip4::tos",
     "ip4::df",
     "ip4::rf",
@@ -1385,6 +1390,8 @@ static const char* iNames[PERF_COUNT_MAX] = {
     "tcp::ecn_ssn",
     "tcp::ts_ecr",
     "tcp::ts_nop",
+    "tcp::ips_data",
+    "tcp::block"
 };
 #endif
 
@@ -1421,6 +1428,7 @@ int DisplayBasePerfStatsConsole(SFBASE_STATS *sfBaseStats, int iFlags)
     LogMessage("%% Dropped:   %.3f%%\n", sfBaseStats->pkt_drop_percent);
 
     LogMessage("Blocked:     " STDu64 "\n", sfBaseStats->total_blocked_packets);
+    LogMessage("Injected:    " STDu64 "\n", sfBaseStats->total_injected_packets);
     LogMessage("Pkts Filtered TCP:     " STDu64 "\n", sfBaseStats->total_tcp_filtered_packets);
     LogMessage("Pkts Filtered UDP:     " STDu64 "\n\n", sfBaseStats->total_udp_filtered_packets);
 

@@ -50,9 +50,7 @@
 # include <arpa/inet.h>
 #endif
 
-#ifdef MPLS
-# include "snort.h"
-#endif
+#include "snort.h"
 
 extern const unsigned int giFlowbitSize;
 extern uint32_t mem_in_use;
@@ -291,7 +289,7 @@ int GetLWSessionKey(Packet *p, SessionKey *key)
 
     key->protocol = proto;
 
-    if (p->vh)
+    if (p->vh && !ScVlanAgnostic())
         key->vlan_tag = (uint16_t)VTH_VLAN(p->vh);
     else
         key->vlan_tag = 0;

@@ -585,8 +585,7 @@ struct enc_header {
 #define PKT_REBUILT_STREAM   0x00000002  /* is a rebuilt stream */
 #define PKT_STREAM_UNEST_UNI 0x00000004  /* is from an unestablished stream and
                                           * we've only seen traffic in one direction */
-#define PKT_STREAM_UNEST_BI  0x00000008  /* is from an unestablished stream and
-                                          * we've seen traffic in both directions */
+#define PKT_PSEUDO           0x00000008  /* pseudo packet */
 
 #define PKT_STREAM_EST       0x00000010  /* is from an established stream */
 #define PKT_STATELESS        0x00000020  /* Packet has matched a stateless rule */
@@ -1927,7 +1926,7 @@ static INLINE int PacketWasCooked(Packet* p)
     return ( p->packet_flags &
         ( PKT_REBUILT_STREAM | PKT_REBUILT_FRAG |
           PKT_DCE_RPKT | PKT_DCE_SEG | PKT_DCE_FRAG |
-          PKT_SMB_SEG | PKT_SMB_TRANS) ) != 0;
+          PKT_SMB_SEG | PKT_SMB_TRANS | PKT_PSEUDO) ) != 0;
 }
 
 #endif  /* __DECODE_H__ */

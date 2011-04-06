@@ -394,7 +394,7 @@ int UpdateFlowIPState(SFFLOW *sfFlow, snort_ip_p src_addr, snort_ip_p dst_addr, 
 *
 *   Packet lengths
 */
-int UpdateFlowStats(SFFLOW *sfFlow, const unsigned char *pucPacket, int len, int iRebuiltPkt)
+int UpdateFlowStats(SFFLOW *sfFlow, const unsigned char *pucPacket, uint32_t len, int iRebuiltPkt)
 {
     /*
     * Track how many packets of each length

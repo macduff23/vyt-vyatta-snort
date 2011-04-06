@@ -22,23 +22,25 @@ IP4 Normalizations
 
 IP4 normalizations are enabled with:
 
-    preprocessor normalize_ip4: [df], [rf]
+    preprocessor normalize_ip4: [df], [rf], [tos], [trim]
 
 Base normalizations enabled with "preprocessor normalize_ip4" include:
 
-* Truncate packets with excess payload to the datagram length specified in the
-  IP header.
-
 * TTL normalizaton if enabled (explained below).
-
-* Clear the differentiated services field (formerly TOS).
 
 * NOP all options octets.
 
 Optional normalizations include:
 
 * df - don't fragment:  clear this bit on incoming packets.
+
 * rf - reserved flag:  clear this bit on incoming packets.
+
+* tos - type of service (differentiated services): clear this byte.
+
+* trim - truncate packets with excess payload to the datagram length specified in the
+  IP header + the layer 2 header (eg ethernet), but don't truncate below minimum
+  frame length.  This is automatically disabled if the DAQ can't inject packets.
 
 
 IP6 Normalizations

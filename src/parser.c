@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
-** Copyright (C) 2002-2010 Sourcefire, Inc.
+** Copyright (C) 2002-2011 Sourcefire, Inc.
 ** Copyright (C) 1998-2002 Martin Roesch <roesch@sourcefire.com>
 ** Copyright (C) 2000,2001 Andrew R. Baker <andrewb@uab.edu>
 **
@@ -717,6 +717,7 @@ static const ConfigFunc config_opts[] =
     { CONFIG_OPT__UMASK, 1, 1, 1, ConfigUmask },
     { CONFIG_OPT__UTC, 0, 1, 1, ConfigUtc },
     { CONFIG_OPT__VERBOSE, 0, 1, 1, ConfigVerbose },
+    { CONFIG_OPT__VLAN_AGNOSTIC, 0, 1, 1, ConfigVlanAgnostic },
 #ifdef DYNAMIC_PLUGIN
     { CONFIG_OPT__DUMP_DYNAMIC_RULES_PATH, 1, 1, 1, ConfigDumpDynamicRulesPath },
 #endif
@@ -9119,6 +9120,15 @@ void ConfigVerbose(SnortConfig *sc, char *args)
 
     sc->logging_flags |= LOGGING_FLAG__VERBOSE;
     DEBUG_WRAP(DebugMessage(DEBUG_INIT, "Verbose Flag active\n"););
+}
+
+void ConfigVlanAgnostic(SnortConfig *sc, char *args)
+{
+    if (sc == NULL)
+        return;
+
+    DEBUG_WRAP(DebugMessage(DEBUG_INIT, "VLAN Agnostic active\n"););
+    sc->vlan_agnostic = 1; /* TODO: add this to some existing flag bitfield? */
 }
 
 #ifdef DYNAMIC_PLUGIN

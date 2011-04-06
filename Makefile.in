@@ -262,7 +262,6 @@ SUBDIRS = src doc etc templates contrib rpm schemas m4 preproc_rules tools
 EXTRA_DIST = ChangeLog snort.8 LICENSE verstuff.pl RELEASE.NOTES snort.pc.in
 man_MANS = snort.8
 DISTCLEANFILES = stamp-h.in cflags.out cppflags.out
-# work around a horrible doc/Makefile.am
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = snort.pc
 all: config.h
@@ -847,6 +846,8 @@ uninstall-man: uninstall-man8
 dist-hook:
 # always ensure that the win32 build is in sync
 	perl $(distdir)/verstuff.pl $(distdir)
+# work around a horrible doc/Makefile.am
+	rm -rf $(distdir)/doc/signatures/CVS
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

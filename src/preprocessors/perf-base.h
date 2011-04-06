@@ -51,7 +51,7 @@ typedef struct _PKTSTATS
 }  PKTSTATS;
 
 typedef enum {
-    PERF_COUNT_IP4_RESZ,
+    PERF_COUNT_IP4_TRIM,
     PERF_COUNT_IP4_TOS,
     PERF_COUNT_IP4_DF,
     PERF_COUNT_IP4_RF,
@@ -75,6 +75,8 @@ typedef enum {
     PERF_COUNT_TCP_ECN_SSN,
     PERF_COUNT_TCP_TS_ECR,
     PERF_COUNT_TCP_TS_NOP,
+    PERF_COUNT_TCP_IPS_DATA,
+    PERF_COUNT_TCP_BLOCK,
     PERF_COUNT_MAX
 } PerfCounts;
 
@@ -87,6 +89,7 @@ typedef struct _SFBASE
                               * unfragmented/stream rebuilt
                               */
     uint64_t   total_blocked_packets;
+    uint64_t   total_injected_packets;  // due to normalize_ip4: trim blocks
     
     uint64_t   total_rebuilt_packets;
     uint64_t   total_wire_bytes;
@@ -235,6 +238,7 @@ typedef struct _SFBASE_STATS {
 
     uint64_t   total_blocked_packets;
     uint64_t   total_blocked_bytes;
+    uint64_t   total_injected_packets;
 
     uint64_t   total_udp_sessions;
     uint64_t   max_udp_sessions;
@@ -268,7 +272,7 @@ typedef struct _SFBASE_STATS {
 }  SFBASE_STATS;
 
 int InitBaseStats(SFBASE *sfBase);
-int UpdateBaseStats(SFBASE *sfBase, int len, int iRebuiltPkt);
+int UpdateBaseStats(SFBASE *sfBase, uint32_t len, int iRebuiltPkt);
 int ProcessBaseStats(SFBASE *sfBase,int console, int file, FILE * fh);
 int AddStreamSession(SFBASE *sfBase, uint32_t flags);
 #define SESSION_CLOSED_NORMALLY 0x01
@@ -280,7 +284,7 @@ int RemoveStreamSession(SFBASE *sfBase);
 int AddUDPSession(SFBASE *sfBase);
 int RemoveUDPSession(SFBASE *sfBase);
 
-void UpdateWireStats(SFBASE *sfBase, int len, int dropped);  
+void UpdateWireStats(SFBASE *sfBase, int len, int dropped, int injected);  
 void UpdateMPLSStats(SFBASE *sfBase, int len, int dropped);
 void UpdateIPFragStats(SFBASE *sfBase, int len);
 void UpdateIPReassStats(SFBASE *sfBase, int len);

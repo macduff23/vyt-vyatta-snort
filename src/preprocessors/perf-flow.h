@@ -116,7 +116,7 @@ typedef struct _sfflow_stats {
 */
 int InitFlowStats   (SFFLOW *sfFlow);
 int InitFlowIPStats   (SFFLOW *sfFlow);
-int UpdateFlowStats (SFFLOW *sfFlow, const unsigned char *pucBuffer, int len,
+int UpdateFlowStats (SFFLOW *sfFlow, const unsigned char *pucBuffer, uint32_t len,
         int iRebuiltPkt);
 int ProcessFlowStats(SFFLOW *sfFlow);
 int ProcessFlowIPStats(SFFLOW *sfFlow, FILE *fh);

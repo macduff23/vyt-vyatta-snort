@@ -1,3 +1,21 @@
+2011-03-29 - Snort 2.9.0.5
+
+[*] Improvements
+  * The normalization perprocessor now has options to configure packet trimming
+    and TOS clearing. Packets injected by the preprocessor will now appear in
+    Snort's packet statistics. TCP timestamps are now only normalized if a 
+    session is established without timestamp negotiation.
+    See ChangeLog or README.normalize for more details.
+
+  * Added a "config vlan_agnostic" setting that globally disables Stream's use
+    of vlan tags in session tracking.
+
+  * Fixed some issues in the packet decoder, including one where IPv6 fragments
+    were being decoded incorrectly.
+
+  * Updated the default snort.conf to enable unlimited decompression of gzipped
+    HTTP server responses.
+
 2011-02-10 - Snort 2.9.0.4
 
 [*] Improvements

@@ -291,12 +291,12 @@ static void FTPTelnetInit(char *args)
 
         if (iRet == 0)
         {
-            iRet = ProcessGlobalConf(pPolicyConfig,
+            iRet = ProcessFTPGlobalConf(pPolicyConfig,
                                      ErrorString, iErrStrLen);
 
             if (iRet == 0)
             {
-                PrintGlobalConf(pPolicyConfig);
+                PrintFTPGlobalConf(pPolicyConfig);
 
                 /* Add FTPTelnet into the preprocessor list */
                 _dpd.addPreproc(FTPTelnetChecks, PRIORITY_APPLICATION, PP_FTPTELNET, PROTO_BIT__TCP);
@@ -511,12 +511,12 @@ static void FtpTelnetReload(char *args)
 
         if (iRet == 0)
         {
-            iRet = ProcessGlobalConf(pPolicyConfig,
+            iRet = ProcessFTPGlobalConf(pPolicyConfig,
                                      ErrorString, iErrStrLen);
 
             if (iRet == 0)
             {
-                PrintGlobalConf(pPolicyConfig);
+                PrintFTPGlobalConf(pPolicyConfig);
 
                 /* Add FTPTelnet into the preprocessor list */
                 _dpd.addPreproc(FTPTelnetChecks, PRIORITY_APPLICATION, PP_FTPTELNET, PROTO_BIT__TCP);

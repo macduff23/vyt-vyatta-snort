@@ -766,12 +766,13 @@ static void SetGzipBuffers(HttpSessionData *hsd, HI_SESSION *session)
             hsd->decomp_state->decompr_depth = session->global_conf->decompr_depth;
             hsd->decomp_state->compr_buffer = (unsigned char *)bkt->data;
             hsd->decomp_state->decompr_buffer = (unsigned char *)bkt->data + session->global_conf->compr_depth;
+            hsd->decomp_state->inflate_init = 0;
         }
     }
 }
 
 int uncompress_gzip ( u_char *dest, int destLen, u_char *source, 
-        int sourceLen, HttpSessionData *sd, int *total_bytes_read, int first_pkt, int compr_fmt)
+        int sourceLen, HttpSessionData *sd, int *total_bytes_read, int compr_fmt)
 {
     z_stream stream;
     int err;
@@ -796,8 +797,9 @@ int uncompress_gzip ( u_char *dest, int destLen, u_char *source,
    }
 
 
-   if(first_pkt)
+   if(!sd->decomp_state->inflate_init)
    {
+       sd->decomp_state->inflate_init = 1;
        stream.zalloc = (alloc_func)0;
        stream.zfree = (free_func)0;
        if(compr_fmt & HTTP_RESP_COMPRESS_TYPE__DEFLATE)
@@ -837,7 +839,7 @@ int uncompress_gzip ( u_char *dest, int destLen, u_char *source,
 }
 
 static INLINE int hi_server_decompress(HI_SESSION *Session, HttpSessionData *sd, const u_char *ptr, 
-        const u_char *end, URI_PTR *result, int first_pkt)
+        const u_char *end, URI_PTR *result)
 {
     const u_char *start = ptr;
     int rawbuf_size = end - ptr;
@@ -916,7 +918,7 @@ static INLINE int hi_server_decompress(HI_SESSION *Session, HttpSessionData *sd,
             sd->resp_state.last_chunk_size = chunk_size;
             compr_avail = chunk_read;
             zRet = uncompress_gzip(decompr_buffer,decompr_avail,compr_buffer, compr_avail, sd, &total_bytes_read,
-                                    first_pkt, sd->decomp_state->compress_fmt);
+                                    sd->decomp_state->compress_fmt);
         }
         else
         {
@@ -928,14 +930,14 @@ static INLINE int hi_server_decompress(HI_SESSION *Session, HttpSessionData *sd,
 
             memcpy(compr_buffer, ptr, compr_avail);
             zRet = uncompress_gzip(decompr_buffer,decompr_avail,compr_buffer, compr_avail, sd, 
-                    &total_bytes_read, first_pkt, sd->decomp_state->compress_fmt);
+                    &total_bytes_read, sd->decomp_state->compress_fmt);
         }
     }
     else
     {
         memcpy(compr_buffer, ptr, compr_avail);
         zRet = uncompress_gzip(decompr_buffer,decompr_avail,compr_buffer, compr_avail, sd, 
-                &total_bytes_read, first_pkt, sd->decomp_state->compress_fmt);
+                &total_bytes_read, sd->decomp_state->compress_fmt);
     }
     
     sd->decomp_state->compr_bytes_read += compr_avail;
@@ -975,7 +977,7 @@ static INLINE int hi_server_decompress(HI_SESSION *Session, HttpSessionData *sd,
 #endif
 
 static INLINE int hi_server_inspect_body(HI_SESSION *Session, HttpSessionData *sd, const u_char *ptr,
-                        const u_char *end, URI_PTR *result, int first_pkt)
+                        const u_char *end, URI_PTR *result)
 {
     int iRet = HI_SUCCESS;
 
@@ -996,7 +998,7 @@ static INLINE int hi_server_inspect_body(HI_SESSION *Session, HttpSessionData *s
 #ifdef ZLIB
     if((sd->decomp_state != NULL) && sd->decomp_state->decompress_data)
     {
-        iRet = hi_server_decompress(Session, sd, ptr, end, result, first_pkt);
+        iRet = hi_server_decompress(Session, sd, ptr, end, result);
     }
     else
 #endif
@@ -1288,7 +1290,7 @@ int HttpResponseInspection(HI_SESSION *Session, Packet *p, const unsigned char *
     {
         if (hi_util_in_bounds(start, end, ptr))
         {
-            iRet = hi_server_inspect_body(Session, sd, ptr, end, &body_ptr, 0);
+            iRet = hi_server_inspect_body(Session, sd, ptr, end, &body_ptr);
         }
     }
     else
@@ -1339,7 +1341,7 @@ int HttpResponseInspection(HI_SESSION *Session, Packet *p, const unsigned char *
                 Server->response.header_raw = header_ptr.header.uri;
                 Server->response.header_raw_size = 
                     header_ptr.header.uri_end - header_ptr.header.uri;
-                if ((int)Server->response.header_raw_size <= 0)
+                if(!Server->response.header_raw_size)
                 {
                     CLR_SERVER_HEADER(Server);
                 }
@@ -1423,7 +1425,7 @@ int HttpResponseInspection(HI_SESSION *Session, Packet *p, const unsigned char *
                             if(hi_util_in_bounds(start, end, header_ptr.header.uri_end))
                             {
                                 iRet = hi_server_inspect_body(Session, sd, header_ptr.header.uri_end,
-                                                                end, &body_ptr, 1);
+                                                                end, &body_ptr);
                             }
                         }
                     }

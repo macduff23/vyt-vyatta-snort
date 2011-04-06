@@ -60,10 +60,20 @@ a rogue proxy server.
 This option specifies the maximum amount of packet payload to decompress. This
 value can be set from 1 to 65535. The default for this option is 1460.
 
+Please note, in case of multiple policies, the value specified in the default policy
+is used and this value overwrites the values specified in the other policies. In case
+of unlimited_decompress this should be set to its max value. This value should be specified
+in the default policy even when the HTTP inspect is turned off using the disabled keyword.
+
 * decompress_depth *
 This option specifies the maximum amount of decompressed data to obtain from the
 compressed packet payload. This value can be set from 1 to 65535. The default for
 this option is 2920.
+
+Please note, in case of multiple policies, the value specified in the default policy
+is used and this value overwrites the values specified in the other policies. In case
+of unlimited_decompress this should be set to its max value. This value should be specified
+in the default policy even when the HTTP inspect is turned off using the disabled keyword.
 
 * max_gzip_mem *
 This option determines (in bytes) the maximum amount of memory the HTTP Inspect preprocessor 
@@ -71,8 +81,9 @@ will use for decompression. This value can be set from 3276 bytes to 100MB. This
 along with compress and decompress depth determines the gzip sessions that will be 
 decompressed at any given instant. The default value for this option is 838860.
 
-Note: It is suggested to set this value such that the max gzip session calculated as
-follows is atleast 1.
+Note: This value should be specified in the default policy even when the HTTP inspect is
+turned off using the disabled keyword. It is suggested to set this value such that the max gzip
+session calculated as follows is atleast 1.
 
 max gzip session = max_gzip_mem /(decompress_depth + compress_depth)
 
@@ -226,9 +237,9 @@ depends on the server_flow_depth configured.
 * unlimited_decompress *
 This option enables the user to decompress unlimited gzip data (across multiple 
 packets).Decompression will stop when the compressed data ends or when a out of 
-sequence packet is received. To ensure unlimited decompression, it is suggested 
-to set the 'compress_depth' and 'decompress_depth' to its maximum values. The
-decompression in a single packet is still limited by the 'compress_depth' and
+sequence packet is received. To ensure unlimited decompression, user should set
+the 'compress_depth' and 'decompress_depth' to its maximum values in the default policy.
+The decompression in a single packet is still limited by the 'compress_depth' and 
 'decompress_depth'.
 
 * enable_xff *

@@ -490,7 +490,7 @@ static int ProcessInspectType(FTPTELNET_GLOBAL_CONF *GlobalConf,
 }
 
 /*
- * Function: ProcessGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf,
+ * Function: ProcessFTPGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf,
  *                          char *ErrorString, int ErrStrLen)
  *
  * Purpose: This is where we process the global configuration for FTPTelnet.
@@ -518,7 +518,7 @@ static int ProcessInspectType(FTPTELNET_GLOBAL_CONF *GlobalConf,
  *                     >0 = non-fatal error, <0 = fatal error)
  *
  */
-int ProcessGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf,
+int ProcessFTPGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf,
                       char *ErrorString, int ErrStrLen)
 {
     FTPTELNET_CONF_OPT *ConfOpt;
@@ -3409,7 +3409,7 @@ _return:
 }
 
 /*
- * Function: PrintGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf)
+ * Function: PrintFTPGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf)
  *
  * Purpose: Prints the FTPTelnet preprocessor global configuration
  *
@@ -3419,7 +3419,7 @@ _return:
  *                     >0 = non-fatal error, <0 = fatal error)
  *
  */
-int PrintGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf)
+int PrintFTPGlobalConf(FTPTELNET_GLOBAL_CONF *GlobalConf)
 {
     _dpd.logMsg("FTPTelnet Config:\n");
 

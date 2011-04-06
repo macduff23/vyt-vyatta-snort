@@ -192,7 +192,7 @@ static void Init_TCP (char* args)
 //-------------------------------------------------------------------------
 
 // options may appear in any order separated by ',':
-// preprocessor normalize_ip4: [id] [df] [rf]
+// preprocessor normalize_ip4: [id] [df] [rf] [tos] [trim]
 static void Parse_IP4 (NormalizerContext* pc, char* args)
 {
     char** toks;
@@ -222,6 +222,14 @@ static void Parse_IP4 (NormalizerContext* pc, char* args)
         else if ( !strcasecmp(toks[i], "rf") )
         {
             Norm_Enable(pc, NORM_IP4_RF);
+        }
+        else if ( !strcasecmp(toks[i], "tos") )
+        {
+            Norm_Enable(pc, NORM_IP4_TOS);
+        }
+        else if ( !strcasecmp(toks[i], "trim") )
+        {
+            Norm_Enable(pc, NORM_IP4_TRIM);
         }
         else
         {
@@ -441,6 +449,8 @@ static void Print_IP4 (const NormalizerContext* nc)
         //LogFlag("ip4::id", nc, NORM_IP4_ID);
         LogFlag("ip4::df", nc, NORM_IP4_DF);
         LogFlag("ip4::rf", nc, NORM_IP4_RF);
+        LogFlag("ip4::tos", nc, NORM_IP4_TOS);
+        LogFlag("ip4::trim", nc, NORM_IP4_TRIM);
 
         if ( Norm_IsEnabled(nc, NORM_IP4_TTL) )
         {
@@ -689,7 +699,6 @@ static NormalizerContext* Reload_GetContext ()
     if ( !swap_set )
     {
         swap_set = sfPolicyConfigCreate();
-
         AddFuncToPreprocReloadVerifyList(Reload_Verify);
     }
     sfPolicyUserPolicySet(swap_set, policy_id);
@@ -793,6 +802,7 @@ static void* Reload_Swap (void)
     base_set = swap_set;
     swap_set = NULL;
 
+    sfPolicyUserDataIterate(base_set, Preproc_PostInit);
     sfPolicyUserDataIterate(old_set, Reload_SwapPolicy);
 
     if ( !sfPolicyUserPolicyGetActive(old_set) )

@@ -184,12 +184,8 @@ void MarkupPacketFlags(Packet *p, Stream5LWSession *lwssn)
 
     if((lwssn->session_flags & SSNFLAG_ESTABLISHED) != SSNFLAG_ESTABLISHED)
     {
-        if((lwssn->session_flags & (SSNFLAG_SEEN_SERVER|SSNFLAG_SEEN_CLIENT)) ==
+        if((lwssn->session_flags & (SSNFLAG_SEEN_SERVER|SSNFLAG_SEEN_CLIENT)) !=
             (SSNFLAG_SEEN_SERVER|SSNFLAG_SEEN_CLIENT))
-        {
-            p->packet_flags |= PKT_STREAM_UNEST_BI;
-        }
-        else
         {
             p->packet_flags |= PKT_STREAM_UNEST_UNI;
         }

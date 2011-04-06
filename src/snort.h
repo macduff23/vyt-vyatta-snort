@@ -831,6 +831,7 @@ typedef struct _SnortConfig
     char *base_version;
 
     uint8_t enable_teredo; /* config enable_deep_teredo_inspection */
+    uint8_t vlan_agnostic; /* config vlan_agnostic */
 
     uint32_t so_rule_memcap;
 } SnortConfig;
@@ -1547,6 +1548,11 @@ static INLINE int ScIsPreprocEnabled(uint32_t preproc_id, tSfPolicyId policy_id)
 static INLINE int ScDeepTeredoInspection(void)
 {
     return snort_conf->enable_teredo;
+}
+
+static INLINE int ScVlanAgnostic(void)
+{
+    return snort_conf->vlan_agnostic;
 }
 
 static INLINE uint32_t ScSoRuleMemcap(void)

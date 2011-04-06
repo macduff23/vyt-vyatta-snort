@@ -225,7 +225,6 @@ extern tSfPolicyUserContextId s5_swap_config;
 #define REASSEMBLY_POLICY_HPUX10    11
 #define REASSEMBLY_POLICY_VISTA     12
 #define REASSEMBLY_POLICY_WINDOWS2K3 13
-#define REASSEMBLY_POLICY_IPS       14
 #define REASSEMBLY_POLICY_DEFAULT   REASSEMBLY_POLICY_BSD
 
 #define STREAM_MAX_PACKET (IP_MAXPACKET - (IP_HEADER_LEN + TCP_HEADER_LEN))
@@ -455,7 +454,7 @@ static void Stream5SeglistAddNode(StreamTracker *, StreamSegment *,
                 StreamSegment *);
 static int Stream5SeglistDeleteNode(StreamTracker *, StreamSegment *);
 static int AddStreamNode(StreamTracker *st, Packet *p,
-                  uint32_t ts,
+                  TcpDataBlock*,
                   TcpSession *tcpssn,
                   int16_t len,
                   uint32_t slide,
@@ -816,11 +815,11 @@ void Stream5TcpRegisterRuleOptions(void)
     RegisterPreprocessorRuleOption("stream_reassemble", &s5TcpStreamReassembleRuleOptionInit,
                                    &s5TcpStreamReassembleRuleOptionEval, &s5TcpStreamReassembleRuleOptionCleanup,
                                    NULL, NULL, NULL, NULL);
-#endif
 
 #ifdef PERF_PROFILING
     RegisterPreprocessorProfile("stream_size", &streamSizePerfStats, 4, &preprocRuleOptionPerfStats);
     RegisterPreprocessorProfile("reassemble", &streamReassembleRuleOptionPerfStats, 4, &preprocRuleOptionPerfStats);
+#endif
 #endif
 
 }
@@ -2462,6 +2461,8 @@ typedef enum {
     PC_TCP_TRIM,
     PC_TCP_ECN_SSN,
     PC_TCP_TS_NOP,
+    PC_TCP_IPS_DATA,
+    PC_TCP_BLOCK,
     PC_MAX
 } PegCounts;
 
@@ -2471,6 +2472,8 @@ static const char* pegName[PC_MAX] = {
     "tcp::trim",
     "tcp::ecn_ssn",
     "tcp::ts_nop",
+    "tcp::ips_data",
+    "tcp::block",
 };
 
 void Stream_PrintNormalizationStats (void)
@@ -2507,6 +2510,8 @@ static INLINE int NormalDropPacketIf (Packet* p, NormFlags f)
     if ( Normalize_IsEnabled(snort_conf, f) )
     {
         NormalDropPacket(p);
+        normStats[PC_TCP_BLOCK]++;
+        sfBase.iPegs[PERF_COUNT_TCP_BLOCK]++;
         return 1;
     }
     return 0;
@@ -2514,8 +2519,20 @@ static INLINE int NormalDropPacketIf (Packet* p, NormFlags f)
 
 static INLINE void NormalStripTimeStamp (Packet* p, int i)
 {
+    uint8_t* opt;
+
+    if ( i < 0 )
+    {
+        for ( i = 0; i < p->tcp_option_count; i++ )
+        {
+            if ( p->tcp_options[i].code == TCPOPT_TIMESTAMP )
+                break;
+        }
+        if ( i == p->tcp_option_count )
+            return;
+    }
     // first set raw option bytes to nops
-    uint8_t* opt = (uint8_t*)p->tcp_options[i].data - 2;
+    opt = (uint8_t*)p->tcp_options[i].data - 2;
     memset(opt, TCPOPT_NOP, TCPOLEN_TIMESTAMP);
 
     // then nop decoded option code only
@@ -2707,6 +2724,7 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
         return ACTION_NOTHING;
 
 #ifdef NORMALIZER
+#if 0
     if ( p->tcph->th_flags & TH_ACK &&
         Normalize_IsEnabled(snort_conf, NORM_TCP_OPT) )
     {
@@ -2714,6 +2732,7 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
         // checking for the most recent ts is easy enough must check if 
         // ts are up to date in retransmitted packets
     }
+#endif
 #endif
     /*
      * check PAWS
@@ -2842,15 +2861,24 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
     }
     else
     {
+#ifdef NORMALIZER
+        // if we are not handling timestamps, and this isn't a syn
+        // (only), and we have seen a valid 3way setup, then we strip
+        // (nop) the timestamp option.  this includes the cases where
+        // we disable timestamp handling.
+        int strip = ( (talker->s_mgr.sub_state == SUB_SETUP_OK) &&
+                    (listener->s_mgr.sub_state == SUB_SETUP_OK) );
+#else
+        int strip = 0;
+#endif
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                     "listener not doing timestamps...\n"););
-        *got_ts = Stream5GetTcpTimestamp(p, &tdb->ts, 1);
+        *got_ts = Stream5GetTcpTimestamp(p, &tdb->ts, strip);
 
         if (*got_ts)
         {
             if (!(talker->flags & TF_TSTAMP))
             {
-                // FIXTHIS this comment is a little off cuz we come here on syn
                 /* Since we skipped the SYN, may have missed the talker's
                  * timestamp there, so set it now.
                  */
@@ -2866,10 +2894,6 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
              * of its value. */
             if ((tdb->ts == 0) && (listener->flags & TF_TSTAMP))
             {
-#ifdef NORMALIZER
-                if ( Normalize_IsEnabled(snort_conf, NORM_TCP_OPT) )
-                    NormalDropPacket(p);
-#endif
                 switch (listener->os_policy)
                 {
                 case STREAM_POLICY_WINDOWS:
@@ -2885,7 +2909,6 @@ static INLINE int ValidTimestamp(StreamTracker *talker,
                     //s5stats.tcp_discards++;
                     /* bail */
                     *eventcode |= EVENT_BAD_TIMESTAMP;
-                    NormalDropPacketIf(p, NORM_TCP_OPT);
                     return ACTION_BAD_PKT;
                 }
             }
@@ -4053,7 +4076,7 @@ static int FlushStream(
 
     STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
         "flushed %d bytes / %d segs on stream, "
-        "skipped %d bytes, %d still queued\n"
+        "skipped %d bytes, %d still queued\n",
         bytes_flushed, segs, bytes_skipped, bytes_queued););
 
     PREPROC_PROFILE_END(s5TcpBuildPacketPerfStats);
@@ -5231,7 +5254,7 @@ static void NewQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb, TcpSession
             }
         }
 
-        AddStreamNode(st, p, tdb->ts, tcpssn, p->dsize, 0, 0, tdb->seq, NULL, &ss);
+        AddStreamNode(st, p, tdb, tcpssn, p->dsize, 0, 0, tdb->seq, NULL, &ss);
 
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                     "Attached new queue to seglist, %d bytes queued, "
@@ -5365,7 +5388,7 @@ static void *SegmentAlloc(uint32_t size, Packet *p)
 }
 
 static int AddStreamNode(StreamTracker *st, Packet *p,
-                  uint32_t ts,
+                  TcpDataBlock* tdb,
                   TcpSession *tcpssn,
                   int16_t len,
                   uint32_t slide,
@@ -5388,7 +5411,7 @@ static int AddStreamNode(StreamTracker *st, Packet *p,
                     "(len: %d slide: %d trunc: %d)\n",
                     len, slide, trunc););
         s5stats.tcp_discards++;
-        NormalDropPacketIf(p, NORM_TCP_IPS);
+        NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
 
 #ifdef DEBUG_STREAM
         {
@@ -5443,7 +5466,7 @@ static int AddStreamNode(StreamTracker *st, Packet *p,
     ss->payload = ss->data + slide;
     ss->size = (uint16_t)newSize;
     ss->seq = seq;
-    ss->ts = ts;
+    ss->ts = tdb->ts;
     ss->cksum = p->tcph->th_sum;
 
     /* handle the urg ptr */
@@ -5559,7 +5582,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
     uint32_t orig_seq, seq = tdb->seq;
     uint32_t seq_end = tdb->end_seq;
     uint16_t len = p->dsize;
-    uint16_t reassembly_policy;
     int trunc = 0;
     int overlap = 0;
     int slide = 0;
@@ -5568,12 +5590,24 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
     char addthis = 1;
     int32_t dist_head;
     int32_t dist_tail;
+    uint16_t reassembly_policy;
+#ifdef NORMALIZER
+    int ips_data;
+#endif
     PROFILE_VARS;
     STREAM5_DEBUG_WRAP(
         StreamSegment *lastptr = NULL;
         uint32_t base_seq = st->seglist_base_seq;
         int last = 0;
     );
+
+#ifdef NORMALIZER
+    ips_data = Normalize_IsEnabled(snort_conf, NORM_TCP_IPS);
+    if ( ips_data )
+        reassembly_policy = REASSEMBLY_POLICY_FIRST;
+    else
+#endif
+        reassembly_policy = st->reassembly_policy;
 
     STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                 "Queuing %d bytes on stream!\n"
@@ -5610,7 +5644,7 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
             "Fast tracking segment! (tail_seq %X size %d)\n", 
             st->seglist_tail->seq, st->seglist_tail->size););
 
-        ret = AddStreamNode(st, p, tdb->ts, tcpssn, len,
+        ret = AddStreamNode(st, p, tdb, tcpssn, len,
                 slide /* 0 */, trunc /* 0 */, seq, left /* tail */,
                 &ss);
 
@@ -5709,13 +5743,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                 "left: %p:0x%X  right: %p:0x%X\n", left, 
                 left?left->seq:0, right, right?right->seq:0););
 
-#ifdef NORMALIZER
-    if ( Normalize_IsEnabled(snort_conf, NORM_TCP_IPS) )
-        reassembly_policy = REASSEMBLY_POLICY_IPS;
-    else
-#endif
-        reassembly_policy = st->reassembly_policy;
-
     /*
      * handle left overlaps
      */
@@ -5747,6 +5774,28 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                 case REASSEMBLY_POLICY_MACOS:
                     STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                                 "left overlap, honoring old data\n"););
+#ifdef NORMALIZER
+                    if ( ips_data )
+                    {
+                        if ((left->seq < seq) && (left->seq + left->size > seq + len))
+                        {
+                            unsigned offset = seq - left->seq;
+                            memcpy((uint8_t*)p->data, left->payload+offset, len);
+                            p->packet_flags |= PKT_MODIFIED;
+                            normStats[PC_TCP_IPS_DATA]++;
+                            sfBase.iPegs[PERF_COUNT_TCP_IPS_DATA]++;
+                        }
+                        else if ( left->seq < seq )
+                        {
+                            unsigned offset = seq - left->seq;
+                            unsigned length = left->seq + left->size - seq;
+                            memcpy((uint8_t*)p->data, left->payload+offset, length);
+                            p->packet_flags |= PKT_MODIFIED;
+                            normStats[PC_TCP_IPS_DATA]++;
+                            sfBase.iPegs[PERF_COUNT_TCP_IPS_DATA]++;
+                        }
+                    }
+#endif
                     seq += overlap;
                     slide = overlap;
                     if(SEQ_LEQ(seq_end, seq))
@@ -5757,7 +5806,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                         /* flag an anomaly */
                         EventBadSegment(st->tcp_policy);
                         s5stats.tcp_discards++;
-                        NormalDropPacketIf(p, NORM_TCP_IPS);
                         PREPROC_PROFILE_END(s5TcpInsertPerfStats);
                         return STREAM_INSERT_ANOMALY;
                     }
@@ -5782,7 +5830,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                             /* flag an anomaly */
                             EventBadSegment(st->tcp_policy);
                             s5stats.tcp_discards++;
-                            NormalDropPacketIf(p, NORM_TCP_IPS);
                             PREPROC_PROFILE_END(s5TcpInsertPerfStats);
                             return STREAM_INSERT_ANOMALY;
                         }
@@ -5803,24 +5850,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                         left = left->prev;
                         Stream5SeglistDeleteNode(st, dump_me);
                     }
-                    break;
-                case REASSEMBLY_POLICY_IPS:
-                    // FIXTHIS check seq == left->seq
-                    if ((left->seq < seq) && (left->seq + left->size > seq + len))
-                    {
-                        unsigned offset = seq - left->seq;
-                        memcpy((uint8_t*)p->data, left->payload+offset, len);
-                        p->packet_flags |= PKT_MODIFIED;
-                    }
-                    else if ( left->seq < seq )
-                    {
-                        unsigned offset = seq - left->seq;
-                        unsigned length = left->seq + left->size - seq;
-                        memcpy((uint8_t*)p->data, left->payload+offset, length);
-                        p->packet_flags |= PKT_MODIFIED;
-                        seq += length;
-                    }
-                    // else FIXTHIS is left->seq >= seq possible here?
                     break;
                 case REASSEMBLY_POLICY_LAST:
                     /* True "Last" policy" */
@@ -5884,7 +5913,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                 /* flag an anomaly */
                 EventBadSegment(st->tcp_policy);
                 s5stats.tcp_discards++;
-                NormalDropPacketIf(p, NORM_TCP_IPS);
                 PREPROC_PROFILE_END(s5TcpInsertPerfStats);
                 return STREAM_INSERT_ANOMALY;
             }
@@ -5918,15 +5946,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
 
             switch(reassembly_policy)
             {
-                case REASSEMBLY_POLICY_IPS:
-                    {
-                        unsigned offset = right->seq - tdb->seq;
-                        unsigned length = seq + len - right->seq;
-                        memcpy((uint8_t*)p->data+offset, right->payload, length);
-                        p->packet_flags |= PKT_MODIFIED;
-                    }
-                    break;
-
                 /* truncate existing data */
                 case REASSEMBLY_POLICY_LAST:
                 case REASSEMBLY_POLICY_LINUX:
@@ -5972,6 +5991,17 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                 case REASSEMBLY_POLICY_VISTA:
                 case REASSEMBLY_POLICY_SOLARIS:
                 case REASSEMBLY_POLICY_HPUX11:
+#ifdef NORMALIZER
+                    if ( ips_data )
+                    {
+                        unsigned offset = right->seq - tdb->seq;
+                        unsigned length = seq + len - right->seq;
+                        memcpy((uint8_t*)p->data+offset, right->payload, length);
+                        p->packet_flags |= PKT_MODIFIED;
+                        normStats[PC_TCP_IPS_DATA]++;
+                        sfBase.iPegs[PERF_COUNT_TCP_IPS_DATA]++;
+                    }
+#endif
                     trunc = overlap;
                     break;
             }
@@ -6014,7 +6044,7 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                     DEBUG_WRAP(DebugMessage(DEBUG_STREAM,
                                 "Dropping retransmitted packet -- "
                                 "blocked previously\n"););
-                    NormalDropPacket(p);
+                    NormalDropPacket(p); // already alerted
                 }
                 else
                 {
@@ -6089,6 +6119,16 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                 case REASSEMBLY_POLICY_VISTA:
                     STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                                 "Got full right overlap, truncating new\n"););
+#ifdef NORMALIZER
+                    if ( ips_data )
+                    {
+                        unsigned offset = right->seq - tdb->seq;
+                        memcpy((uint8_t*)p->data+offset, right->payload, right->size);
+                        p->packet_flags |= PKT_MODIFIED;
+                        normStats[PC_TCP_IPS_DATA]++;
+                        sfBase.iPegs[PERF_COUNT_TCP_IPS_DATA]++;
+                    }
+#endif
                     /* full overlap */
                     if (right->seq == seq)
                     {
@@ -6118,7 +6158,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                                     seq, seq_end, overlap););
                         EventBadSegment(st->tcp_policy);
                         s5stats.tcp_discards++;
-                        NormalDropPacketIf(p, NORM_TCP_IPS);
                         PREPROC_PROFILE_END(s5TcpInsertPerfStats);
                         return STREAM_INSERT_ANOMALY;
                     }
@@ -6126,7 +6165,7 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                     /* insert this one, and see if we need to chunk it up */
                     /* Adjust slide so that is correct relative to orig_seq */
                     slide = seq - orig_seq;
-                    ret = AddStreamNode(st, p, tdb->ts, tcpssn, len, slide, trunc, seq, left, &ss);
+                    ret = AddStreamNode(st, p, tdb, tcpssn, len, slide, trunc, seq, left, &ss);
                     if (ret != STREAM_INSERT_OK)
                     {
                         /* no warning, already done above */
@@ -6203,7 +6242,6 @@ static int StreamQueue(StreamTracker *st, Packet *p, TcpDataBlock *tdb,
                                 seq, seq_end, overlap););
                             EventBadSegment(st->tcp_policy);
                             s5stats.tcp_discards++;
-                            NormalDropPacketIf(p, NORM_TCP_IPS);
                             PREPROC_PROFILE_END(s5TcpInsertPerfStats);
                             return STREAM_INSERT_ANOMALY;
                         }
@@ -6219,15 +6257,6 @@ right_overlap_last:
                     right = right->next;
                     Stream5SeglistDeleteNode(st, dump_me);
                     break;
-
-                case REASSEMBLY_POLICY_IPS:
-                    {
-                        unsigned offset = right->seq - tdb->seq;
-                        memcpy((uint8_t*)p->data+offset, right->payload, right->size);
-                        p->packet_flags |= PKT_MODIFIED;
-                        right = right->next;
-                    }
-                    break;
             }
         }
     }
@@ -6236,7 +6265,7 @@ right_overlap_last:
     {
         /* Adjust slide so that is correct relative to orig_seq */
         slide = seq - orig_seq;
-        ret = AddStreamNode(st, p, tdb->ts, tcpssn, len,
+        ret = AddStreamNode(st, p, tdb, tcpssn, len,
                 slide, trunc, seq, left, &ss);
     }
     else
@@ -6476,7 +6505,7 @@ static int ProcessTcpData(Packet *p, StreamTracker *listener, TcpSession *tcpssn
     {
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                     "Bailing, data on SYN, not MAC Policy!\n"););
-        NormalDropPacketIf(p, NORM_TCP);
+        NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
         PREPROC_PROFILE_END(s5TcpDataPerfStats);
         return S5_UNALIGNED;
     }
@@ -6489,7 +6518,7 @@ static int ProcessTcpData(Packet *p, StreamTracker *listener, TcpSession *tcpssn
         {
             STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                         "Bailing, we're out of the window!\n"););
-            NormalDropPacketIf(p, NORM_TCP);
+            NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
             PREPROC_PROFILE_END(s5TcpDataPerfStats);
             return S5_UNALIGNED;
         }
@@ -6531,7 +6560,7 @@ static int ProcessTcpData(Packet *p, StreamTracker *listener, TcpSession *tcpssn
             {
                 STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE,
                             "Bailing, we're out of the window!\n"););
-                NormalDropPacketIf(p, NORM_TCP);
+                NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
                 PREPROC_PROFILE_END(s5TcpDataPerfStats);
                 return S5_UNALIGNED;
             }
@@ -7243,7 +7272,6 @@ static void LogTcpEvents(Stream5TcpPolicy *s5TcpPolicy, int eventcode)
 
     if (eventcode & EVENT_WINDOW_SLAM)
         EventWindowSlam(s5TcpPolicy);
-
 }
 
 static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb, 
@@ -7290,7 +7318,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
             DisableDetect(p);
             /* Still want to add this number of bytes to totals */
             SetPreprocBit(p, PP_PERFMONITOR);
-            NormalDropPacket(p);
+            NormalDropPacket(p);  // already alerted
 #ifdef ACTIVE_RESPONSE
             Stream5ActiveResponse(p, lwssn);
 #endif
@@ -7770,7 +7798,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
                 STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                             "Pkt ack is out of bounds, bailing!\n"););
                 s5stats.tcp_discards++;
-                NormalDropPacketIf(p, NORM_TCP);
+                NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
                 LogTcpEvents(listener->tcp_policy, eventcode);
                 PREPROC_PROFILE_END(s5TcpStatePerfStats);
                 return ACTION_BAD_PKT;
@@ -7925,7 +7953,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
             STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
                         "bad sequence number, bailing\n"););
             s5stats.tcp_discards++;
-            NormalDropPacketIf(p, NORM_TCP);
+            NormalTrimPayloadIf(p, NORM_TCP, 0, tdb);
             LogTcpEvents(listener->tcp_policy, eventcode);
             PREPROC_PROFILE_END(s5TcpStatePerfStats);
             return ACTION_NOTHING | ts_action;
@@ -8005,7 +8033,7 @@ static int ProcessTcp(Stream5LWSession *lwssn, Packet *p, TcpDataBlock *tdb,
         PREPROC_PROFILE_END(s5TcpStatePerfStats);
         return ACTION_NOTHING | ACTION_BAD_PKT;
     }
-    else if ( !tdb->win && !listener->total_bytes_queued &&
+    else if ( !tdb->win && !talker->total_bytes_queued &&
         !(p->tcph->th_flags & (TH_FIN|TH_RST)) )
     {
         STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
@@ -8485,44 +8513,36 @@ int CheckFlushPolicy(TcpSession *tcpssn, StreamTracker *talker,
                 flush_policy_names[listener->flush_mgr.flush_policy]););
 
 #ifdef NORMALIZER
-    if ( Normalize_IsEnabled(snort_conf, NORM_TCP_IPS) )
+    if ( (listener->flush_mgr.flush_policy == STREAM_FLPOLICY_FOOTPRINT)
+          && Normalize_IsEnabled(snort_conf, NORM_TCP_IPS) )
     {
         int coerce;
         uint32_t avail;
 
-        switch(listener->flush_mgr.flush_policy)
-        {
-        case STREAM_FLPOLICY_IGNORE:
-            STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
-                        "STREAM_FLPOLICY_IGNORE\n"););
-            return 0;
+        STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
+                    "STREAM_FLPOLICY_FOOTPRINT-IPS\n"););
 
-        case STREAM_FLPOLICY_FOOTPRINT:
-            STREAM5_DEBUG_WRAP(DebugMessage(DEBUG_STREAM_STATE, 
-                        "STREAM_FLPOLICY_FOOTPRINT\n"););
+        coerce = CheckFlushCoercion(
+            p, &listener->flush_mgr, listener->tcp_policy->flush_factor);
 
-            coerce = CheckFlushCoercion(
-                p, &listener->flush_mgr, listener->tcp_policy->flush_factor);
-            avail = get_q_sequenced(listener);
+        avail = get_q_sequenced(listener);
 
-            if (
-                (avail > 0) &&
-                (coerce || (avail >= listener->flush_mgr.flush_pt) ||
-                (avail && talker->s_mgr.state == TCP_STATE_FIN_WAIT_1))
-            ) {
-                uint32_t dir = GetForwardDir(p);
+        if (
+            (avail > 0) &&
+            (coerce || (avail >= listener->flush_mgr.flush_pt) ||
+            (avail && talker->s_mgr.state == TCP_STATE_FIN_WAIT_1))
+        ) {
+            uint32_t dir = GetForwardDir(p);
 
-                if ( talker->s_mgr.state == TCP_STATE_FIN_WAIT_1 )
-                    listener->flags |= TF_FORCE_FLUSH;
+            if ( talker->s_mgr.state == TCP_STATE_FIN_WAIT_1 )
+                listener->flags |= TF_FORCE_FLUSH;
 
-                flushed = flush_to_seq(tcpssn, listener, avail, p,
-                        GET_SRC_IP(p), GET_DST_IP(p),
-                        p->tcph->th_sport, p->tcph->th_dport, dir);
+            flushed = flush_to_seq(tcpssn, listener, avail, p,
+                    GET_SRC_IP(p), GET_DST_IP(p),
+                    p->tcph->th_sport, p->tcph->th_dport, dir);
 
-                if ( flushed )
-                    purge_ackd(tcpssn, listener);
-            }
-            break;
+            if ( flushed )
+                purge_ackd(tcpssn, listener);
         }
         return flushed;
     }
@@ -9721,5 +9741,4 @@ static void policyDecoderFlagsRestore(int policyId)
         pPolicy->decoder_drop_flags_saved = 0;
     }
 }
-
 

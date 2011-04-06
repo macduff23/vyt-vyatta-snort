@@ -212,25 +212,20 @@ static void AlertFast(Packet *p, char *msg, void *arg, Event *event)
          * if we're actually going to show any of the payload */
         if (ScOutputAppData() && (p->dsize > 0))
         {
-            if ( PacketWasCooked(p) )
-            {
-                TextLog_NewLine(data->log);
-            }
-
             if (p->packet_flags & PKT_SMB_SEG)
-                TextLog_Print(data->log, "%s", "SMB desegmented packet");
+                TextLog_Print(data->log, "\n%s", "SMB desegmented packet");
             else if (p->packet_flags & PKT_DCE_SEG)
-                TextLog_Print(data->log, "%s", "DCE/RPC desegmented packet");
+                TextLog_Print(data->log, "\n%s", "DCE/RPC desegmented packet");
             else if (p->packet_flags & PKT_DCE_FRAG)
-                TextLog_Print(data->log, "%s", "DCE/RPC defragmented packet");
+                TextLog_Print(data->log, "\n%s", "DCE/RPC defragmented packet");
             else if (p->packet_flags & PKT_SMB_TRANS)
-                TextLog_Print(data->log, "%s", "SMB Transact reassembled packet");
+                TextLog_Print(data->log, "\n%s", "SMB Transact reassembled packet");
             else if (p->packet_flags & PKT_DCE_RPKT)
-                TextLog_Print(data->log, "%s", "DCE/RPC reassembled packet");
+                TextLog_Print(data->log, "\n%s", "DCE/RPC reassembled packet");
             else if (p->packet_flags & PKT_REBUILT_STREAM)
-                TextLog_Print(data->log, "%s", "Stream reassembled packet");
+                TextLog_Print(data->log, "\n%s", "Stream reassembled packet");
             else if (p->packet_flags & PKT_REBUILT_FRAG)
-                TextLog_Print(data->log, "%s", "Frag reassembled packet");
+                TextLog_Print(data->log, "\n%s", "Frag reassembled packet");
         }
 
         TextLog_NewLine(data->log);

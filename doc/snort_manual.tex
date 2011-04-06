@@ -2060,11 +2060,11 @@ dropping of bad packets with obsolete TCP option.  (only applicable in inline
 mode).\\
 
 \hline
-\texttt{enable\_tcpopt\_ttcp\_drops} & Enables the dropping of bad packets with
+\texttt{config enable\_tcpopt\_ttcp\_drops} & Enables the dropping of bad packets with
 T/TCP option. (only applicable in inline mode).\\
 
 \hline
-\texttt{enable\_ttcp\_drops} & Enables the dropping of bad packets with T/TCP
+\texttt{config enable\_ttcp\_drops} & Enables the dropping of bad packets with T/TCP
 option. (only applicable in inline mode).\\
 
 \hline
@@ -2233,7 +2233,7 @@ must be comma separated.  The are intended for passive mode. \\
 -g}). \\
 
 \hline
-\texttt{set\_uid: <uid>} & Sets UID to $<$id$>$ (\texttt{snort -u}). \\
+\texttt{config set\_uid: <uid>} & Sets UID to $<$id$>$ (\texttt{snort -u}). \\
 
 \hline
 \texttt{config show\_year} & Shows year in timestamps (\texttt{snort -y}). \\
@@ -2241,6 +2241,13 @@ must be comma separated.  The are intended for passive mode. \\
 \hline
 \texttt{config snaplen: <bytes>} & Set the snaplength of packet, same effect as
 \texttt{-P $<$snaplen$>$} or \texttt{--snaplen $<$snaplen$>$} options.\\
+
+\hline
+\texttt{config so\_rule\_memcap: <bytes>} & Set global memcap in bytes for
+so rules that dynamically allocate memory for storing session data in the
+stream preprocessor.  A value of 0 disables the memcap.  Default is 0.
+Maximum value is the maximum value an unsigned 32 bit integer can hold
+which is 4294967295 or 4GB.\\
 
 \hline
 \texttt{config stateful} & Sets assurance mode for stream (stream is
@@ -2254,13 +2261,6 @@ other metric.  See Section \ref{tag section} on using the tag option when
 writing rules for more details.  The default value when this option is not
 configured is 256 packets.  Setting this option to a value of 0 will disable
 the packet limit. \\
-
-\hline
-\texttt{config so\_rule\_memcap: <bytes>} & Set global memcap in bytes for
-so rules that dynamically allocate memory for storing session data in the
-stream preprocessor.  A value of 0 disables the memcap.  Default is 0.
-Maximum value is the maximum value an unsigned 32 bit integer can hold
-which is 4294967295 or 4GB.\\
 
 \hline
 \texttt{config threshold: memcap <bytes>} & Set global memcap in bytes for
@@ -2285,6 +2285,9 @@ stats with \texttt{--enable-timestats}. \\
 \hline
 \texttt{config verbose} & Uses verbose logging to STDOUT (\texttt{snort -v}).
 \\
+
+\hline
+\texttt{config vlan\_agnostic} & Causes Snort to ignore vlan headers for the purposes of connection tracking.  This option is only valid in the base configuration when using multiple configurations, and the default is off.  \\
 
 \hline
 \texttt{config policy\_mode: tap|inline|inline\_test} & Sets the policy mode to either \texttt{passive}, \texttt{inline} or \texttt{inline\_test}. \\
@@ -3800,10 +3803,31 @@ traditional proxy environments. Blind firewall proxies don't count.
 This option specifies the maximum amount of packet payload to decompress. This
 value can be set from 1 to 65535. The default for this option is 1460.
 
+\begin{note}
+
+Please note, in case of multiple policies, the value specified in the default policy
+is used and this value overwrites the values specified in the other policies. In case
+of \texttt{unlimited\_decompress} this should be set to its max value. This value should
+be specified in the default policy even when the HTTP inspect is turned off using the
+\texttt{disabled} keyword.
+
+\end{note}
+
 \item \texttt{decompress\_depth $<$integer$>$}
 This option specifies the maximum amount of decompressed data to obtain from the
 compressed packet payload. This value can be set from 1 to 65535. The default for
 this option is 2920.
+
+\begin{note}
+
+Please note, in case of multiple policies, the value specified in the default policy
+is used and this value overwrites the values specified in the other policies. In case
+of \texttt{unlimited\_decompress} this should be set to its max value. This value should
+be specified in the default policy even when the HTTP inspect is turned off using the
+\texttt{disabled} keyword.
+
+\end{note}
+
 
 \item \texttt{max\_gzip\_mem}
 
@@ -3814,9 +3838,9 @@ determines the gzip sessions that will be decompressed at any given instant. The
 value for this option is 838860.
 
 \begin{note}
-
-It is suggested to set this value such that the max gzip session calculated as
-follows is at least 1.
+This value should be specified in the default policy even when the HTTP inspect is turned off 
+using the \texttt{disabled} keyword. It is suggested to set this value such that the max gzip 
+session calculated as follows is at least 1.
 
 max gzip session = \texttt{max\_gzip\_mem} /(\texttt{decompress\_depth} + \texttt{compress\_depth})
 
@@ -4247,10 +4271,10 @@ with the --enable-zlib flag.
 \item \texttt{unlimited\_decompress}
 This option enables the user to decompress unlimited gzip data (across multiple 
 packets).Decompression will stop when the compressed data ends or when a out of 
-sequence packet is received. To ensure unlimited decompression, it is suggested 
-to set the 'compress\_depth' and 'decompress\_depth' to its maximum values. The
-decompression in a single packet is still limited by the 'compress\_depth' and
-'decompress\_depth'.
+sequence packet is received. To ensure unlimited decompression, user should set
+the 'compress\_depth' and 'decompress\_depth' to its maximum values in the default
+policy. The decompression in a single packet is still limited by the 'compress\_depth'
+and 'decompress\_depth'.
 
 \item \texttt{enable\_xff}
 
@@ -7359,21 +7383,14 @@ normalization statements in the policy config are ignored.
 IP4 normalizations are enabled with:
 
 \begin{verbatim}
-    preprocessor normalize_ip4: [df], [rf]
+    preprocessor normalize_ip4: [df], [rf], [tos], [trim]
 \end{verbatim}
 
 Base normalizations enabled with "preprocessor \texttt{normalize\_ip4}" include:
 
 \begin{itemize} 
 \item
-Truncate packets with excess payload to the datagram length specified in the
-IP header.
-
-\item
 TTL normalization if enabled (explained below).
-
-\item
-Clear the differentiated services field (formerly TOS).
 
 \item
 NOP all options octets.
@@ -7387,6 +7404,14 @@ don't fragment:  clear this bit on incoming packets.
 
 \item \texttt{rf} 
 reserved flag:  clear this bit on incoming packets.
+
+\item \texttt{tos} 
+type of service (differentiated services) field:  clear this byte.
+
+\item \texttt{trim} 
+truncate packets with excess payload to the datagram length specified in the IP
+header + the layer 2 header (eg ethernet), but don't truncate below minimum
+frame length.  This is automatically disabled if the DAQ can't inject packets.
 \end{itemize} 
 
 \subsubsection{IP6 Normalizations}

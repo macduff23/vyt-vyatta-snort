@@ -61,7 +61,7 @@ PREPROC_LINKAGE int InitializePreprocessor(DynamicPreprocessorData *dpd)
 
     if (dpd->size != sizeof(DynamicPreprocessorData))
     {
-        printf("ERROR size %d != %lu\n", dpd->size, sizeof(*dpd));
+        printf("ERROR size %d != %u\n", dpd->size, (unsigned)sizeof(*dpd));
         return -2;
     }
 

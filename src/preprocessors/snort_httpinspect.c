@@ -1847,6 +1847,14 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                     return -1;
                 }
 
+                 if((GlobalConf->compr_depth != MAX_GZIP_DEPTH) && (GlobalConf->decompr_depth != MAX_GZIP_DEPTH))
+                 {
+                     SnortSnprintf(ErrorString, ErrStrLen,
+                             "'%s' and '%s' should be set to max in the default policy to enable '%s'",
+                             COMPRESS_DEPTH, DECOMPRESS_DEPTH, UNLIMIT_DECOMPRESS);
+                     return -1;
+                 }
+
                 GlobalConf->compr_depth = GlobalConf->decompr_depth = MAX_GZIP_DEPTH;
                 ServerConf->unlimited_decompress = 1;
             }
@@ -2044,6 +2052,14 @@ static int ProcessServerConf(HTTPINSPECT_GLOBAL_CONF *GlobalConf,
                         "Enable '%s' inspection before setting '%s'",EXTRACT_GZIP, UNLIMIT_DECOMPRESS);
                 return -1;
             }
+
+             if((GlobalConf->compr_depth != MAX_GZIP_DEPTH) && (GlobalConf->decompr_depth != MAX_GZIP_DEPTH))
+             {
+                 SnortSnprintf(ErrorString, ErrStrLen,
+                         "'%s' and '%s' should be set to max in the default policy to enable '%s'",
+                         COMPRESS_DEPTH, DECOMPRESS_DEPTH, UNLIMIT_DECOMPRESS);
+                 return -1;
+             }
 
             GlobalConf->compr_depth = GlobalConf->decompr_depth = MAX_GZIP_DEPTH;
             ServerConf->unlimited_decompress = 1;

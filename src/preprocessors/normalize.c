@@ -34,7 +34,7 @@
 #include "sfdaq.h"
 
 typedef enum {
-    PC_IP4_RESZ,
+    PC_IP4_TRIM,
     PC_IP4_TOS,
     PC_IP4_DF,
     PC_IP4_RF,
@@ -59,7 +59,7 @@ typedef enum {
 } PegCounts;
 
 static const char* pegName[PC_MAX] = {
-    "ip4::resize",
+    "ip4::trim",
     "ip4::tos",
     "ip4::df",
     "ip4::rf",
@@ -72,7 +72,7 @@ static const char* pegName[PC_MAX] = {
     "icmp6::echo",
 #endif
     "tcp::syn_opt",
-    "tcp::tsecr",
+    "tcp::ts_ecr",
     "tcp::opt",
     "tcp::pad",
     "tcp::rsv",
@@ -118,6 +118,10 @@ int Norm_Packet (NormalizerContext* c, Packet* p)
         p->packet_flags |= PKT_MODIFIED;
         return 1;
     }
+    if ( p->packet_flags & PKT_RESIZED )
+    {
+        return 1;
+    }
     return 0;
 }
 
@@ -145,6 +149,10 @@ static int Norm_Eth (Packet * p, uint8_t layer, int changes)
 #define IP4_FLAG_DF 0x4000
 #define IP4_FLAG_MF 0x2000
 
+// TBD support configurable minimum length / obtain from DAQ
+// ether header + min payload (excludes FCS, which makes it 64 total)
+#define ETH_MIN_LEN 60
+
 static int Norm_IP4 (
     NormalizerContext* c, Packet * p, uint8_t layer, int changes) 
 {
@@ -152,20 +160,28 @@ static int Norm_IP4 (
     uint16_t fragbits = ntohs(h->ip_off);
     uint16_t origbits = fragbits;
 
-    if ( layer == 1 &&
-        (p->layers[0].length + ntohs(h->ip_len) < p->pkth->pktlen)
-    ) {
-        p->packet_flags |= PKT_RESIZED;
-        normStats[PC_IP4_RESZ]++;
-        sfBase.iPegs[PERF_COUNT_IP4_RESZ]++;
-        changes++;
-    }
-    if ( h->ip_tos )
+    if ( Norm_IsEnabled(c, NORM_IP4_TRIM) && (layer == 1) )
     {
-        h->ip_tos = 0;
-        normStats[PC_IP4_TOS]++;
-        sfBase.iPegs[PERF_COUNT_IP4_TOS]++;
-        changes++;
+        uint32_t len = p->layers[0].length + ntohs(h->ip_len);
+
+        if ( (len < p->pkth->pktlen) && 
+           ( (len >= ETH_MIN_LEN) || (p->pkth->pktlen > ETH_MIN_LEN) )
+        ) {
+            ((DAQ_PktHdr_t*)p->pkth)->pktlen = (len < ETH_MIN_LEN) ? ETH_MIN_LEN : len;
+            p->packet_flags |= PKT_RESIZED;
+            normStats[PC_IP4_TRIM]++;
+            sfBase.iPegs[PERF_COUNT_IP4_TRIM]++;
+        }
+    }
+    if ( Norm_IsEnabled(c, NORM_IP4_TOS) )
+    {
+        if ( h->ip_tos )
+        {
+            h->ip_tos = 0;
+            normStats[PC_IP4_TOS]++;
+            sfBase.iPegs[PERF_COUNT_IP4_TOS]++;
+            changes++;
+        }
     }
 #if 0
     if ( Norm_IsEnabled(c, NORM_IP4_ID) )
@@ -538,6 +554,15 @@ int Norm_SetConfig (NormalizerContext* nc)
     if ( Norm_IsEnabled(nc, NORM_IP4) )
     {
         nc->normalizers[PROTO_IP4] = Norm_IP4;
+    }
+    if ( Norm_IsEnabled(nc, NORM_IP4_TRIM) )
+    {
+        if ( !DAQ_CanInject() )
+        {
+            LogMessage("WARNING: normalize_ip4: trim disabled since DAQ "
+                "can't inject packets.\n");
+            Norm_Disable(nc, NORM_IP4_TRIM);
+        }
     }
     if ( Norm_IsEnabled(nc, NORM_ICMP4) )
     {

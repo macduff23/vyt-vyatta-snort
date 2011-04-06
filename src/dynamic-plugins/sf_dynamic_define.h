@@ -96,5 +96,15 @@ typedef enum {
 #endif
 #endif
 
+/* Parameters are rule info pointer, int to indicate URI or NORM,
+ * and list pointer */
+#define CONTENT_NORMAL            0x01
+#define CONTENT_HTTP_URI          0x02
+#define CONTENT_HTTP_HEADER       0x04
+#define CONTENT_HTTP_CLIENT_BODY  0x08
+#define CONTENT_HTTP_METHOD       0x10
+#define CONTENT_HTTP (CONTENT_HTTP_URI|CONTENT_HTTP_HEADER|\
+                CONTENT_HTTP_CLIENT_BODY|CONTENT_HTTP_METHOD)
+
 #endif /* _SF_DYNAMIC_DEFINE_H_ */
 
