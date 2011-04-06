@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.5-vyatta-2) unstable; urgency=low
+
+  * add change log entry
+
+ -- John Southworth <john.southworth@vyatta.com>  Wed, 06 Apr 2011 16:04:21 -0500
+
 vyatta-snort (2.9.0.5-vyatta-1) unstable; urgency=low
 
   * Import snort 2.9.0.5 
