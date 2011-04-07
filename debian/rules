@@ -146,6 +146,8 @@ install-indep:
 	install -m 644 -o root -g root `pwd`/etc/unicode.map $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/threshold.conf $(TMP)/vyatta-snort-common/etc/snort/
 	install -m 644 -o root -g root `pwd`/etc/clamav.config $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/classification.config $(TMP)/vyatta-snort-common/etc/snort/
+	install -m 644 -o root -g root `pwd`/etc/reference.config $(TMP)/vyatta-snort-common/etc/snort/
 
 # Default config
 	install -m 644 -o root -g root `pwd`/debian/vyatta-snort.default $(TMP)/vyatta-snort/etc/default/snort
