@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.5-vyatta-3) unstable; urgency=low
+
+  * Allow users to keep their local.rules during image upgrade
+
+ -- John Southworth <john.southworth@vyatta.com>  Thu, 07 Apr 2011 14:22:01 -0500
+
 vyatta-snort (2.9.0.5-vyatta-2) unstable; urgency=low
 
   * add change log entry
