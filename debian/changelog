@@ -1,3 +1,10 @@
+vyatta-snort (2.9.0.5-vyatta-5) unstable; urgency=low
+
+  * Bugfix 7008: DAQ module has to be told that it is running in inline
+    mode to drop packets
+
+ -- John Southworth <john.southworth@vyatta.com>  Tue, 19 Apr 2011 14:25:57 -0500
+
 vyatta-snort (2.9.0.5-vyatta-4) unstable; urgency=low
 
   * Add needed classification and reference files to debian by default
