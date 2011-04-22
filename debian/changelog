@@ -1,3 +1,12 @@
+vyatta-snort (2.9.0.5-vyatta-6) unstable; urgency=low
+
+  * Fix some Snort performance problems by disabling some unneeded
+    compile time options and not normalizing tcp. Also remove the extra
+    vyatta-pid since snort now has a fail-open mode that will pass
+    traffic until the packet processor is ready.
+
+ -- John Southworth <john.southworth@vyatta.com>  Thu, 21 Apr 2011 20:14:57 -0500
+
 vyatta-snort (2.9.0.5-vyatta-5) unstable; urgency=low
 
   * Bugfix 7008: DAQ module has to be told that it is running in inline
