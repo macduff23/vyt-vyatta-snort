@@ -725,7 +725,7 @@ int SnortMain(int argc, char *argv[])
         SetPktProcessor();
         SnortUnprivilegedInit();
     }
-
+    
     PacketLoop();
 
     // DAQ is shutdown in CleanExit() since we don't always return here
@@ -4614,8 +4614,6 @@ static void SnortUnprivilegedInit(void)
     LogMessage("Commencing packet processing (pid=%u)\n", snort_main_thread_pid);
 
     snort_initializing = 0;
-    /* Vyatta specific pid to signal initialization has completed */
-    CreatePidFile("vyatta_init", getpid());
 
 }
 
