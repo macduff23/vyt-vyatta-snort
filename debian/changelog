@@ -1,3 +1,10 @@
+vyatta-snort (2.9.0.5-vyatta-7) unstable; urgency=low
+
+  * use recommended values for queue length and snaplen. Enable both
+    ipv6 and ipv4 inspection, for when we add the queues for ipv6
+
+ -- John Southworth <john.southworth@vyatta.com>  Wed, 27 Apr 2011 11:09:51 -0500
+
 vyatta-snort (2.9.0.5-vyatta-6) unstable; urgency=low
 
   * Fix some Snort performance problems by disabling some unneeded
