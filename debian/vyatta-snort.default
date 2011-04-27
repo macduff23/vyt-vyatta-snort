@@ -1,6 +1,6 @@
 # Parameters for the daemon
 # Add any additional parameteres here.
-PARAMS="--daq nfq --daq-mode inline -Q -D -m 027"
+PARAMS="--daq nfq --daq-mode inline --daq-var queue_len=1024 --daq-var proto=ip* -P 65535-Q -D -m 027"
 #
 # Snort user
 # This user will be used to launch snort. Notice that the 
