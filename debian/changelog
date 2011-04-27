@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.5-vyatta-9) unstable; urgency=low
+
+  * update gen-msg.map for the 2.9 rules
+
+ -- John Southworth <john.southworth@vyatta.com>  Wed, 27 Apr 2011 11:48:01 -0500
+
 vyatta-snort (2.9.0.5-vyatta-8) unstable; urgency=low
 
   * Add gen-msg.map to be included in the snort package
