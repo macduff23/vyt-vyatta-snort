@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.5-vyatta-10+napa1) unstable; urgency=low
+
+  * new branch
+
+ -- Deepti Kulkarni <deepti@vyatta.com>  Thu, 07 Jul 2011 20:50:52 -0700
+
 vyatta-snort (2.9.0.5-vyatta-10) unstable; urgency=low
 
   * fix typo in default options file
