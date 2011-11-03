@@ -1,3 +1,9 @@
+vyatta-snort (2.9.0.5-vyatta-13) unstable; urgency=low
+
+  * Force build
+
+ -- John Southworth <john.southworth@vyatta.com>  Thu, 03 Nov 2011 16:34:29 -0500
+
 vyatta-snort (2.9.0.5-vyatta-12) unstable; urgency=low
 
   * Update our distributed snort.conf to match upstream
